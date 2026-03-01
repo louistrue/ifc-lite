@@ -64,10 +64,10 @@ function vecLen(v: Point3D): number {
   return Math.sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
 }
 
-/** Normalize vector */
+/** Normalize vector — throws on zero-length (indicates geometry bug like Start === End) */
 function vecNorm(v: Point3D): Point3D {
   const len = vecLen(v);
-  if (len === 0) return [1, 0, 0];
+  if (len === 0) throw new Error('Cannot normalize zero-length vector (check that Start and End are not identical)');
   return [v[0] / len, v[1] / len, v[2] / len];
 }
 
@@ -135,7 +135,7 @@ export class IfcCreator {
   // ============================================================================
 
   /** Add a building storey. Returns the storey expressId for use with element creation. */
-  addStorey(params: StoreyParams): number {
+  addIfcBuildingStorey(params: StoreyParams): number {
     const id = this.id();
     const globalId = newGlobalId();
     const name = params.Name ?? 'Storey';
@@ -162,7 +162,7 @@ export class IfcCreator {
    * exactly from Start to End, centered on the thickness axis. Extruded
    * upward by Height.
    */
-  addWall(storeyId: number, params: WallParams): number {
+  addIfcWall(storeyId: number, params: WallParams): number {
     const dx = params.End[0] - params.Start[0];
     const dy = params.End[1] - params.Start[1];
     const dz = params.End[2] - params.Start[2];
@@ -213,7 +213,7 @@ export class IfcCreator {
    * Create a slab. Position is the minimum corner.
    * Width along +X, Depth along +Y, Thickness extruded along +Z.
    */
-  addSlab(storeyId: number, params: SlabParams): number {
+  addIfcSlab(storeyId: number, params: SlabParams): number {
     const placementId = this.addLocalPlacement(this.worldPlacementId, {
       Location: params.Position,
     });
@@ -259,7 +259,7 @@ export class IfcCreator {
    * Create a column. Position is the base center.
    * Cross-section centered, extruded upward by Height.
    */
-  addColumn(storeyId: number, params: ColumnParams): number {
+  addIfcColumn(storeyId: number, params: ColumnParams): number {
     const placementId = this.addLocalPlacement(this.worldPlacementId, {
       Location: params.Position,
     });
@@ -290,7 +290,7 @@ export class IfcCreator {
    * Create a beam from Start to End.
    * Cross-section (Width × Height) centered on the beam axis.
    */
-  addBeam(storeyId: number, params: BeamParams): number {
+  addIfcBeam(storeyId: number, params: BeamParams): number {
     const dx = params.End[0] - params.Start[0];
     const dy = params.End[1] - params.Start[1];
     const dz = params.End[2] - params.Start[2];
@@ -332,7 +332,7 @@ export class IfcCreator {
    * Position is the nose of the first tread. Treads advance along local +X
    * (rotated into world space by Direction). Width extends along local +Y.
    */
-  addStair(storeyId: number, params: StairParams): number {
+  addIfcStair(storeyId: number, params: StairParams): number {
     if (params.NumberOfRisers <= 0) throw new Error('addStair: NumberOfRisers must be > 0');
     if (params.RiserHeight <= 0) throw new Error('addStair: RiserHeight must be > 0');
     if (params.TreadLength <= 0) throw new Error('addStair: TreadLength must be > 0');
@@ -391,7 +391,7 @@ export class IfcCreator {
    * Width along +X, Depth along +Y, Thickness extruded upward.
    * Optional Slope rotates the extrusion around the Y axis.
    */
-  addRoof(storeyId: number, params: RoofParams): number {
+  addIfcRoof(storeyId: number, params: RoofParams): number {
     const slope = params.Slope ?? 0;
 
     let axis: Point3D = [0, 0, 1];
@@ -437,7 +437,7 @@ export class IfcCreator {
   // ============================================================================
 
   /** Attach a property set to an element */
-  addPropertySet(elementId: number, pset: PropertySetDef): number {
+  addIfcPropertySet(elementId: number, pset: PropertySetDef): number {
     const propIds: number[] = [];
 
     for (const prop of pset.Properties) {
@@ -463,7 +463,7 @@ export class IfcCreator {
   }
 
   /** Attach element quantities to an element */
-  addQuantitySet(elementId: number, qset: QuantitySetDef): number {
+  addIfcElementQuantity(elementId: number, qset: QuantitySetDef): number {
     const qtyIds: number[] = [];
 
     for (const qty of qset.Quantities) {
@@ -515,7 +515,7 @@ export class IfcCreator {
    * Simple material:   `{ Name: 'Concrete', Category: 'Structural' }`
    * Layered material:  `{ Name: 'Wall Assembly', Layers: [{ Name: 'Concrete', Thickness: 0.2 }, …] }`
    */
-  addMaterial(elementId: number, def: MaterialDef): void {
+  addIfcMaterial(elementId: number, def: MaterialDef): void {
     let materialRefId: number;
 
     if (def.Layers && def.Layers.length > 0) {
@@ -1027,21 +1027,21 @@ ENDSEC;
   // ============================================================================
 
   private finalizeRelationships(): void {
-    this.addRelAggregates(this.projectId, [this.siteId]);
-    this.addRelAggregates(this.siteId, [this.buildingId]);
+    this.addIfcRelAggregates(this.projectId, [this.siteId]);
+    this.addIfcRelAggregates(this.siteId, [this.buildingId]);
 
     if (this.storeyIds.length > 0) {
-      this.addRelAggregates(this.buildingId, this.storeyIds);
+      this.addIfcRelAggregates(this.buildingId, this.storeyIds);
     }
 
     for (const [storeyId, elementIds] of this.storeyElements) {
       if (elementIds.length > 0) {
-        this.addRelContainedInSpatialStructure(storeyId, elementIds);
+        this.addIfcRelContainedInSpatialStructure(storeyId, elementIds);
       }
     }
   }
 
-  private addRelAggregates(relatingId: number, relatedIds: number[]): void {
+  private addIfcRelAggregates(relatingId: number, relatedIds: number[]): void {
     const relId = this.id();
     const globalId = newGlobalId();
     const refs = relatedIds.map(id => `#${id}`).join(',');
@@ -1049,7 +1049,7 @@ ENDSEC;
       `'${globalId}',#${this.ownerHistoryId},$,$,#${relatingId},(${refs})`);
   }
 
-  private addRelContainedInSpatialStructure(storeyId: number, elementIds: number[]): void {
+  private addIfcRelContainedInSpatialStructure(storeyId: number, elementIds: number[]): void {
     const relId = this.id();
     const globalId = newGlobalId();
     const refs = elementIds.map(id => `#${id}`).join(',');
@@ -1071,9 +1071,10 @@ ENDSEC;
 
   private trackElement(storeyId: number, elementId: number): void {
     const elements = this.storeyElements.get(storeyId);
-    if (elements) {
-      elements.push(elementId);
+    if (!elements) {
+      throw new Error(`Unknown storeyId #${storeyId} — call addIfcBuildingStorey() first`);
     }
+    elements.push(elementId);
   }
 
   /** Compute a stable RefDirection perpendicular to a given Axis */

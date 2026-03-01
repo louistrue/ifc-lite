@@ -24,7 +24,7 @@ describe('IfcCreator', () => {
 
   it('adds a storey and includes it in aggregation', () => {
     const creator = new IfcCreator();
-    const storeyId = creator.addStorey({ Name: 'Ground Floor', Elevation: 0 });
+    const storeyId = creator.addIfcBuildingStorey({ Name: 'Ground Floor', Elevation: 0 });
     const result = creator.toIfc();
 
     expect(storeyId).toBeGreaterThan(0);
@@ -35,8 +35,8 @@ describe('IfcCreator', () => {
 
   it('creates a wall with geometry', () => {
     const creator = new IfcCreator();
-    const storey = creator.addStorey({ Name: 'GF', Elevation: 0 });
-    const wallId = creator.addWall(storey, {
+    const storey = creator.addIfcBuildingStorey({ Name: 'GF', Elevation: 0 });
+    const wallId = creator.addIfcWall(storey, {
       Name: 'Test Wall',
       Start: [0, 0, 0],
       End: [5, 0, 0],
@@ -56,8 +56,8 @@ describe('IfcCreator', () => {
 
   it('creates a wall with openings', () => {
     const creator = new IfcCreator();
-    const storey = creator.addStorey({ Name: 'GF', Elevation: 0 });
-    creator.addWall(storey, {
+    const storey = creator.addIfcBuildingStorey({ Name: 'GF', Elevation: 0 });
+    creator.addIfcWall(storey, {
       Name: 'Wall with Opening',
       Start: [0, 0, 0],
       End: [5, 0, 0],
@@ -76,8 +76,8 @@ describe('IfcCreator', () => {
 
   it('creates a slab', () => {
     const creator = new IfcCreator();
-    const storey = creator.addStorey({ Name: 'GF', Elevation: 0 });
-    creator.addSlab(storey, {
+    const storey = creator.addIfcBuildingStorey({ Name: 'GF', Elevation: 0 });
+    creator.addIfcSlab(storey, {
       Name: 'Floor Slab',
       Position: [0, 0, 0],
       Thickness: 0.3,
@@ -92,8 +92,8 @@ describe('IfcCreator', () => {
 
   it('creates a slab with arbitrary profile', () => {
     const creator = new IfcCreator();
-    const storey = creator.addStorey({ Name: 'GF', Elevation: 0 });
-    creator.addSlab(storey, {
+    const storey = creator.addIfcBuildingStorey({ Name: 'GF', Elevation: 0 });
+    creator.addIfcSlab(storey, {
       Name: 'L-Shape Slab',
       Position: [0, 0, 0],
       Thickness: 0.3,
@@ -108,8 +108,8 @@ describe('IfcCreator', () => {
 
   it('creates a column', () => {
     const creator = new IfcCreator();
-    const storey = creator.addStorey({ Name: 'GF', Elevation: 0 });
-    creator.addColumn(storey, {
+    const storey = creator.addIfcBuildingStorey({ Name: 'GF', Elevation: 0 });
+    creator.addIfcColumn(storey, {
       Name: 'Corner Column',
       Position: [0, 0, 0],
       Width: 0.3,
@@ -124,8 +124,8 @@ describe('IfcCreator', () => {
 
   it('creates a beam', () => {
     const creator = new IfcCreator();
-    const storey = creator.addStorey({ Name: 'GF', Elevation: 0 });
-    creator.addBeam(storey, {
+    const storey = creator.addIfcBuildingStorey({ Name: 'GF', Elevation: 0 });
+    creator.addIfcBeam(storey, {
       Name: 'Ridge Beam',
       Start: [0, 0, 3],
       End: [5, 0, 3],
@@ -140,8 +140,8 @@ describe('IfcCreator', () => {
 
   it('creates a stair', () => {
     const creator = new IfcCreator();
-    const storey = creator.addStorey({ Name: 'GF', Elevation: 0 });
-    creator.addStair(storey, {
+    const storey = creator.addIfcBuildingStorey({ Name: 'GF', Elevation: 0 });
+    creator.addIfcStair(storey, {
       Name: 'Main Stair',
       Position: [1, 1, 0],
       NumberOfRisers: 10,
@@ -160,8 +160,8 @@ describe('IfcCreator', () => {
 
   it('creates a roof', () => {
     const creator = new IfcCreator();
-    const storey = creator.addStorey({ Name: 'GF', Elevation: 0 });
-    creator.addRoof(storey, {
+    const storey = creator.addIfcBuildingStorey({ Name: 'GF', Elevation: 0 });
+    creator.addIfcRoof(storey, {
       Name: 'Flat Roof',
       Position: [0, 0, 3],
       Width: 10,
@@ -176,8 +176,8 @@ describe('IfcCreator', () => {
 
   it('creates a sloped roof', () => {
     const creator = new IfcCreator();
-    const storey = creator.addStorey({ Name: 'GF', Elevation: 0 });
-    creator.addRoof(storey, {
+    const storey = creator.addIfcBuildingStorey({ Name: 'GF', Elevation: 0 });
+    creator.addIfcRoof(storey, {
       Name: 'Pitched Roof',
       Position: [0, 0, 3],
       Width: 10,
@@ -193,13 +193,13 @@ describe('IfcCreator', () => {
 
   it('attaches property sets', () => {
     const creator = new IfcCreator();
-    const storey = creator.addStorey({ Name: 'GF', Elevation: 0 });
-    const wallId = creator.addWall(storey, {
+    const storey = creator.addIfcBuildingStorey({ Name: 'GF', Elevation: 0 });
+    const wallId = creator.addIfcWall(storey, {
       Start: [0, 0, 0], End: [5, 0, 0],
       Thickness: 0.2, Height: 3,
     });
 
-    creator.addPropertySet(wallId, {
+    creator.addIfcPropertySet(wallId, {
       Name: 'Pset_WallCommon',
       Properties: [
         { Name: 'IsExternal', NominalValue: true, Type: 'IfcBoolean' },
@@ -222,12 +222,12 @@ describe('IfcCreator', () => {
 
   it('attaches quantity sets', () => {
     const creator = new IfcCreator();
-    const storey = creator.addStorey({ Name: 'GF', Elevation: 0 });
-    const slabId = creator.addSlab(storey, {
+    const storey = creator.addIfcBuildingStorey({ Name: 'GF', Elevation: 0 });
+    const slabId = creator.addIfcSlab(storey, {
       Position: [0, 0, 0], Thickness: 0.3, Width: 10, Depth: 8,
     });
 
-    creator.addQuantitySet(slabId, {
+    creator.addIfcElementQuantity(slabId, {
       Name: 'Qto_SlabBaseQuantities',
       Quantities: [
         { Name: 'GrossArea', Value: 80, Kind: 'IfcQuantityArea' },
@@ -245,12 +245,12 @@ describe('IfcCreator', () => {
 
   it('attaches a simple material via IfcRelAssociatesMaterial', () => {
     const creator = new IfcCreator();
-    const storey = creator.addStorey({ Name: 'GF', Elevation: 0 });
-    const colId = creator.addColumn(storey, {
+    const storey = creator.addIfcBuildingStorey({ Name: 'GF', Elevation: 0 });
+    const colId = creator.addIfcColumn(storey, {
       Position: [0, 0, 0], Width: 0.3, Depth: 0.3, Height: 3,
     });
 
-    creator.addMaterial(colId, { Name: 'Concrete C30/37', Category: 'Concrete' });
+    creator.addIfcMaterial(colId, { Name: 'Concrete C30/37', Category: 'Concrete' });
     const result = creator.toIfc();
 
     expect(result.content).toContain('IFCMATERIAL');
@@ -261,12 +261,12 @@ describe('IfcCreator', () => {
 
   it('attaches a layered material set', () => {
     const creator = new IfcCreator();
-    const storey = creator.addStorey({ Name: 'GF', Elevation: 0 });
-    const wallId = creator.addWall(storey, {
+    const storey = creator.addIfcBuildingStorey({ Name: 'GF', Elevation: 0 });
+    const wallId = creator.addIfcWall(storey, {
       Start: [0, 0, 0], End: [5, 0, 0], Thickness: 0.2, Height: 3,
     });
 
-    creator.addMaterial(wallId, {
+    creator.addIfcMaterial(wallId, {
       Name: 'Wall Assembly',
       Layers: [
         { Name: 'Gypsum', Thickness: 0.013, Category: 'Finish' },
@@ -286,12 +286,12 @@ describe('IfcCreator', () => {
 
   it('shares IfcMaterial entities across elements with same material name', () => {
     const creator = new IfcCreator();
-    const storey = creator.addStorey({ Name: 'GF', Elevation: 0 });
-    const col1 = creator.addColumn(storey, { Position: [0, 0, 0], Width: 0.3, Depth: 0.3, Height: 3 });
-    const col2 = creator.addColumn(storey, { Position: [5, 0, 0], Width: 0.3, Depth: 0.3, Height: 3 });
+    const storey = creator.addIfcBuildingStorey({ Name: 'GF', Elevation: 0 });
+    const col1 = creator.addIfcColumn(storey, { Position: [0, 0, 0], Width: 0.3, Depth: 0.3, Height: 3 });
+    const col2 = creator.addIfcColumn(storey, { Position: [5, 0, 0], Width: 0.3, Depth: 0.3, Height: 3 });
 
-    creator.addMaterial(col1, { Name: 'Concrete' });
-    creator.addMaterial(col2, { Name: 'Concrete' });
+    creator.addIfcMaterial(col1, { Name: 'Concrete' });
+    creator.addIfcMaterial(col2, { Name: 'Concrete' });
     const result = creator.toIfc();
 
     // Only one IFCMATERIAL('Concrete'...) should be created, shared between both
@@ -317,8 +317,8 @@ describe('IfcCreator', () => {
 
   it('generates unique GlobalIds', () => {
     const creator = new IfcCreator();
-    creator.addStorey({ Name: 'S1', Elevation: 0 });
-    creator.addStorey({ Name: 'S2', Elevation: 3 });
+    creator.addIfcBuildingStorey({ Name: 'S1', Elevation: 0 });
+    creator.addIfcBuildingStorey({ Name: 'S2', Elevation: 3 });
     const result = creator.toIfc();
 
     // Extract all GlobalIds
@@ -329,26 +329,26 @@ describe('IfcCreator', () => {
 
   it('builds a complete building', () => {
     const creator = new IfcCreator({ Name: 'Complete Building' });
-    const gf = creator.addStorey({ Name: 'Ground Floor', Elevation: 0 });
-    const ff = creator.addStorey({ Name: 'First Floor', Elevation: 3.2 });
+    const gf = creator.addIfcBuildingStorey({ Name: 'Ground Floor', Elevation: 0 });
+    const ff = creator.addIfcBuildingStorey({ Name: 'First Floor', Elevation: 3.2 });
 
     // Ground floor walls
-    creator.addWall(gf, { Start: [0, 0, 0], End: [10, 0, 0], Thickness: 0.2, Height: 3 });
-    creator.addWall(gf, { Start: [10, 0, 0], End: [10, 8, 0], Thickness: 0.2, Height: 3 });
-    creator.addWall(gf, { Start: [10, 8, 0], End: [0, 8, 0], Thickness: 0.2, Height: 3 });
-    creator.addWall(gf, { Start: [0, 8, 0], End: [0, 0, 0], Thickness: 0.2, Height: 3 });
+    creator.addIfcWall(gf, { Start: [0, 0, 0], End: [10, 0, 0], Thickness: 0.2, Height: 3 });
+    creator.addIfcWall(gf, { Start: [10, 0, 0], End: [10, 8, 0], Thickness: 0.2, Height: 3 });
+    creator.addIfcWall(gf, { Start: [10, 8, 0], End: [0, 8, 0], Thickness: 0.2, Height: 3 });
+    creator.addIfcWall(gf, { Start: [0, 8, 0], End: [0, 0, 0], Thickness: 0.2, Height: 3 });
 
     // Ground floor slab
-    creator.addSlab(gf, { Position: [0, 0, -0.3], Thickness: 0.3, Width: 10, Depth: 8 });
+    creator.addIfcSlab(gf, { Position: [0, 0, -0.3], Thickness: 0.3, Width: 10, Depth: 8 });
 
     // Columns
-    creator.addColumn(gf, { Position: [5, 4, 0], Width: 0.4, Depth: 0.4, Height: 3 });
+    creator.addIfcColumn(gf, { Position: [5, 4, 0], Width: 0.4, Depth: 0.4, Height: 3 });
 
     // First floor slab
-    creator.addSlab(ff, { Position: [0, 0, 3], Thickness: 0.3, Width: 10, Depth: 8 });
+    creator.addIfcSlab(ff, { Position: [0, 0, 3], Thickness: 0.3, Width: 10, Depth: 8 });
 
     // Roof
-    creator.addRoof(ff, { Position: [0, 0, 6.2], Width: 10, Depth: 8, Thickness: 0.25 });
+    creator.addIfcRoof(ff, { Position: [0, 0, 6.2], Width: 10, Depth: 8, Thickness: 0.25 });
 
     const result = creator.toIfc();
 

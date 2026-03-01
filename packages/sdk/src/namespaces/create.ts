@@ -41,8 +41,8 @@ export class CreateNamespace {
    *
    * ```ts
    * const creator = bim.create.project({ Name: 'My Building' });
-   * const storey = creator.addStorey({ Name: 'Ground Floor', Elevation: 0 });
-   * creator.addWall(storey, { Start: [0,0,0], End: [5,0,0], Thickness: 0.2, Height: 3 });
+   * const storey = creator.addIfcBuildingStorey({ Name: 'Ground Floor', Elevation: 0 });
+   * creator.addIfcWall(storey, { Start: [0,0,0], End: [5,0,0], Thickness: 0.2, Height: 3 });
    * const { content } = creator.toIfc();
    * ```
    */
@@ -52,28 +52,29 @@ export class CreateNamespace {
 
   /**
    * Quick helper: create a simple building with one storey.
-   * Returns { creator, storeyId } for adding elements.
+   * Returns { creator, localExpressId } for adding elements.
    */
-  building(params?: ProjectParams & { storeyName?: string; storeyElevation?: number }): { creator: IfcCreator; storeyId: number } {
+  building(params?: ProjectParams & { StoreyName?: string; StoreyElevation?: number }): { creator: IfcCreator; localExpressId: number } {
     const creator = new IfcCreator(params);
-    const storeyId = creator.addStorey({
-      Name: params?.storeyName ?? 'Ground Floor',
-      Elevation: params?.storeyElevation ?? 0,
+    const localExpressId = creator.addIfcBuildingStorey({
+      Name: params?.StoreyName ?? 'Ground Floor',
+      Elevation: params?.StoreyElevation ?? 0,
     });
-    return { creator, storeyId };
+    return { creator, localExpressId };
   }
 
   /**
    * Trigger browser download for generated IFC content.
-   * Only works when a backend is available (viewer context).
+   * Requires a backend (viewer context).
    */
   download(result: CreateResult, filename?: string): void {
-    if (this.backend) {
-      this.backend.export.download(
-        result.content,
-        filename ?? 'created.ifc',
-        'application/x-step;charset=utf-8;',
-      );
+    if (!this.backend) {
+      throw new Error('bim.create.download requires a backend (viewer context)');
     }
+    this.backend.export.download(
+      result.content,
+      filename ?? 'created.ifc',
+      'application/x-step;charset=utf-8;',
+    );
   }
 }

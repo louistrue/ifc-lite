@@ -457,7 +457,7 @@ export const NAMESPACE_SCHEMAS: NamespaceSchema[] = [
         returns: 'value',
       },
       {
-        name: 'addStorey',
+        name: 'addIfcBuildingStorey',
         doc: 'Add a building storey. Returns storey expressId.',
         args: ['number', 'dump'],
         paramNames: ['handle', 'params'],
@@ -465,12 +465,12 @@ export const NAMESPACE_SCHEMAS: NamespaceSchema[] = [
         tsReturn: 'number',
         call: (_sdk, args) => {
           const creator = creatorRegistry.get(args[0] as number);
-          return creator.addStorey(args[1] as any);
+          return creator.addIfcBuildingStorey(args[1] as any);
         },
         returns: 'value',
       },
       {
-        name: 'addWall',
+        name: 'addIfcWall',
         doc: 'Add a wall to a storey. Returns wall expressId.',
         args: ['number', 'number', 'dump'],
         paramNames: ['handle', 'storeyId', 'params'],
@@ -478,12 +478,12 @@ export const NAMESPACE_SCHEMAS: NamespaceSchema[] = [
         tsReturn: 'number',
         call: (_sdk, args) => {
           const creator = creatorRegistry.get(args[0] as number);
-          return creator.addWall(args[1] as number, args[2] as any);
+          return creator.addIfcWall(args[1] as number, args[2] as any);
         },
         returns: 'value',
       },
       {
-        name: 'addSlab',
+        name: 'addIfcSlab',
         doc: 'Add a slab to a storey. Returns slab expressId.',
         args: ['number', 'number', 'dump'],
         paramNames: ['handle', 'storeyId', 'params'],
@@ -491,12 +491,12 @@ export const NAMESPACE_SCHEMAS: NamespaceSchema[] = [
         tsReturn: 'number',
         call: (_sdk, args) => {
           const creator = creatorRegistry.get(args[0] as number);
-          return creator.addSlab(args[1] as number, args[2] as any);
+          return creator.addIfcSlab(args[1] as number, args[2] as any);
         },
         returns: 'value',
       },
       {
-        name: 'addColumn',
+        name: 'addIfcColumn',
         doc: 'Add a column to a storey. Returns column expressId.',
         args: ['number', 'number', 'dump'],
         paramNames: ['handle', 'storeyId', 'params'],
@@ -504,12 +504,12 @@ export const NAMESPACE_SCHEMAS: NamespaceSchema[] = [
         tsReturn: 'number',
         call: (_sdk, args) => {
           const creator = creatorRegistry.get(args[0] as number);
-          return creator.addColumn(args[1] as number, args[2] as any);
+          return creator.addIfcColumn(args[1] as number, args[2] as any);
         },
         returns: 'value',
       },
       {
-        name: 'addBeam',
+        name: 'addIfcBeam',
         doc: 'Add a beam to a storey. Returns beam expressId.',
         args: ['number', 'number', 'dump'],
         paramNames: ['handle', 'storeyId', 'params'],
@@ -517,12 +517,12 @@ export const NAMESPACE_SCHEMAS: NamespaceSchema[] = [
         tsReturn: 'number',
         call: (_sdk, args) => {
           const creator = creatorRegistry.get(args[0] as number);
-          return creator.addBeam(args[1] as number, args[2] as any);
+          return creator.addIfcBeam(args[1] as number, args[2] as any);
         },
         returns: 'value',
       },
       {
-        name: 'addStair',
+        name: 'addIfcStair',
         doc: 'Add a stair to a storey. Returns stair expressId.',
         args: ['number', 'number', 'dump'],
         paramNames: ['handle', 'storeyId', 'params'],
@@ -530,12 +530,12 @@ export const NAMESPACE_SCHEMAS: NamespaceSchema[] = [
         tsReturn: 'number',
         call: (_sdk, args) => {
           const creator = creatorRegistry.get(args[0] as number);
-          return creator.addStair(args[1] as number, args[2] as any);
+          return creator.addIfcStair(args[1] as number, args[2] as any);
         },
         returns: 'value',
       },
       {
-        name: 'addRoof',
+        name: 'addIfcRoof',
         doc: 'Add a roof to a storey. Returns roof expressId.',
         args: ['number', 'number', 'dump'],
         paramNames: ['handle', 'storeyId', 'params'],
@@ -543,7 +543,7 @@ export const NAMESPACE_SCHEMAS: NamespaceSchema[] = [
         tsReturn: 'number',
         call: (_sdk, args) => {
           const creator = creatorRegistry.get(args[0] as number);
-          return creator.addRoof(args[1] as number, args[2] as any);
+          return creator.addIfcRoof(args[1] as number, args[2] as any);
         },
         returns: 'value',
       },
@@ -561,7 +561,7 @@ export const NAMESPACE_SCHEMAS: NamespaceSchema[] = [
         returns: 'void',
       },
       {
-        name: 'addMaterial',
+        name: 'addIfcMaterial',
         doc: 'Assign an IFC material (simple or layered) to an element.',
         args: ['number', 'number', 'dump'],
         paramNames: ['handle', 'elementId', 'material'],
@@ -569,12 +569,12 @@ export const NAMESPACE_SCHEMAS: NamespaceSchema[] = [
         tsReturn: 'void',
         call: (_sdk, args) => {
           const creator = creatorRegistry.get(args[0] as number);
-          creator.addMaterial(args[1] as number, args[2] as any);
+          creator.addIfcMaterial(args[1] as number, args[2] as any);
         },
         returns: 'void',
       },
       {
-        name: 'addPropertySet',
+        name: 'addIfcPropertySet',
         doc: 'Attach a property set to an element. Returns pset expressId.',
         args: ['number', 'number', 'dump'],
         paramNames: ['handle', 'elementId', 'pset'],
@@ -582,12 +582,12 @@ export const NAMESPACE_SCHEMAS: NamespaceSchema[] = [
         tsReturn: 'number',
         call: (_sdk, args) => {
           const creator = creatorRegistry.get(args[0] as number);
-          return creator.addPropertySet(args[1] as number, args[2] as any);
+          return creator.addIfcPropertySet(args[1] as number, args[2] as any);
         },
         returns: 'value',
       },
       {
-        name: 'addQuantitySet',
+        name: 'addIfcElementQuantity',
         doc: 'Attach element quantities to an element. Returns qset expressId.',
         args: ['number', 'number', 'dump'],
         paramNames: ['handle', 'elementId', 'qset'],
@@ -595,7 +595,7 @@ export const NAMESPACE_SCHEMAS: NamespaceSchema[] = [
         tsReturn: 'number',
         call: (_sdk, args) => {
           const creator = creatorRegistry.get(args[0] as number);
-          return creator.addQuantitySet(args[1] as number, args[2] as any);
+          return creator.addIfcElementQuantity(args[1] as number, args[2] as any);
         },
         returns: 'value',
       },

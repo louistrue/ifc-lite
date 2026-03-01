@@ -12,8 +12,8 @@
  * import { IfcCreator } from '@ifc-lite/create';
  *
  * const creator = new IfcCreator({ Name: 'My Project' });
- * const storey = creator.addStorey({ Name: 'Ground Floor', Elevation: 0 });
- * creator.addWall(storey, {
+ * const storey = creator.addIfcBuildingStorey({ Name: 'Ground Floor', Elevation: 0 });
+ * creator.addIfcWall(storey, {
  *   Start: [0, 0, 0], End: [5, 0, 0],
  *   Thickness: 0.2, Height: 3,
  * });
