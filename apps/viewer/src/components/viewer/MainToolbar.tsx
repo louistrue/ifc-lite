@@ -196,37 +196,59 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
   const toggleLensPanel = useViewerStore((state) => state.toggleLensPanel);
   const setLensPanelVisible = useViewerStore((state) => state.setLensPanelVisible);
 
-  // Check which type geometries exist across ALL loaded models (federation-aware)
+  // Check which type geometries exist across ALL loaded models (federation-aware).
+  // PERF: Use meshes.length as dep proxy instead of full geometryResult, and
+  // scan incrementally — once a type is found it stays found, so we only scan
+  // NEW meshes since the last check. Avoids 330× O(N) scans during streaming.
+  const typeGeomScanRef = useRef({ spaces: false, openings: false, site: false, lastLen: 0 });
+  const meshLen = geometryResult?.meshes.length ?? 0;
   const typeGeometryExists = useMemo(() => {
-    const result = { spaces: false, openings: false, site: false };
+    const scan = typeGeomScanRef.current;
 
-    // Check all federated models
+    // Reset if meshes array shrunk (new file loaded)
+    if (meshLen < scan.lastLen) {
+      scan.spaces = false;
+      scan.openings = false;
+      scan.site = false;
+      scan.lastLen = 0;
+    }
+
+    // Already found all types — nothing to do
+    if (scan.spaces && scan.openings && scan.site) {
+      return { spaces: scan.spaces, openings: scan.openings, site: scan.site };
+    }
+
+    // Check federated models (scan only new meshes in each)
     if (models.size > 0) {
       for (const [, model] of models) {
         const meshes = model.geometryResult?.meshes;
         if (!meshes) continue;
-        for (const m of meshes) {
-          if (m.ifcType === 'IfcSpace') result.spaces = true;
-          else if (m.ifcType === 'IfcOpeningElement') result.openings = true;
-          else if (m.ifcType === 'IfcSite') result.site = true;
-          // Early exit if all found
-          if (result.spaces && result.openings && result.site) return result;
+        for (let i = scan.lastLen; i < meshes.length; i++) {
+          const t = meshes[i].ifcType;
+          if (t === 'IfcSpace') scan.spaces = true;
+          else if (t === 'IfcOpeningElement') scan.openings = true;
+          else if (t === 'IfcSite') scan.site = true;
+          if (scan.spaces && scan.openings && scan.site) break;
         }
       }
     }
 
-    // Fallback: also check legacy single-model geometryResult
+    // Legacy single-model path (scan only new meshes)
     if (geometryResult?.meshes) {
-      for (const m of geometryResult.meshes) {
-        if (m.ifcType === 'IfcSpace') result.spaces = true;
-        else if (m.ifcType === 'IfcOpeningElement') result.openings = true;
-        else if (m.ifcType === 'IfcSite') result.site = true;
-        if (result.spaces && result.openings && result.site) return result;
+      const meshes = geometryResult.meshes;
+      for (let i = scan.lastLen; i < meshes.length; i++) {
+        const t = meshes[i].ifcType;
+        if (t === 'IfcSpace') scan.spaces = true;
+        else if (t === 'IfcOpeningElement') scan.openings = true;
+        else if (t === 'IfcSite') scan.site = true;
+        if (scan.spaces && scan.openings && scan.site) break;
       }
     }
 
-    return result;
-  }, [models, geometryResult]);
+    scan.lastLen = meshLen;
+    return { spaces: scan.spaces, openings: scan.openings, site: scan.site };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- meshLen is a stable proxy for geometryResult
+  }, [models, meshLen]);
 
   const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
