@@ -316,6 +316,13 @@ body {
   background-color: rgba(115, 218, 202, 0.05) !important;
 }
 
+/* Fix Radix ScrollArea viewport inner div: by default it uses display:table
+   which expands to content width, preventing text truncation in flex children.
+   Force block layout so width constraints cascade correctly. */
+[data-radix-scroll-area-viewport] > div {
+  display: block !important;
+}
+
 /* Custom scrollbar */
 .scrollbar-thin {
   scrollbar-width: thin;

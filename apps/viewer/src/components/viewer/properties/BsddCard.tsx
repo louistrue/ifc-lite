@@ -357,7 +357,7 @@ export function BsddCard({
   }
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-2 w-full min-w-0 overflow-hidden">
       {/* Header with class description */}
       {classInfo.definition && (
         <div className="px-1 pb-1 text-[11px] text-zinc-500 dark:text-zinc-400 leading-relaxed">
