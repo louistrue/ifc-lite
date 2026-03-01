@@ -385,7 +385,12 @@ export class GeometryProcessor {
     let totalGeometries = 0;
     let totalInstances = 0;
 
-    for await (const batch of collector.collectInstancedGeometryStreaming(batchSize)) {
+    // Adapt batch size for large files to reduce callback overhead
+    // Larger batches = fewer callbacks = less overhead for huge models
+    const fileSizeMB = buffer.length / (1024 * 1024);
+    const effectiveBatchSize = fileSizeMB < 50 ? batchSize : fileSizeMB < 200 ? Math.max(batchSize, 50) : Math.max(batchSize, 100);
+
+    for await (const batch of collector.collectInstancedGeometryStreaming(effectiveBatchSize)) {
       // For instanced geometry, we need to extract mesh data from instances for coordinate handling
       // Convert InstancedGeometry to MeshData[] for coordinate handler
       const meshDataBatch: MeshData[] = [];

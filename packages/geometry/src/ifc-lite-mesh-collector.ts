@@ -419,6 +419,7 @@ export class IfcLiteMeshCollector {
     const batchQueue: InstancedGeometry[][] = [];
     let resolveWaiting: (() => void) | null = null;
     let isComplete = false;
+    let processingError: Error | null = null;
 
     // Start async processing
     const processingPromise = this.ifcApi.parseMeshesInstancedAsync(this.content, {
@@ -445,6 +446,14 @@ export class IfcLiteMeshCollector {
           resolveWaiting = null;
         }
       },
+    }).catch((error) => {
+      processingError = error instanceof Error ? error : new Error(String(error));
+      log.error('WASM instanced streaming parsing failed', processingError, { operation: 'collectInstancedGeometryStreaming' });
+      isComplete = true;
+      if (resolveWaiting) {
+        resolveWaiting();
+        resolveWaiting = null;
+      }
     });
 
     // Yield batches as they become available
@@ -452,6 +461,11 @@ export class IfcLiteMeshCollector {
       // Yield any queued batches
       while (batchQueue.length > 0) {
         yield batchQueue.shift()!;
+      }
+
+      // Check for errors
+      if (processingError) {
+        throw processingError;
       }
 
       // Check if we're done
