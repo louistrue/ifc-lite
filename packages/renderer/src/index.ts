@@ -116,6 +116,11 @@ export class Renderer {
     private lastRenderErrorTime: number = 0;
     private readonly RENDER_ERROR_THROTTLE_MS = 1000;
 
+    // Pooled per-frame buffers to avoid GC pressure from per-batch Float32Array allocations
+    // A single 192-byte uniform buffer (48 floats) is reused for all batches/meshes within a frame
+    private readonly uniformScratch = new Float32Array(48);
+    private readonly uniformScratchU32 = new Uint32Array(this.uniformScratch.buffer, 176, 4);
+
     constructor(canvas: HTMLCanvasElement) {
         this.canvas = canvas;
         this.device = new WebGPUDevice();
@@ -494,14 +499,13 @@ export class Renderer {
                 }
             }
 
+            // Reuse pooled scratch buffer for per-mesh uniform writes
+            const meshBuf = this.uniformScratch;
+            const meshFlags = this.uniformScratchU32;
             for (const mesh of allMeshes) {
                 if (mesh.uniformBuffer) {
-                    // Extended buffer: 48 floats = 192 bytes
-                    const buffer = new Float32Array(48);
-                    const flagBuffer = new Uint32Array(buffer.buffer, 176, 4);
-
-                    buffer.set(viewProj, 0);
-                    buffer.set(mesh.transform.m, 16);
+                    meshBuf.set(viewProj, 0);
+                    meshBuf.set(mesh.transform.m, 16);
 
                     // Check if mesh is selected (single or multi-selection)
                     // For multi-model support: also check modelIndex if provided
@@ -510,33 +514,31 @@ export class Renderer {
                     const isSelected = (selectedId !== undefined && selectedId !== null && expressIdMatch && modelIndexMatch)
                         || (selectedIds !== undefined && selectedIds.has(mesh.expressId));
 
-                    // Apply selection highlight effect
-                    if (isSelected) {
-                        // Use original color, shader will handle highlight
-                        buffer.set(mesh.color, 32);
-                        buffer[36] = mesh.material?.metallic ?? 0.0;
-                        buffer[37] = mesh.material?.roughness ?? 0.6;
-                    } else {
-                        buffer.set(mesh.color, 32);
-                        buffer[36] = mesh.material?.metallic ?? 0.0;
-                        buffer[37] = mesh.material?.roughness ?? 0.6;
-                    }
+                    meshBuf[32] = mesh.color[0];
+                    meshBuf[33] = mesh.color[1];
+                    meshBuf[34] = mesh.color[2];
+                    meshBuf[35] = mesh.color[3];
+                    meshBuf[36] = mesh.material?.metallic ?? 0.0;
+                    meshBuf[37] = mesh.material?.roughness ?? 0.6;
+                    meshBuf[38] = 0; meshBuf[39] = 0;
 
                     // Section plane data (offset 40-43)
                     if (sectionPlaneData) {
-                        buffer[40] = sectionPlaneData.normal[0];
-                        buffer[41] = sectionPlaneData.normal[1];
-                        buffer[42] = sectionPlaneData.normal[2];
-                        buffer[43] = sectionPlaneData.distance;
+                        meshBuf[40] = sectionPlaneData.normal[0];
+                        meshBuf[41] = sectionPlaneData.normal[1];
+                        meshBuf[42] = sectionPlaneData.normal[2];
+                        meshBuf[43] = sectionPlaneData.distance;
+                    } else {
+                        meshBuf[40] = 0; meshBuf[41] = 0; meshBuf[42] = 0; meshBuf[43] = 0;
                     }
 
                     // Flags (offset 44-47 as u32)
-                    flagBuffer[0] = isSelected ? 1 : 0;
-                    flagBuffer[1] = sectionPlaneData?.enabled ? 1 : 0;
-                    flagBuffer[2] = edgeEnabledU32;
-                    flagBuffer[3] = edgeIntensityMilliU32;
+                    meshFlags[0] = isSelected ? 1 : 0;
+                    meshFlags[1] = sectionPlaneData?.enabled ? 1 : 0;
+                    meshFlags[2] = edgeEnabledU32;
+                    meshFlags[3] = edgeIntensityMilliU32;
 
-                    device.queue.writeBuffer(mesh.uniformBuffer, 0, buffer);
+                    device.queue.writeBuffer(mesh.uniformBuffer, 0, meshBuf);
                 }
             }
 
@@ -582,6 +584,10 @@ export class Renderer {
             // Apply visibility filtering at the BATCH level instead of creating individual meshes
             // This keeps draw calls at ~50-200 instead of 60K+
             if (allBatchedMeshes.length > 0) {
+                // Frustum culling for batched meshes - skip entire batches outside the camera view
+                // This is the primary performance optimization for large models (200K+ meshes)
+                const frustum = FrustumUtils.fromViewProjMatrix(viewProj);
+
                 // Pre-compute visibility for each batch (only when filtering is active)
                 // A batch is visible if ANY of its elements are visible
                 // A batch is fully visible if ALL of its elements are visible
@@ -622,6 +628,14 @@ export class Renderer {
                 }> = [];
 
                 for (const batch of allBatchedMeshes) {
+                    // Frustum culling: skip batches entirely outside the camera view
+                    if (batch.bounds) {
+                        const batchAABB = { min: batch.bounds.min, max: batch.bounds.max };
+                        if (!FrustumUtils.isAABBVisible(frustum, batchAABB)) {
+                            continue; // Entire batch is off-screen
+                        }
+                    }
+
                     // Check visibility
                     if (hasVisibilityFiltering) {
                         const vis = batchVisibility.get(batch.colorKey);
@@ -667,42 +681,46 @@ export class Renderer {
                     }
                 }
 
-                // Helper function to render a batch
+                // Build a uniform template ONCE per frame — shared across all batches.
+                // Only the 4-float color (offset 32) differs per batch; everything else
+                // (viewProj, identity model, material, section plane, flags) is identical.
+                const tpl = this.uniformScratch;
+                const tplFlags = this.uniformScratchU32;
+                tpl.set(viewProj, 0);
+                // Identity model matrix (positions already in world space)
+                tpl[16] = 1; tpl[17] = 0; tpl[18] = 0; tpl[19] = 0;
+                tpl[20] = 0; tpl[21] = 1; tpl[22] = 0; tpl[23] = 0;
+                tpl[24] = 0; tpl[25] = 0; tpl[26] = 1; tpl[27] = 0;
+                tpl[28] = 0; tpl[29] = 0; tpl[30] = 0; tpl[31] = 1;
+                // Color placeholder — overwritten per batch
+                // tpl[32..35] set per batch
+                tpl[36] = 0.0; // metallic
+                tpl[37] = 0.6; // roughness
+                tpl[38] = 0; tpl[39] = 0; // padding
+                if (sectionPlaneData) {
+                    tpl[40] = sectionPlaneData.normal[0];
+                    tpl[41] = sectionPlaneData.normal[1];
+                    tpl[42] = sectionPlaneData.normal[2];
+                    tpl[43] = sectionPlaneData.distance;
+                } else {
+                    tpl[40] = 0; tpl[41] = 0; tpl[42] = 0; tpl[43] = 0;
+                }
+                tplFlags[0] = 0; // not selected
+                tplFlags[1] = sectionPlaneData?.enabled ? 1 : 0;
+                tplFlags[2] = edgeEnabledU32;
+                tplFlags[3] = edgeIntensityMilliU32;
+
+                // Helper function to render a batch — patches color into the shared template
                 const renderBatch = (batch: typeof allBatchedMeshes[0]) => {
                     if (!batch.bindGroup || !batch.uniformBuffer) return;
 
-                    // Update uniform buffer for this batch
-                    const buffer = new Float32Array(48);
-                    const flagBuffer = new Uint32Array(buffer.buffer, 176, 4);
+                    // Patch only the per-batch color (4 floats at offset 32)
+                    tpl[32] = batch.color[0];
+                    tpl[33] = batch.color[1];
+                    tpl[34] = batch.color[2];
+                    tpl[35] = batch.color[3];
 
-                    buffer.set(viewProj, 0);
-                    // Identity transform for batched meshes (positions already in world space)
-                    buffer.set([
-                        1, 0, 0, 0,
-                        0, 1, 0, 0,
-                        0, 0, 1, 0,
-                        0, 0, 0, 1
-                    ], 16);
-
-                    buffer.set(batch.color, 32);
-                    buffer[36] = 0.0; // metallic
-                    buffer[37] = 0.6; // roughness
-
-                    // Section plane data
-                    if (sectionPlaneData) {
-                        buffer[40] = sectionPlaneData.normal[0];
-                        buffer[41] = sectionPlaneData.normal[1];
-                        buffer[42] = sectionPlaneData.normal[2];
-                        buffer[43] = sectionPlaneData.distance;
-                    }
-
-                    // Flags (not selected - batches render normally, selected meshes rendered separately)
-                    flagBuffer[0] = 0;
-                    flagBuffer[1] = sectionPlaneData?.enabled ? 1 : 0;
-                    flagBuffer[2] = edgeEnabledU32;
-                    flagBuffer[3] = edgeIntensityMilliU32;
-
-                    device.queue.writeBuffer(batch.uniformBuffer, 0, buffer);
+                    device.queue.writeBuffer(batch.uniformBuffer, 0, tpl);
 
                     // Single draw call for entire batch!
                     pass.setBindGroup(0, batch.bindGroup);
@@ -814,30 +832,27 @@ export class Renderer {
                             continue;
                         }
 
-                        const buffer = new Float32Array(48);
-                        const flagBuffer = new Uint32Array(buffer.buffer, 176, 4);
-
-                        buffer.set(viewProj, 0);
-                        buffer.set(mesh.transform.m, 16);
-                        buffer.set(mesh.color, 32);
-                        buffer[36] = mesh.material?.metallic ?? 0.0;
-                        buffer[37] = mesh.material?.roughness ?? 0.6;
-
-                        // Section plane data
+                        tpl.set(viewProj, 0);
+                        tpl.set(mesh.transform.m, 16);
+                        tpl[32] = mesh.color[0]; tpl[33] = mesh.color[1];
+                        tpl[34] = mesh.color[2]; tpl[35] = mesh.color[3];
+                        tpl[36] = mesh.material?.metallic ?? 0.0;
+                        tpl[37] = mesh.material?.roughness ?? 0.6;
+                        tpl[38] = 0; tpl[39] = 0;
                         if (sectionPlaneData) {
-                            buffer[40] = sectionPlaneData.normal[0];
-                            buffer[41] = sectionPlaneData.normal[1];
-                            buffer[42] = sectionPlaneData.normal[2];
-                            buffer[43] = sectionPlaneData.distance;
+                            tpl[40] = sectionPlaneData.normal[0];
+                            tpl[41] = sectionPlaneData.normal[1];
+                            tpl[42] = sectionPlaneData.normal[2];
+                            tpl[43] = sectionPlaneData.distance;
+                        } else {
+                            tpl[40] = 0; tpl[41] = 0; tpl[42] = 0; tpl[43] = 0;
                         }
+                        tplFlags[0] = 0;
+                        tplFlags[1] = sectionPlaneData?.enabled ? 1 : 0;
+                        tplFlags[2] = edgeEnabledU32;
+                        tplFlags[3] = edgeIntensityMilliU32;
 
-                        // Flags (not selected, transparent)
-                        flagBuffer[0] = 0;
-                        flagBuffer[1] = sectionPlaneData?.enabled ? 1 : 0;
-                        flagBuffer[2] = edgeEnabledU32;
-                        flagBuffer[3] = edgeIntensityMilliU32;
-
-                        device.queue.writeBuffer(mesh.uniformBuffer, 0, buffer);
+                        device.queue.writeBuffer(mesh.uniformBuffer, 0, tpl);
 
                         pass.setBindGroup(0, mesh.bindGroup);
                         pass.setVertexBuffer(0, mesh.vertexBuffer);
@@ -871,28 +886,27 @@ export class Renderer {
                         continue;
                     }
 
-                    const buffer = new Float32Array(48);
-                    const flagBuffer = new Uint32Array(buffer.buffer, 176, 4);
-
-                    buffer.set(viewProj, 0);
-                    buffer.set(mesh.transform.m, 16);
-                    buffer.set(mesh.color, 32);
-                    buffer[36] = mesh.material?.metallic ?? 0.0;
-                    buffer[37] = mesh.material?.roughness ?? 0.6;
-
+                    tpl.set(viewProj, 0);
+                    tpl.set(mesh.transform.m, 16);
+                    tpl[32] = mesh.color[0]; tpl[33] = mesh.color[1];
+                    tpl[34] = mesh.color[2]; tpl[35] = mesh.color[3];
+                    tpl[36] = mesh.material?.metallic ?? 0.0;
+                    tpl[37] = mesh.material?.roughness ?? 0.6;
+                    tpl[38] = 0; tpl[39] = 0;
                     if (sectionPlaneData) {
-                        buffer[40] = sectionPlaneData.normal[0];
-                        buffer[41] = sectionPlaneData.normal[1];
-                        buffer[42] = sectionPlaneData.normal[2];
-                        buffer[43] = sectionPlaneData.distance;
+                        tpl[40] = sectionPlaneData.normal[0];
+                        tpl[41] = sectionPlaneData.normal[1];
+                        tpl[42] = sectionPlaneData.normal[2];
+                        tpl[43] = sectionPlaneData.distance;
+                    } else {
+                        tpl[40] = 0; tpl[41] = 0; tpl[42] = 0; tpl[43] = 0;
                     }
+                    tplFlags[0] = 1; // isSelected
+                    tplFlags[1] = sectionPlaneData?.enabled ? 1 : 0;
+                    tplFlags[2] = edgeEnabledU32;
+                    tplFlags[3] = edgeIntensityMilliU32;
 
-                    flagBuffer[0] = 1;
-                    flagBuffer[1] = sectionPlaneData?.enabled ? 1 : 0;
-                    flagBuffer[2] = edgeEnabledU32;
-                    flagBuffer[3] = edgeIntensityMilliU32;
-
-                    device.queue.writeBuffer(mesh.uniformBuffer, 0, buffer);
+                    device.queue.writeBuffer(mesh.uniformBuffer, 0, tpl);
 
                     pass.setPipeline(this.pipeline.getSelectionPipeline());
                     pass.setBindGroup(0, mesh.bindGroup);
