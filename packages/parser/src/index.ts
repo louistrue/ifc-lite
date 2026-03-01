@@ -189,9 +189,16 @@ export class IfcParser {
     // Try WASM scanner if available
     if (options.wasmApi && typeof options.wasmApi.scanEntitiesFast === 'function') {
       try {
-        const decoder = new TextDecoder();
-        const content = decoder.decode(buffer);
-        const wasmRefs = options.wasmApi.scanEntitiesFast(content) as Array<{
+        // Prefer scanEntitiesFastBytes (accepts Uint8Array directly, avoids
+        // TextDecoder.decode which creates a ~500MB JS string for large files).
+        const scanFn = typeof options.wasmApi.scanEntitiesFastBytes === 'function'
+          ? () => options.wasmApi!.scanEntitiesFastBytes(uint8Buffer)
+          : () => {
+              const decoder = new TextDecoder();
+              const content = decoder.decode(buffer);
+              return options.wasmApi!.scanEntitiesFast(content);
+            };
+        const wasmRefs = scanFn() as Array<{
           express_id: number;
           entity_type: string;
           byte_offset: number;

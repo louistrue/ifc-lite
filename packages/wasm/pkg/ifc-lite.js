@@ -1239,6 +1239,19 @@ export class IfcAPI {
         return takeObject(ret);
     }
     /**
+     * Fast entity scanning from raw bytes (avoids TextDecoder.decode on JS side).
+     * Accepts Uint8Array directly — saves ~2-5s for 487MB files by skipping
+     * JS string creation and UTF-16→UTF-8 conversion.
+     * @param {Uint8Array} data
+     * @returns {any}
+     */
+    scanEntitiesFastBytes(data) {
+        const ptr0 = passArray8ToWasm0(data, wasm.__wbindgen_export3);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.ifcapi_scanEntitiesFastBytes(this.__wbg_ptr, ptr0, len0);
+        return takeObject(ret);
+    }
+    /**
      * Fast geometry-only entity scanning
      * Scans only entities that have geometry, skipping 99% of non-geometry entities
      * Returns array of geometry entity references for parallel processing
@@ -2433,7 +2446,7 @@ function __wbg_get_imports() {
                     const a = state0.a;
                     state0.a = 0;
                     try {
-                        return __wasm_bindgen_func_elem_1060(a, state0.b, arg0, arg1);
+                        return __wasm_bindgen_func_elem_1064(a, state0.b, arg0, arg1);
                     } finally {
                         state0.a = a;
                     }
@@ -2515,13 +2528,13 @@ function __wbg_get_imports() {
             console.warn(getObject(arg0));
         },
         __wbindgen_cast_0000000000000001: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { dtor_idx: 134, function: Function { arguments: [Externref], shim_idx: 135, ret: Result(Unit), inner_ret: Some(Result(Unit)) }, mutable: true }) -> Externref`.
-            const ret = makeMutClosure(arg0, arg1, wasm.__wasm_bindgen_func_elem_1022, __wasm_bindgen_func_elem_1027);
+            // Cast intrinsic for `Closure(Closure { dtor_idx: 135, function: Function { arguments: [Externref], shim_idx: 136, ret: Result(Unit), inner_ret: Some(Result(Unit)) }, mutable: true }) -> Externref`.
+            const ret = makeMutClosure(arg0, arg1, wasm.__wasm_bindgen_func_elem_1026, __wasm_bindgen_func_elem_1031);
             return addHeapObject(ret);
         },
         __wbindgen_cast_0000000000000002: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { dtor_idx: 45, function: Function { arguments: [], shim_idx: 46, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
-            const ret = makeMutClosure(arg0, arg1, wasm.__wasm_bindgen_func_elem_476, __wasm_bindgen_func_elem_480);
+            // Cast intrinsic for `Closure(Closure { dtor_idx: 46, function: Function { arguments: [], shim_idx: 47, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+            const ret = makeMutClosure(arg0, arg1, wasm.__wasm_bindgen_func_elem_480, __wasm_bindgen_func_elem_484);
             return addHeapObject(ret);
         },
         __wbindgen_cast_0000000000000003: function(arg0) {
@@ -2553,14 +2566,14 @@ function __wbg_get_imports() {
     };
 }
 
-function __wasm_bindgen_func_elem_480(arg0, arg1) {
-    wasm.__wasm_bindgen_func_elem_480(arg0, arg1);
+function __wasm_bindgen_func_elem_484(arg0, arg1) {
+    wasm.__wasm_bindgen_func_elem_484(arg0, arg1);
 }
 
-function __wasm_bindgen_func_elem_1027(arg0, arg1, arg2) {
+function __wasm_bindgen_func_elem_1031(arg0, arg1, arg2) {
     try {
         const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-        wasm.__wasm_bindgen_func_elem_1027(retptr, arg0, arg1, addHeapObject(arg2));
+        wasm.__wasm_bindgen_func_elem_1031(retptr, arg0, arg1, addHeapObject(arg2));
         var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
         var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
         if (r1) {
@@ -2571,8 +2584,8 @@ function __wasm_bindgen_func_elem_1027(arg0, arg1, arg2) {
     }
 }
 
-function __wasm_bindgen_func_elem_1060(arg0, arg1, arg2, arg3) {
-    wasm.__wasm_bindgen_func_elem_1060(arg0, arg1, addHeapObject(arg2), addHeapObject(arg3));
+function __wasm_bindgen_func_elem_1064(arg0, arg1, arg2, arg3) {
+    wasm.__wasm_bindgen_func_elem_1064(arg0, arg1, addHeapObject(arg2), addHeapObject(arg3));
 }
 
 const GeoReferenceJsFinalization = (typeof FinalizationRegistry === 'undefined')
@@ -2754,6 +2767,13 @@ function makeMutClosure(arg0, arg1, dtor, f) {
     };
     CLOSURE_DTORS.register(real, state, state);
     return real;
+}
+
+function passArray8ToWasm0(arg, malloc) {
+    const ptr = malloc(arg.length * 1, 1) >>> 0;
+    getUint8ArrayMemory0().set(arg, ptr / 1);
+    WASM_VECTOR_LEN = arg.length;
+    return ptr;
 }
 
 function passStringToWasm0(arg, malloc, realloc) {

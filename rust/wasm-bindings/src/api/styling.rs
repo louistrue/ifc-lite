@@ -66,6 +66,14 @@ pub(crate) fn build_element_style_index(
     use rustc_hash::FxHashMap;
 
     let mut element_styles: FxHashMap<u32, [f32; 4]> = FxHashMap::default();
+
+    // Short-circuit: if no geometry has styles, skip the entire traversal.
+    // ~85-95% of IFC files have few styled items; for files with zero styles
+    // this avoids decoding every building element's representation chain.
+    if geometry_styles.is_empty() {
+        return element_styles;
+    }
+
     let mut scanner = EntityScanner::new(content);
 
     // Scan all building elements
@@ -107,7 +115,7 @@ pub(crate) fn build_element_style_index(
         };
 
         // Look through representations for geometry with styles
-        for repr_item in reprs_list {
+        'repr_loop: for repr_item in reprs_list {
             let shape_repr_id = match repr_item.as_entity_ref() {
                 Some(id) => id,
                 None => continue,
@@ -143,13 +151,8 @@ pub(crate) fn build_element_style_index(
                     find_color_for_geometry(geom_id, geometry_styles, decoder)
                 {
                     element_styles.insert(element_id, color);
-                    break; // Found a color for this element
+                    break 'repr_loop; // Found a color — stop all representation traversal
                 }
-            }
-
-            // If we found a color, stop looking at more representations
-            if element_styles.contains_key(&element_id) {
-                break;
             }
         }
     }

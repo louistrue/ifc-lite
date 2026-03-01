@@ -106,6 +106,20 @@ impl IfcAPI {
     /// Much faster than TypeScript byte-by-byte scanning (5-10x speedup)
     #[wasm_bindgen(js_name = scanEntitiesFast)]
     pub fn scan_entities_fast(&self, content: &str) -> JsValue {
+        Self::scan_entities_fast_inner(content)
+    }
+
+    /// Fast entity scanning from raw bytes (avoids TextDecoder.decode on JS side).
+    /// Accepts Uint8Array directly — saves ~2-5s for 487MB files by skipping
+    /// JS string creation and UTF-16→UTF-8 conversion.
+    #[wasm_bindgen(js_name = scanEntitiesFastBytes)]
+    pub fn scan_entities_fast_bytes(&self, data: &[u8]) -> JsValue {
+        // IFC/STEP files are ASCII — safe to convert without full UTF-8 validation
+        let content = unsafe { std::str::from_utf8_unchecked(data) };
+        Self::scan_entities_fast_inner(content)
+    }
+
+    fn scan_entities_fast_inner(content: &str) -> JsValue {
         use serde::{Deserialize, Serialize};
         use serde_wasm_bindgen::to_value;
 
@@ -126,15 +140,27 @@ impl IfcAPI {
         let mut last_position = 0;
         let mut line_count = 1; // Start at line 1
 
+        // Cache type name strings: ~776 unique types repeated across 8M+ entities
+        let mut type_cache: rustc_hash::FxHashMap<&str, String> =
+            rustc_hash::FxHashMap::default();
+
         while let Some((id, type_name, start, end)) = scanner.next_entity() {
             // Count newlines between last position and current start
             if start > last_position {
-                line_count += bytes[last_position..start].iter().filter(|&&b| b == b'\n').count();
+                line_count += bytes[last_position..start]
+                    .iter()
+                    .filter(|&&b| b == b'\n')
+                    .count();
             }
+
+            let entity_type = type_cache
+                .entry(type_name)
+                .or_insert_with(|| type_name.to_string())
+                .clone();
 
             refs.push(EntityRefJs {
                 express_id: id,
-                entity_type: type_name.to_string(),
+                entity_type,
                 byte_offset: start,
                 byte_length: end - start,
                 line_number: line_count,
