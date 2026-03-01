@@ -68,6 +68,13 @@ export class CoordinateHandler {
      * @param maxCoord - Optional max coordinate threshold (default: MAX_REASONABLE_COORD)
      */
     calculateBounds(meshes: MeshData[], maxCoord?: number): AABB {
+        // PERF: When WASM RTC is detected, coordinates are already small and valid.
+        // Skip per-vertex Number.isFinite + Math.abs checks (saves ~6 calls per vertex
+        // across 63.5M vertices = ~380M function calls avoided).
+        if (this.wasmRtcDetected && this.shiftCalculated) {
+            return this.calculateBoundsFast(meshes);
+        }
+
         const bounds: AABB = {
             min: { x: Infinity, y: Infinity, z: Infinity },
             max: { x: -Infinity, y: -Infinity, z: -Infinity },
@@ -108,6 +115,35 @@ export class CoordinateHandler {
         }
 
         return bounds;
+    }
+
+    /**
+     * Fast bounds calculation without per-vertex validation.
+     * Used when WASM RTC is confirmed — all coordinates are small and valid.
+     */
+    private calculateBoundsFast(meshes: MeshData[]): AABB {
+        let minX = Infinity, minY = Infinity, minZ = Infinity;
+        let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+
+        for (const mesh of meshes) {
+            const positions = mesh.positions;
+            for (let i = 0; i < positions.length; i += 3) {
+                const x = positions[i];
+                const y = positions[i + 1];
+                const z = positions[i + 2];
+                if (x < minX) minX = x;
+                if (y < minY) minY = y;
+                if (z < minZ) minZ = z;
+                if (x > maxX) maxX = x;
+                if (y > maxY) maxY = y;
+                if (z > maxZ) maxZ = z;
+            }
+        }
+
+        return {
+            min: { x: minX, y: minY, z: minZ },
+            max: { x: maxX, y: maxY, z: maxZ },
+        };
     }
 
     /**

@@ -200,28 +200,28 @@ export function useGeometryStreaming(params: UseGeometryStreamingParams): void {
       lastGeometryRef.current = geometry;
     }
 
-    // FIX: When not streaming (type visibility toggle), new meshes can be ANYWHERE in the array,
-    // not just at the end. During streaming, new meshes ARE appended, so slice is safe.
-    // After streaming completes, filter changes can insert meshes at any position.
-    const meshesToAdd = isStreaming
-      ? geometry.slice(lastGeometryLengthRef.current)  // Streaming: new meshes at end
-      : geometry;  // Post-streaming: scan entire array for unprocessed meshes
-
-    // Filter out already processed meshes
-    // NOTE: Multiple meshes can share the same expressId AND same color (e.g., door inner framing pieces),
-    // so we use expressId + array index as a compound key to ensure all submeshes are processed.
-    const newMeshes: MeshData[] = [];
-    const startIndex = isStreaming ? lastGeometryLengthRef.current : 0;
-    for (let i = 0; i < meshesToAdd.length; i++) {
-      const meshData = meshesToAdd[i];
-      // Use expressId + global array index as key to ensure each mesh is unique
-      // (same expressId can have multiple submeshes with same color, e.g., door framing)
-      const globalIndex = startIndex + i;
-      const compoundKey = `${meshData.expressId}:${globalIndex}`;
-
-      if (!processedMeshIdsRef.current.has(compoundKey)) {
-        newMeshes.push(meshData);
-        processedMeshIdsRef.current.add(compoundKey);
+    // PERF: During streaming, new meshes are ALWAYS appended at the end.
+    // Skip the compound key dedup (208K string allocations + Set lookups)
+    // and array copy (.slice()). Use index-based iteration directly.
+    // Post-streaming: filter changes can insert meshes anywhere, so scan entire array.
+    let newMeshes: MeshData[];
+    if (isStreaming) {
+      // Fast path: no dedup needed, iterate from lastLength to current directly
+      const start = lastGeometryLengthRef.current;
+      newMeshes = [];
+      for (let i = start; i < geometry.length; i++) {
+        newMeshes.push(geometry[i]);
+      }
+    } else {
+      // Slow path: type visibility toggle — scan entire array for unprocessed meshes
+      newMeshes = [];
+      for (let i = 0; i < geometry.length; i++) {
+        const meshData = geometry[i];
+        const compoundKey = `${meshData.expressId}:${i}`;
+        if (!processedMeshIdsRef.current.has(compoundKey)) {
+          newMeshes.push(meshData);
+          processedMeshIdsRef.current.add(compoundKey);
+        }
       }
     }
 
