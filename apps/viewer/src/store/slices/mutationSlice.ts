@@ -87,6 +87,16 @@ export interface MutationSlice {
     quantities: Array<{ name: string; value: number; quantityType: QuantityType; unit?: string }>
   ) => Mutation | null;
 
+  // Actions - Attribute Mutations
+  /** Set an entity attribute value */
+  setAttribute: (
+    modelId: string,
+    entityId: number,
+    attrName: string,
+    value: string,
+    oldValue?: string
+  ) => Mutation | null;
+
   // Actions - Undo/Redo
   /** Undo last mutation for a model */
   undo: (modelId: string) => void;
@@ -319,6 +329,35 @@ export const createMutationSlice: StateCreator<
     if (!view) return null;
 
     const mutation = view.createQuantitySet(entityId, qsetName, quantities);
+
+    set((state) => {
+      const newUndoStacks = new Map(state.undoStacks);
+      const stack = newUndoStacks.get(modelId) || [];
+      newUndoStacks.set(modelId, [...stack, mutation]);
+
+      const newRedoStacks = new Map(state.redoStacks);
+      newRedoStacks.set(modelId, []);
+
+      const newDirty = new Set(state.dirtyModels);
+      newDirty.add(modelId);
+
+      return {
+        undoStacks: newUndoStacks,
+        redoStacks: newRedoStacks,
+        dirtyModels: newDirty,
+        mutationVersion: state.mutationVersion + 1,
+      };
+    });
+
+    return mutation;
+  },
+
+  // Attribute Mutations
+  setAttribute: (modelId, entityId, attrName, value, oldValue) => {
+    const view = get().mutationViews.get(modelId);
+    if (!view) return null;
+
+    const mutation = view.setAttribute(entityId, attrName, value, oldValue);
 
     set((state) => {
       const newUndoStacks = new Map(state.undoStacks);

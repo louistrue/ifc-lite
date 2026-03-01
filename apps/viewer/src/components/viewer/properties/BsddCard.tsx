@@ -68,6 +68,9 @@ function defaultValue(bsddType: string | null): unknown {
   return '';
 }
 
+/** bSDD properties with null propertySet are IFC entity-level attributes */
+const BSDD_ATTRIBUTES_GROUP = 'Attributes';
+
 // ---------------------------------------------------------------------------
 // Component props
 // ---------------------------------------------------------------------------
@@ -87,6 +90,8 @@ export interface BsddCardProps {
   existingQsets?: string[];
   /** Names of quantities already present (flat list: "QsetName:QuantName") */
   existingQuants?: Set<string>;
+  /** Names of entity-level attributes that already have values */
+  existingAttributes?: Set<string>;
 }
 
 // ---------------------------------------------------------------------------
@@ -101,6 +106,7 @@ export function BsddCard({
   existingProps,
   existingQsets = [],
   existingQuants = new Set<string>(),
+  existingAttributes = new Set<string>(),
 }: BsddCardProps) {
   const [classInfo, setClassInfo] = useState<BsddClassInfo | null>(null);
   const [loading, setLoading] = useState(false);
@@ -112,6 +118,7 @@ export function BsddCard({
   const createPropertySet = useViewerStore((s) => s.createPropertySet);
   const setQuantity = useViewerStore((s) => s.setQuantity);
   const createQuantitySet = useViewerStore((s) => s.createQuantitySet);
+  const storeSetAttribute = useViewerStore((s) => s.setAttribute);
   const bumpMutationVersion = useViewerStore((s) => s.bumpMutationVersion);
 
   // Fetch class info from bSDD when entity type changes
@@ -151,7 +158,8 @@ export function BsddCard({
     if (!classInfo) return new Map<string, BsddClassProperty[]>();
     const map = new Map<string, BsddClassProperty[]>();
     for (const prop of classInfo.classProperties) {
-      const psetName = prop.propertySet || 'Other Properties';
+      // Null propertySet → IFC entity attributes (Name, Description, etc.)
+      const psetName = prop.propertySet || BSDD_ATTRIBUTES_GROUP;
       let list = map.get(psetName);
       if (!list) {
         list = [];
@@ -176,7 +184,10 @@ export function BsddCard({
       let normalizedModelId = modelId;
       if (modelId === 'legacy') normalizedModelId = '__legacy__';
 
-      if (isQuantitySet(psetName)) {
+      if (psetName === BSDD_ATTRIBUTES_GROUP) {
+        // Route entity-level attributes (Name, Description, ObjectType, Tag, etc.)
+        storeSetAttribute(normalizedModelId, entityId, prop.name, '');
+      } else if (isQuantitySet(psetName)) {
         // Route Qto_* through quantity creation
         const qType = inferQuantityType(prop.units);
         const qsetExists = existingQsets.includes(psetName);
@@ -221,7 +232,7 @@ export function BsddCard({
       bumpMutationVersion();
       setAddedKeys((prev) => new Set(prev).add(`${psetName}:${prop.name}`));
     },
-    [modelId, entityId, existingPsets, existingQsets, setProperty, createPropertySet, setQuantity, createQuantitySet, bumpMutationVersion],
+    [modelId, entityId, existingPsets, existingQsets, existingAttributes, setProperty, createPropertySet, setQuantity, createQuantitySet, storeSetAttribute, bumpMutationVersion],
   );
 
   const handleAddAllInPset = useCallback(
@@ -229,18 +240,31 @@ export function BsddCard({
       let normalizedModelId = modelId;
       if (modelId === 'legacy') normalizedModelId = '__legacy__';
 
-      // Determine which "existing" set to check against
-      const existingSet = isQuantitySet(psetName) ? existingQuants : existingProps;
+      const isAttrGroup = psetName === BSDD_ATTRIBUTES_GROUP;
 
-      // Filter to only properties not already added
+      // Determine which "existing" set to check against
+      const existingSet = isAttrGroup
+        ? existingAttributes
+        : isQuantitySet(psetName)
+          ? existingQuants
+          : existingProps;
+
+      // For attributes, key is just the name; for props/quants, key is "PsetName:PropName"
       const toAdd = props.filter(
-        (p) =>
-          !existingSet.has(`${psetName}:${p.name}`) &&
-          !addedKeys.has(`${psetName}:${p.name}`),
+        (p) => {
+          const key = isAttrGroup ? p.name : `${psetName}:${p.name}`;
+          const addedKey = `${psetName}:${p.name}`;
+          return !existingSet.has(key) && !addedKeys.has(addedKey);
+        },
       );
       if (toAdd.length === 0) return;
 
-      if (isQuantitySet(psetName)) {
+      if (isAttrGroup) {
+        // Route entity-level attributes
+        for (const p of toAdd) {
+          storeSetAttribute(normalizedModelId, entityId, p.name, '');
+        }
+      } else if (isQuantitySet(psetName)) {
         // Route Qto_* through quantity creation
         const qsetExists = existingQsets.includes(psetName);
 
@@ -304,7 +328,7 @@ export function BsddCard({
         return next;
       });
     },
-    [modelId, entityId, existingPsets, existingQsets, existingProps, existingQuants, addedKeys, setProperty, createPropertySet, setQuantity, createQuantitySet, bumpMutationVersion],
+    [modelId, entityId, existingPsets, existingQsets, existingProps, existingQuants, existingAttributes, addedKeys, setProperty, createPropertySet, setQuantity, createQuantitySet, storeSetAttribute, bumpMutationVersion],
   );
 
   // Loading state
@@ -348,19 +372,25 @@ export function BsddCard({
       {/* Property sets from bSDD */}
       {Array.from(groupedProps.entries()).map(([psetName, props]) => {
         const isExpanded = expandedPsets.has(psetName);
+        const isAttrGroup = psetName === BSDD_ATTRIBUTES_GROUP;
         const isQto = isQuantitySet(psetName);
-        const existingSet = isQto ? existingQuants : existingProps;
+        // For attributes, check against existingAttributes (keyed by name only);
+        // for quants/props, check against existingQuants/existingProps (keyed by "PsetName:PropName")
+        const existingSet = isAttrGroup ? existingAttributes : isQto ? existingQuants : existingProps;
+        const makeKey = (p: BsddClassProperty) => isAttrGroup ? p.name : `${psetName}:${p.name}`;
         const allAlreadyExist = props.every(
           (p) =>
-            existingSet.has(`${psetName}:${p.name}`) ||
+            existingSet.has(makeKey(p)) ||
             addedKeys.has(`${psetName}:${p.name}`),
         );
-        const psetExistsOnEntity = isQto
-          ? existingQsets.includes(psetName)
-          : existingPsets.includes(psetName);
+        const psetExistsOnEntity = isAttrGroup
+          ? true // Attributes section always exists on the entity
+          : isQto
+            ? existingQsets.includes(psetName)
+            : existingPsets.includes(psetName);
         const addableCount = props.filter(
           (p) =>
-            !existingSet.has(`${psetName}:${p.name}`) &&
+            !existingSet.has(makeKey(p)) &&
             !addedKeys.has(`${psetName}:${p.name}`),
         ).length;
 
@@ -422,8 +452,9 @@ export function BsddCard({
             {isExpanded && (
               <div className="border-t-2 border-sky-200/60 dark:border-sky-800/40 divide-y divide-sky-100 dark:divide-sky-900/30">
                 {props.map((prop) => {
-                  const key = `${psetName}:${prop.name}`;
-                  const alreadyExists = existingSet.has(key) || addedKeys.has(key);
+                  const existKey = makeKey(prop);
+                  const addedKey = `${psetName}:${prop.name}`;
+                  const alreadyExists = existingSet.has(existKey) || addedKeys.has(addedKey);
 
                   return (
                     <div

@@ -395,11 +395,37 @@ export function PropertiesPanel() {
 
   // Build attributes array for display - must be before early return to maintain hook order
   // Uses schema-aware extraction to show ALL string/enum attributes for the entity type.
+  // Merges mutated attributes (from bSDD) into the base attribute list.
   // Note: GlobalId is intentionally excluded since it's shown in the dedicated GUID field above
   const attributes = useMemo(() => {
-    if (!entityNode) return [];
-    return entityNode.allAttributes();
-  }, [entityNode]);
+    const base = entityNode ? entityNode.allAttributes() : [];
+
+    // Merge mutated attributes from bSDD
+    let modelId = selectedEntity?.modelId;
+    const expressId = selectedEntity?.expressId;
+    if (modelId === 'legacy') modelId = '__legacy__';
+    const mutationView = modelId ? mutationViews.get(modelId) : null;
+    if (mutationView && expressId) {
+      const mutatedAttrs = mutationView.getAttributeMutationsForEntity(expressId);
+      if (mutatedAttrs.length > 0) {
+        const baseNames = new Set(base.map(a => a.name));
+        const merged = [...base];
+        for (const ma of mutatedAttrs) {
+          if (baseNames.has(ma.name)) {
+            // Update existing attribute value
+            const idx = merged.findIndex(a => a.name === ma.name);
+            if (idx >= 0) merged[idx] = { name: ma.name, value: ma.value };
+          } else {
+            // Add new attribute
+            merged.push({ name: ma.name, value: ma.value });
+          }
+        }
+        return merged;
+      }
+    }
+
+    return base;
+  }, [entityNode, selectedEntity, mutationViews, mutationVersion]);
 
   // Extract classifications for the selected entity from the IFC data store
   const classifications = useMemo(() => {
@@ -588,6 +614,15 @@ export function PropertiesPanel() {
     }
     return keys;
   }, [quantities]);
+
+  // Build a set of existing attribute names for bSDD deduplication
+  const existingAttributeNames = useMemo(() => {
+    const names = new Set<string>();
+    for (const attr of attributes) {
+      if (attr.value) names.add(attr.name);
+    }
+    return names;
+  }, [attributes]);
 
   // Model metadata display (when clicking top-level model in hierarchy)
   if (selectedModelId) {
@@ -881,26 +916,26 @@ export function PropertiesPanel() {
 
       {/* Tabs */}
       <Tabs defaultValue="properties" className="flex-1 flex flex-col overflow-hidden">
-        <TabsList className="tabs-list w-full justify-start rounded-none h-10 p-0" style={{ backgroundColor: 'var(--tabs-bg)', borderBottom: '1px solid var(--tabs-border)' }}>
+        <TabsList className="tabs-list w-full justify-start rounded-none h-10 p-0 overflow-x-auto overflow-y-hidden shrink-0" style={{ backgroundColor: 'var(--tabs-bg)', borderBottom: '1px solid var(--tabs-border)' }}>
           <TabsTrigger
             value="properties"
-            className="tab-trigger flex-1 rounded-none border-b-2 border-transparent data-[state=active]:border-primary uppercase text-xs tracking-wider h-full"
+            className="tab-trigger shrink-0 rounded-none border-b-2 border-transparent data-[state=active]:border-primary uppercase text-xs tracking-wider h-full px-3"
           >
-            <FileText className="h-3.5 w-3.5 mr-2" />
+            <FileText className="h-3.5 w-3.5 mr-1.5" />
             Properties
           </TabsTrigger>
           <TabsTrigger
             value="quantities"
-            className="tab-trigger flex-1 rounded-none border-b-2 border-transparent data-[state=active]:border-primary uppercase text-xs tracking-wider h-full"
+            className="tab-trigger shrink-0 rounded-none border-b-2 border-transparent data-[state=active]:border-primary uppercase text-xs tracking-wider h-full px-3"
           >
-            <Calculator className="h-3.5 w-3.5 mr-2" />
+            <Calculator className="h-3.5 w-3.5 mr-1.5" />
             Quantities
           </TabsTrigger>
           <TabsTrigger
             value="bsdd"
-            className="tab-trigger flex-1 rounded-none border-b-2 border-transparent data-[state=active]:border-primary uppercase text-xs tracking-wider h-full"
+            className="tab-trigger shrink-0 rounded-none border-b-2 border-transparent data-[state=active]:border-primary uppercase text-xs tracking-wider h-full px-3"
           >
-            <BookOpen className="h-3.5 w-3.5 mr-2" />
+            <BookOpen className="h-3.5 w-3.5 mr-1.5" />
             bSDD
           </TabsTrigger>
         </TabsList>
@@ -1006,6 +1041,7 @@ export function PropertiesPanel() {
                 existingProps={existingProps}
                 existingQsets={quantities.map(q => q.name)}
                 existingQuants={existingQuants}
+                existingAttributes={existingAttributeNames}
               />
             )}
           </TabsContent>

@@ -14,8 +14,8 @@
 
 import type { PropertyTable, PropertySet, Property, QuantitySet, Quantity } from '@ifc-lite/data';
 import { PropertyValueType, QuantityType } from '@ifc-lite/data';
-import type { PropertyValue, PropertyMutation, QuantityMutation, Mutation } from './types.js';
-import { propertyKey, quantityKey, generateMutationId } from './types.js';
+import type { PropertyValue, PropertyMutation, QuantityMutation, AttributeMutation, Mutation } from './types.js';
+import { propertyKey, quantityKey, attributeKey, generateMutationId } from './types.js';
 
 /**
  * Function type for on-demand property extraction
@@ -42,6 +42,7 @@ export class MutablePropertyView {
   private deletedQsets: Set<string> = new Set(); // `${entityId}:${qsetName}`
   private newPsets: Map<number, Map<string, PropertySet>> = new Map(); // entityId -> psetName -> PropertySet
   private newQsets: Map<number, Map<string, QuantitySet>> = new Map(); // entityId -> qsetName -> QuantitySet
+  private attributeMutations: Map<string, AttributeMutation> = new Map(); // `${entityId}:attr:${attrName}`
   private mutationHistory: Mutation[] = [];
   private modelId: string;
 
@@ -610,6 +611,56 @@ export class MutablePropertyView {
     return mutation;
   }
 
+  // ---------------------------------------------------------------------------
+  // Attribute mutations
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Set an entity attribute value (Name, Description, ObjectType, Tag, etc.)
+   */
+  setAttribute(
+    entityId: number,
+    attrName: string,
+    value: string,
+    oldValue?: string,
+  ): Mutation {
+    const key = attributeKey(entityId, attrName);
+
+    this.attributeMutations.set(key, {
+      attribute: attrName,
+      value,
+      oldValue,
+    });
+
+    const mutation: Mutation = {
+      id: generateMutationId(),
+      type: 'UPDATE_ATTRIBUTE',
+      timestamp: Date.now(),
+      modelId: this.modelId,
+      entityId,
+      attributeName: attrName,
+      newValue: value,
+      oldValue: oldValue ?? null,
+    };
+
+    this.mutationHistory.push(mutation);
+    return mutation;
+  }
+
+  /**
+   * Get mutated attributes for an entity.
+   * Returns only attributes that have been added/modified via mutations.
+   */
+  getAttributeMutationsForEntity(entityId: number): Array<{ name: string; value: string }> {
+    const result: Array<{ name: string; value: string }> = [];
+    for (const [key, mutation] of this.attributeMutations) {
+      if (key.startsWith(`${entityId}:attr:`)) {
+        result.push({ name: mutation.attribute, value: mutation.value });
+      }
+    }
+    return result;
+  }
+
   /**
    * Get all mutations applied to this view
    */
@@ -651,6 +702,7 @@ export class MutablePropertyView {
   clear(): void {
     this.propertyMutations.clear();
     this.quantityMutations.clear();
+    this.attributeMutations.clear();
     this.deletedPsets.clear();
     this.deletedQsets.clear();
     this.newPsets.clear();
