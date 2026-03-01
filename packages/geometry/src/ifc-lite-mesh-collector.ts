@@ -132,25 +132,14 @@ export class IfcLiteMeshCollector {
           colorArray[3],
         ];
 
-        // Capture arrays once (WASM creates new copies on each access)
-        const positions = mesh.positions;
-        const normals = mesh.normals;
-        const indices = mesh.indices;
-
-        // Convert IFC Z-up to WebGL Y-up (modify captured arrays)
-        this.convertZUpToYUp(positions);
-        this.convertZUpToYUp(normals);
-
-        // Reverse winding order to compensate for handedness flip from Y negation
-        // Without this, triangles face the wrong way and get backface-culled
-        this.reverseWindingOrder(indices);
-
+        // Z-up→Y-up conversion and winding order reversal are now done
+        // in Rust (MeshDataJs::new) for performance.
         meshes.push({
           expressId: mesh.expressId,
           ifcType: mesh.ifcType,
-          positions,
-          normals,
-          indices,
+          positions: mesh.positions,
+          normals: mesh.normals,
+          indices: mesh.indices,
           color,
         });
 
@@ -260,24 +249,14 @@ export class IfcLiteMeshCollector {
               mesh.color[3],
             ];
 
-            // Capture arrays once
-            const positions = mesh.positions;
-            const normals = mesh.normals;
-            const indices = mesh.indices;
-
-            // Convert IFC Z-up to WebGL Y-up
-            this.convertZUpToYUp(positions);
-            this.convertZUpToYUp(normals);
-
-            // Reverse winding order to compensate for handedness flip from Y negation
-            this.reverseWindingOrder(indices);
-
+            // Capture arrays once — Z-up→Y-up conversion and winding order
+            // reversal are now done in Rust (MeshDataJs::new) for performance.
             convertedBatch.push({
               expressId,
               ifcType: mesh.ifcType,
-              positions,
-              normals,
-              indices,
+              positions: mesh.positions,
+              normals: mesh.normals,
+              indices: mesh.indices,
               color,
             });
 

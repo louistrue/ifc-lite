@@ -11,6 +11,7 @@
  */
 
 import { useCallback } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { useViewerStore, type FederatedModel, type SchemaVersion } from '../store.js';
 import { IfcParser, detectFormat, parseIfcx, parseFederatedIfcx, type IfcDataStore, type FederatedIfcxParseResult } from '@ifc-lite/parser';
 import { GeometryProcessor, GeometryQuality, type MeshData, type CoordinateInfo } from '@ifc-lite/geometry';
@@ -99,7 +100,21 @@ export function useIfcFederation() {
     registerModelOffset,
     fromGlobalId,
     findModelForGlobalId,
-  } = useViewerStore();
+  } = useViewerStore(useShallow((s) => ({
+    setLoading: s.setLoading,
+    setError: s.setError,
+    setProgress: s.setProgress,
+    setIfcDataStore: s.setIfcDataStore,
+    setGeometryResult: s.setGeometryResult,
+    addModel: s.addModel,
+    removeModel: s.removeModel,
+    clearAllModels: s.clearAllModels,
+    getModel: s.getModel,
+    hasModels: s.hasModels,
+    registerModelOffset: s.registerModelOffset,
+    fromGlobalId: s.fromGlobalId,
+    findModelForGlobalId: s.findModelForGlobalId,
+  })));
 
   /**
    * Add a model to the federation (multi-model support)

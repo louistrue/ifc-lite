@@ -204,9 +204,14 @@ export function useGeometryStreaming(params: UseGeometryStreamingParams): void {
     // Skip the compound key dedup (208K string allocations + Set lookups)
     // and array copy (.slice()). Use index-based iteration directly.
     // Post-streaming: filter changes can insert meshes anywhere, so scan entire array.
+    //
+    // FIX: Use fast path for incremental appends too (not just streaming).
+    // When streaming completes, isStreaming becomes false in the same render as the
+    // final appendGeometryBatch. The slow path would re-add ALL meshes because
+    // processedMeshIdsRef was never populated during streaming, causing double geometry.
     let newMeshes: MeshData[];
-    if (isStreaming) {
-      // Fast path: no dedup needed, iterate from lastLength to current directly
+    if (isStreaming || isIncremental) {
+      // Fast path: new meshes appended at the end, iterate from lastLength directly
       const start = lastGeometryLengthRef.current;
       newMeshes = [];
       for (let i = start; i < geometry.length; i++) {
@@ -214,6 +219,7 @@ export function useGeometryStreaming(params: UseGeometryStreamingParams): void {
       }
     } else {
       // Slow path: type visibility toggle — scan entire array for unprocessed meshes
+      // Only used when array was fully rebuilt (not incremental)
       newMeshes = [];
       for (let i = 0; i < geometry.length; i++) {
         const meshData = geometry[i];

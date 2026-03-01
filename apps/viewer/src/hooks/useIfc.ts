@@ -13,6 +13,7 @@
  */
 
 import { useMemo, useRef } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { useViewerStore } from '../store.js';
 import { IfcQuery } from '@ifc-lite/query';
 import type { IfcDataStore } from '@ifc-lite/parser';
@@ -41,7 +42,24 @@ export function useIfc() {
     hasModels,
     // Federation Registry helpers
     toGlobalId,
-  } = useViewerStore();
+  } = useViewerStore(useShallow((s) => ({
+    loading: s.loading,
+    progress: s.progress,
+    error: s.error,
+    ifcDataStore: s.ifcDataStore,
+    geometryResult: s.geometryResult,
+    models: s.models,
+    activeModelId: s.activeModelId,
+    clearAllModels: s.clearAllModels,
+    setActiveModel: s.setActiveModel,
+    setModelVisibility: s.setModelVisibility,
+    setModelCollapsed: s.setModelCollapsed,
+    getModel: s.getModel,
+    getActiveModel: s.getActiveModel,
+    getAllVisibleModels: s.getAllVisibleModels,
+    hasModels: s.hasModels,
+    toGlobalId: s.toGlobalId,
+  })));
 
   // Track if we've already logged for this ifcDataStore
   const lastLoggedDataStoreRef = useRef<typeof ifcDataStore>(null);

@@ -11,6 +11,7 @@
  */
 
 import { useCallback } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { useViewerStore } from '../store.js';
 import { IfcParser, detectFormat, parseIfcx, type IfcDataStore } from '@ifc-lite/parser';
 import { GeometryProcessor, GeometryQuality, type MeshData, type CoordinateInfo } from '@ifc-lite/geometry';
@@ -77,7 +78,16 @@ export function useIfcLoader() {
     appendGeometryBatch,
     updateMeshColors,
     updateCoordinateInfo,
-  } = useViewerStore();
+  } = useViewerStore(useShallow((s) => ({
+    setLoading: s.setLoading,
+    setError: s.setError,
+    setProgress: s.setProgress,
+    setIfcDataStore: s.setIfcDataStore,
+    setGeometryResult: s.setGeometryResult,
+    appendGeometryBatch: s.appendGeometryBatch,
+    updateMeshColors: s.updateMeshColors,
+    updateCoordinateInfo: s.updateCoordinateInfo,
+  })));
 
   // Cache operations from extracted hook
   const { loadFromCache, saveToCache } = useIfcCache();

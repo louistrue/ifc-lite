@@ -20,6 +20,7 @@ import { SpatialHierarchyBuilder, extractLengthUnitScale, type IfcDataStore } fr
 import { buildSpatialIndex } from '@ifc-lite/spatial';
 import type { MeshData } from '@ifc-lite/geometry';
 
+import { useShallow } from 'zustand/react/shallow';
 import { useViewerStore } from '../store.js';
 import { getCached, setCached, deleteCached, type CacheResult } from '../services/cacheService.js';
 import { rebuildSpatialHierarchy, rebuildOnDemandMaps } from '../utils/spatialHierarchy.js';
@@ -66,7 +67,11 @@ export function useIfcCache() {
     setProgress,
     setIfcDataStore,
     setGeometryResult,
-  } = useViewerStore();
+  } = useViewerStore(useShallow((s) => ({
+    setProgress: s.setProgress,
+    setIfcDataStore: s.setIfcDataStore,
+    setGeometryResult: s.setGeometryResult,
+  })));
 
   /**
    * Load from binary cache - INSTANT load for maximum speed

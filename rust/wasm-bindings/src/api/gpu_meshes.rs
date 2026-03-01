@@ -965,7 +965,8 @@ impl IfcAPI {
                     .ok()
                     .and_then(|v| v.dyn_into::<Function>().ok());
 
-                let on_color_update = js_sys::Reflect::get(&options, &"onColorUpdate".into())
+                // Color updates no longer needed — styles are built before geometry processing.
+                let _on_color_update = js_sys::Reflect::get(&options, &"onColorUpdate".into())
                     .ok()
                     .and_then(|v| v.dyn_into::<Function>().ok());
 
@@ -977,11 +978,11 @@ impl IfcAPI {
                 let entity_index = ifc_lite_core::build_entity_index(&content);
                 let mut decoder = EntityDecoder::with_index(&content, entity_index.clone());
 
-                // OPTIMIZATION: Defer style building for faster first frame
-                // Simple geometry will use default colors initially, styles applied to complex geometry
-                // This trades slightly incorrect initial colors for much faster first render
-                let mut style_index: rustc_hash::FxHashMap<u32, [f32; 4]> =
-                    rustc_hash::FxHashMap::default();
+                // Build style index BEFORE geometry so all elements get correct colors.
+                // Previously deferred for "faster first frame", but this caused visible
+                // wrong colors during streaming (fragment batches baked default colors).
+                let geometry_styles = build_geometry_style_index(&content, &mut decoder);
+                let style_index = build_element_style_index(&content, &geometry_styles, &mut decoder);
 
                 // Create geometry router
                 let mut router = GeometryRouter::with_units(&content, &mut decoder);
@@ -1015,8 +1016,6 @@ impl IfcAPI {
                 let mut total_vertices = 0;
                 let mut total_triangles = 0;
                 let mut batch_meshes: Vec<MeshDataJs> = Vec::with_capacity(batch_size);
-                // Track processed simple geometry IDs for color updates
-                let mut processed_simple_ids: Vec<u32> = Vec::new();
 
                 // PRE-PASS: Build void relationship index (host → openings)
                 let mut scanner = EntityScanner::new(&content);
@@ -1101,7 +1100,6 @@ impl IfcAPI {
                                         let mesh_data =
                                             MeshDataJs::new(id, ifc_type_name, mesh, color);
                                         batch_meshes.push(mesh_data);
-                                        processed_simple_ids.push(id);
                                         processed += 1;
                                     }
                                 }
@@ -1153,30 +1151,6 @@ impl IfcAPI {
                 }
 
                 let total_elements = processed + deferred_complex.len();
-
-                // NOW build styles - after first batches are yielded for faster first frame
-                // Complex geometry will have proper IFC colors
-                let geometry_styles = build_geometry_style_index(&content, &mut decoder);
-                style_index = build_element_style_index(&content, &geometry_styles, &mut decoder);
-
-                // Send color updates for already-processed simple geometry
-                if let Some(ref callback) = on_color_update {
-                    let color_updates = js_sys::Map::new();
-                    for &id in &processed_simple_ids {
-                        if let Some(&color) = style_index.get(&id) {
-                            // Convert [f32; 4] to JS array
-                            let js_color = js_sys::Array::new();
-                            js_color.push(&color[0].into());
-                            js_color.push(&color[1].into());
-                            js_color.push(&color[2].into());
-                            js_color.push(&color[3].into());
-                            color_updates.set(&(id as f64).into(), &js_color);
-                        }
-                    }
-                    if color_updates.size() > 0 {
-                        let _ = callback.call1(&JsValue::NULL, &color_updates);
-                    }
-                }
 
                 // CRITICAL: Batch preprocess FacetedBreps BEFORE complex phase
                 // This triangulates ALL faces in parallel - massive speedup for repeated geometry
