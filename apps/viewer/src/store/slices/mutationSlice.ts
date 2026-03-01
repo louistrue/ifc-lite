@@ -418,6 +418,29 @@ export const createMutationSlice: StateCreator<
           true // skipHistory
         );
       }
+    } else if (mutation.type === 'CREATE_QUANTITY') {
+      // Undo creation: remove the quantity mutation
+      view.removeQuantityMutation(mutation.entityId, mutation.psetName!, mutation.propName);
+    } else if (mutation.type === 'UPDATE_QUANTITY') {
+      if (mutation.psetName && mutation.propName && mutation.oldValue !== undefined && mutation.oldValue !== null) {
+        view.setQuantity(
+          mutation.entityId,
+          mutation.psetName,
+          mutation.propName,
+          Number(mutation.oldValue),
+          undefined,
+          undefined,
+          true // skipHistory
+        );
+      }
+    } else if (mutation.type === 'UPDATE_ATTRIBUTE') {
+      if (mutation.attributeName) {
+        if (mutation.oldValue !== undefined && mutation.oldValue !== null) {
+          view.setAttribute(mutation.entityId, mutation.attributeName, String(mutation.oldValue), undefined, true);
+        } else {
+          view.removeAttributeMutation(mutation.entityId, mutation.attributeName);
+        }
+      }
     }
 
     set((s) => {
@@ -461,6 +484,22 @@ export const createMutationSlice: StateCreator<
     } else if (mutation.type === 'DELETE_PROPERTY') {
       if (mutation.psetName && mutation.propName) {
         view.deleteProperty(mutation.entityId, mutation.psetName, mutation.propName, true);
+      }
+    } else if (mutation.type === 'CREATE_QUANTITY' || mutation.type === 'UPDATE_QUANTITY') {
+      if (mutation.psetName && mutation.propName && mutation.newValue !== undefined) {
+        view.setQuantity(
+          mutation.entityId,
+          mutation.psetName,
+          mutation.propName,
+          Number(mutation.newValue),
+          undefined,
+          undefined,
+          true // skipHistory
+        );
+      }
+    } else if (mutation.type === 'UPDATE_ATTRIBUTE') {
+      if (mutation.attributeName && mutation.newValue !== undefined) {
+        view.setAttribute(mutation.entityId, mutation.attributeName, String(mutation.newValue), undefined, true);
       }
     }
 

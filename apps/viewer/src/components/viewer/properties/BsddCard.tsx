@@ -228,7 +228,7 @@ export function BsddCard({
       bumpMutationVersion();
       setAddedKeys((prev) => new Set(prev).add(`${psetName}:${prop.name}`));
     },
-    [modelId, entityId, existingPsets, existingQsets, existingAttributes, setProperty, createPropertySet, setQuantity, createQuantitySet, storeSetAttribute, bumpMutationVersion],
+    [modelId, entityId, existingPsets, existingQsets, setProperty, createPropertySet, setQuantity, createQuantitySet, storeSetAttribute, bumpMutationVersion],
   );
 
   const handleAddAllInPset = useCallback(

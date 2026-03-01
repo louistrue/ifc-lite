@@ -189,7 +189,8 @@ export class StepExporter {
         }
       }
 
-      // Collect modified quantity sets
+      // Collect modified quantity sets (only if quantities are included)
+      if (options.includeQuantities === false) entityQuantMutations.clear();
       for (const [entityId, qsetNames] of entityQuantMutations) {
         modifiedEntities.add(entityId);
         if (!modifiedPsets.has(entityId)) modifiedEntityCount++;
@@ -414,7 +415,7 @@ export class StepExporter {
 
         const ifcType = this.quantityTypeToIfcType(q.type);
         // #ID=IFCQUANTITYLENGTH('Name',$,$,Value,$);
-        const val = isNaN(q.value) ? 0. : q.value;
+        const val = this.toStepReal(q.value);
         const line = `#${qId}=${ifcType}('${this.escapeStepString(q.name)}',$,$,${val},$);`;
         lines.push(line);
         quantityIds.push(qId);
@@ -502,6 +503,16 @@ export class StepExporter {
       default:
         return `IFCLABEL('${this.escapeStepString(String(value))}')`;
     }
+  }
+
+  /**
+   * Convert a number to a valid STEP REAL literal.
+   * Handles NaN/Infinity (→ 0.) and ensures a decimal point is present.
+   */
+  private toStepReal(v: number): string {
+    if (!Number.isFinite(v)) return '0.';
+    const s = v.toString();
+    return s.includes('.') ? s : s + '.';
   }
 
   /**

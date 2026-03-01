@@ -108,13 +108,13 @@ async function fetchJson<T>(url: string): Promise<T> {
  * e.g. "IfcWall" -> "https://identifier.buildingsmart.org/uri/buildingsmart/ifc/4.3/class/IfcWall"
  */
 export function ifcClassUri(ifcType: string): string {
-  // Normalise: ensure PascalCase starting with "Ifc"
-  let name = ifcType;
-  if (name.toUpperCase().startsWith('IFC') && !name.startsWith('Ifc')) {
-    // e.g. IFCWALL -> IfcWall  (best-effort)
-    name = 'Ifc' + name.slice(3, 4).toUpperCase() + name.slice(4).toLowerCase();
-  }
-  return `${IFC_DICTIONARY_URI}/class/${name}`;
+  // Use the type name as-is.  IFC parsers typically produce PascalCase
+  // names (e.g. "IfcWall") which match the bSDD URI scheme directly.
+  // Previous best-effort lowercasing corrupted multi-word names like
+  // IFCWALLSTANDARDCASE → "IfcWallstandardcase", so we no longer attempt
+  // case normalisation — the bSDD API will simply 404 for unknown names
+  // and we handle that gracefully.
+  return `${IFC_DICTIONARY_URI}/class/${ifcType}`;
 }
 
 /**

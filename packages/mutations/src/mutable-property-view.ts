@@ -560,6 +560,7 @@ export class MutablePropertyView {
     value: number,
     qType: QuantityType = QuantityType.Count,
     unit?: string,
+    skipHistory: boolean = false,
   ): Mutation {
     const key = quantityKey(entityId, qsetName, quantName);
 
@@ -589,6 +590,11 @@ export class MutablePropertyView {
       }
     }
 
+    // Get old value for undo and to determine CREATE vs UPDATE
+    const existingMutation = this.quantityMutations.get(key);
+    const oldValue = existingMutation?.value ?? null;
+    const isUpdate = existingMutation != null || qsetExistsInBase;
+
     this.quantityMutations.set(key, {
       operation: 'SET',
       value,
@@ -598,16 +604,19 @@ export class MutablePropertyView {
 
     const mutation: Mutation = {
       id: generateMutationId(),
-      type: 'CREATE_QUANTITY',
+      type: isUpdate ? 'UPDATE_QUANTITY' : 'CREATE_QUANTITY',
       timestamp: Date.now(),
       modelId: this.modelId,
       entityId,
       psetName: qsetName,
       propName: quantName,
+      oldValue: oldValue as PropertyValue,
       newValue: value,
     };
 
-    this.mutationHistory.push(mutation);
+    if (!skipHistory) {
+      this.mutationHistory.push(mutation);
+    }
     return mutation;
   }
 
@@ -623,6 +632,7 @@ export class MutablePropertyView {
     attrName: string,
     value: string,
     oldValue?: string,
+    skipHistory: boolean = false,
   ): Mutation {
     const key = attributeKey(entityId, attrName);
 
@@ -643,7 +653,9 @@ export class MutablePropertyView {
       oldValue: oldValue ?? null,
     };
 
-    this.mutationHistory.push(mutation);
+    if (!skipHistory) {
+      this.mutationHistory.push(mutation);
+    }
     return mutation;
   }
 
@@ -659,6 +671,47 @@ export class MutablePropertyView {
       }
     }
     return result;
+  }
+
+  /**
+   * Remove a quantity mutation (used by undo for newly created quantities)
+   */
+  removeQuantityMutation(entityId: number, qsetName: string, quantName?: string): void {
+    if (quantName) {
+      const key = quantityKey(entityId, qsetName, quantName);
+      this.quantityMutations.delete(key);
+      // Also remove from newQsets if present
+      const entityQsets = this.newQsets.get(entityId);
+      if (entityQsets) {
+        const qset = entityQsets.get(qsetName);
+        if (qset) {
+          qset.quantities = qset.quantities.filter(q => q.name !== quantName);
+          if (qset.quantities.length === 0) {
+            entityQsets.delete(qsetName);
+          }
+        }
+      }
+    } else {
+      // Remove entire quantity set
+      const entityQsets = this.newQsets.get(entityId);
+      if (entityQsets) {
+        entityQsets.delete(qsetName);
+      }
+      // Remove all quantity mutations for this qset
+      for (const key of [...this.quantityMutations.keys()]) {
+        if (key.startsWith(`${entityId}:${qsetName}:`)) {
+          this.quantityMutations.delete(key);
+        }
+      }
+    }
+  }
+
+  /**
+   * Remove an attribute mutation (used by undo for newly set attributes)
+   */
+  removeAttributeMutation(entityId: number, attrName: string): void {
+    const key = attributeKey(entityId, attrName);
+    this.attributeMutations.delete(key);
   }
 
   /**
