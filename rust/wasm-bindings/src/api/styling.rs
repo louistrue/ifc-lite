@@ -378,6 +378,8 @@ pub(crate) struct PrePassData {
     pub faceted_brep_ids: Vec<u32>,
     /// IfcProject entity ID (for unit extraction)
     pub project_id: Option<u32>,
+    /// IfcSite entity position (id, start, end) — for building rotation extraction
+    pub site_position: Option<(u32, usize, usize)>,
     /// Simple geometry jobs (walls, slabs …) — processed first for fast first frame
     pub simple_jobs: Vec<(u32, usize, usize, ifc_lite_core::IfcType)>,
     /// Complex geometry jobs (windows, doors, furniture …)
@@ -403,6 +405,7 @@ pub(crate) fn combined_pre_pass(
     let mut void_index: FxHashMap<u32, Vec<u32>> = FxHashMap::default();
     let mut faceted_brep_ids: Vec<u32> = Vec::with_capacity(estimated_elements / 10);
     let mut project_id: Option<u32> = None;
+    let mut site_position: Option<(u32, usize, usize)> = None;
     let mut simple_jobs = Vec::with_capacity(estimated_elements / 2);
     let mut complex_jobs = Vec::with_capacity(estimated_elements / 2);
 
@@ -443,6 +446,11 @@ pub(crate) fn combined_pre_pass(
                     project_id = Some(id);
                 }
             }
+            "IFCSITE" => {
+                if site_position.is_none() {
+                    site_position = Some((id, start, end));
+                }
+            }
             _ => {
                 if ifc_lite_core::has_geometry_by_name(type_name) {
                     let ifc_type = ifc_lite_core::IfcType::from_str(type_name);
@@ -461,6 +469,7 @@ pub(crate) fn combined_pre_pass(
         void_index,
         faceted_brep_ids,
         project_id,
+        site_position,
         simple_jobs,
         complex_jobs,
     }
@@ -572,8 +581,28 @@ pub(crate) fn get_default_color_for_type(ifc_type: &ifc_lite_core::IfcType) -> [
     }
 }
 
-/// Extract building rotation from IfcSite's top-level placement
-/// Returns rotation angle in radians, or None if not found
+/// Extract building rotation from a pre-collected IfcSite position (avoids re-scanning).
+/// Returns rotation angle in radians, or None if not found.
+pub(crate) fn extract_building_rotation_from_site(
+    site_pos: (u32, usize, usize),
+    decoder: &mut ifc_lite_core::EntityDecoder,
+) -> Option<f64> {
+    let (site_id, start, end) = site_pos;
+    let site_entity = decoder.decode_at_with_id(site_id, start, end).ok()?;
+
+    // Get ObjectPlacement (attribute 5 for IfcProduct)
+    let placement_attr = site_entity.get(5).filter(|a| !a.is_null())?;
+    let placement = decoder.resolve_ref(placement_attr).ok()??;
+
+    // Find top-level placement (parent is null)
+    let top_level_placement = find_top_level_placement(&placement, decoder);
+
+    // Extract rotation from top-level placement's RefDirection
+    extract_rotation_from_placement(&top_level_placement, decoder)
+}
+
+/// Extract building rotation from IfcSite's top-level placement (scans file).
+/// Used by the synchronous parse_meshes path.
 pub(crate) fn extract_building_rotation(
     content: &str,
     decoder: &mut ifc_lite_core::EntityDecoder,
@@ -582,30 +611,20 @@ pub(crate) fn extract_building_rotation(
 
     let mut scanner = EntityScanner::new(content);
 
-    // Find IfcSite entity
     while let Some((site_id, type_name, start, end)) = scanner.next_entity() {
         if type_name != "IFCSITE" {
             continue;
         }
-
-        // Decode IfcSite
         if let Ok(site_entity) = decoder.decode_at_with_id(site_id, start, end) {
-            // Get ObjectPlacement (attribute 5 for IfcProduct)
             let placement_attr = match site_entity.get(5) {
                 Some(attr) if !attr.is_null() => attr,
                 _ => continue,
             };
-
-            // Resolve placement
             let placement = match decoder.resolve_ref(placement_attr) {
                 Ok(Some(p)) => p,
                 _ => continue,
             };
-
-            // Find top-level placement (parent is null)
             let top_level_placement = find_top_level_placement(&placement, decoder);
-
-            // Extract rotation from top-level placement's RefDirection
             if let Some(rotation) = extract_rotation_from_placement(&top_level_placement, decoder) {
                 return Some(rotation);
             }

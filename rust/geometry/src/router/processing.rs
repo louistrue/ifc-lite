@@ -101,6 +101,69 @@ impl GeometryRouter {
         (0.0, 0.0, 0.0)
     }
 
+    /// Detect RTC offset using pre-collected geometry jobs (avoids re-scanning the file).
+    /// Takes the first `MAX_SAMPLES` building elements from the provided jobs list,
+    /// extracts their placement transforms, and computes a median-based centroid.
+    pub fn detect_rtc_offset_from_jobs(
+        &self,
+        jobs: &[(u32, usize, usize, IfcType)],
+        decoder: &mut EntityDecoder,
+    ) -> (f64, f64, f64) {
+        let mut translations: Vec<(f64, f64, f64)> = Vec::new();
+        const MAX_SAMPLES: usize = 50;
+
+        for &(id, start, end, _) in jobs.iter().take(MAX_SAMPLES) {
+            if let Ok(entity) = decoder.decode_at_with_id(id, start, end) {
+                let has_rep = entity.get(6).map(|a| !a.is_null()).unwrap_or(false);
+                if !has_rep {
+                    continue;
+                }
+
+                if let Ok(mut transform) =
+                    self.get_placement_transform_from_element(&entity, decoder)
+                {
+                    self.scale_transform(&mut transform);
+                    let tx = transform[(0, 3)];
+                    let ty = transform[(1, 3)];
+                    let tz = transform[(2, 3)];
+
+                    if tx.is_finite() && ty.is_finite() && tz.is_finite() {
+                        translations.push((tx, ty, tz));
+                    }
+                }
+            }
+        }
+
+        if translations.is_empty() {
+            return (0.0, 0.0, 0.0);
+        }
+
+        let mut x_coords: Vec<f64> = translations.iter().map(|(x, _, _)| *x).collect();
+        let mut y_coords: Vec<f64> = translations.iter().map(|(_, y, _)| *y).collect();
+        let mut z_coords: Vec<f64> = translations.iter().map(|(_, _, z)| *z).collect();
+
+        x_coords.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        y_coords.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        z_coords.sort_by(|a, b| a.partial_cmp(b).unwrap());
+
+        let median_idx = x_coords.len() / 2;
+        let centroid = (
+            x_coords[median_idx],
+            y_coords[median_idx],
+            z_coords[median_idx],
+        );
+
+        const THRESHOLD: f64 = 10000.0;
+        if centroid.0.abs() > THRESHOLD
+            || centroid.1.abs() > THRESHOLD
+            || centroid.2.abs() > THRESHOLD
+        {
+            return centroid;
+        }
+
+        (0.0, 0.0, 0.0)
+    }
+
     /// Process building element (IfcWall, IfcBeam, etc.) into mesh
     /// Follows the representation chain:
     /// Element → Representation → ShapeRepresentation → Items

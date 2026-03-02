@@ -940,7 +940,7 @@ impl IfcAPI {
     pub fn parse_meshes_async(&self, content: String, options: JsValue) -> js_sys::Promise {
         use ifc_lite_core::EntityDecoder;
         use ifc_lite_geometry::{calculate_normals, GeometryRouter};
-        use super::styling::{combined_pre_pass, resolve_element_color};
+        use super::styling::{combined_pre_pass, extract_building_rotation_from_site, resolve_element_color};
 
         // Use Option::take() to move ownership into the closure without cloning.
         // This avoids doubling WASM memory usage for large files (700MB+ saves ~700MB).
@@ -996,9 +996,9 @@ impl IfcAPI {
                     .unwrap_or(1.0);
                 let mut router = GeometryRouter::with_scale(unit_scale);
 
-                // DETECT RTC OFFSET from actual building element transforms
+                // DETECT RTC OFFSET from pre-collected building element jobs (no re-scan)
                 let rtc_offset =
-                    router.detect_rtc_offset_from_first_element(&content, &mut decoder);
+                    router.detect_rtc_offset_from_jobs(&pre_pass.simple_jobs, &mut decoder);
                 let needs_shift = rtc_offset.0.abs() > 10000.0
                     || rtc_offset.1.abs() > 10000.0
                     || rtc_offset.2.abs() > 10000.0;
@@ -1017,8 +1017,10 @@ impl IfcAPI {
                     let _ = callback.call1(&JsValue::NULL, &rtc_info);
                 }
 
-                // Extract building rotation from IfcSite's top-level placement
-                let building_rotation = extract_building_rotation(&content, &mut decoder);
+                // Extract building rotation from pre-collected IfcSite (no re-scan)
+                let building_rotation = pre_pass
+                    .site_position
+                    .and_then(|pos| extract_building_rotation_from_site(pos, &mut decoder));
 
                 // ── Phase 4: Process geometry (iterate collected jobs, no re-scan) ──
                 let mut processed = 0;
@@ -1026,6 +1028,14 @@ impl IfcAPI {
                 let mut total_vertices = 0;
                 let mut total_triangles = 0;
                 let mut batch_meshes: Vec<MeshDataJs> = Vec::with_capacity(batch_size);
+
+                // ADAPTIVE BATCHING: Small first batch for fast first render,
+                // then large batches for throughput. setTimeout(0) gets clamped to
+                // 4ms by browsers after 5 nested calls — with 208K meshes / 25 =
+                // 8300 yields × 4ms = 33s of pure yield overhead!
+                // With 500-mesh batches: 416 yields × 4ms = 1.7s — a ~30s savings.
+                let mut current_batch_size = batch_size; // Start small (25) for fast first frame
+                let throughput_batch_size = batch_size.max(500); // Ramp up after first batch
 
                 // Cache IFC type name strings: ~30 unique types repeated across 200K+ meshes.
                 let mut type_name_cache: rustc_hash::FxHashMap<ifc_lite_core::IfcType, String> =
@@ -1072,8 +1082,8 @@ impl IfcAPI {
                         }
                     }
 
-                    // Yield batch frequently for responsive UI
-                    if batch_meshes.len() >= batch_size {
+                    // Yield batch when full
+                    if batch_meshes.len() >= current_batch_size {
                         if let Some(ref callback) = on_batch {
                             let js_meshes = js_sys::Array::new();
                             for mesh in batch_meshes.drain(..) {
@@ -1092,6 +1102,9 @@ impl IfcAPI {
                             let _ = callback.call2(&JsValue::NULL, &js_meshes, &progress);
                             total_meshes += js_meshes.length() as usize;
                         }
+
+                        // After first batch, ramp up batch size for throughput
+                        current_batch_size = throughput_batch_size;
 
                         // Yield to browser
                         gloo_timers::future::TimeoutFuture::new(0).await;
@@ -1235,8 +1248,8 @@ impl IfcAPI {
 
                     processed += 1;
 
-                    // Yield batch
-                    if batch_meshes.len() >= batch_size {
+                    // Yield batch (uses adaptive batch size)
+                    if batch_meshes.len() >= current_batch_size {
                         if let Some(ref callback) = on_batch {
                             let js_meshes = js_sys::Array::new();
                             for mesh in batch_meshes.drain(..) {
