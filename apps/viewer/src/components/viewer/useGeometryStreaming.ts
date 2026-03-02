@@ -168,17 +168,42 @@ export function useGeometryStreaming(params: UseGeometryStreamingParams): void {
       //     whose first-batch bounds were too tight / off-centre).
       //   • User HAS orbited/panned/zoomed → preserve their position; just store
       //     the final bounds so "Home" / zoom-to-fit still work correctly.
-      if (cameraFittedRef.current && !isStreaming && !finalBoundsRefittedRef.current && coordinateInfo?.shiftedBounds) {
-        const shiftedBounds = coordinateInfo.shiftedBounds;
-        const newMaxSize = Math.max(
-          shiftedBounds.max.x - shiftedBounds.min.x,
-          shiftedBounds.max.y - shiftedBounds.min.y,
-          shiftedBounds.max.z - shiftedBounds.min.z
+      if (cameraFittedRef.current && !isStreaming && !finalBoundsRefittedRef.current) {
+        // Compute EXACT bounds from all geometry vertices.
+        // coordinateInfo.shiftedBounds uses fast vertex-sampling (first+last vertex per mesh)
+        // which can miss the true extremes — e.g., a 22-storey building whose highest vertices
+        // are mid-buffer gets truncated bounds.  Scanning all vertices here is ~15 ms for 3 M
+        // vertices and only runs once at streaming completion.
+        const MAX_VALID_COORD = 10000;
+        const exactBounds = {
+          min: { x: Infinity, y: Infinity, z: Infinity },
+          max: { x: -Infinity, y: -Infinity, z: -Infinity },
+        };
+        for (let gi = 0; gi < geometry.length; gi++) {
+          const positions = geometry[gi].positions;
+          for (let i = 0; i < positions.length; i += 3) {
+            const x = positions[i];
+            const y = positions[i + 1];
+            const z = positions[i + 2];
+            if (Math.abs(x) < MAX_VALID_COORD && Math.abs(y) < MAX_VALID_COORD && Math.abs(z) < MAX_VALID_COORD) {
+              if (x < exactBounds.min.x) exactBounds.min.x = x;
+              if (y < exactBounds.min.y) exactBounds.min.y = y;
+              if (z < exactBounds.min.z) exactBounds.min.z = z;
+              if (x > exactBounds.max.x) exactBounds.max.x = x;
+              if (y > exactBounds.max.y) exactBounds.max.y = y;
+              if (z > exactBounds.max.z) exactBounds.max.z = z;
+            }
+          }
+        }
+
+        const exactMaxSize = Math.max(
+          exactBounds.max.x - exactBounds.min.x,
+          exactBounds.max.y - exactBounds.min.y,
+          exactBounds.max.z - exactBounds.min.z
         );
 
-        if (newMaxSize > 0 && Number.isFinite(newMaxSize)) {
-          // Detect whether the user moved the camera during streaming by comparing
-          // current camera state with the snapshot taken right after the initial fit.
+        if (exactBounds.min.x !== Infinity && exactMaxSize > 0 && Number.isFinite(exactMaxSize)) {
+          // Detect whether the user moved the camera during streaming
           const snap = cameraStateAfterFitRef.current;
           let userMovedCamera = false;
           if (snap) {
@@ -191,14 +216,12 @@ export function useGeometryStreaming(params: UseGeometryStreamingParams): void {
           }
 
           if (!userMovedCamera) {
-            // User hasn't interacted — always refit to final bounds so the full
-            // building is visible (no >10% threshold — even small bound changes
-            // can leave part of the model clipped).
-            renderer.getCamera().fitToBounds(shiftedBounds.min, shiftedBounds.max);
+            // User hasn't interacted — refit to exact full bounds
+            renderer.getCamera().fitToBounds(exactBounds.min, exactBounds.max);
           }
 
-          // Always update stored bounds for Home / zoom-to-fit regardless of camera refit
-          geometryBoundsRef.current = { min: { ...shiftedBounds.min }, max: { ...shiftedBounds.max } };
+          // Always update stored bounds for Home / zoom-to-fit
+          geometryBoundsRef.current = { min: { ...exactBounds.min }, max: { ...exactBounds.max } };
           finalBoundsRefittedRef.current = true;
         }
       }
