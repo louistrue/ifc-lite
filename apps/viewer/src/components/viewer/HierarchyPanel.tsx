@@ -200,7 +200,9 @@ export function HierarchyPanel() {
     if (node.type === 'type-group') {
       const elements = getNodeElements(node);
       if (elements.length > 0) {
-        setSelectedEntityIds(elements);
+        // Clear multi-selection highlight — isolate shows the class members,
+        // but we don't want every element highlighted/selected
+        setSelectedEntityIds([]);
         setSelectedEntity(resolveEntityRef(elements[0]));
         isolateEntities(elements);
       }
@@ -287,6 +289,10 @@ export function HierarchyPanel() {
       // Element click - select it
       const elementId = node.expressIds[0];  // Original expressId
       const modelId = node.modelIds[0];
+
+      // Clear multi-selection (e.g. from a prior type-group click) so only
+      // this single element is highlighted, matching Viewport pick behavior
+      setSelectedEntityIds([]);
 
       if (modelId !== 'legacy') {
         // Multi-model: need to convert to globalId for renderer
