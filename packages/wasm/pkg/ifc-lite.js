@@ -2562,7 +2562,7 @@ function __wbg_get_imports() {
     };
     return {
         __proto__: null,
-        "./ifc-lite_bg.js": import0,
+        "./ifc_lite_wasm_bg.js": import0,
     };
 }
 

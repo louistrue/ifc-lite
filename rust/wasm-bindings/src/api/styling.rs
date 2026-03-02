@@ -450,6 +450,10 @@ pub(crate) fn combined_pre_pass(
                 if site_position.is_none() {
                     site_position = Some((id, start, end));
                 }
+                // IfcSite can also have geometry (terrain mesh) — must be
+                // added to complex_jobs so it gets processed for rendering.
+                let ifc_type = ifc_lite_core::IfcType::from_str(type_name);
+                complex_jobs.push((id, start, end, ifc_type));
             }
             _ => {
                 if ifc_lite_core::has_geometry_by_name(type_name) {

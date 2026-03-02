@@ -228,6 +228,20 @@ export function useGeometryStreaming(params: UseGeometryStreamingParams): void {
       return;
     }
 
+    // Detect post-streaming type visibility toggle: geometry grew while NOT streaming.
+    // The filtered array was rebuilt from scratch (spaces/openings/site toggled ON),
+    // with new meshes interleaved throughout — not just appended at the end.
+    // We must clear the scene and re-add ALL meshes.
+    // Distinguish from streaming-completion (prevIsStreaming→!isStreaming) where new
+    // meshes ARE appended at the end and scene should NOT be cleared.
+    if (isIncremental && !isStreaming && !prevIsStreamingRef.current) {
+      scene.clear();
+      processedMeshIdsRef.current.clear();
+      // Don't reset camera or bounds — user just toggled visibility
+      lastGeometryLengthRef.current = 0;
+      lastGeometryRef.current = geometry;
+    }
+
     // For incremental batches: update reference and continue to add new meshes
     if (isIncremental) {
       lastGeometryRef.current = geometry;
@@ -238,22 +252,25 @@ export function useGeometryStreaming(params: UseGeometryStreamingParams): void {
     // PERF: During streaming, new meshes are ALWAYS appended at the end.
     // Skip the compound key dedup (208K string allocations + Set lookups)
     // and array copy (.slice()). Use index-based iteration directly.
-    // Post-streaming: filter changes can insert meshes anywhere, so scan entire array.
     //
     // FIX: Use fast path for incremental appends too (not just streaming).
     // When streaming completes, isStreaming becomes false in the same render as the
     // final appendGeometryBatch. The slow path would re-add ALL meshes because
     // processedMeshIdsRef was never populated during streaming, causing double geometry.
+    // For visibility toggles, lastGeometryLengthRef was reset to 0 above, so the
+    // fast path naturally starts from 0 (adding ALL meshes after scene.clear).
     let newMeshes: MeshData[];
     if (isStreaming || isIncremental) {
-      // Fast path: new meshes appended at the end, iterate from lastLength directly
+      // Fast path: iterate from lastLength directly
+      // During streaming: new meshes appended at end, start = previous length
+      // After visibility toggle: scene was cleared, start = 0, adds everything
       const start = lastGeometryLengthRef.current;
       newMeshes = [];
       for (let i = start; i < geometry.length; i++) {
         newMeshes.push(geometry[i]);
       }
     } else {
-      // Slow path: type visibility toggle — scan entire array for unprocessed meshes
+      // Slow path: scan entire array for unprocessed meshes
       // Only used when array was fully rebuilt (not incremental)
       newMeshes = [];
       for (let i = 0; i < geometry.length; i++) {
