@@ -427,6 +427,65 @@ export function useGeometryStreaming(params: UseGeometryStreamingParams): void {
         scene.finalizeStreaming(device, pipeline);
       }
 
+      // Compute exact bounds and refit camera if not already done.
+      // This MUST happen here rather than only in the main geometry effect's
+      // `currentLength === lastLength` branch, because React may batch the
+      // final appendGeometryBatch (geometry grows) and setIsStreaming(false)
+      // into the SAME render — making the main effect take the incremental
+      // `currentLength > lastLength` path and skip the bounds refit entirely.
+      // This effect reliably fires on the isStreaming true→false transition.
+      if (cameraFittedRef.current && !finalBoundsRefittedRef.current && geometry && geometry.length > 0) {
+        const MAX_VALID_COORD = 10000;
+        const exactBounds = {
+          min: { x: Infinity, y: Infinity, z: Infinity },
+          max: { x: -Infinity, y: -Infinity, z: -Infinity },
+        };
+        for (let gi = 0; gi < geometry.length; gi++) {
+          const positions = geometry[gi].positions;
+          for (let i = 0; i < positions.length; i += 3) {
+            const x = positions[i];
+            const y = positions[i + 1];
+            const z = positions[i + 2];
+            if (Math.abs(x) < MAX_VALID_COORD && Math.abs(y) < MAX_VALID_COORD && Math.abs(z) < MAX_VALID_COORD) {
+              if (x < exactBounds.min.x) exactBounds.min.x = x;
+              if (y < exactBounds.min.y) exactBounds.min.y = y;
+              if (z < exactBounds.min.z) exactBounds.min.z = z;
+              if (x > exactBounds.max.x) exactBounds.max.x = x;
+              if (y > exactBounds.max.y) exactBounds.max.y = y;
+              if (z > exactBounds.max.z) exactBounds.max.z = z;
+            }
+          }
+        }
+
+        const exactMaxSize = Math.max(
+          exactBounds.max.x - exactBounds.min.x,
+          exactBounds.max.y - exactBounds.min.y,
+          exactBounds.max.z - exactBounds.min.z
+        );
+
+        if (exactBounds.min.x !== Infinity && exactMaxSize > 0 && Number.isFinite(exactMaxSize)) {
+          // Detect whether the user moved the camera during streaming
+          const snap = cameraStateAfterFitRef.current;
+          let userMovedCamera = false;
+          if (snap) {
+            const pos = renderer.getCamera().getPosition();
+            const tgt = renderer.getCamera().getTarget();
+            const EPS = 0.5; // half a metre — ignores floating-point jitter
+            userMovedCamera =
+              Math.abs(pos.x - snap.px) > EPS || Math.abs(pos.y - snap.py) > EPS || Math.abs(pos.z - snap.pz) > EPS ||
+              Math.abs(tgt.x - snap.tx) > EPS || Math.abs(tgt.y - snap.ty) > EPS || Math.abs(tgt.z - snap.tz) > EPS;
+          }
+
+          if (!userMovedCamera) {
+            renderer.getCamera().fitToBounds(exactBounds.min, exactBounds.max);
+          }
+
+          // Always update stored bounds for Home / zoom-to-fit
+          geometryBoundsRef.current = { min: { ...exactBounds.min }, max: { ...exactBounds.max } };
+          finalBoundsRefittedRef.current = true;
+        }
+      }
+
       renderer.render();
       lastStreamRenderTimeRef.current = Date.now();
     }
