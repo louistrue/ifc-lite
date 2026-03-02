@@ -232,9 +232,24 @@ impl<'a> EntityDecoder<'a> {
         self.cache.get(&entity_id).map(|arc| arc.as_ref().clone())
     }
 
-    /// Clear cache to free memory
+    /// Reserve cache capacity to avoid HashMap resizing during processing.
+    /// For a 487 MB file with 208 K building elements, the cache can grow to
+    /// 300 K+ entries (elements + representation chains + placements).
+    /// Pre-allocating avoids ~6 resize-and-rehash operations that each copy
+    /// all entries, reducing both peak memory spikes and timing variance.
+    pub fn reserve_cache(&mut self, additional: usize) {
+        self.cache.reserve(additional);
+    }
+
+    /// Clear all caches to free memory
     pub fn clear_cache(&mut self) {
         self.cache.clear();
+        self.point_cache.clear();
+    }
+
+    /// Clear only the point coordinate cache (used after BREP preprocessing).
+    /// The entity cache is preserved for subsequent geometry processing.
+    pub fn clear_point_cache(&mut self) {
         self.point_cache.clear();
     }
 

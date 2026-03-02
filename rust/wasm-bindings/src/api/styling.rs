@@ -452,7 +452,9 @@ pub(crate) fn combined_pre_pass(
                 }
             }
             _ => {
-                if ifc_lite_core::has_geometry_by_name(type_name) {
+                if ifc_lite_core::has_geometry_by_name(type_name)
+                    && !is_void_element(type_name)
+                {
                     let ifc_type = ifc_lite_core::IfcType::from_str(type_name);
                     if is_simple_geometry_type(type_name) {
                         simple_jobs.push((id, start, end, ifc_type));
@@ -473,6 +475,16 @@ pub(crate) fn combined_pre_pass(
         simple_jobs,
         complex_jobs,
     }
+}
+
+/// Opening elements are processed as void subtractions (via IfcRelVoidsElement)
+/// rather than standalone geometry — skip them from the job lists to avoid
+/// rendering invisible void shapes and save ~3-5 s on large models.
+fn is_void_element(type_name: &str) -> bool {
+    matches!(
+        type_name,
+        "IFCOPENINGELEMENT" | "IFCOPENINGSTANDARDCASE"
+    )
 }
 
 /// Check if a type name is "simple" geometry (processed first for fast first frame).

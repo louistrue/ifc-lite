@@ -690,7 +690,7 @@ impl IfcAPI {
                             }
 
                             // Yield to browser
-                            gloo_timers::future::TimeoutFuture::new(0).await;
+                            crate::utils::yield_now().await;
                         }
                     } else {
                         // Defer complex geometry
@@ -736,7 +736,7 @@ impl IfcAPI {
                         let _ = callback.call2(&JsValue::NULL, &js_geometries, &progress);
                     }
 
-                    gloo_timers::future::TimeoutFuture::new(0).await;
+                    crate::utils::yield_now().await;
                 }
 
                 // Process deferred complex geometry
@@ -844,7 +844,7 @@ impl IfcAPI {
                             let _ = callback.call2(&JsValue::NULL, &js_geometries, &progress);
                         }
 
-                        gloo_timers::future::TimeoutFuture::new(0).await;
+                        crate::utils::yield_now().await;
                     }
                 }
 
@@ -985,6 +985,12 @@ impl IfcAPI {
                 // Replaces: build_geometry_style_index + build_element_style_index +
                 //           void pre-pass + processing scan.
                 let pre_pass = combined_pre_pass(&content, &mut decoder);
+
+                // Pre-allocate decoder cache for all building elements + their
+                // representation chains (~3x multiplier). Avoids ~6 HashMap
+                // resize-and-rehash operations during Phase 3b/4.
+                let total_jobs = pre_pass.simple_jobs.len() + pre_pass.complex_jobs.len();
+                decoder.reserve_cache(total_jobs * 3);
 
                 // ── Phase 3: Setup (~150 ms) ──
                 // Extract unit scale from collected IfcProject (avoids with_units scan)
@@ -1135,7 +1141,7 @@ impl IfcAPI {
                         current_batch_size = throughput_batch_size;
 
                         // Yield to browser
-                        gloo_timers::future::TimeoutFuture::new(0).await;
+                        crate::utils::yield_now().await;
                     }
                 }
 
@@ -1154,7 +1160,7 @@ impl IfcAPI {
                         total_meshes += js_meshes.length() as usize;
                     }
 
-                    gloo_timers::future::TimeoutFuture::new(0).await;
+                    crate::utils::yield_now().await;
                 }
 
                 let total_elements = processed + pre_pass.complex_jobs.len();
@@ -1163,6 +1169,9 @@ impl IfcAPI {
                 // This triangulates ALL faces in parallel - massive speedup for repeated geometry
                 if !pre_pass.faceted_brep_ids.is_empty() {
                     router.preprocess_faceted_breps(&pre_pass.faceted_brep_ids, &mut decoder);
+                    // Clear point_cache after BREP preprocessing — these coordinates
+                    // are no longer needed and can be large for complex models.
+                    decoder.clear_point_cache();
                 }
 
                 // Process complex geometry with proper styles and void subtraction
@@ -1291,7 +1300,7 @@ impl IfcAPI {
                             total_meshes += js_meshes.length() as usize;
                         }
 
-                        gloo_timers::future::TimeoutFuture::new(0).await;
+                        crate::utils::yield_now().await;
                     }
                 }
 
@@ -1311,6 +1320,16 @@ impl IfcAPI {
                         total_meshes += js_meshes.length() as usize;
                     }
                 }
+
+                // Free large data structures before the completion callback.
+                // The decoder cache + point cache + content string can hold
+                // 200-600 MB at this point — releasing them immediately
+                // reduces peak WASM memory and prevents GC pressure on the
+                // JS side that processes the final callback.
+                drop(decoder);
+                drop(content);
+                drop(element_styles);
+                drop(type_name_cache);
 
                 // Call completion callback
                 if let Some(ref callback) = on_complete {
@@ -1695,7 +1714,7 @@ impl IfcAPI {
                             flush_batch(&mut current_batch, &on_batch, &progress.into());
 
                             // Yield to browser
-                            gloo_timers::future::TimeoutFuture::new(0).await;
+                            crate::utils::yield_now().await;
                         }
                     } else {
                         // Defer complex geometry
@@ -1708,7 +1727,7 @@ impl IfcAPI {
                     let progress = js_sys::Object::new();
                     super::set_js_prop(&progress, "phase", &"simple_complete".into());
                     flush_batch(&mut current_batch, &on_batch, &progress.into());
-                    gloo_timers::future::TimeoutFuture::new(0).await;
+                    crate::utils::yield_now().await;
                 }
 
                 // Process deferred complex geometry
@@ -1756,7 +1775,7 @@ impl IfcAPI {
                         super::set_js_prop(&progress, "phase", &"complex".into());
 
                         flush_batch(&mut current_batch, &on_batch, &progress.into());
-                        gloo_timers::future::TimeoutFuture::new(0).await;
+                        crate::utils::yield_now().await;
                     }
                 }
 
