@@ -1114,12 +1114,6 @@ impl IfcAPI {
                         // After first batch, ramp up batch size for throughput
                         current_batch_size = throughput_batch_size;
 
-                        // Bound decoder cache growth: clear between batches to
-                        // prevent unbounded memory growth (~200-800 MB for large
-                        // files). Shared placements may be re-decoded, but this
-                        // is cheap vs. the GC/memory.grow variance from 1 GB+ peak.
-                        decoder.clear_cache();
-
                         // Yield to browser
                         gloo_timers::future::TimeoutFuture::new(0).await;
                     }
@@ -1281,7 +1275,6 @@ impl IfcAPI {
                             total_meshes += js_meshes.length() as usize;
                         }
 
-                        decoder.clear_cache();
                         gloo_timers::future::TimeoutFuture::new(0).await;
                     }
                 }
