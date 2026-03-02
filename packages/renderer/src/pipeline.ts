@@ -241,33 +241,35 @@ export class RenderPipeline {
           }
 
           // Beautiful fresnel effect for transparent materials (glass)
+          // Skip when selected — the glass shine and desaturation wash out the
+          // blue highlight, making it appear white instead of blue.
           var finalAlpha = uniforms.baseColor.a;
-          if (finalAlpha < 0.99) {
+          if (finalAlpha < 0.99 && uniforms.flags.x != 1u) {
             // Calculate view direction for fresnel
             let V = normalize(-input.worldPos);
             let NdotV = max(dot(N, V), 0.0);
-            
+
             // Enhanced fresnel effect - stronger at edges (grazing angles)
             // Using Schlick's approximation for realistic glass reflection
             let fresnelPower = 1.5; // Higher = softer edge reflections
             let fresnel = pow(1.0 - NdotV, fresnelPower);
-            
+
             // Glass reflection tint (sky/environment reflection at edges)
             let reflectionTint = vec3<f32>(0.92, 0.96, 1.0);  // Cool sky reflection
             let reflectionStrength = fresnel * 0.6;  // Strong edge reflections
-            
+
             // Mix in reflection tint at edges
             color = mix(color, color * reflectionTint, reflectionStrength);
-            
+
             // Add realistic glass shine - brighter at edges where light reflects
             let glassShine = fresnel * 0.12;
             color += glassShine;
-            
+
             // Slight desaturation at edges (glass reflects environment, not just color)
             let edgeDesaturation = fresnel * 0.25;
             let gray = dot(color, vec3<f32>(0.299, 0.587, 0.114));
             color = mix(color, vec3<f32>(gray), edgeDesaturation);
-            
+
             // Make glass more transparent (reduce opacity by 30%)
             finalAlpha = finalAlpha * 0.7;
           }
