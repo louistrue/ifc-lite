@@ -938,8 +938,9 @@ impl IfcAPI {
     /// ```
     #[wasm_bindgen(js_name = parseMeshesAsync)]
     pub fn parse_meshes_async(&self, content: String, options: JsValue) -> js_sys::Promise {
-        use ifc_lite_core::{EntityDecoder, EntityScanner};
+        use ifc_lite_core::EntityDecoder;
         use ifc_lite_geometry::{calculate_normals, GeometryRouter};
+        use super::styling::{combined_pre_pass, resolve_element_color};
 
         // Use Option::take() to move ownership into the closure without cloning.
         // This avoids doubling WASM memory usage for large files (700MB+ saves ~700MB).
@@ -974,21 +975,30 @@ impl IfcAPI {
                     .ok()
                     .and_then(|v| v.dyn_into::<Function>().ok());
 
-                // Build entity index for lookups
+                // ── Phase 1: Build entity index (fast memchr scan, ~200 ms) ──
                 let entity_index = ifc_lite_core::build_entity_index(&content);
                 let mut decoder = EntityDecoder::with_index(&content, entity_index.clone());
 
-                // Build style index BEFORE geometry so all elements get correct colors.
-                // Previously deferred for "faster first frame", but this caused visible
-                // wrong colors during streaming (fragment batches baked default colors).
-                let geometry_styles = build_geometry_style_index(&content, &mut decoder);
-                let style_index = build_element_style_index(&content, &geometry_styles, &mut decoder);
+                // ── Phase 2: Single combined pre-pass (~600 ms, was ~3 s for 4 scans) ──
+                // Collects geometry styles, void relationships, brep IDs, project ID,
+                // and classifies all geometry entities into simple/complex job lists.
+                // Replaces: build_geometry_style_index + build_element_style_index +
+                //           void pre-pass + processing scan.
+                let pre_pass = combined_pre_pass(&content, &mut decoder);
 
-                // Create geometry router
-                let mut router = GeometryRouter::with_units(&content, &mut decoder);
+                // ── Phase 3: Setup (~150 ms) ──
+                // Extract unit scale from collected IfcProject (avoids with_units scan)
+                let unit_scale = pre_pass
+                    .project_id
+                    .and_then(|pid| {
+                        ifc_lite_core::extract_length_unit_scale(&mut decoder, pid).ok()
+                    })
+                    .unwrap_or(1.0);
+                let mut router = GeometryRouter::with_scale(unit_scale);
 
-                // DETECT RTC OFFSET from actual building element transforms (same as sync version)
-                let rtc_offset = router.detect_rtc_offset_from_first_element(&content, &mut decoder);
+                // DETECT RTC OFFSET from actual building element transforms
+                let rtc_offset =
+                    router.detect_rtc_offset_from_first_element(&content, &mut decoder);
                 let needs_shift = rtc_offset.0.abs() > 10000.0
                     || rtc_offset.1.abs() > 10000.0
                     || rtc_offset.2.abs() > 10000.0;
@@ -1010,7 +1020,7 @@ impl IfcAPI {
                 // Extract building rotation from IfcSite's top-level placement
                 let building_rotation = extract_building_rotation(&content, &mut decoder);
 
-                // Process counters
+                // ── Phase 4: Process geometry (iterate collected jobs, no re-scan) ──
                 let mut processed = 0;
                 let mut total_meshes = 0;
                 let mut total_vertices = 0;
@@ -1018,125 +1028,73 @@ impl IfcAPI {
                 let mut batch_meshes: Vec<MeshDataJs> = Vec::with_capacity(batch_size);
 
                 // Cache IFC type name strings: ~30 unique types repeated across 200K+ meshes.
-                // Avoids 200K+ String allocations in MeshDataJs::new.
                 let mut type_name_cache: rustc_hash::FxHashMap<ifc_lite_core::IfcType, String> =
                     rustc_hash::FxHashMap::default();
 
-                // PRE-PASS: Build void relationship index (host → openings)
-                let mut scanner = EntityScanner::new(&content);
-                let mut faceted_brep_ids: Vec<u32> = Vec::new();
-                let mut void_index: rustc_hash::FxHashMap<u32, Vec<u32>> =
-                    rustc_hash::FxHashMap::default();
-
-                while let Some((id, type_name, start, end)) = scanner.next_entity() {
-                    if type_name == "IFCFACETEDBREP" {
-                        faceted_brep_ids.push(id);
-                    } else if type_name == "IFCRELVOIDSELEMENT" {
-                        // IfcRelVoidsElement: Attr 4 = RelatingBuildingElement, Attr 5 = RelatedOpeningElement
-                        if let Ok(entity) = decoder.decode_at_with_id(id, start, end) {
-                            if let (Some(host_id), Some(opening_id)) =
-                                (entity.get_ref(4), entity.get_ref(5))
-                            {
-                                void_index.entry(host_id).or_default().push(opening_id);
-                            }
-                        }
-                    }
-                }
-
-                // PROCESS PASS: Process elements with void subtraction
-                let mut scanner = EntityScanner::new(&content);
-                let mut deferred_complex: Vec<(u32, usize, usize, ifc_lite_core::IfcType)> =
-                    Vec::new();
-
-                // Process elements - simple geometry immediately, defer complex
-                while let Some((id, type_name, start, end)) = scanner.next_entity() {
-                    if !ifc_lite_core::has_geometry_by_name(type_name) {
-                        continue;
-                    }
-
-                    let ifc_type = ifc_lite_core::IfcType::from_str(type_name);
-
-                    // Simple geometry: process immediately
-                    if matches!(
-                        type_name,
-                        "IFCWALL"
-                            | "IFCWALLSTANDARDCASE"
-                            | "IFCSLAB"
-                            | "IFCBEAM"
-                            | "IFCCOLUMN"
-                            | "IFCPLATE"
-                            | "IFCROOF"
-                            | "IFCCOVERING"
-                            | "IFCFOOTING"
-                            | "IFCRAILING"
-                            | "IFCSTAIR"
-                            | "IFCSTAIRFLIGHT"
-                            | "IFCRAMP"
-                            | "IFCRAMPFLIGHT"
-                    ) {
-                        if let Ok(entity) = decoder.decode_at_with_id(id, start, end) {
-                            // Check if entity actually has representation
-                            let has_representation =
-                                entity.get(6).map(|a| !a.is_null()).unwrap_or(false);
-                            if has_representation {
-                                // #endregion
-
-                                // Use process_element_with_voids to subtract openings
-                                if let Ok(mut mesh) = router.process_element_with_voids(
-                                    &entity,
-                                    &mut decoder,
-                                    &void_index,
-                                ) {
-                                    // #endregion
-
-                                    if !mesh.is_empty() {
-                                        if mesh.normals.len() != mesh.positions.len() {
-                                            calculate_normals(&mut mesh);
-                                        }
-
-                                        let color = style_index
-                                            .get(&id)
-                                            .copied()
-                                            .unwrap_or_else(|| get_default_color_for_type(&ifc_type));
-                                        total_vertices += mesh.positions.len() / 3;
-                                        total_triangles += mesh.indices.len() / 3;
-
-                                        let ifc_type_name = type_name_cache
-                                            .entry(ifc_type)
-                                            .or_insert_with(|| ifc_type.name().to_string())
-                                            .clone();
-                                        let mesh_data =
-                                            MeshDataJs::new(id, ifc_type_name, mesh, color);
-                                        batch_meshes.push(mesh_data);
-                                        processed += 1;
+                // Process simple geometry first (walls, slabs, etc.) for fast first frame
+                for &(id, start, end, ifc_type) in &pre_pass.simple_jobs {
+                    if let Ok(entity) = decoder.decode_at_with_id(id, start, end) {
+                        // Check if entity actually has representation
+                        let has_representation =
+                            entity.get(6).map(|a| !a.is_null()).unwrap_or(false);
+                        if has_representation {
+                            // Use process_element_with_voids to subtract openings
+                            if let Ok(mut mesh) = router.process_element_with_voids(
+                                &entity,
+                                &mut decoder,
+                                &pre_pass.void_index,
+                            ) {
+                                if !mesh.is_empty() {
+                                    if mesh.normals.len() != mesh.positions.len() {
+                                        calculate_normals(&mut mesh);
                                     }
+
+                                    // Resolve color lazily (avoids upfront element style scan)
+                                    let color = resolve_element_color(
+                                        &entity,
+                                        &pre_pass.geometry_styles,
+                                        &mut decoder,
+                                    )
+                                    .unwrap_or_else(|| get_default_color_for_type(&ifc_type));
+                                    total_vertices += mesh.positions.len() / 3;
+                                    total_triangles += mesh.indices.len() / 3;
+
+                                    let ifc_type_name = type_name_cache
+                                        .entry(ifc_type)
+                                        .or_insert_with(|| ifc_type.name().to_string())
+                                        .clone();
+                                    let mesh_data =
+                                        MeshDataJs::new(id, ifc_type_name, mesh, color);
+                                    batch_meshes.push(mesh_data);
+                                    processed += 1;
                                 }
                             }
                         }
+                    }
 
-                        // Yield batch frequently for responsive UI
-                        if batch_meshes.len() >= batch_size {
-                            if let Some(ref callback) = on_batch {
-                                let js_meshes = js_sys::Array::new();
-                                for mesh in batch_meshes.drain(..) {
-                                    js_meshes.push(&mesh.into());
-                                }
-
-                                let progress = js_sys::Object::new();
-                                super::set_js_prop(&progress, "percent", &0u32.into());
-                                super::set_js_prop(&progress, "processed", &(processed as f64).into());
-                                super::set_js_prop(&progress, "phase", &"simple".into());
-
-                                let _ = callback.call2(&JsValue::NULL, &js_meshes, &progress);
-                                total_meshes += js_meshes.length() as usize;
+                    // Yield batch frequently for responsive UI
+                    if batch_meshes.len() >= batch_size {
+                        if let Some(ref callback) = on_batch {
+                            let js_meshes = js_sys::Array::new();
+                            for mesh in batch_meshes.drain(..) {
+                                js_meshes.push(&mesh.into());
                             }
 
-                            // Yield to browser
-                            gloo_timers::future::TimeoutFuture::new(0).await;
+                            let progress = js_sys::Object::new();
+                            super::set_js_prop(&progress, "percent", &0u32.into());
+                            super::set_js_prop(
+                                &progress,
+                                "processed",
+                                &(processed as f64).into(),
+                            );
+                            super::set_js_prop(&progress, "phase", &"simple".into());
+
+                            let _ = callback.call2(&JsValue::NULL, &js_meshes, &progress);
+                            total_meshes += js_meshes.length() as usize;
                         }
-                    } else {
-                        // Defer complex geometry
-                        deferred_complex.push((id, start, end, ifc_type));
+
+                        // Yield to browser
+                        gloo_timers::future::TimeoutFuture::new(0).await;
                     }
                 }
 
@@ -1158,41 +1116,45 @@ impl IfcAPI {
                     gloo_timers::future::TimeoutFuture::new(0).await;
                 }
 
-                let total_elements = processed + deferred_complex.len();
+                let total_elements = processed + pre_pass.complex_jobs.len();
 
                 // CRITICAL: Batch preprocess FacetedBreps BEFORE complex phase
                 // This triangulates ALL faces in parallel - massive speedup for repeated geometry
-                if !faceted_brep_ids.is_empty() {
-                    router.preprocess_faceted_breps(&faceted_brep_ids, &mut decoder);
+                if !pre_pass.faceted_brep_ids.is_empty() {
+                    router.preprocess_faceted_breps(&pre_pass.faceted_brep_ids, &mut decoder);
                 }
 
-                // Process deferred complex geometry with proper styles and void subtraction
+                // Process complex geometry with proper styles and void subtraction
+                // Uses pre-collected job list — no EntityScanner re-scan needed.
 
-                for (id, start, end, ifc_type) in deferred_complex {
+                for &(id, start, end, ifc_type) in &pre_pass.complex_jobs {
                     if let Ok(entity) = decoder.decode_at_with_id(id, start, end) {
-                        let has_openings = void_index.contains_key(&id);
+                        let has_openings = pre_pass.void_index.contains_key(&id);
                         let ifc_type_name = type_name_cache
                             .entry(ifc_type)
                             .or_insert_with(|| ifc_type.name().to_string())
                             .clone();
                         let default_color = get_default_color_for_type(&ifc_type);
+                        // Resolve element color once (used as fallback for submeshes)
+                        let element_color = resolve_element_color(
+                            &entity,
+                            &pre_pass.geometry_styles,
+                            &mut decoder,
+                        );
 
                         if has_openings {
                             // Element has openings - use void subtraction (merged mesh)
                             if let Ok(mut mesh) = router.process_element_with_voids(
                                 &entity,
                                 &mut decoder,
-                                &void_index,
+                                &pre_pass.void_index,
                             ) {
                                 if !mesh.is_empty() {
                                     if mesh.normals.len() != mesh.positions.len() {
                                         calculate_normals(&mut mesh);
                                     }
 
-                                    let color = style_index
-                                        .get(&id)
-                                        .copied()
-                                        .unwrap_or(default_color);
+                                    let color = element_color.unwrap_or(default_color);
 
                                     total_vertices += mesh.positions.len() / 3;
                                     total_triangles += mesh.indices.len() / 3;
@@ -1231,10 +1193,14 @@ impl IfcAPI {
                                     }
 
                                     // Look up color by geometry item ID (resolving MappedItem chains),
-                                    // then by element ID, then default
-                                    let color = find_color_for_geometry(sub.geometry_id, &geometry_styles, &mut decoder)
-                                        .or_else(|| style_index.get(&id).copied())
-                                        .unwrap_or(default_color);
+                                    // then by element color, then default
+                                    let color = find_color_for_geometry(
+                                        sub.geometry_id,
+                                        &pre_pass.geometry_styles,
+                                        &mut decoder,
+                                    )
+                                    .or(element_color)
+                                    .unwrap_or(default_color);
 
                                     total_vertices += mesh.positions.len() / 3;
                                     total_triangles += mesh.indices.len() / 3;
@@ -1253,10 +1219,7 @@ impl IfcAPI {
                                             calculate_normals(&mut mesh);
                                         }
 
-                                        let color = style_index
-                                            .get(&id)
-                                            .copied()
-                                            .unwrap_or(default_color);
+                                        let color = element_color.unwrap_or(default_color);
 
                                         total_vertices += mesh.positions.len() / 3;
                                         total_triangles += mesh.indices.len() / 3;

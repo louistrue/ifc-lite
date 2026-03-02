@@ -1110,11 +1110,11 @@ export interface InitOutput {
     readonly zerocopymesh_indices_ptr: (a: number) => number;
     readonly zerocopymesh_normals_ptr: (a: number) => number;
     readonly get_memory: () => number;
-    readonly __wasm_bindgen_func_elem_1026: (a: number, b: number) => void;
-    readonly __wasm_bindgen_func_elem_480: (a: number, b: number) => void;
-    readonly __wasm_bindgen_func_elem_1031: (a: number, b: number, c: number, d: number) => void;
-    readonly __wasm_bindgen_func_elem_1064: (a: number, b: number, c: number, d: number) => void;
-    readonly __wasm_bindgen_func_elem_484: (a: number, b: number) => void;
+    readonly __wasm_bindgen_func_elem_1029: (a: number, b: number) => void;
+    readonly __wasm_bindgen_func_elem_482: (a: number, b: number) => void;
+    readonly __wasm_bindgen_func_elem_1034: (a: number, b: number, c: number, d: number) => void;
+    readonly __wasm_bindgen_func_elem_1067: (a: number, b: number, c: number, d: number) => void;
+    readonly __wasm_bindgen_func_elem_486: (a: number, b: number) => void;
     readonly __wbindgen_export: (a: number) => void;
     readonly __wbindgen_export2: (a: number, b: number, c: number) => void;
     readonly __wbindgen_export3: (a: number, b: number) => number;

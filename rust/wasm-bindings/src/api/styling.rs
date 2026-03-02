@@ -363,6 +363,163 @@ fn extract_color_rgb(
     Some([red as f32, green as f32, blue as f32, 1.0])
 }
 
+// ---------------------------------------------------------------------------
+// Combined single-pass pre-scan (replaces 4 separate EntityScanner passes)
+// ---------------------------------------------------------------------------
+
+/// Data collected during the combined single-pass scan.
+/// For a 487 MB file this saves ~2-3 s by eliminating redundant full-file scans.
+pub(crate) struct PrePassData {
+    /// Geometry ID → color (from IfcStyledItem → surface style chain)
+    pub geometry_styles: rustc_hash::FxHashMap<u32, [f32; 4]>,
+    /// Host element → opening elements (from IfcRelVoidsElement)
+    pub void_index: rustc_hash::FxHashMap<u32, Vec<u32>>,
+    /// FacetedBrep entity IDs for batch preprocessing
+    pub faceted_brep_ids: Vec<u32>,
+    /// IfcProject entity ID (for unit extraction)
+    pub project_id: Option<u32>,
+    /// Simple geometry jobs (walls, slabs …) — processed first for fast first frame
+    pub simple_jobs: Vec<(u32, usize, usize, ifc_lite_core::IfcType)>,
+    /// Complex geometry jobs (windows, doors, furniture …)
+    pub complex_jobs: Vec<(u32, usize, usize, ifc_lite_core::IfcType)>,
+}
+
+/// Single EntityScanner pass that collects everything needed before geometry
+/// processing. Replaces the former sequence of:
+///   build_geometry_style_index  (full scan)
+///   build_element_style_index   (full scan + 208 K decodes)
+///   pre-pass for void + brep    (full scan)
+///   processing scan              (full scan)
+pub(crate) fn combined_pre_pass(
+    content: &str,
+    decoder: &mut ifc_lite_core::EntityDecoder,
+) -> PrePassData {
+    use ifc_lite_core::EntityScanner;
+    use rustc_hash::FxHashMap;
+
+    let estimated_elements = content.len() / 2000;
+
+    let mut geometry_styles: FxHashMap<u32, [f32; 4]> = FxHashMap::default();
+    let mut void_index: FxHashMap<u32, Vec<u32>> = FxHashMap::default();
+    let mut faceted_brep_ids: Vec<u32> = Vec::with_capacity(estimated_elements / 10);
+    let mut project_id: Option<u32> = None;
+    let mut simple_jobs = Vec::with_capacity(estimated_elements / 2);
+    let mut complex_jobs = Vec::with_capacity(estimated_elements / 2);
+
+    let mut scanner = EntityScanner::new(content);
+
+    while let Some((id, type_name, start, end)) = scanner.next_entity() {
+        match type_name {
+            "IFCSTYLEDITEM" => {
+                // Build geometry_styles inline (same logic as build_geometry_style_index)
+                if let Ok(styled_item) = decoder.decode_at_with_id(id, start, end) {
+                    if let Some(geometry_id) = styled_item.get_ref(0) {
+                        if !geometry_styles.contains_key(&geometry_id) {
+                            if let Some(styles_attr) = styled_item.get(1) {
+                                if let Some(color) =
+                                    extract_color_from_styles(styles_attr, decoder)
+                                {
+                                    geometry_styles.insert(geometry_id, color);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            "IFCRELVOIDSELEMENT" => {
+                if let Ok(entity) = decoder.decode_at_with_id(id, start, end) {
+                    if let (Some(host_id), Some(opening_id)) =
+                        (entity.get_ref(4), entity.get_ref(5))
+                    {
+                        void_index.entry(host_id).or_default().push(opening_id);
+                    }
+                }
+            }
+            "IFCFACETEDBREP" => {
+                faceted_brep_ids.push(id);
+            }
+            "IFCPROJECT" => {
+                if project_id.is_none() {
+                    project_id = Some(id);
+                }
+            }
+            _ => {
+                if ifc_lite_core::has_geometry_by_name(type_name) {
+                    let ifc_type = ifc_lite_core::IfcType::from_str(type_name);
+                    if is_simple_geometry_type(type_name) {
+                        simple_jobs.push((id, start, end, ifc_type));
+                    } else {
+                        complex_jobs.push((id, start, end, ifc_type));
+                    }
+                }
+            }
+        }
+    }
+
+    PrePassData {
+        geometry_styles,
+        void_index,
+        faceted_brep_ids,
+        project_id,
+        simple_jobs,
+        complex_jobs,
+    }
+}
+
+/// Check if a type name is "simple" geometry (processed first for fast first frame).
+fn is_simple_geometry_type(type_name: &str) -> bool {
+    matches!(
+        type_name,
+        "IFCWALL"
+            | "IFCWALLSTANDARDCASE"
+            | "IFCSLAB"
+            | "IFCBEAM"
+            | "IFCCOLUMN"
+            | "IFCPLATE"
+            | "IFCROOF"
+            | "IFCCOVERING"
+            | "IFCFOOTING"
+            | "IFCRAILING"
+            | "IFCSTAIR"
+            | "IFCSTAIRFLIGHT"
+            | "IFCRAMP"
+            | "IFCRAMPFLIGHT"
+    )
+}
+
+/// Resolve element color inline during processing by following its
+/// representation chain. Replaces the upfront `build_element_style_index`
+/// scan — avoids decoding every building element twice.
+pub(crate) fn resolve_element_color(
+    entity: &ifc_lite_core::DecodedEntity,
+    geometry_styles: &rustc_hash::FxHashMap<u32, [f32; 4]>,
+    decoder: &mut ifc_lite_core::EntityDecoder,
+) -> Option<[f32; 4]> {
+    if geometry_styles.is_empty() {
+        return None;
+    }
+
+    // Building elements have Representation at attribute index 6
+    let repr_id = entity.get_ref(6)?;
+    let product_shape = decoder.decode_by_id(repr_id).ok()?;
+    let reprs_list = product_shape.get(2)?.as_list()?;
+
+    for repr_item in reprs_list {
+        let shape_repr_id = repr_item.as_entity_ref()?;
+        let shape_repr = decoder.decode_by_id(shape_repr_id).ok()?;
+        let items_list = shape_repr.get(3)?.as_list()?;
+
+        for geom_item in items_list {
+            let geom_id = geom_item.as_entity_ref()?;
+            if let Some(color) = find_color_for_geometry(geom_id, geometry_styles, decoder) {
+                return Some(color);
+            }
+        }
+    }
+
+    None
+}
+
 /// Get default color for IFC type (matches default-materials.ts)
 pub(crate) fn get_default_color_for_type(ifc_type: &ifc_lite_core::IfcType) -> [f32; 4] {
     use ifc_lite_core::IfcType;
