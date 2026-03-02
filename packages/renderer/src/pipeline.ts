@@ -243,7 +243,9 @@ export class RenderPipeline {
           // Beautiful fresnel effect for transparent materials (glass)
           // Skip when selected — the glass shine and desaturation wash out the
           // blue highlight, making it appear white instead of blue.
-          var finalAlpha = uniforms.baseColor.a;
+          // Also force alpha to 1.0 for selected objects so the highlight is
+          // fully opaque (the selection pipeline has no alpha blending).
+          var finalAlpha = select(uniforms.baseColor.a, 1.0, uniforms.flags.x == 1u);
           if (finalAlpha < 0.99 && uniforms.flags.x != 1u) {
             // Calculate view direction for fresnel
             let V = normalize(-input.worldPos);
