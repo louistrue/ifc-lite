@@ -986,6 +986,11 @@ impl IfcAPI {
                 //           void pre-pass + processing scan.
                 let pre_pass = combined_pre_pass(&content, &mut decoder);
 
+                // Free decoder cache from pre-pass (styled items, voids, etc.)
+                // These entities are not needed during geometry processing.
+                // Reclaims ~50-200 MB depending on file complexity.
+                decoder.clear_cache();
+
                 // ── Phase 3: Setup (~150 ms) ──
                 // Extract unit scale from collected IfcProject (avoids with_units scan)
                 let unit_scale = pre_pass
@@ -1021,6 +1026,9 @@ impl IfcAPI {
                 let building_rotation = pre_pass
                     .site_position
                     .and_then(|pos| extract_building_rotation_from_site(pos, &mut decoder));
+
+                // Free setup-phase cache (RTC sampling, rotation, unit extraction)
+                decoder.clear_cache();
 
                 // ── Phase 4: Process geometry (iterate collected jobs, no re-scan) ──
                 let mut processed = 0;
@@ -1105,6 +1113,12 @@ impl IfcAPI {
 
                         // After first batch, ramp up batch size for throughput
                         current_batch_size = throughput_batch_size;
+
+                        // Bound decoder cache growth: clear between batches to
+                        // prevent unbounded memory growth (~200-800 MB for large
+                        // files). Shared placements may be re-decoded, but this
+                        // is cheap vs. the GC/memory.grow variance from 1 GB+ peak.
+                        decoder.clear_cache();
 
                         // Yield to browser
                         gloo_timers::future::TimeoutFuture::new(0).await;
@@ -1267,6 +1281,7 @@ impl IfcAPI {
                             total_meshes += js_meshes.length() as usize;
                         }
 
+                        decoder.clear_cache();
                         gloo_timers::future::TimeoutFuture::new(0).await;
                     }
                 }
