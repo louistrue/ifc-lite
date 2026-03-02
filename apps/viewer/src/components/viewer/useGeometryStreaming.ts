@@ -53,6 +53,11 @@ export function useGeometryStreaming(params: UseGeometryStreamingParams): void {
   const cameraFittedRef = useRef<boolean>(false);
   const finalBoundsRefittedRef = useRef<boolean>(false); // Track if we've refitted after streaming
 
+  // Track camera state after initial fit to detect user interaction during streaming.
+  // If user orbits/pans/zooms during streaming, we preserve their position at completion
+  // instead of snapping back to the computed view. Bounds still update for "home" etc.
+  const cameraStateAfterFitRef = useRef<{ px: number; py: number; pz: number; tx: number; ty: number; tz: number } | null>(null);
+
   // Render throttling during streaming
   const lastStreamRenderTimeRef = useRef<number>(0);
   const STREAM_RENDER_THROTTLE_MS = 200; // Render at most every 200ms during streaming
@@ -69,6 +74,7 @@ export function useGeometryStreaming(params: UseGeometryStreamingParams): void {
         processedMeshIdsRef.current.clear();
         cameraFittedRef.current = false;
         finalBoundsRefittedRef.current = false;
+        cameraStateAfterFitRef.current = null;
         // Clear scene if renderer is ready
         if (renderer && isInitialized) {
           renderer.getScene().clear();
@@ -114,6 +120,7 @@ export function useGeometryStreaming(params: UseGeometryStreamingParams): void {
       processedMeshIdsRef.current.clear();
       cameraFittedRef.current = false;
       finalBoundsRefittedRef.current = false;
+      cameraStateAfterFitRef.current = null;
       lastGeometryLengthRef.current = 0;
       lastGeometryRef.current = geometry;
       // Reset camera state (clear orbit pivot, stop inertia, cancel animations)
@@ -143,6 +150,7 @@ export function useGeometryStreaming(params: UseGeometryStreamingParams): void {
         processedMeshIdsRef.current.clear();
         cameraFittedRef.current = false;
         finalBoundsRefittedRef.current = false;
+        cameraStateAfterFitRef.current = null;
         lastGeometryLengthRef.current = 0;
         lastGeometryRef.current = geometry;
         // Reset camera state
@@ -154,7 +162,12 @@ export function useGeometryStreaming(params: UseGeometryStreamingParams): void {
         };
       }
     } else if (currentLength === lastLength) {
-      // No geometry change - but check if we need to update bounds when streaming completes
+      // No geometry change — update bounds when streaming completes.
+      // Two behaviours depending on user camera interaction:
+      //   • User hasn't touched the camera → refit to final bounds (fixes models
+      //     whose first-batch bounds were too tight / off-centre).
+      //   • User HAS orbited/panned/zoomed → preserve their position; just store
+      //     the final bounds so "Home" / zoom-to-fit still work correctly.
       if (cameraFittedRef.current && !isStreaming && !finalBoundsRefittedRef.current && coordinateInfo?.shiftedBounds) {
         const shiftedBounds = coordinateInfo.shiftedBounds;
         const newMaxSize = Math.max(
@@ -164,28 +177,27 @@ export function useGeometryStreaming(params: UseGeometryStreamingParams): void {
         );
 
         if (newMaxSize > 0 && Number.isFinite(newMaxSize)) {
-          // Only refit camera for LARGE models (>1000 meshes) where geometry streamed in multiple batches
-          // Small models complete in one batch, so their initial camera fit is already correct
-          const isLargeModel = geometry.length > 1000;
-
-          if (isLargeModel) {
-            const oldBounds = geometryBoundsRef.current;
-            const oldMaxSize = Math.max(
-              oldBounds.max.x - oldBounds.min.x,
-              oldBounds.max.y - oldBounds.min.y,
-              oldBounds.max.z - oldBounds.min.z
-            );
-
-            // Refit camera if bounds expanded significantly (>10% larger)
-            // This handles skyscrapers where upper floors arrive in later batches
-            const boundsExpanded = newMaxSize > oldMaxSize * 1.1;
-
-            if (boundsExpanded) {
-              renderer.getCamera().fitToBounds(shiftedBounds.min, shiftedBounds.max);
-            }
+          // Detect whether the user moved the camera during streaming by comparing
+          // current camera state with the snapshot taken right after the initial fit.
+          const snap = cameraStateAfterFitRef.current;
+          let userMovedCamera = false;
+          if (snap) {
+            const pos = renderer.getCamera().getPosition();
+            const tgt = renderer.getCamera().getTarget();
+            const EPS = 0.5; // half a metre — ignores floating-point jitter
+            userMovedCamera =
+              Math.abs(pos.x - snap.px) > EPS || Math.abs(pos.y - snap.py) > EPS || Math.abs(pos.z - snap.pz) > EPS ||
+              Math.abs(tgt.x - snap.tx) > EPS || Math.abs(tgt.y - snap.ty) > EPS || Math.abs(tgt.z - snap.tz) > EPS;
           }
 
-          // Always update bounds for accurate zoom-to-fit, home view, etc.
+          if (!userMovedCamera) {
+            // User hasn't interacted — always refit to final bounds so the full
+            // building is visible (no >10% threshold — even small bound changes
+            // can leave part of the model clipped).
+            renderer.getCamera().fitToBounds(shiftedBounds.min, shiftedBounds.max);
+          }
+
+          // Always update stored bounds for Home / zoom-to-fit regardless of camera refit
           geometryBoundsRef.current = { min: { ...shiftedBounds.min }, max: { ...shiftedBounds.max } };
           finalBoundsRefittedRef.current = true;
         }
@@ -304,6 +316,10 @@ export function useGeometryStreaming(params: UseGeometryStreamingParams): void {
         renderer.getCamera().fitToBounds(shiftedBounds.min, shiftedBounds.max);
         geometryBoundsRef.current = { min: { ...shiftedBounds.min }, max: { ...shiftedBounds.max } };
         cameraFittedRef.current = true;
+        // Snapshot camera state so we can detect user interaction during streaming
+        const pos = renderer.getCamera().getPosition();
+        const tgt = renderer.getCamera().getTarget();
+        cameraStateAfterFitRef.current = { px: pos.x, py: pos.y, pz: pos.z, tx: tgt.x, ty: tgt.y, tz: tgt.z };
       }
     } else if (!cameraFittedRef.current && geometry.length > 0 && !isStreaming) {
       // Fallback: calculate bounds from geometry array (only when streaming is complete)
@@ -346,6 +362,9 @@ export function useGeometryStreaming(params: UseGeometryStreamingParams): void {
         renderer.getCamera().fitToBounds(fallbackBounds.min, fallbackBounds.max);
         geometryBoundsRef.current = fallbackBounds;
         cameraFittedRef.current = true;
+        const pos = renderer.getCamera().getPosition();
+        const tgt = renderer.getCamera().getTarget();
+        cameraStateAfterFitRef.current = { px: pos.x, py: pos.y, pz: pos.z, tx: tgt.x, ty: tgt.y, tz: tgt.z };
       }
     }
 
