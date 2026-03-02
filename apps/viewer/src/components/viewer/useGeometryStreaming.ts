@@ -420,7 +420,9 @@ export function useGeometryStreaming(params: UseGeometryStreamingParams): void {
     const shouldRender = !isStreaming || timeSinceLastRender >= STREAM_RENDER_THROTTLE_MS;
 
     if (shouldRender) {
-      renderer.render();
+      renderer.render({
+        clearColor: clearColorRef.current,
+      });
       lastStreamRenderTimeRef.current = now;
     }
   }, [geometry, geometryVersion, coordinateInfo, isInitialized, isStreaming]);
@@ -503,7 +505,9 @@ export function useGeometryStreaming(params: UseGeometryStreamingParams): void {
         }
       }
 
-      renderer.render();
+      renderer.render({
+        clearColor: clearColorRef.current,
+      });
       lastStreamRenderTimeRef.current = Date.now();
     }
     prevIsStreamingRef.current = isStreaming;
