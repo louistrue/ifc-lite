@@ -986,11 +986,6 @@ impl IfcAPI {
                 //           void pre-pass + processing scan.
                 let pre_pass = combined_pre_pass(&content, &mut decoder);
 
-                // Free decoder cache from pre-pass (styled items, voids, etc.)
-                // These entities are not needed during geometry processing.
-                // Reclaims ~50-200 MB depending on file complexity.
-                decoder.clear_cache();
-
                 // ── Phase 3: Setup (~150 ms) ──
                 // Extract unit scale from collected IfcProject (avoids with_units scan)
                 let unit_scale = pre_pass
@@ -1027,8 +1022,30 @@ impl IfcAPI {
                     .site_position
                     .and_then(|pos| extract_building_rotation_from_site(pos, &mut decoder));
 
-                // Free setup-phase cache (RTC sampling, rotation, unit extraction)
-                decoder.clear_cache();
+                // ── Phase 3b: Build element style map + pre-warm decoder cache (~1.2 s) ──
+                // Iterates collected jobs (no re-scan!) to:
+                //   1. Build element_id → color map for O(1) color lookup during processing
+                //   2. Pre-warm the decoder cache with all building elements + repr chains
+                // The cache pre-warming is critical: without it, every decode_at_with_id
+                // during processing must parse from raw bytes (~35 µs vs ~0.2 µs cache hit).
+                // For 208 K elements that's ~7 s of cold-parse overhead.
+                let mut element_styles: rustc_hash::FxHashMap<u32, [f32; 4]> =
+                    rustc_hash::FxHashMap::default();
+                for jobs in [&pre_pass.simple_jobs, &pre_pass.complex_jobs] {
+                    for &(id, start, end, _ifc_type) in jobs.iter() {
+                        if let Ok(entity) = decoder.decode_at_with_id(id, start, end) {
+                            if entity.get(6).map(|a| !a.is_null()).unwrap_or(false) {
+                                if let Some(color) = resolve_element_color(
+                                    &entity,
+                                    &pre_pass.geometry_styles,
+                                    &mut decoder,
+                                ) {
+                                    element_styles.insert(id, color);
+                                }
+                            }
+                        }
+                    }
+                }
 
                 // ── Phase 4: Process geometry (iterate collected jobs, no re-scan) ──
                 let mut processed = 0;
@@ -1067,13 +1084,11 @@ impl IfcAPI {
                                         calculate_normals(&mut mesh);
                                     }
 
-                                    // Resolve color lazily (avoids upfront element style scan)
-                                    let color = resolve_element_color(
-                                        &entity,
-                                        &pre_pass.geometry_styles,
-                                        &mut decoder,
-                                    )
-                                    .unwrap_or_else(|| get_default_color_for_type(&ifc_type));
+                                    // O(1) color lookup from pre-built element style map
+                                    let color = element_styles
+                                        .get(&id)
+                                        .copied()
+                                        .unwrap_or_else(|| get_default_color_for_type(&ifc_type));
                                     total_vertices += mesh.positions.len() / 3;
                                     total_triangles += mesh.indices.len() / 3;
 
@@ -1156,12 +1171,8 @@ impl IfcAPI {
                             .or_insert_with(|| ifc_type.name().to_string())
                             .clone();
                         let default_color = get_default_color_for_type(&ifc_type);
-                        // Resolve element color once (used as fallback for submeshes)
-                        let element_color = resolve_element_color(
-                            &entity,
-                            &pre_pass.geometry_styles,
-                            &mut decoder,
-                        );
+                        // O(1) color lookup from pre-built element style map
+                        let element_color = element_styles.get(&id).copied();
 
                         if has_openings {
                             // Element has openings - use void subtraction (merged mesh)
