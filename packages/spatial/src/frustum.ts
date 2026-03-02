@@ -18,6 +18,12 @@ export interface Plane {
 }
 
 export class FrustumUtils {
+  // Small negative threshold for plane distance checks.
+  // Prevents boundary flickering when AABBs are right at the frustum edge —
+  // without this, floating-point jitter during orbit can flip the sign of the
+  // distance between successive frames, causing batches to pop in and out.
+  private static readonly PLANE_EPSILON = -0.5;
+
   /**
    * Check if AABB is inside frustum
    */
@@ -30,14 +36,14 @@ export class FrustumUtils {
         plane.normal[1] > 0 ? aabb.max[1] : aabb.min[1],
         plane.normal[2] > 0 ? aabb.max[2] : aabb.min[2],
       ];
-      
-      // Check if positive vertex is behind the plane
+
+      // Check if positive vertex is behind the plane (with small margin)
       const distance = this.pointToPlaneDistance(positiveVertex, plane);
-      if (distance < 0) {
+      if (distance < FrustumUtils.PLANE_EPSILON) {
         return false; // AABB is completely outside frustum
       }
     }
-    
+
     return true;
   }
   
