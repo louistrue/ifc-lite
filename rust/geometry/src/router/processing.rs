@@ -11,147 +11,23 @@ use nalgebra::Matrix4;
 use std::sync::Arc;
 
 impl GeometryRouter {
-    /// Detect RTC offset by sampling multiple building elements and computing centroid
-    /// This handles federated models where different elements may be in different world locations
-    /// Returns the centroid of sampled element positions if coordinates are large (>10km)
-    pub fn detect_rtc_offset_from_first_element(
-        &self,
-        content: &str,
-        decoder: &mut EntityDecoder,
-    ) -> (f64, f64, f64) {
-        use ifc_lite_core::EntityScanner;
-
-        let mut scanner = EntityScanner::new(content);
-
-        // Collect translations from multiple elements to compute centroid
-        let mut translations: Vec<(f64, f64, f64)> = Vec::new();
-        const MAX_SAMPLES: usize = 50; // Sample up to 50 elements for centroid calculation
-
-        // List of actual building element types that have placements
-        const BUILDING_ELEMENT_TYPES: &[&str] = &[
-            "IFCWALL", "IFCWALLSTANDARDCASE", "IFCSLAB", "IFCBEAM", "IFCCOLUMN",
-            "IFCPLATE", "IFCROOF", "IFCCOVERING", "IFCFOOTING", "IFCRAILING",
-            "IFCSTAIR", "IFCSTAIRFLIGHT", "IFCRAMP", "IFCRAMPFLIGHT",
-            "IFCDOOR", "IFCWINDOW", "IFCFURNISHINGELEMENT", "IFCBUILDINGELEMENTPROXY",
-            "IFCMEMBER", "IFCCURTAINWALL", "IFCPILE", "IFCSHADINGDEVICE",
-        ];
-
-        // Sample building elements to collect their world positions
-        while let Some((_id, type_name, start, end)) = scanner.next_entity() {
-            if translations.len() >= MAX_SAMPLES {
-                break;
-            }
-
-            // Check if this is an actual building element type
-            if !BUILDING_ELEMENT_TYPES.iter().any(|&t| t == type_name) {
-                continue;
-            }
-
-            // Decode the element
-            if let Ok(entity) = decoder.decode_at(start, end) {
-                // Check if it has representation
-                let has_rep = entity.get(6).map(|a| !a.is_null()).unwrap_or(false);
-                if !has_rep {
-                    continue;
-                }
-
-                // Get placement transform - this contains the world offset
-                // CRITICAL: Apply unit scaling BEFORE reading translation, same as transform_mesh does
-                if let Ok(mut transform) = self.get_placement_transform_from_element(&entity, decoder) {
-                    self.scale_transform(&mut transform);
-                    let tx = transform[(0, 3)];
-                    let ty = transform[(1, 3)];
-                    let tz = transform[(2, 3)];
-
-                    // Only collect if coordinates are valid
-                    if tx.is_finite() && ty.is_finite() && tz.is_finite() {
-                        translations.push((tx, ty, tz));
-                    }
-                }
-            }
-        }
-
+    /// Compute median-based RTC offset from sampled translations.
+    /// Returns `(0,0,0)` if empty or coordinates are within 10km of origin.
+    fn rtc_offset_from_translations(translations: &[(f64, f64, f64)]) -> (f64, f64, f64) {
         if translations.is_empty() {
             return (0.0, 0.0, 0.0);
         }
 
-        // Compute median-based centroid for robustness against outliers
-        // Sort each coordinate dimension separately and take median
-        let mut x_coords: Vec<f64> = translations.iter().map(|(x, _, _)| *x).collect();
-        let mut y_coords: Vec<f64> = translations.iter().map(|(_, y, _)| *y).collect();
-        let mut z_coords: Vec<f64> = translations.iter().map(|(_, _, z)| *z).collect();
+        let mut x: Vec<f64> = translations.iter().map(|(x, _, _)| *x).collect();
+        let mut y: Vec<f64> = translations.iter().map(|(_, y, _)| *y).collect();
+        let mut z: Vec<f64> = translations.iter().map(|(_, _, z)| *z).collect();
 
-        x_coords.sort_by(|a, b| a.partial_cmp(b).unwrap());
-        y_coords.sort_by(|a, b| a.partial_cmp(b).unwrap());
-        z_coords.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        x.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        y.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        z.sort_by(|a, b| a.partial_cmp(b).unwrap());
 
-        let median_idx = x_coords.len() / 2;
-        let centroid = (
-            x_coords[median_idx],
-            y_coords[median_idx],
-            z_coords[median_idx],
-        );
-
-        // Check if centroid is large (>10km from origin)
-        const THRESHOLD: f64 = 10000.0;
-        if centroid.0.abs() > THRESHOLD || centroid.1.abs() > THRESHOLD || centroid.2.abs() > THRESHOLD {
-            return centroid;
-        }
-
-        (0.0, 0.0, 0.0)
-    }
-
-    /// Detect RTC offset using pre-collected geometry jobs (avoids re-scanning the file).
-    /// Takes the first `MAX_SAMPLES` building elements from the provided jobs list,
-    /// extracts their placement transforms, and computes a median-based centroid.
-    pub fn detect_rtc_offset_from_jobs(
-        &self,
-        jobs: &[(u32, usize, usize, IfcType)],
-        decoder: &mut EntityDecoder,
-    ) -> (f64, f64, f64) {
-        let mut translations: Vec<(f64, f64, f64)> = Vec::new();
-        const MAX_SAMPLES: usize = 50;
-
-        for &(id, start, end, _) in jobs.iter().take(MAX_SAMPLES) {
-            if let Ok(entity) = decoder.decode_at_with_id(id, start, end) {
-                let has_rep = entity.get(6).map(|a| !a.is_null()).unwrap_or(false);
-                if !has_rep {
-                    continue;
-                }
-
-                if let Ok(mut transform) =
-                    self.get_placement_transform_from_element(&entity, decoder)
-                {
-                    self.scale_transform(&mut transform);
-                    let tx = transform[(0, 3)];
-                    let ty = transform[(1, 3)];
-                    let tz = transform[(2, 3)];
-
-                    if tx.is_finite() && ty.is_finite() && tz.is_finite() {
-                        translations.push((tx, ty, tz));
-                    }
-                }
-            }
-        }
-
-        if translations.is_empty() {
-            return (0.0, 0.0, 0.0);
-        }
-
-        let mut x_coords: Vec<f64> = translations.iter().map(|(x, _, _)| *x).collect();
-        let mut y_coords: Vec<f64> = translations.iter().map(|(_, y, _)| *y).collect();
-        let mut z_coords: Vec<f64> = translations.iter().map(|(_, _, z)| *z).collect();
-
-        x_coords.sort_by(|a, b| a.partial_cmp(b).unwrap());
-        y_coords.sort_by(|a, b| a.partial_cmp(b).unwrap());
-        z_coords.sort_by(|a, b| a.partial_cmp(b).unwrap());
-
-        let median_idx = x_coords.len() / 2;
-        let centroid = (
-            x_coords[median_idx],
-            y_coords[median_idx],
-            z_coords[median_idx],
-        );
+        let mid = x.len() / 2;
+        let centroid = (x[mid], y[mid], z[mid]);
 
         const THRESHOLD: f64 = 10000.0;
         if centroid.0.abs() > THRESHOLD
@@ -162,6 +38,88 @@ impl GeometryRouter {
         }
 
         (0.0, 0.0, 0.0)
+    }
+
+    /// Sample a building element's world-space translation for RTC offset detection.
+    /// Returns `Some((tx, ty, tz))` if the element has a valid placement transform.
+    fn sample_element_translation(
+        &self,
+        entity: &DecodedEntity,
+        decoder: &mut EntityDecoder,
+    ) -> Option<(f64, f64, f64)> {
+        let has_rep = entity.get(6).map(|a| !a.is_null()).unwrap_or(false);
+        if !has_rep {
+            return None;
+        }
+        let mut transform = self
+            .get_placement_transform_from_element(entity, decoder)
+            .ok()?;
+        self.scale_transform(&mut transform);
+        let tx = transform[(0, 3)];
+        let ty = transform[(1, 3)];
+        let tz = transform[(2, 3)];
+        if tx.is_finite() && ty.is_finite() && tz.is_finite() {
+            Some((tx, ty, tz))
+        } else {
+            None
+        }
+    }
+
+    /// Detect RTC offset by scanning the file for building elements.
+    /// Used by synchronous parse paths.
+    pub fn detect_rtc_offset_from_first_element(
+        &self,
+        content: &str,
+        decoder: &mut EntityDecoder,
+    ) -> (f64, f64, f64) {
+        use ifc_lite_core::EntityScanner;
+
+        let mut scanner = EntityScanner::new(content);
+        let mut translations: Vec<(f64, f64, f64)> = Vec::new();
+        const MAX_SAMPLES: usize = 50;
+
+        const BUILDING_ELEMENT_TYPES: &[&str] = &[
+            "IFCWALL", "IFCWALLSTANDARDCASE", "IFCSLAB", "IFCBEAM", "IFCCOLUMN",
+            "IFCPLATE", "IFCROOF", "IFCCOVERING", "IFCFOOTING", "IFCRAILING",
+            "IFCSTAIR", "IFCSTAIRFLIGHT", "IFCRAMP", "IFCRAMPFLIGHT",
+            "IFCDOOR", "IFCWINDOW", "IFCFURNISHINGELEMENT", "IFCBUILDINGELEMENTPROXY",
+            "IFCMEMBER", "IFCCURTAINWALL", "IFCPILE", "IFCSHADINGDEVICE",
+        ];
+
+        while let Some((_id, type_name, start, end)) = scanner.next_entity() {
+            if translations.len() >= MAX_SAMPLES {
+                break;
+            }
+            if !BUILDING_ELEMENT_TYPES.iter().any(|&t| t == type_name) {
+                continue;
+            }
+            if let Ok(entity) = decoder.decode_at(start, end) {
+                if let Some(t) = self.sample_element_translation(&entity, decoder) {
+                    translations.push(t);
+                }
+            }
+        }
+
+        Self::rtc_offset_from_translations(&translations)
+    }
+
+    /// Detect RTC offset using pre-collected geometry jobs (avoids re-scanning the file).
+    pub fn detect_rtc_offset_from_jobs(
+        &self,
+        jobs: &[(u32, usize, usize, IfcType)],
+        decoder: &mut EntityDecoder,
+    ) -> (f64, f64, f64) {
+        const MAX_SAMPLES: usize = 50;
+        let translations: Vec<(f64, f64, f64)> = jobs
+            .iter()
+            .take(MAX_SAMPLES)
+            .filter_map(|&(id, start, end, _)| {
+                let entity = decoder.decode_at_with_id(id, start, end).ok()?;
+                self.sample_element_translation(&entity, decoder)
+            })
+            .collect();
+
+        Self::rtc_offset_from_translations(&translations)
     }
 
     /// Process building element (IfcWall, IfcBeam, etc.) into mesh

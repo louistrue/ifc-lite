@@ -1031,16 +1031,21 @@ impl IfcAPI {
                 // For 208 K elements that's ~7 s of cold-parse overhead.
                 let mut element_styles: rustc_hash::FxHashMap<u32, [f32; 4]> =
                     rustc_hash::FxHashMap::default();
-                for jobs in [&pre_pass.simple_jobs, &pre_pass.complex_jobs] {
-                    for &(id, start, end, _ifc_type) in jobs.iter() {
-                        if let Ok(entity) = decoder.decode_at_with_id(id, start, end) {
-                            if entity.get(6).map(|a| !a.is_null()).unwrap_or(false) {
-                                if let Some(color) = resolve_element_color(
-                                    &entity,
-                                    &pre_pass.geometry_styles,
-                                    &mut decoder,
-                                ) {
-                                    element_styles.insert(id, color);
+                // Only walk representation chains if there are actual styled items.
+                // Also pre-warms decoder cache (all building elements + repr chains
+                // cached for O(1) access during geometry processing).
+                if !pre_pass.geometry_styles.is_empty() {
+                    for jobs in [&pre_pass.simple_jobs, &pre_pass.complex_jobs] {
+                        for &(id, start, end, _ifc_type) in jobs.iter() {
+                            if let Ok(entity) = decoder.decode_at_with_id(id, start, end) {
+                                if entity.get(6).map(|a| !a.is_null()).unwrap_or(false) {
+                                    if let Some(color) = resolve_element_color(
+                                        &entity,
+                                        &pre_pass.geometry_styles,
+                                        &mut decoder,
+                                    ) {
+                                        element_styles.insert(id, color);
+                                    }
                                 }
                             }
                         }
