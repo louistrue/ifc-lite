@@ -1,6 +1,8 @@
 ---
 "@ifc-lite/geometry": patch
 "@ifc-lite/wasm": patch
+"@ifc-lite/parser": patch
+"@ifc-lite/sandbox": patch
 ---
 
 fix: support large IFC files (700MB+) in geometry streaming
