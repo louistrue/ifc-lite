@@ -237,12 +237,6 @@ export function useMouseControls(params: UseMouseControlsParams): void {
     const camera = renderer.getCamera();
     const mouseState = mouseStateRef.current;
 
-    // Debounced timer to restore post-processing after zoom/wheel interaction ends.
-    // During zoom, all renders use isInteracting: true (no post-processing) to prevent
-    // flickering. This timer fires ~150ms after the last wheel event to render once
-    // with full post-processing.
-    let zoomIdleTimer: ReturnType<typeof setTimeout> | null = null;
-
     // Helper function to compute snap visualization (edge highlights, sliding dot, corner rings, plane indicators)
     // Stores 3D coordinates so edge highlights stay positioned correctly during camera rotation
     function updateSnapViz(snapTarget: SnapTarget | null, edgeLockInfo?: { edgeT: number; isCorner: boolean; cornerValence: number }) {
@@ -950,26 +944,6 @@ export function useMouseControls(params: UseMouseControlsParams): void {
         });
       }
 
-      // Debounced idle render: restore post-processing after zoom interaction ends.
-      // Resets on every wheel event so only the last one triggers the restore.
-      if (zoomIdleTimer !== null) clearTimeout(zoomIdleTimer);
-      zoomIdleTimer = setTimeout(() => {
-        zoomIdleTimer = null;
-        renderer.render({
-          hiddenIds: hiddenEntitiesRef.current,
-          isolatedIds: isolatedEntitiesRef.current,
-          selectedId: selectedEntityIdRef.current,
-          selectedModelIndex: selectedModelIndexRef.current,
-          clearColor: clearColorRef.current,
-          sectionPlane: activeToolRef.current === 'section' ? {
-            ...sectionPlaneRef.current,
-            min: sectionRangeRef.current?.min,
-            max: sectionRangeRef.current?.max,
-          } : undefined,
-        });
-        calculateScale();
-      }, 150);
-
       // Update measurement screen coordinates immediately during zoom (only in measure mode)
       if (activeToolRef.current === 'measure') {
         if (hasPendingMeasurements()) {
@@ -1068,11 +1042,6 @@ export function useMouseControls(params: UseMouseControlsParams): void {
       if (measureRaycastFrameRef.current !== null) {
         cancelAnimationFrame(measureRaycastFrameRef.current);
         measureRaycastFrameRef.current = null;
-      }
-      // Cancel pending zoom idle timer
-      if (zoomIdleTimer !== null) {
-        clearTimeout(zoomIdleTimer);
-        zoomIdleTimer = null;
       }
     };
   }, [isInitialized]);
