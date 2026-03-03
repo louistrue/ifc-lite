@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-import { useMemo, useState, useCallback, useEffect } from 'react';
+import { useMemo, useState, useCallback, useEffect, useRef } from 'react';
 import {
   Copy,
   Check,
@@ -19,6 +19,7 @@ import {
   FileBox,
   PenLine,
   Crosshair,
+  BookOpen,
 } from 'lucide-react';
 import { EditToolbar } from './PropertyEditor';
 import { Button } from '@/components/ui/button';
@@ -45,6 +46,7 @@ import type { PropertySet, QuantitySet } from './properties/encodingUtils';
 import { BsddCard } from './properties/BsddCard';
 
 export function PropertiesPanel() {
+  const tabsListRef = useRef<HTMLDivElement | null>(null);
   const selectedEntityId = useViewerStore((s) => s.selectedEntityId);
   const selectedEntity = useViewerStore((s) => s.selectedEntity);
   const selectedEntities = useViewerStore((s) => s.selectedEntities);
@@ -112,9 +114,29 @@ export function PropertiesPanel() {
   const [copied, setCopied] = useState(false);
   const [coordCopied, setCoordCopied] = useState<string | null>(null);
   const [coordOpen, setCoordOpen] = useState(false);
+  const [compactTabs, setCompactTabs] = useState(false);
 
   // Edit mode toggle - allows inline property editing
   const [editMode, setEditMode] = useState(false);
+
+  useEffect(() => {
+    const tabsElement = tabsListRef.current;
+    if (!tabsElement) return;
+
+    const updateTabDensity = () => {
+      const tabWidth = tabsElement.clientWidth / 3;
+      setCompactTabs(tabWidth < 88);
+    };
+
+    updateTabDensity();
+
+    const resizeObserver = new ResizeObserver(updateTabDensity);
+    resizeObserver.observe(tabsElement);
+
+    return () => {
+      resizeObserver.disconnect();
+    };
+  }, []);
 
   const copyToClipboard = useCallback((text: string) => {
     navigator.clipboard.writeText(text);
@@ -925,24 +947,37 @@ export function PropertiesPanel() {
 
       {/* Tabs */}
       <Tabs defaultValue="properties" className="flex-1 flex flex-col overflow-hidden">
-        <TabsList className="tabs-list w-full justify-start rounded-none h-9 p-0 shrink-0 flex" style={{ backgroundColor: 'var(--tabs-bg)', borderBottom: '1px solid var(--tabs-border)' }}>
+        <TabsList
+          ref={tabsListRef}
+          className="tabs-list w-full justify-start rounded-none h-9 p-0 shrink-0 flex"
+          style={{ backgroundColor: 'var(--tabs-bg)', borderBottom: '1px solid var(--tabs-border)' }}
+        >
           <TabsTrigger
             value="properties"
             className="tab-trigger flex-1 min-w-0 rounded-none border-b-2 border-transparent data-[state=active]:border-primary uppercase text-[11px] tracking-wide h-full px-2"
           >
-            Properties
+            <span className="flex items-center justify-center gap-1.5 w-full">
+              <FileText className="h-3.5 w-3.5 shrink-0" aria-hidden />
+              {!compactTabs && <span className="truncate">Properties</span>}
+            </span>
           </TabsTrigger>
           <TabsTrigger
             value="quantities"
             className="tab-trigger flex-1 min-w-0 rounded-none border-b-2 border-transparent data-[state=active]:border-primary uppercase text-[11px] tracking-wide h-full px-2"
           >
-            Quantities
+            <span className="flex items-center justify-center gap-1.5 w-full">
+              <Calculator className="h-3.5 w-3.5 shrink-0" aria-hidden />
+              {!compactTabs && <span className="truncate">Quantities</span>}
+            </span>
           </TabsTrigger>
           <TabsTrigger
             value="bsdd"
             className="tab-trigger flex-1 min-w-0 rounded-none border-b-2 border-transparent data-[state=active]:border-primary uppercase text-[11px] tracking-wide h-full px-2"
           >
-            bSDD
+            <span className="flex items-center justify-center gap-1.5 w-full">
+              <BookOpen className="h-3.5 w-3.5 shrink-0" aria-hidden />
+              {!compactTabs && <span className="truncate">bSDD</span>}
+            </span>
           </TabsTrigger>
         </TabsList>
 
