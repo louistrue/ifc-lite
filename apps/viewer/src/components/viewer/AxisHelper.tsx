@@ -8,15 +8,36 @@
  * the axes with Z pointing upward to match what users expect in IFC/BIM context.
  */
 
+import { forwardRef, useImperativeHandle, useRef } from 'react';
+
 interface AxisHelperProps {
   rotationX?: number;
   rotationY?: number;
 }
 
-export function AxisHelper({ rotationX = -25, rotationY = 45 }: AxisHelperProps) {
+export interface AxisHelperRef {
+  updateRotation: (rotationX: number, rotationY: number) => void;
+}
+
+export const AxisHelper = forwardRef<AxisHelperRef, AxisHelperProps>(function AxisHelper(
+  { rotationX = -25, rotationY = 45 }: AxisHelperProps,
+  ref,
+) {
   const size = 50;
   const axisLength = 20;
   const labelOffset = 26;
+  const axisContainerRef = useRef<HTMLDivElement | null>(null);
+
+  const rotationTransform = (nextRotationX: number, nextRotationY: number) =>
+    `rotateX(${nextRotationX}deg) rotateY(${nextRotationY}deg)`;
+
+  useImperativeHandle(ref, () => ({
+    updateRotation(nextRotationX, nextRotationY) {
+      if (axisContainerRef.current) {
+        axisContainerRef.current.style.transform = rotationTransform(nextRotationX, nextRotationY);
+      }
+    },
+  }), []);
 
   // Convert from WebGL convention (Y-up) to IFC display convention (Z-up)
   // In the viewer, Y is up in 3D space, but we relabel:
@@ -34,10 +55,11 @@ export function AxisHelper({ rotationX = -25, rotationY = 45 }: AxisHelperProps)
       }}
     >
       <div
+        ref={axisContainerRef}
         className="relative w-full h-full"
         style={{
           transformStyle: 'preserve-3d',
-          transform: `rotateX(${rotationX}deg) rotateY(${rotationY}deg)`,
+          transform: rotationTransform(rotationX, rotationY),
         }}
       >
         {/* X Axis - Red (pointing right) */}
@@ -122,4 +144,4 @@ export function AxisHelper({ rotationX = -25, rotationY = 45 }: AxisHelperProps)
       </div>
     </div>
   );
-}
+});
