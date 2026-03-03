@@ -3,7 +3,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 import { describe, it, expect } from 'vitest';
-import { decodeIfcString } from './ifc-string.js';
+import { decodeIfcString, encodeIfcString } from './ifc-string.js';
 
 describe('decodeIfcString', () => {
   it('returns plain strings unchanged', () => {
@@ -28,15 +28,15 @@ describe('decodeIfcString', () => {
     expect(decodeIfcString('\\X4\\0001D11E\\X0\\')).toBe('𝄞');
   });
 
-  it('decodes \\X\\ ISO-8859-1 single byte', () => {
-    // ñ = 0xF1 in ISO-8859-1
+  it('decodes \\X\\ 8-bit hex sequences with and without trailing slash', () => {
+    // ñ = 0xF1 in ISO 10646 row 0
     expect(decodeIfcString('\\X\\F1')).toBe('ñ');
+    expect(decodeIfcString('\\X\\F1\\')).toBe('ñ');
   });
 
   it('decodes \\S\\ latin extended', () => {
-    // \\S\\X where X.charCodeAt(0) + 128 = result
-    // 'a' = 97, 97 + 128 = 225 = á
-    expect(decodeIfcString('\\S\\a')).toBe('á');
+    // \S\D = 68 + 128 = 196 = Ä
+    expect(decodeIfcString('\\S\\D')).toBe('Ä');
   });
 
   it('strips \\P code page switches', () => {
@@ -45,5 +45,39 @@ describe('decodeIfcString', () => {
 
   it('decodes mixed encodings in one string', () => {
     expect(decodeIfcString('Br\\X2\\00FC\\X0\\cke')).toBe('Brücke');
+  });
+
+  it('handles documented IFC umlaut examples', () => {
+    expect(decodeIfcString('\\S\\D')).toBe('Ä');
+    expect(decodeIfcString('\\PA\\\\S\\D')).toBe('Ä');
+    expect(decodeIfcString('\\X\\C4')).toBe('Ä');
+    expect(decodeIfcString('\\X2\\00C4\\X0\\')).toBe('Ä');
+  });
+});
+
+describe('encodeIfcString', () => {
+  it('returns plain strings unchanged', () => {
+    expect(encodeIfcString('Hello World')).toBe('Hello World');
+  });
+
+  it('encodes apostrophes as doubled quotes', () => {
+    expect(encodeIfcString("O'Brien")).toBe("O''Brien");
+  });
+
+  it('encodes latin-1 extension with compact \\S\\ form', () => {
+    expect(encodeIfcString('Ä')).toBe('\\S\\D');
+  });
+
+  it('encodes BMP unicode with \\X2\\', () => {
+    expect(encodeIfcString('Ω')).toBe('\\X2\\03A9\\X0\\');
+  });
+
+  it('encodes astral unicode with \\X4\\', () => {
+    expect(encodeIfcString('𝄞')).toBe('\\X4\\0001D11E\\X0\\');
+  });
+
+  it('round-trips mixed strings', () => {
+    const value = "Brücke Ω 𝄞 O'Brien";
+    expect(decodeIfcString(encodeIfcString(value))).toBe(value);
   });
 });
