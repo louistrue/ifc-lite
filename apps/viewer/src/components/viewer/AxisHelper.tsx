@@ -8,15 +8,64 @@
  * the axes with Z pointing upward to match what users expect in IFC/BIM context.
  */
 
+import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
+
 interface AxisHelperProps {
   rotationX?: number;
   rotationY?: number;
 }
 
-export function AxisHelper({ rotationX = -25, rotationY = 45 }: AxisHelperProps) {
+export interface AxisHelperRef {
+  updateRotation: (x: number, y: number) => void;
+}
+
+export const AxisHelper = forwardRef<AxisHelperRef, AxisHelperProps>(({ rotationX = -25, rotationY = 45 }, ref) => {
   const size = 50;
   const axisLength = 20;
   const labelOffset = 26;
+  const rotationContainerRef = useRef<HTMLDivElement | null>(null);
+  const xLabelRef = useRef<HTMLDivElement | null>(null);
+  const yLabelRef = useRef<HTMLDivElement | null>(null);
+  const zLabelRef = useRef<HTMLDivElement | null>(null);
+  const rafRef = useRef<number | null>(null);
+  const pendingRotationRef = useRef<{ x: number; y: number } | null>(null);
+
+  const applyRotation = (x: number, y: number) => {
+    if (!rotationContainerRef.current) return;
+
+    rotationContainerRef.current.style.transform = `rotateX(${x}deg) rotateY(${y}deg)`;
+
+    const inverseRotation = `rotateY(${-y}deg) rotateX(${-x}deg)`;
+    if (xLabelRef.current) xLabelRef.current.style.transform = inverseRotation;
+    if (zLabelRef.current) zLabelRef.current.style.transform = inverseRotation;
+    if (yLabelRef.current) yLabelRef.current.style.transform = `translateZ(${labelOffset}px) ${inverseRotation}`;
+  };
+
+  useImperativeHandle(ref, () => ({
+    updateRotation: (x: number, y: number) => {
+      pendingRotationRef.current = { x, y };
+      if (rafRef.current !== null) {
+        cancelAnimationFrame(rafRef.current);
+      }
+
+      rafRef.current = requestAnimationFrame(() => {
+        if (pendingRotationRef.current) {
+          applyRotation(pendingRotationRef.current.x, pendingRotationRef.current.y);
+          pendingRotationRef.current = null;
+        }
+        rafRef.current = null;
+      });
+    },
+  }), []);
+
+  useEffect(() => {
+    applyRotation(rotationX, rotationY);
+    return () => {
+      if (rafRef.current !== null) {
+        cancelAnimationFrame(rafRef.current);
+      }
+    };
+  }, []);
 
   // Convert from WebGL convention (Y-up) to IFC display convention (Z-up)
   // In the viewer, Y is up in 3D space, but we relabel:
@@ -34,6 +83,7 @@ export function AxisHelper({ rotationX = -25, rotationY = 45 }: AxisHelperProps)
       }}
     >
       <div
+        ref={rotationContainerRef}
         className="relative w-full h-full"
         style={{
           transformStyle: 'preserve-3d',
@@ -53,6 +103,7 @@ export function AxisHelper({ rotationX = -25, rotationY = 45 }: AxisHelperProps)
           }}
         />
         <div
+          ref={xLabelRef}
           className="absolute text-red-500 font-bold text-xs"
           style={{
             left: size / 2 + labelOffset,
@@ -76,6 +127,7 @@ export function AxisHelper({ rotationX = -25, rotationY = 45 }: AxisHelperProps)
           }}
         />
         <div
+          ref={zLabelRef}
           className="absolute text-blue-500 font-bold text-xs"
           style={{
             left: size / 2 - 4,
@@ -100,6 +152,7 @@ export function AxisHelper({ rotationX = -25, rotationY = 45 }: AxisHelperProps)
           }}
         />
         <div
+          ref={yLabelRef}
           className="absolute text-green-500 font-bold text-xs"
           style={{
             left: size / 2 - 4,
@@ -122,4 +175,6 @@ export function AxisHelper({ rotationX = -25, rotationY = 45 }: AxisHelperProps)
       </div>
     </div>
   );
-}
+});
+
+AxisHelper.displayName = 'AxisHelper';
