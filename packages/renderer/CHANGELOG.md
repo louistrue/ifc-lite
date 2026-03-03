@@ -1,5 +1,35 @@
 # @ifc-lite/renderer
 
+## 1.14.1
+
+### Patch Changes
+
+- [#290](https://github.com/louistrue/ifc-lite/pull/290) [`efb5c82`](https://github.com/louistrue/ifc-lite/commit/efb5c82e5ce0567443f348d382bce922e4b270f0) Thanks [@louistrue](https://github.com/louistrue)! - fix: prevent 3D background turning black when toggling spaces/openings/site visibility
+
+- [#290](https://github.com/louistrue/ifc-lite/pull/290) [`efb5c82`](https://github.com/louistrue/ifc-lite/commit/efb5c82e5ce0567443f348d382bce922e4b270f0) Thanks [@louistrue](https://github.com/louistrue)! - fix: eliminate facade flickering during orbit and zoom
+
+  - Restore object-ID pass and post-processing during camera interaction (reverts interaction skip that caused visual pop-in)
+  - Add PLANE_EPSILON margin to frustum culling plane checks to prevent floating-point jitter from toggling batch visibility at frustum boundaries
+  - Skip fresnel glass effects on selected objects so blue highlight renders correctly instead of appearing white
+
+- [#290](https://github.com/louistrue/ifc-lite/pull/290) [`efb5c82`](https://github.com/louistrue/ifc-lite/commit/efb5c82e5ce0567443f348d382bce922e4b270f0) Thanks [@louistrue](https://github.com/louistrue)! - fix: eliminate z-fighting flicker on coplanar faces
+
+  - Upgrade depth buffer from depth24plus to depth32float across all pipelines for optimal precision with reverse-Z
+  - Add per-entity deterministic depth nudge in vertex shaders using Knuth multiplicative hash to prevent coplanar face flicker
+  - Refactor depthFormat into InstancedRenderPipeline member to eliminate hardcoded literals
+
+- [#290](https://github.com/louistrue/ifc-lite/pull/290) [`efb5c82`](https://github.com/louistrue/ifc-lite/commit/efb5c82e5ce0567443f348d382bce922e4b270f0) Thanks [@louistrue](https://github.com/louistrue)! - perf: optimize rendering with buffer pooling and frustum culling
+
+  - Add pooled per-frame uniform scratch buffers to eliminate GC pressure from per-batch Float32Array allocations
+  - Add frustum culling for batched meshes to skip entire batches outside camera view
+  - Build uniform template once per frame with only per-batch color patched, reducing redundant writes
+  - Skip post-processing (contact shading, separation lines) during rapid camera interaction for faster frame times
+
+- Updated dependencies [[`efb5c82`](https://github.com/louistrue/ifc-lite/commit/efb5c82e5ce0567443f348d382bce922e4b270f0), [`071d251`](https://github.com/louistrue/ifc-lite/commit/071d251708388771afd288bc2ef01b4d1a074607)]:
+  - @ifc-lite/spatial@1.14.1
+  - @ifc-lite/geometry@1.14.1
+  - @ifc-lite/wasm@1.14.1
+
 ## 1.14.0
 
 ### Patch Changes

@@ -1,5 +1,18 @@
 # @ifc-lite/spatial
 
+## 1.14.1
+
+### Patch Changes
+
+- [#290](https://github.com/louistrue/ifc-lite/pull/290) [`efb5c82`](https://github.com/louistrue/ifc-lite/commit/efb5c82e5ce0567443f348d382bce922e4b270f0) Thanks [@louistrue](https://github.com/louistrue)! - fix: eliminate facade flickering during orbit and zoom
+
+  - Restore object-ID pass and post-processing during camera interaction (reverts interaction skip that caused visual pop-in)
+  - Add PLANE_EPSILON margin to frustum culling plane checks to prevent floating-point jitter from toggling batch visibility at frustum boundaries
+  - Skip fresnel glass effects on selected objects so blue highlight renders correctly instead of appearing white
+
+- Updated dependencies [[`071d251`](https://github.com/louistrue/ifc-lite/commit/071d251708388771afd288bc2ef01b4d1a074607)]:
+  - @ifc-lite/geometry@1.14.1
+
 ## 1.14.0
 
 ### Patch Changes

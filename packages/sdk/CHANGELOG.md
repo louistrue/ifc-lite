@@ -1,5 +1,24 @@
 # @ifc-lite/sdk
 
+## 1.14.1
+
+### Patch Changes
+
+- Updated dependencies [[`efb5c82`](https://github.com/louistrue/ifc-lite/commit/efb5c82e5ce0567443f348d382bce922e4b270f0), [`071d251`](https://github.com/louistrue/ifc-lite/commit/071d251708388771afd288bc2ef01b4d1a074607)]:
+  - @ifc-lite/spatial@1.14.1
+  - @ifc-lite/parser@1.14.1
+  - @ifc-lite/bcf@1.14.1
+  - @ifc-lite/create@1.14.1
+  - @ifc-lite/data@1.14.1
+  - @ifc-lite/drawing-2d@1.14.1
+  - @ifc-lite/encoding@1.14.1
+  - @ifc-lite/export@1.14.1
+  - @ifc-lite/ids@1.14.1
+  - @ifc-lite/lens@1.14.1
+  - @ifc-lite/lists@1.14.1
+  - @ifc-lite/mutations@1.14.1
+  - @ifc-lite/query@1.14.1
+
 ## 1.14.0
 
 ### Minor Changes

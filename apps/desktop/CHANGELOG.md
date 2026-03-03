@@ -1,5 +1,20 @@
 # @ifc-lite/desktop
 
+## 1.14.1
+
+### Patch Changes
+
+- Updated dependencies [[`efb5c82`](https://github.com/louistrue/ifc-lite/commit/efb5c82e5ce0567443f348d382bce922e4b270f0), [`efb5c82`](https://github.com/louistrue/ifc-lite/commit/efb5c82e5ce0567443f348d382bce922e4b270f0), [`071d251`](https://github.com/louistrue/ifc-lite/commit/071d251708388771afd288bc2ef01b4d1a074607), [`efb5c82`](https://github.com/louistrue/ifc-lite/commit/efb5c82e5ce0567443f348d382bce922e4b270f0), [`efb5c82`](https://github.com/louistrue/ifc-lite/commit/efb5c82e5ce0567443f348d382bce922e4b270f0)]:
+  - @ifc-lite/renderer@1.14.1
+  - @ifc-lite/spatial@1.14.1
+  - @ifc-lite/geometry@1.14.1
+  - @ifc-lite/wasm@1.14.1
+  - @ifc-lite/parser@1.14.1
+  - @ifc-lite/cache@1.14.1
+  - @ifc-lite/data@1.14.1
+  - @ifc-lite/export@1.14.1
+  - @ifc-lite/query@1.14.1
+
 ## 1.14.0
 
 ### Patch Changes

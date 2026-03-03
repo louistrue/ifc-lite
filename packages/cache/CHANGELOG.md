@@ -1,5 +1,13 @@
 # @ifc-lite/cache
 
+## 1.14.1
+
+### Patch Changes
+
+- Updated dependencies [[`071d251`](https://github.com/louistrue/ifc-lite/commit/071d251708388771afd288bc2ef01b4d1a074607)]:
+  - @ifc-lite/geometry@1.14.1
+  - @ifc-lite/data@1.14.1
+
 ## 1.14.0
 
 ### Patch Changes

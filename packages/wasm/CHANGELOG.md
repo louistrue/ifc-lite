@@ -1,5 +1,16 @@
 # @ifc-lite/wasm
 
+## 1.14.1
+
+### Patch Changes
+
+- [#283](https://github.com/louistrue/ifc-lite/pull/283) [`071d251`](https://github.com/louistrue/ifc-lite/commit/071d251708388771afd288bc2ef01b4d1a074607) Thanks [@louistrue](https://github.com/louistrue)! - fix: support large IFC files (700MB+) in geometry streaming
+
+  - Add error handling to `collectInstancedGeometryStreaming()` to prevent infinite hang when WASM fails
+  - Add adaptive batch sizing for large files in `processInstancedStreaming()`
+  - Add 0-result detection warnings when WASM returns no geometry
+  - Replace `content.clone()` with `Option::take()` in all async WASM methods to halve peak memory usage
+
 ## 1.14.0
 
 ## 1.13.0
