@@ -5,7 +5,9 @@
 //! IFC processing service with parallel geometry extraction.
 
 use crate::types::{CoordinateInfo, MeshData, ModelMetadata, ProcessingStats};
-use ifc_lite_core::{build_entity_index, DecodedEntity, EntityDecoder, EntityScanner, IfcType};
+use ifc_lite_core::{
+    build_entity_index, scan_placement_bounds, DecodedEntity, EntityDecoder, EntityScanner, IfcType,
+};
 use ifc_lite_geometry::{calculate_normals, GeometryRouter};
 use rayon::prelude::*;
 use rustc_hash::FxHashMap;
@@ -105,7 +107,18 @@ pub fn process_geometry(content: &str) -> ProcessingResult {
     );
 
     // Preprocess complex geometry
-    let router = GeometryRouter::with_units(content, &mut decoder);
+    let mut router = GeometryRouter::with_units(content, &mut decoder);
+    let rtc_jobs: Vec<(u32, usize, usize, IfcType)> = entity_jobs
+        .iter()
+        .map(|j| (j.id, j.start, j.end, j.ifc_type))
+        .collect();
+    let mut rtc_offset = router.detect_rtc_offset_from_jobs(&rtc_jobs, &mut decoder);
+    if rtc_offset.0 == 0.0 && rtc_offset.1 == 0.0 && rtc_offset.2 == 0.0 {
+        // Fallback for files where large real-world coordinates are encoded in points
+        // rather than in placement transforms.
+        rtc_offset = scan_placement_bounds(content).rtc_offset();
+    }
+    router.set_rtc_offset(rtc_offset);
     if !faceted_brep_ids.is_empty() {
         tracing::debug!(count = faceted_brep_ids.len(), "Preprocessing FacetedBreps");
         router.preprocess_faceted_breps(&faceted_brep_ids, &mut decoder);
@@ -119,6 +132,7 @@ pub fn process_geometry(content: &str) -> ProcessingResult {
     let content_arc = Arc::new(content.to_string());
     let entity_index_arc = entity_index; // Already Arc from above
     let unit_scale = router.unit_scale();
+    let rtc_offset = router.rtc_offset();
     let void_index_arc = Arc::new(void_index);
 
     let meshes: Vec<MeshData> = entity_jobs
@@ -134,7 +148,7 @@ pub fn process_geometry(content: &str) -> ProcessingResult {
                     return None;
                 }
 
-                let local_router = GeometryRouter::with_scale(unit_scale);
+                let local_router = GeometryRouter::with_scale_and_rtc(unit_scale, rtc_offset);
 
                 if let Ok(mut mesh) = local_router.process_element_with_voids(
                     &entity,
@@ -188,7 +202,10 @@ pub fn process_geometry(content: &str) -> ProcessingResult {
             schema_version,
             entity_count: total_entities,
             geometry_entity_count,
-            coordinate_info: CoordinateInfo::default(),
+            coordinate_info: CoordinateInfo {
+                origin_shift: [rtc_offset.0, rtc_offset.1, rtc_offset.2],
+                is_geo_referenced: rtc_offset.0 != 0.0 || rtc_offset.1 != 0.0 || rtc_offset.2 != 0.0,
+            },
         },
         stats: ProcessingStats {
             total_meshes: meshes.len(),
