@@ -30,6 +30,10 @@ export interface ChatSlice {
   chatAttachments: FileAttachment[];
   /** Auto-captured viewport screenshot (base64 data URL) to include with next LLM message */
   chatViewportScreenshot: string | null;
+  /** Clerk JWT for authenticated API calls (null for anonymous/free tier) */
+  chatAuthToken: string | null;
+  /** Whether the current user has a pro subscription (unlocks budget + frontier models) */
+  chatHasPro: boolean;
 
   // Actions
   setChatPanelVisible: (visible: boolean) => void;
@@ -53,6 +57,10 @@ export interface ChatSlice {
   sendErrorFeedback: (code: string, error: string) => void;
   /** Store a viewport screenshot to include with the next LLM message */
   setChatViewportScreenshot: (dataUrl: string | null) => void;
+  /** Set the Clerk auth token (called by ClerkProvider wrapper when user signs in) */
+  setChatAuthToken: (token: string | null) => void;
+  /** Set whether user has pro subscription (called by ClerkProvider wrapper) */
+  setChatHasPro: (hasPro: boolean) => void;
 }
 
 function loadStoredModel(): string {
@@ -124,6 +132,8 @@ export const createChatSlice: StateCreator<ChatSlice, [], [], ChatSlice> = (set,
   chatAbortController: null,
   chatAttachments: [],
   chatViewportScreenshot: null,
+  chatAuthToken: null,
+  chatHasPro: false,
 
   // Actions
   setChatPanelVisible: (chatPanelVisible) => set({ chatPanelVisible }),
@@ -212,6 +222,10 @@ export const createChatSlice: StateCreator<ChatSlice, [], [], ChatSlice> = (set,
   },
 
   setChatViewportScreenshot: (chatViewportScreenshot) => set({ chatViewportScreenshot }),
+
+  setChatAuthToken: (chatAuthToken) => set({ chatAuthToken }),
+
+  setChatHasPro: (chatHasPro) => set({ chatHasPro }),
 
   sendErrorFeedback: (code, error) => {
     const feedbackMessage: ChatMessage = {

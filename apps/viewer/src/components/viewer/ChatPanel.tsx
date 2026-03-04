@@ -87,6 +87,8 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
   const clearAttachments = useViewerStore((s) => s.clearChatAttachments);
   const clearMessages = useViewerStore((s) => s.clearChatMessages);
   const sendErrorFeedback = useViewerStore((s) => s.sendErrorFeedback);
+  const authToken = useViewerStore((s) => s.chatAuthToken);
+  const hasPro = useViewerStore((s) => s.chatHasPro);
 
   const [inputText, setInputText] = useState('');
   const [showClearConfirm, setShowClearConfirm] = useState(false);
@@ -229,6 +231,7 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
       model: activeModel,
       messages: streamMessages,
       system: systemPrompt,
+      authToken,
       signal: abortController.signal,
       onChunk: (chunk) => {
         accumulated += chunk;
@@ -258,7 +261,7 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
       },
     });
   }, [
-    status, messages, activeModel, attachments,
+    status, messages, activeModel, attachments, authToken,
     addMessage, setChatStatus, updateStreaming, finalizeAssistant,
     setChatError, setChatAbortController, clearAttachments,
   ]);
@@ -439,7 +442,7 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
       <div className="flex items-center gap-1 px-2 py-1.5 border-b shrink-0">
         <Bot className="h-4 w-4 text-blue-500 shrink-0" />
         <span className="text-sm font-medium">AI Assistant</span>
-        <ModelSelector />
+        <ModelSelector hasPro={hasPro} />
         <div className="flex-1" />
 
         {/* Auto-execute toggle */}

@@ -55,7 +55,7 @@ export interface FileAttachment {
   isImage?: boolean;
 }
 
-export type ModelTier = 'free' | 'pro';
+export type ModelTier = 'free' | 'budget' | 'frontier';
 
 export interface LLMModel {
   id: string;
@@ -63,6 +63,8 @@ export interface LLMModel {
   provider: string;
   tier: ModelTier;
   contextWindow: number;
+  /** Notes shown in model selector */
+  notes?: string;
 }
 
 export type ChatStatus = 'idle' | 'sending' | 'streaming' | 'error';

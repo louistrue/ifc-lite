@@ -4,12 +4,11 @@
 
 /**
  * ModelSelector — dropdown to pick the LLM model.
- * Shows free models always, pro models with a lock icon if not subscribed.
- * Displays context window size for each model.
+ * Shows free models always, budget/frontier models with lock if not subscribed.
  */
 
 import { useCallback } from 'react';
-import { Crown } from 'lucide-react';
+import { Crown, Zap } from 'lucide-react';
 import {
   Select,
   SelectContent,
@@ -18,7 +17,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useViewerStore } from '@/store';
-import { FREE_MODELS, PRO_MODELS, getModelById } from '@/lib/llm/models';
+import { FREE_MODELS, BUDGET_MODELS, FRONTIER_MODELS, getModelById } from '@/lib/llm/models';
 
 interface ModelSelectorProps {
   /** Whether the user has a pro subscription */
@@ -64,12 +63,33 @@ export function ModelSelector({ hasPro = false }: ModelSelectorProps) {
           </SelectItem>
         ))}
 
-        {/* Pro tier */}
+        {/* Budget tier */}
+        <div className="px-2 py-1 mt-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1">
+          <Zap className="h-3 w-3 text-blue-500" />
+          Budget — ~$8/mo
+        </div>
+        {BUDGET_MODELS.map((m) => (
+          <SelectItem
+            key={m.id}
+            value={m.id}
+            disabled={!hasPro}
+            className="text-xs"
+          >
+            <span className="flex items-center gap-1.5">
+              <span>{m.name}</span>
+              <span className="text-muted-foreground text-[10px]">{m.provider}</span>
+              <span className="text-muted-foreground/50 text-[10px]">{formatContextWindow(m.contextWindow)}</span>
+              {!hasPro && <Zap className="h-3 w-3 text-blue-500/50" />}
+            </span>
+          </SelectItem>
+        ))}
+
+        {/* Frontier tier */}
         <div className="px-2 py-1 mt-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1">
           <Crown className="h-3 w-3 text-amber-500" />
-          Pro — $8/mo
+          Frontier — Best of best
         </div>
-        {PRO_MODELS.map((m) => (
+        {FRONTIER_MODELS.map((m) => (
           <SelectItem
             key={m.id}
             value={m.id}

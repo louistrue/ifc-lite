@@ -86,7 +86,13 @@ export async function streamChat(options: StreamOptions): Promise<void> {
       errorDetail = errorBody.error || errorDetail;
       // Surface upgrade hint for 403
       if (response.status === 403 && errorBody.upgrade) {
-        errorDetail = 'Pro subscription required for this model. Upgrade to unlock frontier models.';
+        errorDetail = 'Pro subscription required for this model. Upgrade to unlock budget & frontier models.';
+      }
+      // Surface rate limit info for 429
+      if (response.status === 429) {
+        const resetAt = errorBody.resetAt ? new Date(errorBody.resetAt).toLocaleString() : '';
+        const window = errorBody.window === 'day' ? 'daily' : 'weekly';
+        errorDetail = `Rate limit reached (${errorBody.limit ?? '?'} requests/${window === 'daily' ? 'day' : 'week'}). Resets ${resetAt || 'soon'}.`;
       }
     } catch {
       // ignore parse failure

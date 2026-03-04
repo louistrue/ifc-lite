@@ -56,14 +56,14 @@ export const SUBSCRIPTION_PLANS = {
     name: 'Free',
     price: 0,
     features: ['llm_chat', 'free_models'],
-    description: 'Basic AI chat with free models',
+    description: 'AI chat with free models (20 requests/day)',
   },
   pro: {
     slug: 'pro',
     name: 'Pro',
     price: 8,
     features: ['llm_chat', 'free_models', 'frontier_models'],
-    description: 'Full access to frontier AI models (Claude, GPT-4, Gemini Pro)',
+    description: 'Full access to all models (100 requests/week)',
   },
 } as const;
 
@@ -74,6 +74,15 @@ export const FEATURES = {
   LLM_CHAT: 'llm_chat',
   FREE_MODELS: 'free_models',
   FRONTIER_MODELS: 'frontier_models',
+} as const;
+
+/**
+ * Rate limits matching server-side enforcement.
+ * Used for client-side display only — server enforces the actual limits.
+ */
+export const RATE_LIMITS = {
+  free: { maxRequests: 20, window: 'day' as const },
+  pro: { maxRequests: 100, window: 'week' as const },
 } as const;
 
 /**
