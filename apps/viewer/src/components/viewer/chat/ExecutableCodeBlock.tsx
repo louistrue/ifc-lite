@@ -5,12 +5,15 @@
 /**
  * ExecutableCodeBlock — renders a code block from an LLM response
  * with a "Run" button that executes it in the QuickJS sandbox.
- * Results (logs, return value, errors) appear inline below the code.
+ * Results (logs, return value, errors) appear in a console-like panel.
  * Failed executions show a "Fix this" button that feeds the error
  * back to the LLM for automatic repair.
+ *
+ * Auto-execute: when the chat sets status to 'running' (via auto-execute toggle),
+ * a useEffect triggers actual sandbox execution automatically.
  */
 
-import { memo, useCallback, useState } from 'react';
+import { memo, useCallback, useState, useEffect, useRef } from 'react';
 import {
   Play,
   Copy,
@@ -19,6 +22,9 @@ import {
   Loader2,
   FileCode2,
   RefreshCw,
+  Terminal,
+  ChevronDown,
+  ChevronRight,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -35,6 +41,28 @@ interface ExecutableCodeBlockProps {
   onFixError?: (code: string, error: string) => void;
 }
 
+/** Format a log arg for display */
+function formatArg(a: unknown): string {
+  if (typeof a === 'object' && a !== null) {
+    try {
+      return JSON.stringify(a, null, 2);
+    } catch {
+      return String(a);
+    }
+  }
+  return String(a);
+}
+
+/** Level prefix for console lines */
+function levelPrefix(level: string): string {
+  switch (level) {
+    case 'error': return '✕';
+    case 'warn': return '⚠';
+    case 'info': return 'ℹ';
+    default: return '›';
+  }
+}
+
 export const ExecutableCodeBlock = memo(function ExecutableCodeBlock({
   block,
   messageId,
@@ -44,6 +72,9 @@ export const ExecutableCodeBlock = memo(function ExecutableCodeBlock({
   const { execute } = useSandbox();
   const setCodeExecResult = useViewerStore((s) => s.setCodeExecResult);
   const [copied, setCopied] = useState(false);
+  const [consoleOpen, setConsoleOpen] = useState(true);
+  const consoleEndRef = useRef<HTMLDivElement>(null);
+  const autoExecTriggered = useRef(false);
 
   const handleRun = useCallback(async () => {
     setCodeExecResult(messageId, block.index, { status: 'running' });
@@ -58,10 +89,15 @@ export const ExecutableCodeBlock = memo(function ExecutableCodeBlock({
           durationMs: scriptResult.durationMs,
         });
       } else {
-        const error = useViewerStore.getState().scriptLastError;
+        // Preserve logs from failed execution (ScriptError captures them)
+        const store = useViewerStore.getState();
+        const error = store.scriptLastError;
+        const lastResult = store.scriptLastResult;
         setCodeExecResult(messageId, block.index, {
           status: 'error',
           error: error ?? 'Script execution failed',
+          logs: lastResult?.logs,
+          durationMs: lastResult?.durationMs,
         });
       }
     } catch (err) {
@@ -71,6 +107,24 @@ export const ExecutableCodeBlock = memo(function ExecutableCodeBlock({
       });
     }
   }, [execute, block.code, block.index, messageId, setCodeExecResult]);
+
+  // Auto-execute: when the chat auto-execute toggle triggers a 'running' status
+  // before this component has executed, trigger actual execution
+  useEffect(() => {
+    if (result?.status === 'running' && !autoExecTriggered.current) {
+      autoExecTriggered.current = true;
+      handleRun();
+    }
+    // Reset the flag when result goes back to idle / new result
+    if (result?.status !== 'running') {
+      autoExecTriggered.current = false;
+    }
+  }, [result?.status, handleRun]);
+
+  // Auto-scroll console to bottom when new logs appear
+  useEffect(() => {
+    consoleEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }, [result?.logs?.length, result?.status]);
 
   const handleCopy = useCallback(() => {
     navigator.clipboard.writeText(block.code);
@@ -90,6 +144,11 @@ export const ExecutableCodeBlock = memo(function ExecutableCodeBlock({
   }, [block.code, result, onFixError]);
 
   const isRunning = result?.status === 'running';
+  const hasOutput = result && (
+    result.status !== 'running' ||
+    (result.logs && result.logs.length > 0)
+  );
+  const hasLogs = result?.logs && result.logs.length > 0;
 
   return (
     <div className="my-2 rounded-md border bg-muted/30 overflow-hidden">
@@ -141,72 +200,122 @@ export const ExecutableCodeBlock = memo(function ExecutableCodeBlock({
         <code>{block.code}</code>
       </pre>
 
-      {/* Execution result */}
-      {result && result.status !== 'running' && (
-        <div className="border-t px-3 py-2 text-xs font-mono space-y-0.5">
-          {result.status === 'error' && (
-            <>
-              <div className="flex items-start gap-1.5 text-destructive">
-                <AlertCircle className="h-3 w-3 mt-0.5 shrink-0" />
-                <span className="whitespace-pre-wrap break-all">{result.error}</span>
-              </div>
-              {/* Fix this + Re-run buttons */}
-              <div className="flex items-center gap-1.5 mt-2">
-                {onFixError && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleFixError}
-                    className="gap-1 h-6 px-2 text-xs text-destructive border-destructive/30 hover:bg-destructive/10"
-                  >
-                    <RefreshCw className="h-3 w-3" />
-                    Fix this
-                  </Button>
-                )}
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleRun}
-                  className="gap-1 h-6 px-2 text-xs"
+      {/* Console output panel */}
+      {(isRunning || hasOutput) && (
+        <div className="border-t">
+          {/* Console header */}
+          <button
+            onClick={() => setConsoleOpen(!consoleOpen)}
+            className="flex items-center gap-1.5 w-full px-2 py-1 bg-zinc-900 dark:bg-zinc-950 text-zinc-300 hover:bg-zinc-800 dark:hover:bg-zinc-900 transition-colors"
+          >
+            {consoleOpen ? (
+              <ChevronDown className="h-3 w-3 shrink-0" />
+            ) : (
+              <ChevronRight className="h-3 w-3 shrink-0" />
+            )}
+            <Terminal className="h-3 w-3 shrink-0" />
+            <span className="text-[10px] font-mono uppercase tracking-wider">Console</span>
+            {isRunning && (
+              <Loader2 className="h-3 w-3 animate-spin ml-1 text-blue-400" />
+            )}
+            {result?.status === 'success' && (
+              <CheckCircle2 className="h-3 w-3 ml-1 text-green-400" />
+            )}
+            {result?.status === 'error' && (
+              <AlertCircle className="h-3 w-3 ml-1 text-red-400" />
+            )}
+            {result?.durationMs !== undefined && result.status !== 'running' && (
+              <span className="text-[10px] font-mono text-zinc-500 ml-auto">
+                {result.durationMs}ms
+              </span>
+            )}
+          </button>
+
+          {/* Console body */}
+          {consoleOpen && (
+            <div className="bg-zinc-900 dark:bg-zinc-950 px-2 py-1.5 text-xs font-mono max-h-[200px] overflow-y-auto">
+              {/* Running indicator */}
+              {isRunning && (!hasLogs) && (
+                <div className="flex items-center gap-1.5 text-blue-400 py-0.5">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  <span>Executing script...</span>
+                </div>
+              )}
+
+              {/* Log entries */}
+              {hasLogs && result.logs!.map((log, i) => (
+                <div
+                  key={i}
+                  className={cn(
+                    'flex items-start gap-1.5 py-0.5 leading-relaxed',
+                    log.level === 'error' && 'text-red-400',
+                    log.level === 'warn' && 'text-yellow-400',
+                    log.level === 'info' && 'text-blue-400',
+                    log.level === 'log' && 'text-zinc-300',
+                  )}
                 >
-                  <Play className="h-3 w-3" />
-                  Re-run
-                </Button>
-              </div>
-            </>
-          )}
-          {result.status === 'success' && result.logs && result.logs.length > 0 && (
-            <div className="space-y-0.5">
-              {result.logs.map((log, i) => (
-                <div key={i} className={cn(
-                  'flex items-start gap-1.5',
-                  log.level === 'error' && 'text-destructive',
-                  log.level === 'warn' && 'text-yellow-600 dark:text-yellow-400',
-                  log.level === 'info' && 'text-blue-600 dark:text-blue-400',
-                )}>
+                  <span className="shrink-0 w-3 text-center opacity-60">{levelPrefix(log.level)}</span>
                   <span className="whitespace-pre-wrap break-all">
-                    {log.args.map((a) =>
-                      typeof a === 'object' ? JSON.stringify(a) : String(a)
-                    ).join(' ')}
+                    {log.args.map(formatArg).join(' ')}
                   </span>
                 </div>
               ))}
+
+              {/* Error message */}
+              {result?.status === 'error' && result.error && (
+                <div className="flex items-start gap-1.5 py-0.5 text-red-400">
+                  <span className="shrink-0 w-3 text-center">✕</span>
+                  <span className="whitespace-pre-wrap break-all">{result.error}</span>
+                </div>
+              )}
+
+              {/* Return value */}
+              {result?.status === 'success' && result.value !== undefined && result.value !== null && (
+                <div className="flex items-start gap-1.5 py-0.5 text-emerald-400 border-t border-zinc-800 mt-1 pt-1">
+                  <span className="shrink-0 w-3 text-center opacity-60">←</span>
+                  <span className="whitespace-pre-wrap break-all">
+                    {typeof result.value === 'object'
+                      ? JSON.stringify(result.value, null, 2)
+                      : String(result.value)}
+                  </span>
+                </div>
+              )}
+
+              {/* Success footer */}
+              {result?.status === 'success' && (
+                <div className="flex items-center gap-1 text-green-400 border-t border-zinc-800 mt-1 pt-1">
+                  <CheckCircle2 className="h-3 w-3" />
+                  <span>Done{result.durationMs !== undefined ? ` in ${result.durationMs}ms` : ''}</span>
+                </div>
+              )}
+
+              <div ref={consoleEndRef} />
             </div>
           )}
-          {result.status === 'success' && result.value !== undefined && result.value !== null && (
-            <div className="text-muted-foreground mt-1 pt-1 border-t border-border/50">
-              <span className="opacity-60">Return: </span>
-              <span className="text-foreground">
-                {typeof result.value === 'object'
-                  ? JSON.stringify(result.value, null, 2)
-                  : String(result.value)}
-              </span>
-            </div>
-          )}
-          {result.status === 'success' && result.durationMs !== undefined && (
-            <div className="text-green-600 dark:text-green-400 flex items-center gap-1 mt-1">
-              <CheckCircle2 className="h-3 w-3" />
-              <span>Completed in {result.durationMs}ms</span>
+
+          {/* Error action buttons */}
+          {result?.status === 'error' && (
+            <div className="flex items-center gap-1.5 px-2 py-1.5 bg-zinc-900 dark:bg-zinc-950 border-t border-zinc-800">
+              {onFixError && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleFixError}
+                  className="gap-1 h-6 px-2 text-xs text-red-400 border-red-500/30 hover:bg-red-500/10 bg-transparent"
+                >
+                  <RefreshCw className="h-3 w-3" />
+                  Fix this
+                </Button>
+              )}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleRun}
+                className="gap-1 h-6 px-2 text-xs text-zinc-300 border-zinc-700 hover:bg-zinc-800 bg-transparent"
+              >
+                <Play className="h-3 w-3" />
+                Re-run
+              </Button>
             </div>
           )}
         </div>

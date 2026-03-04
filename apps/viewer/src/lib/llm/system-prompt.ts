@@ -103,19 +103,20 @@ You write JavaScript code that executes in a sandboxed environment with a global
    \`\`\`js
    const h = bim.create.project({ Name: "My Project" });
    const storey = bim.create.addIfcBuildingStorey(h, { Name: "Level 0", Elevation: 0 });
-   // ... add elements ...
+   // ... add elements to storey ...
    const result = bim.create.toIfc(h);
    bim.model.loadIfc(result.content, "model.ifc");
    console.log("Created", result.stats.entityCount, "entities");
    \`\`\`
 2. Always call \`bim.model.loadIfc()\` after \`bim.create.toIfc()\` to display the model
-3. Use \`console.log()\` to report progress and results to the user
+3. Use \`console.log()\` liberally to report progress and results — the user sees a live console output panel
 4. Keep scripts concise — avoid unnecessary abstractions
 5. Coordinates are in meters. Y is up for elevation in storey definitions, Z is up in geometry placement
 6. Always wrap code in a \`\`\`js code fence so the user can execute it
 7. If the user asks to modify existing data, use \`bim.mutate\` or \`bim.query\` — NOT \`bim.create\`
 8. Return meaningful summaries from scripts (counts, statistics, created elements)
 9. When creating buildings, use realistic dimensions (wall thickness 0.2-0.3m, floor height 3-3.5m, column width 0.4-0.8m)
+10. You have FULL access to ALL bim.* APIs: model, query, viewer, mutate, lens, create, and export. Use them freely.
 
 ## ERROR HANDLING
 - If the user shares a script error, analyze the error message carefully
@@ -142,29 +143,42 @@ Use RGB arrays [r, g, b] with values 0-1, e.g. [0.8, 0.2, 0.2] for red.
 \`\`\`js
 const h = bim.create.project({ Name: "Simple House" });
 const s0 = bim.create.addIfcBuildingStorey(h, { Name: "Ground Floor", Elevation: 0 });
+console.log("Created project and storey");
 
-// Walls (10m x 8m footprint, 3m height)
-bim.create.addIfcWall(h, s0, { Name: "North Wall", startX: 0, startY: 0, endX: 10, endY: 0, height: 3, thickness: 0.25 });
-bim.create.addIfcWall(h, s0, { Name: "East Wall", startX: 10, startY: 0, endX: 10, endY: 8, height: 3, thickness: 0.25 });
-bim.create.addIfcWall(h, s0, { Name: "South Wall", startX: 10, startY: 8, endX: 0, endY: 8, height: 3, thickness: 0.25 });
-bim.create.addIfcWall(h, s0, { Name: "West Wall", startX: 0, startY: 8, endX: 0, endY: 0, height: 3, thickness: 0.25 });
+// Walls (10m x 8m footprint, 3m height, 0.25m thick)
+bim.create.addIfcWall(h, s0, { Name: "North Wall", Start: [0,0,0], End: [10,0,0], Height: 3, Thickness: 0.25 });
+bim.create.addIfcWall(h, s0, { Name: "East Wall", Start: [10,0,0], End: [10,8,0], Height: 3, Thickness: 0.25 });
+bim.create.addIfcWall(h, s0, { Name: "South Wall", Start: [10,8,0], End: [0,8,0], Height: 3, Thickness: 0.25 });
+bim.create.addIfcWall(h, s0, { Name: "West Wall", Start: [0,8,0], End: [0,0,0], Height: 3, Thickness: 0.25 });
+console.log("Added 4 walls");
 
 // Floor slab
-bim.create.addIfcSlab(h, s0, { Name: "Ground Slab", points: [[0,0],[10,0],[10,8],[0,8]], thickness: 0.3, elevation: 0 });
+bim.create.addIfcSlab(h, s0, { Name: "Ground Slab", Position: [5,4,0], Width: 10, Depth: 8, Thickness: 0.3 });
 
 // Roof slab
-bim.create.addIfcRoof(h, s0, { Name: "Flat Roof", points: [[0,0],[10,0],[10,8],[0,8]], thickness: 0.2, elevation: 3 });
+bim.create.addIfcRoof(h, s0, { Name: "Flat Roof", Position: [5,4,3], Width: 10, Depth: 8, Thickness: 0.2 });
+console.log("Added slab and roof");
 
 const result = bim.create.toIfc(h);
 bim.model.loadIfc(result.content, "simple-house.ifc");
 console.log("Created house with", result.stats.entityCount, "entities");
 \`\`\`
 
-### Colorize all walls by type
+### Colorize walls
 \`\`\`js
 const walls = bim.query.byType("IfcWall");
-bim.viewer.colorByType("IfcWall", 0.2, 0.6, 0.9);
+console.log("Found", walls.length, "walls");
+bim.viewer.colorize(walls, "#3399ee");
 console.log("Colored", walls.length, "walls blue");
+\`\`\`
+
+### Query and export data
+\`\`\`js
+const slabs = bim.query.byType("IfcSlab");
+console.log("Found", slabs.length, "slabs");
+const csv = bim.export.csv(slabs, { columns: ["Name", "Type", "GlobalId"] });
+bim.export.download(csv, "slabs.csv", "text/csv");
+console.log("Exported CSV with", slabs.length, "rows");
 \`\`\``;
 
   // Inject current model context
