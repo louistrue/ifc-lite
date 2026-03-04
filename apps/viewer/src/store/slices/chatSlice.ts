@@ -12,7 +12,9 @@ import type { ChatMessage, ChatStatus, CodeExecResult, FileAttachment } from '..
 import { DEFAULT_FREE_MODEL } from '../../lib/llm/models.js';
 import { extractCodeBlocks } from '../../lib/llm/code-extractor.js';
 
-const STORAGE_KEY = 'ifc-lite-chat-model';
+const MODEL_STORAGE_KEY = 'ifc-lite-chat-model';
+const MESSAGES_STORAGE_KEY = 'ifc-lite-chat-messages';
+const AUTO_EXEC_STORAGE_KEY = 'ifc-lite-chat-auto-execute';
 const MAX_MESSAGES = 200;
 
 export interface ChatSlice {
@@ -32,7 +34,8 @@ export interface ChatSlice {
   toggleChatPanel: () => void;
   addChatMessage: (message: ChatMessage) => void;
   updateLastAssistantMessage: (content: string) => void;
-  finalizeAssistantMessage: (content: string) => void;
+  /** Finalize streaming into a real message. Returns the finalized message ID. */
+  finalizeAssistantMessage: (content: string) => string;
   setChatStatus: (status: ChatStatus) => void;
   setChatStreamingContent: (content: string) => void;
   setChatActiveModel: (model: string) => void;
@@ -44,24 +47,75 @@ export interface ChatSlice {
   removeChatAttachment: (name: string) => void;
   clearChatAttachments: () => void;
   clearChatMessages: () => void;
+  /** Send an error from a failed code block back to the chat as a user message for retry. */
+  sendErrorFeedback: (code: string, error: string) => void;
 }
 
 function loadStoredModel(): string {
   try {
-    return localStorage.getItem(STORAGE_KEY) ?? DEFAULT_FREE_MODEL.id;
+    return localStorage.getItem(MODEL_STORAGE_KEY) ?? DEFAULT_FREE_MODEL.id;
   } catch {
     return DEFAULT_FREE_MODEL.id;
   }
 }
 
+function loadStoredAutoExecute(): boolean {
+  try {
+    return localStorage.getItem(AUTO_EXEC_STORAGE_KEY) === 'true';
+  } catch {
+    return false;
+  }
+}
+
+/** Load persisted messages from localStorage. */
+function loadStoredMessages(): ChatMessage[] {
+  try {
+    const raw = localStorage.getItem(MESSAGES_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as Array<Record<string, unknown>>;
+    return parsed.map((m) => ({
+      id: m.id as string,
+      role: m.role as ChatMessage['role'],
+      content: m.content as string,
+      createdAt: m.createdAt as number,
+      codeBlocks: m.codeBlocks as ChatMessage['codeBlocks'],
+      attachments: m.attachments as ChatMessage['attachments'],
+      // Re-hydrate execResults from serialized array of entries
+      execResults: m.execResults
+        ? new Map(m.execResults as Array<[number, CodeExecResult]>)
+        : undefined,
+    }));
+  } catch {
+    return [];
+  }
+}
+
+/** Persist messages to localStorage. */
+function persistMessages(messages: ChatMessage[]) {
+  try {
+    // Only keep last 50 messages in storage to avoid quota issues
+    const toStore = messages.slice(-50).map((m) => ({
+      id: m.id,
+      role: m.role,
+      content: m.content,
+      createdAt: m.createdAt,
+      codeBlocks: m.codeBlocks,
+      attachments: m.attachments,
+      // Serialize Map as array of entries
+      execResults: m.execResults ? Array.from(m.execResults.entries()) : undefined,
+    }));
+    localStorage.setItem(MESSAGES_STORAGE_KEY, JSON.stringify(toStore));
+  } catch { /* quota exceeded — ignore */ }
+}
+
 export const createChatSlice: StateCreator<ChatSlice, [], [], ChatSlice> = (set, get) => ({
   // Initial state
   chatPanelVisible: false,
-  chatMessages: [],
+  chatMessages: loadStoredMessages(),
   chatStatus: 'idle',
   chatStreamingContent: '',
   chatActiveModel: loadStoredModel(),
-  chatAutoExecute: false,
+  chatAutoExecute: loadStoredAutoExecute(),
   chatError: null,
   chatAbortController: null,
   chatAttachments: [],
@@ -73,11 +127,11 @@ export const createChatSlice: StateCreator<ChatSlice, [], [], ChatSlice> = (set,
 
   addChatMessage: (message) => {
     const messages = [...get().chatMessages, message];
-    // Trim old messages to prevent unbounded growth
     if (messages.length > MAX_MESSAGES) {
       messages.splice(0, messages.length - MAX_MESSAGES);
     }
     set({ chatMessages: messages, chatError: null });
+    persistMessages(messages);
   },
 
   updateLastAssistantMessage: (content) => {
@@ -86,8 +140,9 @@ export const createChatSlice: StateCreator<ChatSlice, [], [], ChatSlice> = (set,
 
   finalizeAssistantMessage: (content) => {
     const codeBlocks = extractCodeBlocks(content);
+    const id = crypto.randomUUID();
     const message: ChatMessage = {
-      id: crypto.randomUUID(),
+      id,
       role: 'assistant',
       content,
       createdAt: Date.now(),
@@ -103,6 +158,8 @@ export const createChatSlice: StateCreator<ChatSlice, [], [], ChatSlice> = (set,
       chatStatus: 'idle',
       chatAbortController: null,
     });
+    persistMessages(messages);
+    return id;
   },
 
   setChatStatus: (chatStatus) => set({ chatStatus }),
@@ -110,11 +167,14 @@ export const createChatSlice: StateCreator<ChatSlice, [], [], ChatSlice> = (set,
   setChatStreamingContent: (chatStreamingContent) => set({ chatStreamingContent }),
 
   setChatActiveModel: (chatActiveModel) => {
-    try { localStorage.setItem(STORAGE_KEY, chatActiveModel); } catch { /* ignore */ }
+    try { localStorage.setItem(MODEL_STORAGE_KEY, chatActiveModel); } catch { /* ignore */ }
     set({ chatActiveModel });
   },
 
-  setChatAutoExecute: (chatAutoExecute) => set({ chatAutoExecute }),
+  setChatAutoExecute: (chatAutoExecute) => {
+    try { localStorage.setItem(AUTO_EXEC_STORAGE_KEY, String(chatAutoExecute)); } catch { /* ignore */ }
+    set({ chatAutoExecute });
+  },
 
   setChatError: (chatError) => set({ chatError, chatStatus: chatError ? 'error' : 'idle' }),
 
@@ -128,6 +188,7 @@ export const createChatSlice: StateCreator<ChatSlice, [], [], ChatSlice> = (set,
       return { ...msg, execResults };
     });
     set({ chatMessages: messages });
+    persistMessages(messages);
   },
 
   addChatAttachment: (attachment) => {
@@ -140,5 +201,23 @@ export const createChatSlice: StateCreator<ChatSlice, [], [], ChatSlice> = (set,
 
   clearChatAttachments: () => set({ chatAttachments: [] }),
 
-  clearChatMessages: () => set({ chatMessages: [], chatStreamingContent: '', chatError: null }),
+  clearChatMessages: () => {
+    set({ chatMessages: [], chatStreamingContent: '', chatError: null });
+    try { localStorage.removeItem(MESSAGES_STORAGE_KEY); } catch { /* ignore */ }
+  },
+
+  sendErrorFeedback: (code, error) => {
+    const feedbackMessage: ChatMessage = {
+      id: crypto.randomUUID(),
+      role: 'user',
+      content: `The script failed with this error:\n\n\`\`\`\n${error}\n\`\`\`\n\nHere is the code that failed:\n\n\`\`\`js\n${code}\n\`\`\`\n\nPlease fix the issue and provide a corrected version.`,
+      createdAt: Date.now(),
+    };
+    const messages = [...get().chatMessages, feedbackMessage];
+    if (messages.length > MAX_MESSAGES) {
+      messages.splice(0, messages.length - MAX_MESSAGES);
+    }
+    set({ chatMessages: messages, chatError: null });
+    persistMessages(messages);
+  },
 });

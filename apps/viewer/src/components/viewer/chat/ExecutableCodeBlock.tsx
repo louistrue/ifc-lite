@@ -6,6 +6,8 @@
  * ExecutableCodeBlock — renders a code block from an LLM response
  * with a "Run" button that executes it in the QuickJS sandbox.
  * Results (logs, return value, errors) appear inline below the code.
+ * Failed executions show a "Fix this" button that feeds the error
+ * back to the LLM for automatic repair.
  */
 
 import { memo, useCallback, useState } from 'react';
@@ -16,6 +18,7 @@ import {
   AlertCircle,
   Loader2,
   FileCode2,
+  RefreshCw,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -28,12 +31,15 @@ interface ExecutableCodeBlockProps {
   block: CodeBlock;
   messageId: string;
   result?: CodeExecResult;
+  /** Callback to trigger a "fix this" error feedback loop */
+  onFixError?: (code: string, error: string) => void;
 }
 
 export const ExecutableCodeBlock = memo(function ExecutableCodeBlock({
   block,
   messageId,
   result,
+  onFixError,
 }: ExecutableCodeBlockProps) {
   const { execute } = useSandbox();
   const setCodeExecResult = useViewerStore((s) => s.setCodeExecResult);
@@ -52,7 +58,6 @@ export const ExecutableCodeBlock = memo(function ExecutableCodeBlock({
           durationMs: scriptResult.durationMs,
         });
       } else {
-        // execute returned null = error was handled via store
         const error = useViewerStore.getState().scriptLastError;
         setCodeExecResult(messageId, block.index, {
           status: 'error',
@@ -77,6 +82,12 @@ export const ExecutableCodeBlock = memo(function ExecutableCodeBlock({
     useViewerStore.getState().setScriptEditorContent(block.code);
     useViewerStore.getState().setScriptPanelVisible(true);
   }, [block.code]);
+
+  const handleFixError = useCallback(() => {
+    if (result?.status === 'error' && result.error && onFixError) {
+      onFixError(block.code, result.error);
+    }
+  }, [block.code, result, onFixError]);
 
   const isRunning = result?.status === 'running';
 
@@ -134,10 +145,35 @@ export const ExecutableCodeBlock = memo(function ExecutableCodeBlock({
       {result && result.status !== 'running' && (
         <div className="border-t px-3 py-2 text-xs font-mono space-y-0.5">
           {result.status === 'error' && (
-            <div className="flex items-start gap-1.5 text-destructive">
-              <AlertCircle className="h-3 w-3 mt-0.5 shrink-0" />
-              <span className="whitespace-pre-wrap break-all">{result.error}</span>
-            </div>
+            <>
+              <div className="flex items-start gap-1.5 text-destructive">
+                <AlertCircle className="h-3 w-3 mt-0.5 shrink-0" />
+                <span className="whitespace-pre-wrap break-all">{result.error}</span>
+              </div>
+              {/* Fix this + Re-run buttons */}
+              <div className="flex items-center gap-1.5 mt-2">
+                {onFixError && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleFixError}
+                    className="gap-1 h-6 px-2 text-xs text-destructive border-destructive/30 hover:bg-destructive/10"
+                  >
+                    <RefreshCw className="h-3 w-3" />
+                    Fix this
+                  </Button>
+                )}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleRun}
+                  className="gap-1 h-6 px-2 text-xs"
+                >
+                  <Play className="h-3 w-3" />
+                  Re-run
+                </Button>
+              </div>
+            </>
           )}
           {result.status === 'success' && result.logs && result.logs.length > 0 && (
             <div className="space-y-0.5">

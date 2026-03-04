@@ -5,6 +5,7 @@
 /**
  * ChatMessage — renders a single user or assistant message.
  * Assistant messages have executable code blocks inline.
+ * Streaming messages show a blinking cursor at the end.
  */
 
 import { memo, useMemo } from 'react';
@@ -15,6 +16,10 @@ import type { ChatMessage as ChatMessageType } from '@/lib/llm/types';
 
 interface ChatMessageProps {
   message: ChatMessageType;
+  /** Whether this is a live-streaming message */
+  isStreaming?: boolean;
+  /** Callback for "Fix this" error feedback */
+  onFixError?: (code: string, error: string) => void;
 }
 
 /**
@@ -29,12 +34,10 @@ function splitContent(content: string): Array<{ type: 'text'; text: string } | {
   let codeIndex = 0;
 
   while ((match = regex.exec(content)) !== null) {
-    // Text before the code block
     if (match.index > lastIndex) {
       const text = content.slice(lastIndex, match.index).trim();
       if (text) parts.push({ type: 'text', text });
     }
-    // Check if this is an executable code block
     const lang = match[0].match(/```(\w*)/)?.[1] ?? '';
     const isExecutable = ['js', 'javascript', 'ts', 'typescript', ''].includes(lang.toLowerCase())
       || match[0].includes('bim.');
@@ -42,13 +45,11 @@ function splitContent(content: string): Array<{ type: 'text'; text: string } | {
       parts.push({ type: 'code', index: codeIndex });
       codeIndex++;
     } else {
-      // Non-executable code blocks render as plain text
       parts.push({ type: 'text', text: match[0] });
     }
     lastIndex = match.index + match[0].length;
   }
 
-  // Remaining text after last code block
   if (lastIndex < content.length) {
     const text = content.slice(lastIndex).trim();
     if (text) parts.push({ type: 'text', text });
@@ -66,7 +67,11 @@ function renderTextContent(text: string): string {
     .replace(/\n/g, '<br/>');
 }
 
-export const ChatMessageComponent = memo(function ChatMessageComponent({ message }: ChatMessageProps) {
+export const ChatMessageComponent = memo(function ChatMessageComponent({
+  message,
+  isStreaming,
+  onFixError,
+}: ChatMessageProps) {
   const isUser = message.role === 'user';
   const contentParts = useMemo(
     () => isUser ? null : splitContent(message.content),
@@ -89,7 +94,6 @@ export const ChatMessageComponent = memo(function ChatMessageComponent({ message
         {isUser && (
           <>
             <p className="whitespace-pre-wrap break-words">{message.content}</p>
-            {/* Attachments */}
             {message.attachments && message.attachments.length > 0 && (
               <div className="flex flex-wrap gap-1 mt-1">
                 {message.attachments.map((a) => (
@@ -115,7 +119,6 @@ export const ChatMessageComponent = memo(function ChatMessageComponent({ message
               />
             );
           }
-          // Code block
           const block = message.codeBlocks?.find((b) => b.index === part.index);
           if (!block) return null;
           const execResult = message.execResults?.get(part.index);
@@ -125,9 +128,15 @@ export const ChatMessageComponent = memo(function ChatMessageComponent({ message
               block={block}
               messageId={message.id}
               result={execResult}
+              onFixError={onFixError}
             />
           );
         })}
+
+        {/* Streaming cursor */}
+        {isStreaming && (
+          <span className="inline-block w-1.5 h-4 bg-blue-500 animate-pulse ml-0.5 align-text-bottom rounded-sm" />
+        )}
       </div>
     </div>
   );

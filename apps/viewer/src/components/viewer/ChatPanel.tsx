@@ -5,12 +5,20 @@
 /**
  * ChatPanel — Interactive LLM chat with live 3D model generation.
  *
- * Users type natural language prompts, the LLM generates bim.* scripts,
- * and code blocks can be executed with one click to create/modify
- * geometry in the 3D viewport in real time.
+ * Features:
+ * - Streaming responses with blinking cursor
+ * - Executable code blocks with "Run" and "Fix this" buttons
+ * - Drag-and-drop file upload with visual dropzone
+ * - Smart auto-scroll with "scroll to bottom" button
+ * - Clickable example prompts in empty state
+ * - Auto-execute toggle for hands-free workflow
+ * - Keyboard shortcuts (Cmd+L focus, Escape close)
+ * - Conversation persistence via localStorage
+ * - Clear confirmation dialog
+ * - Error-to-LLM feedback loop for failed scripts
  */
 
-import { useCallback, useRef, useEffect, useState, type KeyboardEvent } from 'react';
+import { useCallback, useRef, useEffect, useState, type KeyboardEvent, type DragEvent } from 'react';
 import {
   X,
   Send,
@@ -19,10 +27,12 @@ import {
   Trash2,
   Paperclip,
   Loader2,
+  ArrowDown,
+  Zap,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { ScrollArea } from '@/components/ui/scroll-area';
+import { Switch } from '@/components/ui/switch';
 import { useViewerStore } from '@/store';
 import { ChatMessageComponent } from './chat/ChatMessage';
 import { ModelSelector } from './chat/ModelSelector';
@@ -35,6 +45,13 @@ import type { ChatMessage, FileAttachment } from '@/lib/llm/types';
 // Environment variable for the proxy URL
 const PROXY_URL = import.meta.env.VITE_LLM_PROXY_URL as string || '/api/chat';
 
+const EXAMPLE_PROMPTS = [
+  'Create a 3-story house with walls, slabs, and a roof',
+  'Color all IfcWalls by their fire rating',
+  'Export a quantity takeoff as CSV',
+  'Create a skyscraper with 4x4 column grid, 30x40m, concrete shaft',
+];
+
 interface ChatPanelProps {
   onClose?: () => void;
 }
@@ -44,6 +61,7 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
   const status = useViewerStore((s) => s.chatStatus);
   const streamingContent = useViewerStore((s) => s.chatStreamingContent);
   const activeModel = useViewerStore((s) => s.chatActiveModel);
+  const autoExecute = useViewerStore((s) => s.chatAutoExecute);
   const error = useViewerStore((s) => s.chatError);
   const attachments = useViewerStore((s) => s.chatAttachments);
   const addMessage = useViewerStore((s) => s.addChatMessage);
@@ -52,61 +70,116 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
   const finalizeAssistant = useViewerStore((s) => s.finalizeAssistantMessage);
   const setChatError = useViewerStore((s) => s.setChatError);
   const setChatAbortController = useViewerStore((s) => s.setChatAbortController);
+  const setAutoExecute = useViewerStore((s) => s.setChatAutoExecute);
   const addAttachment = useViewerStore((s) => s.addChatAttachment);
   const removeAttachment = useViewerStore((s) => s.removeChatAttachment);
   const clearAttachments = useViewerStore((s) => s.clearChatAttachments);
   const clearMessages = useViewerStore((s) => s.clearChatMessages);
+  const sendErrorFeedback = useViewerStore((s) => s.sendErrorFeedback);
 
   const [inputText, setInputText] = useState('');
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const [showScrollBtn, setShowScrollBtn] = useState(false);
+  const [userScrolledUp, setUserScrolledUp] = useState(false);
+
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const dragCounterRef = useRef(0);
 
-  // Auto-scroll to bottom when new messages arrive
+  // ── Smart auto-scroll ──
+  // Only auto-scroll if user hasn't scrolled up to read old messages
   useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    if (!userScrolledUp) {
+      el.scrollTop = el.scrollHeight;
+    }
+  }, [messages.length, streamingContent, userScrolledUp]);
+
+  // Detect whether user has scrolled up from the bottom
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+
+    const handleScroll = () => {
+      const isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
+      setUserScrolledUp(!isNearBottom);
+      setShowScrollBtn(!isNearBottom && (messages.length > 0 || !!streamingContent));
+    };
+
+    el.addEventListener('scroll', handleScroll, { passive: true });
+    return () => el.removeEventListener('scroll', handleScroll);
+  }, [messages.length, streamingContent]);
+
+  const scrollToBottom = useCallback(() => {
     const el = scrollRef.current;
     if (el) {
       el.scrollTop = el.scrollHeight;
+      setUserScrolledUp(false);
+      setShowScrollBtn(false);
     }
-  }, [messages.length, streamingContent]);
+  }, []);
 
   // Focus input on mount
   useEffect(() => {
     inputRef.current?.focus();
   }, []);
 
-  const handleSend = useCallback(async () => {
-    const text = inputText.trim();
-    if (!text || status === 'streaming' || status === 'sending') return;
+  // ── Keyboard shortcuts ──
+  useEffect(() => {
+    const handler = (e: globalThis.KeyboardEvent) => {
+      // Cmd+L / Ctrl+L → focus chat input
+      if ((e.ctrlKey || e.metaKey) && e.key === 'l') {
+        e.preventDefault();
+        inputRef.current?.focus();
+      }
+      // Escape → close panel (only if chat input isn't focused or is empty)
+      if (e.key === 'Escape' && onClose) {
+        const isChatFocused = document.activeElement === inputRef.current;
+        if (!isChatFocused || !inputText) {
+          onClose();
+        }
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [onClose, inputText]);
 
-    // Build user message
+  // ── Core send logic ──
+  const doSend = useCallback(async (text: string) => {
+    if (!text.trim() || status === 'streaming' || status === 'sending') return;
+
     const userMessage: ChatMessage = {
       id: crypto.randomUUID(),
       role: 'user',
-      content: text,
+      content: text.trim(),
       createdAt: Date.now(),
       attachments: attachments.length > 0 ? [...attachments] : undefined,
     };
     addMessage(userMessage);
     setInputText('');
     setChatStatus('sending');
+    setUserScrolledUp(false);
 
-    // Build conversation history for the LLM
+    // Reset textarea height
+    if (inputRef.current) {
+      inputRef.current.style.height = 'auto';
+    }
+
     const allMessages = [...messages, userMessage];
     const streamMessages = allMessages.map((m) => ({
       role: m.role as 'user' | 'assistant',
       content: m.content,
     }));
 
-    // Build system prompt with current model context
     const modelContext = getModelContext();
     const fileAttachments = attachments.length > 0 ? attachments : undefined;
     const systemPrompt = buildSystemPrompt(modelContext, fileAttachments);
 
-    // Clear attachments after sending
     if (attachments.length > 0) clearAttachments();
 
-    // Stream the response
     const abortController = new AbortController();
     setChatAbortController(abortController);
 
@@ -124,25 +197,19 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
         updateStreaming(accumulated);
       },
       onComplete: (fullText) => {
-        finalizeAssistant(fullText);
+        const messageId = finalizeAssistant(fullText);
 
         // Auto-execute if enabled
         const autoExec = useViewerStore.getState().chatAutoExecute;
         if (autoExec) {
           const blocks = extractCodeBlocks(fullText);
           if (blocks.length > 0) {
-            // Auto-execute the last code block only
             const lastBlock = blocks[blocks.length - 1];
-            const lastMsg = useViewerStore.getState().chatMessages;
-            const assistantMsg = lastMsg[lastMsg.length - 1];
-            if (assistantMsg) {
-              // Trigger execution via store (will be picked up by ExecutableCodeBlock)
-              useViewerStore.getState().setCodeExecResult(
-                assistantMsg.id,
-                lastBlock.index,
-                { status: 'running' },
-              );
-            }
+            useViewerStore.getState().setCodeExecResult(
+              messageId,
+              lastBlock.index,
+              { status: 'running' },
+            );
           }
         }
       },
@@ -152,16 +219,19 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
       },
     });
   }, [
-    inputText, status, messages, activeModel, attachments,
+    status, messages, activeModel, attachments,
     addMessage, setChatStatus, updateStreaming, finalizeAssistant,
     setChatError, setChatAbortController, clearAttachments,
   ]);
+
+  const handleSend = useCallback(() => {
+    doSend(inputText);
+  }, [inputText, doSend]);
 
   const handleStop = useCallback(() => {
     const controller = useViewerStore.getState().chatAbortController;
     if (controller) {
       controller.abort();
-      // If we have partial content, finalize it
       const partial = useViewerStore.getState().chatStreamingContent;
       if (partial) {
         finalizeAssistant(partial);
@@ -179,11 +249,42 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
     }
   }, [handleSend]);
 
-  const handleFileUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files) return;
+  // ── Error feedback (Fix this) ──
+  const handleFixError = useCallback((code: string, errorMsg: string) => {
+    sendErrorFeedback(code, errorMsg);
+    // Auto-send the feedback to the LLM
+    const state = useViewerStore.getState();
+    const lastMsg = state.chatMessages[state.chatMessages.length - 1];
+    if (lastMsg && lastMsg.role === 'user') {
+      doSend(lastMsg.content);
+    }
+  }, [sendErrorFeedback, doSend]);
 
+  // ── Clickable example prompts ──
+  const handleExampleClick = useCallback((prompt: string) => {
+    setInputText(prompt);
+    inputRef.current?.focus();
+  }, []);
+
+  // ── Clear with confirmation ──
+  const handleClearClick = useCallback(() => {
+    if (messages.length <= 2) {
+      clearMessages();
+    } else {
+      setShowClearConfirm(true);
+    }
+  }, [messages.length, clearMessages]);
+
+  const confirmClear = useCallback(() => {
+    clearMessages();
+    setShowClearConfirm(false);
+  }, [clearMessages]);
+
+  // ── File upload (button + drag-drop) ──
+  const processFiles = useCallback(async (files: FileList | File[]) => {
     for (const file of Array.from(files)) {
+      // Only accept text-based files
+      if (!file.name.match(/\.(csv|json|txt|tsv)$/i)) continue;
       const text = await file.text();
       const attachment: FileAttachment = {
         name: file.name,
@@ -191,93 +292,218 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
         size: file.size,
         textContent: text,
       };
-
-      if (file.name.endsWith('.csv')) {
+      if (file.name.endsWith('.csv') || file.name.endsWith('.tsv')) {
         const { columns, rows } = parseCSV(text);
         attachment.csvColumns = columns;
         attachment.csvData = rows;
       }
-
       addAttachment(attachment);
     }
-
-    e.target.value = '';
   }, [addAttachment]);
+
+  const handleFileUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files) return;
+    await processFiles(files);
+    e.target.value = '';
+  }, [processFiles]);
+
+  // Drag and drop handlers
+  const handleDragEnter = useCallback((e: DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current++;
+    if (e.dataTransfer.types.includes('Files')) {
+      setIsDragging(true);
+    }
+  }, []);
+
+  const handleDragLeave = useCallback((e: DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current--;
+    if (dragCounterRef.current === 0) {
+      setIsDragging(false);
+    }
+  }, []);
+
+  const handleDragOver = useCallback((e: DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  }, []);
+
+  const handleDrop = useCallback(async (e: DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current = 0;
+    setIsDragging(false);
+
+    const files = e.dataTransfer.files;
+    if (files.length > 0) {
+      await processFiles(files);
+    }
+  }, [processFiles]);
 
   const isActive = status === 'streaming' || status === 'sending';
 
   return (
-    <div className="h-full flex flex-col bg-background">
+    <div
+      className="h-full flex flex-col bg-background relative"
+      onDragEnter={handleDragEnter}
+      onDragLeave={handleDragLeave}
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
+    >
+      {/* Drag overlay */}
+      {isDragging && (
+        <div className="absolute inset-0 z-50 bg-blue-500/10 border-2 border-dashed border-blue-500 rounded-md flex items-center justify-center pointer-events-none">
+          <div className="flex flex-col items-center gap-2 text-blue-500">
+            <Paperclip className="h-8 w-8" />
+            <span className="text-sm font-medium">Drop CSV, JSON, or TXT files</span>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-center gap-1 px-2 py-1.5 border-b shrink-0">
         <Bot className="h-4 w-4 text-blue-500 shrink-0" />
         <span className="text-sm font-medium">AI Assistant</span>
         <ModelSelector />
         <div className="flex-1" />
+
+        {/* Auto-execute toggle */}
         <Tooltip>
           <TooltipTrigger asChild>
-            <Button variant="ghost" size="icon-xs" onClick={clearMessages} disabled={messages.length === 0}>
+            <div className="flex items-center gap-1 mr-1">
+              <Zap className={`h-3 w-3 ${autoExecute ? 'text-amber-500' : 'text-muted-foreground/50'}`} />
+              <Switch
+                checked={autoExecute}
+                onCheckedChange={setAutoExecute}
+                className="scale-75 origin-center"
+              />
+            </div>
+          </TooltipTrigger>
+          <TooltipContent>
+            Auto-execute: {autoExecute ? 'ON' : 'OFF'} — automatically run code when LLM responds
+          </TooltipContent>
+        </Tooltip>
+
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              onClick={handleClearClick}
+              disabled={messages.length === 0}
+            >
               <Trash2 className="h-3.5 w-3.5" />
             </Button>
           </TooltipTrigger>
           <TooltipContent>Clear conversation</TooltipContent>
         </Tooltip>
         {onClose && (
-          <Button variant="ghost" size="icon-xs" onClick={onClose}>
-            <X className="h-3.5 w-3.5" />
-          </Button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="icon-xs" onClick={onClose}>
+                <X className="h-3.5 w-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Close (Esc)</TooltipContent>
+          </Tooltip>
         )}
       </div>
 
-      {/* Messages */}
-      <ScrollArea className="flex-1 min-h-0">
-        <div ref={scrollRef}>
-          {/* Empty state */}
-          {messages.length === 0 && !streamingContent && (
-            <div className="flex flex-col items-center justify-center py-8 px-4 text-center">
-              <Bot className="h-8 w-8 text-muted-foreground/40 mb-3" />
-              <p className="text-sm text-muted-foreground mb-1">
-                Describe what you want to build or analyze
-              </p>
-              <p className="text-xs text-muted-foreground/60">
-                &ldquo;Create a 3-story house with walls, slabs, and a roof&rdquo;
-              </p>
-              <p className="text-xs text-muted-foreground/60">
-                &ldquo;Color all IfcWalls by their fire rating&rdquo;
-              </p>
-              <p className="text-xs text-muted-foreground/60">
-                &ldquo;Export a quantity takeoff as CSV&rdquo;
-              </p>
-            </div>
-          )}
-
-          {/* Message list */}
-          {messages.map((msg) => (
-            <ChatMessageComponent key={msg.id} message={msg} />
-          ))}
-
-          {/* Streaming assistant response */}
-          {streamingContent && (
-            <ChatMessageComponent
-              message={{
-                id: 'streaming',
-                role: 'assistant',
-                content: streamingContent,
-                createdAt: Date.now(),
-                codeBlocks: extractCodeBlocks(streamingContent),
-              }}
-            />
-          )}
-
-          {/* Sending indicator */}
-          {status === 'sending' && (
-            <div className="flex items-center gap-2 px-3 py-2 text-muted-foreground">
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              <span className="text-xs">Thinking...</span>
-            </div>
-          )}
+      {/* Clear confirmation */}
+      {showClearConfirm && (
+        <div className="px-3 py-2 bg-destructive/5 border-b flex items-center gap-2 text-xs">
+          <span className="text-muted-foreground">Clear {messages.length} messages?</span>
+          <Button
+            variant="destructive"
+            size="sm"
+            onClick={confirmClear}
+            className="h-5 px-2 text-xs"
+          >
+            Clear
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setShowClearConfirm(false)}
+            className="h-5 px-2 text-xs"
+          >
+            Cancel
+          </Button>
         </div>
-      </ScrollArea>
+      )}
+
+      {/* Messages */}
+      <div className="flex-1 min-h-0 overflow-y-auto relative" ref={scrollRef}>
+        {/* Empty state with clickable examples */}
+        {messages.length === 0 && !streamingContent && (
+          <div className="flex flex-col items-center justify-center py-8 px-4 text-center">
+            <Bot className="h-8 w-8 text-muted-foreground/40 mb-3" />
+            <p className="text-sm text-muted-foreground mb-3">
+              Describe what you want to build or analyze
+            </p>
+            <div className="flex flex-col gap-1.5 w-full max-w-xs">
+              {EXAMPLE_PROMPTS.map((prompt) => (
+                <button
+                  key={prompt}
+                  onClick={() => handleExampleClick(prompt)}
+                  className="text-xs text-left px-3 py-2 rounded-md border border-border/50 hover:border-border hover:bg-muted/50 text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  {prompt}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Message list */}
+        {messages.map((msg) => (
+          <ChatMessageComponent
+            key={msg.id}
+            message={msg}
+            onFixError={handleFixError}
+          />
+        ))}
+
+        {/* Streaming assistant response */}
+        {streamingContent && (
+          <ChatMessageComponent
+            message={{
+              id: 'streaming',
+              role: 'assistant',
+              content: streamingContent,
+              createdAt: Date.now(),
+              codeBlocks: extractCodeBlocks(streamingContent),
+            }}
+            isStreaming
+          />
+        )}
+
+        {/* Sending indicator */}
+        {status === 'sending' && (
+          <div className="flex items-center gap-2 px-3 py-2 text-muted-foreground">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            <span className="text-xs">Thinking...</span>
+          </div>
+        )}
+      </div>
+
+      {/* Scroll to bottom button */}
+      {showScrollBtn && (
+        <div className="absolute bottom-[120px] right-4 z-20">
+          <Button
+            variant="outline"
+            size="icon-xs"
+            onClick={scrollToBottom}
+            className="rounded-full shadow-md bg-background"
+          >
+            <ArrowDown className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+      )}
 
       {/* Error display */}
       {error && (
@@ -313,7 +539,7 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
           <input
             ref={fileInputRef}
             type="file"
-            accept=".csv,.json,.txt"
+            accept=".csv,.json,.txt,.tsv"
             multiple
             onChange={handleFileUpload}
             className="hidden"
@@ -329,7 +555,7 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
                 <Paperclip className="h-3.5 w-3.5" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent>Attach CSV or JSON</TooltipContent>
+            <TooltipContent>Attach file (or drag &amp; drop)</TooltipContent>
           </Tooltip>
 
           <textarea
@@ -378,6 +604,14 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
               <TooltipContent>Send (Enter)</TooltipContent>
             </Tooltip>
           )}
+        </div>
+        <div className="flex items-center justify-between mt-1">
+          <span className="text-[10px] text-muted-foreground/50">
+            {isActive ? 'Streaming...' : 'Shift+Enter for new line'}
+          </span>
+          <span className="text-[10px] text-muted-foreground/50">
+            Ctrl+L focus
+          </span>
         </div>
       </div>
     </div>

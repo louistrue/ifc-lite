@@ -5,6 +5,7 @@
 /**
  * ModelSelector — dropdown to pick the LLM model.
  * Shows free models always, pro models with a lock icon if not subscribed.
+ * Displays context window size for each model.
  */
 
 import { useCallback } from 'react';
@@ -22,6 +23,11 @@ import { FREE_MODELS, PRO_MODELS, getModelById } from '@/lib/llm/models';
 interface ModelSelectorProps {
   /** Whether the user has a pro subscription */
   hasPro?: boolean;
+}
+
+function formatContextWindow(tokens: number): string {
+  if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(0)}M`;
+  return `${(tokens / 1_000).toFixed(0)}K`;
 }
 
 export function ModelSelector({ hasPro = false }: ModelSelectorProps) {
@@ -53,6 +59,7 @@ export function ModelSelector({ hasPro = false }: ModelSelectorProps) {
             <span className="flex items-center gap-1.5">
               <span>{m.name}</span>
               <span className="text-muted-foreground text-[10px]">{m.provider}</span>
+              <span className="text-muted-foreground/50 text-[10px]">{formatContextWindow(m.contextWindow)}</span>
             </span>
           </SelectItem>
         ))}
@@ -72,6 +79,7 @@ export function ModelSelector({ hasPro = false }: ModelSelectorProps) {
             <span className="flex items-center gap-1.5">
               <span>{m.name}</span>
               <span className="text-muted-foreground text-[10px]">{m.provider}</span>
+              <span className="text-muted-foreground/50 text-[10px]">{formatContextWindow(m.contextWindow)}</span>
               {!hasPro && <Crown className="h-3 w-3 text-amber-500/50" />}
             </span>
           </SelectItem>

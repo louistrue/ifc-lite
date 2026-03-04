@@ -26,7 +26,7 @@ export function getModelContext(): ModelContext {
     for (const [, model] of state.models) {
       const entityCount = model.ifcDataStore?.entities.count ?? 0;
       models.push({
-        name: model.filename ?? 'Unknown',
+        name: model.name ?? 'Unknown',
         entityCount,
       });
 
@@ -48,7 +48,7 @@ export function getModelContext(): ModelContext {
   if (models.length === 0 && state.ifcDataStore) {
     const store = state.ifcDataStore;
     models.push({
-      name: state.filename ?? 'Model',
+      name: 'Model',
       entityCount: store.entities.count,
     });
 
