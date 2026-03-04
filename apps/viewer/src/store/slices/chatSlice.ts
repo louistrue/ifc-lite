@@ -28,6 +28,8 @@ export interface ChatSlice {
   chatError: string | null;
   chatAbortController: AbortController | null;
   chatAttachments: FileAttachment[];
+  /** Auto-captured viewport screenshot (base64 data URL) to include with next LLM message */
+  chatViewportScreenshot: string | null;
 
   // Actions
   setChatPanelVisible: (visible: boolean) => void;
@@ -49,6 +51,8 @@ export interface ChatSlice {
   clearChatMessages: () => void;
   /** Send an error from a failed code block back to the chat as a user message for retry. */
   sendErrorFeedback: (code: string, error: string) => void;
+  /** Store a viewport screenshot to include with the next LLM message */
+  setChatViewportScreenshot: (dataUrl: string | null) => void;
 }
 
 function loadStoredModel(): string {
@@ -119,6 +123,7 @@ export const createChatSlice: StateCreator<ChatSlice, [], [], ChatSlice> = (set,
   chatError: null,
   chatAbortController: null,
   chatAttachments: [],
+  chatViewportScreenshot: null,
 
   // Actions
   setChatPanelVisible: (chatPanelVisible) => set({ chatPanelVisible }),
@@ -205,6 +210,8 @@ export const createChatSlice: StateCreator<ChatSlice, [], [], ChatSlice> = (set,
     set({ chatMessages: [], chatStreamingContent: '', chatError: null });
     try { localStorage.removeItem(MESSAGES_STORAGE_KEY); } catch { /* ignore */ }
   },
+
+  setChatViewportScreenshot: (chatViewportScreenshot) => set({ chatViewportScreenshot }),
 
   sendErrorFeedback: (code, error) => {
     const feedbackMessage: ChatMessage = {

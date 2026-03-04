@@ -36,11 +36,12 @@ import { Switch } from '@/components/ui/switch';
 import { useViewerStore } from '@/store';
 import { ChatMessageComponent } from './chat/ChatMessage';
 import { ModelSelector } from './chat/ModelSelector';
-import { streamChat } from '@/lib/llm/stream-client';
+import { streamChat, type TextContentPart, type ImageContentPart } from '@/lib/llm/stream-client';
 import { buildSystemPrompt } from '@/lib/llm/system-prompt';
 import { getModelContext, parseCSV } from '@/lib/llm/context-builder';
 import { extractCodeBlocks } from '@/lib/llm/code-extractor';
 import type { ChatMessage, FileAttachment } from '@/lib/llm/types';
+import { Image as ImageIcon } from 'lucide-react';
 
 // Environment variable for the proxy URL
 const PROXY_URL = import.meta.env.VITE_LLM_PROXY_URL as string || '/api/chat';
@@ -51,6 +52,16 @@ const EXAMPLE_PROMPTS = [
   'Export a quantity takeoff as CSV',
   'Create a skyscraper with 4x4 column grid, 30x40m, concrete shaft',
 ];
+
+/** Convert a File to a base64 data URL */
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
 
 interface ChatPanelProps {
   onClose?: () => void;
@@ -168,11 +179,39 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
       inputRef.current.style.height = 'auto';
     }
 
+    // Check for auto-captured viewport screenshot to include
+    const viewportScreenshot = useViewerStore.getState().chatViewportScreenshot;
+    if (viewportScreenshot) {
+      useViewerStore.getState().setChatViewportScreenshot(null);
+    }
+
     const allMessages = [...messages, userMessage];
-    const streamMessages = allMessages.map((m) => ({
-      role: m.role as 'user' | 'assistant',
-      content: m.content,
-    }));
+    const streamMessages = allMessages.map((m, idx) => {
+      const isLastMessage = idx === allMessages.length - 1;
+      // Build multimodal content array if message has image attachments
+      const imageAttachments = m.attachments?.filter((a) => a.isImage && a.imageBase64);
+      const hasImages = imageAttachments && imageAttachments.length > 0;
+      const hasViewportShot = isLastMessage && viewportScreenshot;
+
+      if (hasImages || hasViewportShot) {
+        const parts: Array<TextContentPart | ImageContentPart> = [];
+        // Add user-attached images
+        if (imageAttachments) {
+          for (const img of imageAttachments) {
+            parts.push({ type: 'image_url', image_url: { url: img.imageBase64! } });
+          }
+        }
+        // Add auto-captured viewport screenshot
+        if (hasViewportShot) {
+          parts.push({ type: 'image_url', image_url: { url: viewportScreenshot } });
+          parts.push({ type: 'text', text: m.content + '\n\n[Attached: current viewport screenshot showing the 3D model state]' });
+        } else {
+          parts.push({ type: 'text', text: m.content });
+        }
+        return { role: m.role as 'user' | 'assistant', content: parts };
+      }
+      return { role: m.role as 'user' | 'assistant', content: m.content };
+    });
 
     const modelContext = getModelContext();
     const fileAttachments = attachments.length > 0 ? attachments : undefined;
@@ -280,9 +319,22 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
     setShowClearConfirm(false);
   }, [clearMessages]);
 
-  // ── File upload (button + drag-drop) ──
+  // ── File upload (button + drag-drop + paste) ──
   const processFiles = useCallback(async (files: FileList | File[]) => {
     for (const file of Array.from(files)) {
+      // Handle image files
+      if (file.type.startsWith('image/')) {
+        const base64 = await fileToBase64(file);
+        const attachment: FileAttachment = {
+          name: file.name,
+          type: file.type,
+          size: file.size,
+          imageBase64: base64,
+          isImage: true,
+        };
+        addAttachment(attachment);
+        continue;
+      }
       // Only accept text-based files
       if (!file.name.match(/\.(csv|json|txt|tsv)$/i)) continue;
       const text = await file.text();
@@ -344,6 +396,25 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
     }
   }, [processFiles]);
 
+  // ── Paste handler for images ──
+  const handlePaste = useCallback(async (e: React.ClipboardEvent) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+
+    const imageFiles: File[] = [];
+    for (const item of Array.from(items)) {
+      if (item.type.startsWith('image/')) {
+        const file = item.getAsFile();
+        if (file) imageFiles.push(file);
+      }
+    }
+
+    if (imageFiles.length > 0) {
+      e.preventDefault();
+      await processFiles(imageFiles);
+    }
+  }, [processFiles]);
+
   const isActive = status === 'streaming' || status === 'sending';
 
   return (
@@ -359,7 +430,7 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
         <div className="absolute inset-0 z-50 bg-blue-500/10 border-2 border-dashed border-blue-500 rounded-md flex items-center justify-center pointer-events-none">
           <div className="flex flex-col items-center gap-2 text-blue-500">
             <Paperclip className="h-8 w-8" />
-            <span className="text-sm font-medium">Drop CSV, JSON, or TXT files</span>
+            <span className="text-sm font-medium">Drop files or images</span>
           </div>
         </div>
       )}
@@ -520,7 +591,20 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
               key={a.name}
               className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-muted text-xs"
             >
-              <Paperclip className="h-3 w-3" />
+              {a.isImage ? (
+                <>
+                  {a.imageBase64 && (
+                    <img
+                      src={a.imageBase64}
+                      alt={a.name}
+                      className="h-6 w-6 object-cover rounded"
+                    />
+                  )}
+                  <ImageIcon className="h-3 w-3" />
+                </>
+              ) : (
+                <Paperclip className="h-3 w-3" />
+              )}
               {a.name}
               <button
                 className="ml-0.5 hover:text-destructive"
@@ -539,7 +623,7 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
           <input
             ref={fileInputRef}
             type="file"
-            accept=".csv,.json,.txt,.tsv"
+            accept=".csv,.json,.txt,.tsv,image/*"
             multiple
             onChange={handleFileUpload}
             className="hidden"
@@ -555,7 +639,7 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
                 <Paperclip className="h-3.5 w-3.5" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent>Attach file (or drag &amp; drop)</TooltipContent>
+            <TooltipContent>Attach file or image (paste, drag &amp; drop)</TooltipContent>
           </Tooltip>
 
           <textarea
@@ -563,6 +647,7 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
             onKeyDown={handleKeyDown}
+            onPaste={handlePaste}
             placeholder="Describe what to create or analyze..."
             rows={1}
             className="flex-1 resize-none rounded-md border bg-background px-3 py-1.5 text-sm min-h-[32px] max-h-[120px] focus:outline-none focus:ring-1 focus:ring-ring"

@@ -121,9 +121,9 @@ export default async function handler(req: Request): Promise<Response> {
   const token = authHeader?.replace('Bearer ', '') || undefined;
   const claims = await verifyClerkToken(token);
 
-  // 3. Parse request body
+  // 3. Parse request body (content can be string or multimodal array for vision)
   const body = (await req.json()) as {
-    messages: Array<{ role: string; content: string }>;
+    messages: Array<{ role: string; content: string | Array<{ type: string; text?: string; image_url?: { url: string } }> }>;
     model: string;
     system?: string;
   };

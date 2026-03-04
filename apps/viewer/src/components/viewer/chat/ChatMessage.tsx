@@ -97,11 +97,20 @@ export const ChatMessageComponent = memo(function ChatMessageComponent({
             {message.attachments && message.attachments.length > 0 && (
               <div className="flex flex-wrap gap-1 mt-1">
                 {message.attachments.map((a) => (
-                  <span key={a.name} className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-muted text-xs text-muted-foreground">
-                    <Paperclip className="h-3 w-3" />
-                    {a.name}
-                    {a.csvData && <span className="opacity-60">({a.csvData.length} rows)</span>}
-                  </span>
+                  a.isImage && a.imageBase64 ? (
+                    <img
+                      key={a.name}
+                      src={a.imageBase64}
+                      alt={a.name}
+                      className="max-w-[200px] max-h-[150px] rounded border object-contain"
+                    />
+                  ) : (
+                    <span key={a.name} className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-muted text-xs text-muted-foreground">
+                      <Paperclip className="h-3 w-3" />
+                      {a.name}
+                      {a.csvData && <span className="opacity-60">({a.csvData.length} rows)</span>}
+                    </span>
+                  )
                 ))}
               </div>
             )}

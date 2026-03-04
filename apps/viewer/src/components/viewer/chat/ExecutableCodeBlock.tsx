@@ -88,6 +88,20 @@ export const ExecutableCodeBlock = memo(function ExecutableCodeBlock({
           value: scriptResult.value,
           durationMs: scriptResult.durationMs,
         });
+
+        // Auto-capture viewport screenshot if script likely created/modified geometry
+        if (block.code.includes('loadIfc') || block.code.includes('bim.create') || block.code.includes('colorize')) {
+          // Small delay to let the renderer finish presenting the frame
+          setTimeout(() => {
+            try {
+              const canvas = document.querySelector('canvas');
+              if (canvas) {
+                const dataUrl = canvas.toDataURL('image/png');
+                useViewerStore.getState().setChatViewportScreenshot(dataUrl);
+              }
+            } catch { /* screenshot capture failed — non-critical */ }
+          }, 500);
+        }
       } else {
         // Preserve logs from failed execution (ScriptError captures them)
         const store = useViewerStore.getState();

@@ -49,6 +49,10 @@ export interface FileAttachment {
   csvColumns?: string[];
   /** Raw text content */
   textContent?: string;
+  /** Base64-encoded image data (for image attachments) */
+  imageBase64?: string;
+  /** Whether this is an image attachment */
+  isImage?: boolean;
 }
 
 export type ModelTier = 'free' | 'pro';

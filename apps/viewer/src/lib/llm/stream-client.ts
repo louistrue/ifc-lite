@@ -11,9 +11,23 @@
  * keeping the bundle small while providing full streaming support.
  */
 
+/** A text content part in a multimodal message */
+export interface TextContentPart {
+  type: 'text';
+  text: string;
+}
+
+/** An image content part in a multimodal message (OpenRouter/OpenAI vision format) */
+export interface ImageContentPart {
+  type: 'image_url';
+  image_url: { url: string };
+}
+
+export type MessageContent = string | Array<TextContentPart | ImageContentPart>;
+
 export interface StreamMessage {
   role: 'user' | 'assistant' | 'system';
-  content: string;
+  content: MessageContent;
 }
 
 export interface StreamOptions {
