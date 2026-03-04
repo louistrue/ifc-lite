@@ -84,18 +84,17 @@ export interface BsddOptions {
 const IFC_DICTIONARY_URI =
   'https://identifier.buildingsmart.org/uri/buildingsmart/ifc/4.3';
 
-const classCache = new Map<string, { data: BsddClassInfo; ts: number }>();
-let cacheTtl = 10 * 60 * 1000;
+// Cache helpers — operate on instance-scoped cache passed as argument
 
-function getCached(key: string): BsddClassInfo | null {
-  const entry = classCache.get(key);
-  if (entry && Date.now() - entry.ts < cacheTtl) return entry.data;
-  if (entry) classCache.delete(key);
+function getCached(cache: Map<string, { data: BsddClassInfo; ts: number }>, key: string, ttl: number): BsddClassInfo | null {
+  const entry = cache.get(key);
+  if (entry && Date.now() - entry.ts < ttl) return entry.data;
+  if (entry) cache.delete(key);
   return null;
 }
 
-function setCache(key: string, data: BsddClassInfo): void {
-  classCache.set(key, { data, ts: Date.now() });
+function setCache(cache: Map<string, { data: BsddClassInfo; ts: number }>, key: string, data: BsddClassInfo): void {
+  cache.set(key, { data, ts: Date.now() });
 }
 
 async function fetchJson<T>(url: string): Promise<T> {
@@ -159,10 +158,12 @@ function mapClassResponse(raw: Record<string, unknown>, isIfcStandard: boolean):
  */
 export class BsddNamespace {
   private apiBase: string;
+  private cache = new Map<string, { data: BsddClassInfo; ts: number }>();
+  private cacheTtl: number;
 
   constructor(options?: BsddOptions) {
     this.apiBase = options?.apiBase ?? 'https://api.bsdd.buildingsmart.org';
-    if (options?.cacheTtlMs !== undefined) cacheTtl = options.cacheTtlMs;
+    this.cacheTtl = options?.cacheTtlMs ?? 10 * 60 * 1000;
   }
 
   // --------------------------------------------------------------------------
@@ -191,7 +192,7 @@ export class BsddNamespace {
    */
   async fetchClassInfo(ifcType: string): Promise<BsddClassInfo | null> {
     const uri = this.ifcClassUri(ifcType);
-    const cached = getCached(uri);
+    const cached = getCached(this.cache, uri, this.cacheTtl);
     if (cached) return cached;
 
     try {
@@ -215,7 +216,7 @@ export class BsddNamespace {
         }
       }
 
-      setCache(uri, info);
+      setCache(this.cache, uri, info);
       return info;
     } catch {
       return null;
@@ -227,7 +228,7 @@ export class BsddNamespace {
    * Useful for non-IFC dictionaries (Uniclass, OmniClass, etc.).
    */
   async fetchClassByUri(classUri: string): Promise<BsddClassInfo | null> {
-    const cached = getCached(classUri);
+    const cached = getCached(this.cache, classUri, this.cacheTtl);
     if (cached) return cached;
 
     try {
@@ -235,7 +236,7 @@ export class BsddNamespace {
         `${this.apiBase}/api/Class/v1?Uri=${encodeURIComponent(classUri)}&IncludeClassProperties=true`,
       );
       const info = mapClassResponse(raw, false);
-      setCache(classUri, info);
+      setCache(this.cache, classUri, info);
       return info;
     } catch {
       return null;
@@ -361,15 +362,15 @@ export class BsddNamespace {
 
   /** Clear the bSDD cache. */
   clearCache(): void {
-    classCache.clear();
+    this.cache.clear();
   }
 
   /** Get cache statistics. */
   cacheStats(): { entries: number; oldestMs: number } {
     let oldest = Date.now();
-    for (const entry of classCache.values()) {
+    for (const entry of this.cache.values()) {
       if (entry.ts < oldest) oldest = entry.ts;
     }
-    return { entries: classCache.size, oldestMs: classCache.size > 0 ? Date.now() - oldest : 0 };
+    return { entries: this.cache.size, oldestMs: this.cache.size > 0 ? Date.now() - oldest : 0 };
   }
 }

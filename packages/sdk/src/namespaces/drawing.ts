@@ -115,16 +115,17 @@ export class DrawingNamespace {
   // Override criteria builders
   // --------------------------------------------------------------------------
 
-  /** Create a criterion that matches by IFC type. */
-  async ifcTypeCriterion(typeName: string): Promise<unknown> {
+  /** Create a criterion that matches by IFC type(s). */
+  async ifcTypeCriterion(types: string | string[], includeSubtypes = true): Promise<unknown> {
     const mod = await loadDrawing2D();
-    return (mod.ifcTypeCriterion as AnyFn)(typeName);
+    const arr = Array.isArray(types) ? types : [types];
+    return (mod.ifcTypeCriterion as AnyFn)(arr, includeSubtypes);
   }
 
   /** Create a criterion that matches by property value. */
-  async propertyCriterion(psetName: string, propName: string, value: unknown): Promise<unknown> {
+  async propertyCriterion(propertyName: string, operator: string, value?: unknown, propertySet?: string): Promise<unknown> {
     const mod = await loadDrawing2D();
-    return (mod.propertyCriterion as AnyFn)(psetName, propName, value);
+    return (mod.propertyCriterion as AnyFn)(propertyName, operator, value, propertySet);
   }
 
   /** Combine criteria with AND logic. */

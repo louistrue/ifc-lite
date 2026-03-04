@@ -30,13 +30,19 @@ export interface SandboxPermissions {
   viewer?: boolean;
   /** Allow export operations (default: false) */
   export?: boolean;
+  /** Allow model operations (default: true) */
+  model?: boolean;
+  /** Allow lens operations (default: true) */
+  lens?: boolean;
 }
 
 export interface SandboxLimits {
-  /** Maximum execution time in ms (default: 10000) */
+  /** Maximum execution time in ms (default: 30000) */
   timeoutMs?: number;
-  /** Maximum memory in bytes (default: 64MB) */
-  maxMemoryBytes?: number;
+  /** Maximum heap memory in bytes (default: 64MB) */
+  memoryBytes?: number;
+  /** Maximum stack size in bytes (default: 512KB) */
+  maxStackBytes?: number;
 }
 
 export interface SandboxConfig {

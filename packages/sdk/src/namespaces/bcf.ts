@@ -49,14 +49,14 @@ export interface ViewpointOptions {
   };
   /** Component selection/visibility */
   components?: {
-    selection?: Array<{ ifcGuid: string }>;
+    selection?: Array<{ GlobalId: string }>;
     visibility?: {
       defaultVisibility: boolean;
-      exceptions?: Array<{ ifcGuid: string }>;
+      exceptions?: Array<{ GlobalId: string }>;
     };
     coloring?: Array<{
       color: string;
-      components: Array<{ ifcGuid: string }>;
+      components: Array<{ GlobalId: string }>;
     }>;
   };
 }
@@ -155,7 +155,19 @@ export class BCFNamespace {
   /** Create a BCF viewpoint from viewer camera/section state. */
   async createViewpoint(options?: ViewpointOptions): Promise<unknown> {
     const mod = await loadBCF();
-    return (mod.createViewpoint as AnyFn)(options?.camera, options?.sectionPlane, options?.components);
+    // Map SDK's GlobalId (IFC convention) to BCF library's ifcGuid
+    const components = options?.components ? {
+      selection: options.components.selection?.map(c => ({ ifcGuid: c.GlobalId })),
+      visibility: options.components.visibility ? {
+        defaultVisibility: options.components.visibility.defaultVisibility,
+        exceptions: options.components.visibility.exceptions?.map(c => ({ ifcGuid: c.GlobalId })),
+      } : undefined,
+      coloring: options.components.coloring?.map(g => ({
+        color: g.color,
+        components: g.components.map(c => ({ ifcGuid: c.GlobalId })),
+      })),
+    } : undefined;
+    return (mod.createViewpoint as AnyFn)(options?.camera, options?.sectionPlane, components);
   }
 
   /** Add a viewpoint to a topic. */

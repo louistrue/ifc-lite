@@ -28,6 +28,8 @@ export type IDSSupportedLocale = 'en' | 'de' | 'fr';
 export interface IDSValidateOptions {
   /** IFC data accessor — maps IFC model data for validation */
   accessor: unknown;
+  /** Model info (schema version, name, etc.) for spec applicability checks */
+  modelInfo?: { schemaVersion?: string; name?: string; [key: string]: unknown };
   /** Progress callback */
   onProgress?: (progress: { current: number; total: number; specName: string }) => void;
   /** Locale for human-readable messages */
@@ -77,7 +79,7 @@ export class IDSNamespace {
    */
   async validate(idsDocument: unknown, options: IDSValidateOptions): Promise<unknown> {
     const mod = await loadIDS();
-    return (mod.validateIDS as AnyFn)(idsDocument, options.accessor, {
+    return (mod.validateIDS as AnyFn)(idsDocument, options.accessor, options.modelInfo ?? {}, {
       onProgress: options.onProgress,
       locale: options.locale,
     });

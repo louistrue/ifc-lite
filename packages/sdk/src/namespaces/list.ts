@@ -96,9 +96,9 @@ export class ListNamespace {
    * });
    * ```
    */
-  async execute(provider: unknown, definition: ListDefinition): Promise<unknown> {
+  async execute(provider: unknown, definition: ListDefinition, modelId?: string): Promise<unknown> {
     const mod = await loadLists();
-    return (mod.executeList as AnyFn)(provider, definition);
+    return (mod.executeList as AnyFn)(definition, provider, modelId ?? 'default');
   }
 
   // --------------------------------------------------------------------------
@@ -109,9 +109,9 @@ export class ListNamespace {
    * Discover available columns from a data provider.
    * Returns all property sets and their properties found in the model.
    */
-  async discoverColumns(provider: unknown): Promise<unknown> {
+  async discoverColumns(provider: unknown, entityTypes?: string[]): Promise<unknown> {
     const mod = await loadLists();
-    return (mod.discoverColumns as AnyFn)(provider);
+    return (mod.discoverColumns as AnyFn)(provider, entityTypes ?? []);
   }
 
   // --------------------------------------------------------------------------

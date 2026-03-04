@@ -553,31 +553,48 @@ export class IfcCreator {
     const railLen = Math.sqrt(dx * dx + dy * dy + dz * dz);
     const dir: Point3D = vecNorm([dx, dy, dz]);
 
+    // Use identity orientation so posts can extrude vertically along world Z
     const placementId = this.addLocalPlacement(this.worldPlacementId, {
       Location: params.Start,
-      Axis: dir,
-      RefDirection: this.computeRefDirection(dir),
     });
 
     const railWidth = params.Width ?? 0.05;
-    const profileId = this.addRectangleProfile(railWidth, railWidth);
-    const solidId = this.addExtrudedAreaSolid(profileId, railLen);
 
-    // Add vertical posts at start and end
-    const postSolids: number[] = [solidId];
+    // Rail solid — extrude along the rail direction (dir) at rail Height
+    const railProfileId = this.addRectangleProfile(railWidth, railWidth);
+    const railOriginId = this.addCartesianPoint([0, 0, params.Height]);
+    const railAxisId = this.addDirection(dir);
+    const railRefId = this.addDirection(this.computeRefDirection(dir));
+    const railAxis2Id = this.addAxis2Placement3D(railOriginId, railAxisId, railRefId);
+    const railSolidId = this.id();
+    this.line(railSolidId, 'IFCEXTRUDEDAREASOLID',
+      `#${railProfileId},#${railAxis2Id},#${this.dirZ},${num(railLen)}`);
+
+    const solids: number[] = [railSolidId];
+
+    // Vertical posts at start and end
     const postProfile = this.addRectangleProfile(railWidth, railWidth);
 
-    // Start post
+    // Start post — at origin, extrude up
     const startPostOriginId = this.addCartesianPoint([0, 0, 0]);
-    const startPostAxisId = this.addDirection([0, 0, 1]);
-    const startPostRefId = this.addDirection([1, 0, 0]);
-    const startPostAxis2Id = this.addAxis2Placement3D(startPostOriginId, startPostAxisId, startPostRefId);
+    const startPostAxis2Id = this.addAxis2Placement3D(startPostOriginId);
     const startPostId = this.id();
     this.line(startPostId, 'IFCEXTRUDEDAREASOLID',
       `#${postProfile},#${startPostAxis2Id},#${this.dirZ},${num(params.Height)}`);
-    postSolids.push(startPostId);
+    solids.push(startPostId);
 
-    const shapeId = this.addShapeRepresentation('Body', postSolids);
+    // End post — at the end of the rail, extrude up
+    const endPostOriginId = this.addCartesianPoint([
+      dx, dy, dz,
+    ]);
+    const endPostAxis2Id = this.addAxis2Placement3D(endPostOriginId);
+    const endPostProfile = this.addRectangleProfile(railWidth, railWidth);
+    const endPostId = this.id();
+    this.line(endPostId, 'IFCEXTRUDEDAREASOLID',
+      `#${endPostProfile},#${endPostAxis2Id},#${this.dirZ},${num(params.Height)}`);
+    solids.push(endPostId);
+
+    const shapeId = this.addShapeRepresentation('Body', solids);
     const prodShapeId = this.addProductDefinitionShape([shapeId]);
 
     const railingId = this.id();
@@ -590,7 +607,7 @@ export class IfcCreator {
     this.line(railingId, 'IFCRAILING',
       `'${globalId}',#${this.ownerHistoryId},'${esc(name)}',${desc},${objType},#${placementId},#${prodShapeId},${tag},.HANDRAIL.`);
 
-    this.elementSolids.set(railingId, postSolids);
+    this.elementSolids.set(railingId, solids);
     this.trackElement(storeyId, railingId);
     this.entities.push({ expressId: railingId, type: 'IfcRailing', Name: name });
     return railingId;
@@ -1836,21 +1853,14 @@ ENDSEC;
         profile.FilletRadius,
       );
     }
-    if ('FlangeWidth' in profile && 'WebThickness' in profile && 'Depth' in profile && !('FlangeWidth' in profile && 'Depth' in profile && !('WebThickness' in profile))) {
-      // Could be T or U — disambiguate
-      if ('FlangeWidth' in profile && !('Width' in profile)) {
-        // Check if it's UShapeProfile (has FlangeWidth but no FlangeWidth as main width)
-        // TShape: FlangeWidth, Depth, WebThickness, FlangeThickness
-        // UShape: Depth, FlangeWidth, WebThickness, FlangeThickness
-        // They're structurally identical — use Girth to detect CShape, else check field ordering
-        return this.addTShapeProfile(
-          (profile as { FlangeWidth: number }).FlangeWidth,
-          (profile as { Depth: number }).Depth,
-          (profile as { WebThickness: number }).WebThickness,
-          (profile as { FlangeThickness: number }).FlangeThickness,
-          (profile as { FilletRadius?: number }).FilletRadius,
-        );
-      }
+    // T-shape and U-shape are structurally identical — use Shape discriminator
+    if ('Shape' in profile && (profile as { Shape: string }).Shape === 'T') {
+      const p = profile as { FlangeWidth: number; Depth: number; WebThickness: number; FlangeThickness: number; FilletRadius?: number };
+      return this.addTShapeProfile(p.FlangeWidth, p.Depth, p.WebThickness, p.FlangeThickness, p.FilletRadius);
+    }
+    if ('Shape' in profile && (profile as { Shape: string }).Shape === 'U') {
+      const p = profile as { Depth: number; FlangeWidth: number; WebThickness: number; FlangeThickness: number; FilletRadius?: number };
+      return this.addUShapeProfile(p.Depth, p.FlangeWidth, p.WebThickness, p.FlangeThickness, p.FilletRadius);
     }
     if ('Girth' in profile) {
       // CShapeProfile
@@ -1870,11 +1880,6 @@ ENDSEC;
       // LShapeProfile
       const p = profile as { Depth: number; Width: number; Thickness: number; FilletRadius?: number };
       return this.addLShapeProfile(p.Depth, p.Width, p.Thickness, p.FilletRadius);
-    }
-    if ('Depth' in profile && 'FlangeWidth' in profile) {
-      // UShapeProfile
-      const p = profile as { Depth: number; FlangeWidth: number; WebThickness: number; FlangeThickness: number; FilletRadius?: number };
-      return this.addUShapeProfile(p.Depth, p.FlangeWidth, p.WebThickness, p.FlangeThickness, p.FilletRadius);
     }
     throw new Error('Unrecognized profile shape — ensure ProfileType is "AREA" and required fields are set');
   }
