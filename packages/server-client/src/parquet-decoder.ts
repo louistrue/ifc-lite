@@ -270,25 +270,56 @@ export async function isParquetAvailable(): Promise<boolean> {
 }
 
 // ============================================================================
-// OPTIMIZED FORMAT (ara3d BOS-compatible)
+// OPTIMIZED FORMAT (v2: i32 absolute, v3: u16 quantized-mesh style)
 // ============================================================================
 
 /**
- * Decode an optimized Parquet geometry response (ara3d BOS format).
+ * Quantized-mesh constant: maximum quantized vertex value.
+ * Vertices are mapped to [0, 32767] within the mesh's bounding box.
+ */
+const QUANTIZED_MAX = 32767.0;
+
+/**
+ * Oct-decode a 2-byte encoded normal back to a unit vector.
+ * Inverse of the oct-encoding from the CesiumGS quantized-mesh spec.
+ */
+function octDecodeNormal(octX: number, octY: number): [number, number, number] {
+  // Map from [0, 255] back to [-1, 1]
+  let u = (octX / 255.0) * 2.0 - 1.0;
+  let v = (octY / 255.0) * 2.0 - 1.0;
+
+  const nz = 1.0 - Math.abs(u) - Math.abs(v);
+
+  // Unfold the lower hemisphere
+  if (nz < 0.0) {
+    const oldU = u;
+    u = (1.0 - Math.abs(v)) * (oldU >= 0.0 ? 1.0 : -1.0);
+    v = (1.0 - Math.abs(oldU)) * (v >= 0.0 ? 1.0 : -1.0);
+  }
+
+  // Normalize
+  const len = Math.sqrt(u * u + v * v + nz * nz);
+  if (len > 0) {
+    return [u / len, v / len, nz / len];
+  }
+  return [0, 0, 1];
+}
+
+/**
+ * Decode an optimized Parquet geometry response.
  *
- * Binary format:
+ * Supports two versions:
+ * - **v2**: i32 absolute quantized vertices (legacy, multiplier-based)
+ * - **v3**: u16 relative quantized vertices (quantized-mesh style, per-mesh AABB)
+ *           with oct-encoded normals (2 bytes instead of 12)
+ *
+ * Binary format (both versions):
  * - [version:u8][flags:u8]
  * - [instance_len:u32][mesh_len:u32][material_len:u32][vertex_len:u32][index_len:u32]
  * - [instance_parquet][mesh_parquet][material_parquet][vertex_parquet][index_parquet]
  *
- * Key features:
- * - Integer quantized vertices (multiply by vertex_multiplier to get meters)
- * - Mesh instancing (deduplicated geometry)
- * - Byte colors (0-255)
- * - Optional normals (compute on client if not present)
- *
  * @param data - Binary optimized Parquet response from server
- * @param vertexMultiplier - Multiplier for vertex dequantization (default: 10000)
+ * @param vertexMultiplier - Multiplier for v2 dequantization (default: 10000, ignored for v3)
  * @returns Decoded MeshData array
  */
 export async function decodeOptimizedParquetGeometry(
@@ -306,7 +337,7 @@ export async function decodeOptimizedParquetGeometry(
   // Read header
   const version = view.getUint8(offset);
   offset += 1;
-  if (version !== 2) {
+  if (version !== 2 && version !== 3) {
     throw new Error(`Unsupported optimized Parquet version: ${version}`);
   }
 
@@ -379,7 +410,42 @@ export async function decodeOptimizedParquetGeometry(
   const matB = materialArrow.getChild('b')?.toArray() as Uint8Array;
   const matA = materialArrow.getChild('a')?.toArray() as Uint8Array;
 
-  // Extract vertex columns (quantized integers)
+  // Extract index column
+  const indices = indexArrow.getChild('i')?.toArray() as Uint32Array;
+
+  // Version-specific extraction and dequantization
+  if (version === 3) {
+    return decodeV3QuantizedMesh(
+      vertexArrow, meshArrow, instanceArrow,
+      entityIds, ifcTypes, meshIndices, materialIndices,
+      meshVertexOffsets, meshVertexCounts, meshIndexOffsets, meshIndexCounts,
+      matR, matG, matB, matA,
+      indices, hasNormals
+    );
+  }
+
+  // v2 path (legacy i32 absolute quantization)
+  return decodeV2AbsoluteQuantized(
+    vertexArrow,
+    entityIds, ifcTypes, meshIndices, materialIndices,
+    meshVertexOffsets, meshVertexCounts, meshIndexOffsets, meshIndexCounts,
+    matR, matG, matB, matA,
+    indices, hasNormals, vertexMultiplier
+  );
+}
+
+/**
+ * Decode v2 format: i32 absolute quantized vertices with float32 normals.
+ */
+function decodeV2AbsoluteQuantized(
+  vertexArrow: any,
+  entityIds: Uint32Array, ifcTypes: any,
+  meshIndices: Uint32Array, materialIndices: Uint32Array,
+  meshVertexOffsets: Uint32Array, meshVertexCounts: Uint32Array,
+  meshIndexOffsets: Uint32Array, meshIndexCounts: Uint32Array,
+  matR: Uint8Array, matG: Uint8Array, matB: Uint8Array, matA: Uint8Array,
+  indices: Uint32Array, hasNormals: boolean, vertexMultiplier: number
+): MeshData[] {
   const vertexX = vertexArrow.getChild('x')?.toArray() as Int32Array;
   const vertexY = vertexArrow.getChild('y')?.toArray() as Int32Array;
   const vertexZ = vertexArrow.getChild('z')?.toArray() as Int32Array;
@@ -387,10 +453,6 @@ export async function decodeOptimizedParquetGeometry(
   const normalY = hasNormals ? (vertexArrow.getChild('ny')?.toArray() as Float32Array) : null;
   const normalZ = hasNormals ? (vertexArrow.getChild('nz')?.toArray() as Float32Array) : null;
 
-  // Extract index column
-  const indices = indexArrow.getChild('i')?.toArray() as Uint32Array;
-
-  // Reconstruct MeshData array from instances
   const instanceCount = entityIds.length;
   const meshes: MeshData[] = new Array(instanceCount);
   const dequantMultiplier = 1.0 / vertexMultiplier;
@@ -398,15 +460,11 @@ export async function decodeOptimizedParquetGeometry(
   for (let i = 0; i < instanceCount; i++) {
     const meshIdx = meshIndices[i];
     const materialIdx = materialIndices[i];
-
     const vertexOffset = meshVertexOffsets[meshIdx];
     const vertexCount = meshVertexCounts[meshIdx];
     const indexOffset = meshIndexOffsets[meshIdx];
     const indexCount = meshIndexCounts[meshIdx];
 
-    // Dequantize and reconstruct positions
-    // OPTIMIZATION: Z-up to Y-up transform is now done server-side for optimized format too
-    // Server already transforms before quantization, so we just dequantize directly
     const positions = new Float32Array(vertexCount * 3);
     for (let v = 0; v < vertexCount; v++) {
       const srcIdx = vertexOffset + v;
@@ -415,7 +473,6 @@ export async function decodeOptimizedParquetGeometry(
       positions[v * 3 + 2] = vertexZ[srcIdx] * dequantMultiplier;
     }
 
-    // Reconstruct normals (pre-transformed server-side, or compute if not present)
     let normals: Float32Array;
     if (hasNormals && normalX && normalY && normalZ) {
       normals = new Float32Array(vertexCount * 3);
@@ -426,17 +483,121 @@ export async function decodeOptimizedParquetGeometry(
         normals[v * 3 + 2] = normalZ[srcIdx];
       }
     } else {
-      // Compute flat normals from triangle faces
       normals = computeFlatNormals(positions, indices.slice(indexOffset, indexOffset + indexCount));
     }
 
-    // Reconstruct indices (relative to this mesh's vertices)
     const meshIndicesArray = new Uint32Array(indexCount);
     for (let j = 0; j < indexCount; j++) {
       meshIndicesArray[j] = indices[indexOffset + j];
     }
 
-    // Convert byte colors to float [0-1]
+    meshes[i] = {
+      express_id: entityIds[i],
+      ifc_type: ifcTypes?.get(i) ?? 'Unknown',
+      positions: positions as any,
+      normals: normals as any,
+      indices: meshIndicesArray as any,
+      color: [matR[materialIdx] / 255, matG[materialIdx] / 255, matB[materialIdx] / 255, matA[materialIdx] / 255],
+    };
+  }
+
+  return meshes;
+}
+
+/**
+ * Decode v3 format: u16 relative quantized vertices (quantized-mesh style)
+ * with oct-encoded normals.
+ *
+ * Each mesh has its own bounding box; vertex values [0, 32767] represent
+ * linear interpolation within that bounding box.
+ */
+function decodeV3QuantizedMesh(
+  vertexArrow: any, meshArrow: any, _instanceArrow: any,
+  entityIds: Uint32Array, ifcTypes: any,
+  meshIndices: Uint32Array, materialIndices: Uint32Array,
+  meshVertexOffsets: Uint32Array, meshVertexCounts: Uint32Array,
+  meshIndexOffsets: Uint32Array, meshIndexCounts: Uint32Array,
+  matR: Uint8Array, matG: Uint8Array, matB: Uint8Array, matA: Uint8Array,
+  indices: Uint32Array, hasNormals: boolean
+): MeshData[] {
+  // u16 vertex columns — required for v3
+  const vertexX = vertexArrow.getChild('x')?.toArray() as Uint16Array | null;
+  const vertexY = vertexArrow.getChild('y')?.toArray() as Uint16Array | null;
+  const vertexZ = vertexArrow.getChild('z')?.toArray() as Uint16Array | null;
+  if (!vertexX || !vertexY || !vertexZ) {
+    throw new Error('Malformed v3 payload: missing required vertex columns (x, y, z)');
+  }
+
+  // Oct-encoded normal columns (u8)
+  const octNX = hasNormals ? (vertexArrow.getChild('oct_nx')?.toArray() as Uint8Array) : null;
+  const octNY = hasNormals ? (vertexArrow.getChild('oct_ny')?.toArray() as Uint8Array) : null;
+
+  // Per-mesh bounding boxes — required for v3 dequantization
+  const meshMinX = meshArrow.getChild('min_x')?.toArray() as Float32Array | null;
+  const meshMaxX = meshArrow.getChild('max_x')?.toArray() as Float32Array | null;
+  const meshMinY = meshArrow.getChild('min_y')?.toArray() as Float32Array | null;
+  const meshMaxY = meshArrow.getChild('max_y')?.toArray() as Float32Array | null;
+  const meshMinZ = meshArrow.getChild('min_z')?.toArray() as Float32Array | null;
+  const meshMaxZ = meshArrow.getChild('max_z')?.toArray() as Float32Array | null;
+  if (!meshMinX || !meshMaxX || !meshMinY || !meshMaxY || !meshMinZ || !meshMaxZ) {
+    throw new Error('Malformed v3 payload: missing required mesh bounding box columns');
+  }
+
+  const meshCount = meshVertexOffsets.length;
+  const materialCount = matR.length;
+  const instanceCount = entityIds.length;
+  const meshes: MeshData[] = new Array(instanceCount);
+
+  for (let i = 0; i < instanceCount; i++) {
+    const meshIdx = meshIndices[i];
+    const materialIdx = materialIndices[i];
+
+    // Validate instance references are within bounds
+    if (meshIdx >= meshCount) {
+      throw new Error(`Instance ${i}: mesh_index ${meshIdx} out of range (${meshCount} meshes)`);
+    }
+    if (materialIdx >= materialCount) {
+      throw new Error(`Instance ${i}: material_index ${materialIdx} out of range (${materialCount} materials)`);
+    }
+
+    const vertexOffset = meshVertexOffsets[meshIdx];
+    const vertexCount = meshVertexCounts[meshIdx];
+    const indexOffset = meshIndexOffsets[meshIdx];
+    const indexCount = meshIndexCounts[meshIdx];
+
+    // Dequantize: value = min + (quantized / 32767) * (max - min)
+    const minX = meshMinX[meshIdx], rangeX = meshMaxX[meshIdx] - minX;
+    const minY = meshMinY[meshIdx], rangeY = meshMaxY[meshIdx] - minY;
+    const minZ = meshMinZ[meshIdx], rangeZ = meshMaxZ[meshIdx] - minZ;
+
+    const positions = new Float32Array(vertexCount * 3);
+    for (let v = 0; v < vertexCount; v++) {
+      const srcIdx = vertexOffset + v;
+      positions[v * 3]     = minX + (vertexX[srcIdx] / QUANTIZED_MAX) * rangeX;
+      positions[v * 3 + 1] = minY + (vertexY[srcIdx] / QUANTIZED_MAX) * rangeY;
+      positions[v * 3 + 2] = minZ + (vertexZ[srcIdx] / QUANTIZED_MAX) * rangeZ;
+    }
+
+    // Decode normals: oct-encoded (2 bytes) → unit vector (3 floats)
+    let normals: Float32Array;
+    if (hasNormals && octNX && octNY) {
+      normals = new Float32Array(vertexCount * 3);
+      for (let v = 0; v < vertexCount; v++) {
+        const srcIdx = vertexOffset + v;
+        const [nx, ny, nz] = octDecodeNormal(octNX[srcIdx], octNY[srcIdx]);
+        normals[v * 3] = nx;
+        normals[v * 3 + 1] = ny;
+        normals[v * 3 + 2] = nz;
+      }
+    } else {
+      normals = computeFlatNormals(positions, indices.slice(indexOffset, indexOffset + indexCount));
+    }
+
+    const meshIndicesArray = new Uint32Array(indexCount);
+    for (let j = 0; j < indexCount; j++) {
+      meshIndicesArray[j] = indices[indexOffset + j];
+    }
+
     meshes[i] = {
       express_id: entityIds[i],
       ifc_type: ifcTypes?.get(i) ?? 'Unknown',
