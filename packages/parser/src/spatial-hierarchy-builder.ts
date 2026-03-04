@@ -8,7 +8,7 @@
 
 import type { EntityTable, StringTable, RelationshipGraph, SpatialHierarchy, SpatialNode } from '@ifc-lite/data';
 import { IfcTypeEnum, RelationshipType, createLogger } from '@ifc-lite/data';
-import type { EntityRef } from './types.js';
+import type { EntityRef, EntityLookup } from './types.js';
 import { EntityExtractor } from './entity-extractor.js';
 
 const log = createLogger('SpatialHierarchy');
@@ -24,7 +24,7 @@ export class SpatialHierarchyBuilder {
     relationships: RelationshipGraph,
     strings: StringTable,
     source: Uint8Array,
-    entityIndex: { byId: Map<number, EntityRef> },
+    entityIndex: { byId: EntityLookup },
     lengthUnitScale: number = 1.0
   ): SpatialHierarchy {
     const byStorey = new Map<number, number[]>();
@@ -167,7 +167,7 @@ export class SpatialHierarchyBuilder {
     relationships: RelationshipGraph,
     strings: StringTable,
     source: Uint8Array,
-    entityIndex: { byId: Map<number, EntityRef> },
+    entityIndex: { byId: EntityLookup },
     byStorey: Map<number, number[]>,
     byBuilding: Map<number, number[]>,
     bySite: Map<number, number[]>,
@@ -264,7 +264,7 @@ export class SpatialHierarchyBuilder {
   private extractElevation(
     expressId: number,
     source: Uint8Array,
-    entityIndex: { byId: Map<number, EntityRef> }
+    entityIndex: { byId: EntityLookup }
   ): number | undefined {
     const ref = entityIndex.byId.get(expressId);
     if (!ref) return undefined;

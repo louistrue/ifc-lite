@@ -16,7 +16,7 @@ import {
   type IfcDataStore as CacheDataStore,
   type GeometryData,
 } from '@ifc-lite/cache';
-import { SpatialHierarchyBuilder, extractLengthUnitScale, type IfcDataStore } from '@ifc-lite/parser';
+import { SpatialHierarchyBuilder, CompactEntityIndex, extractLengthUnitScale, type IfcDataStore } from '@ifc-lite/parser';
 import { buildSpatialIndex } from '@ifc-lite/spatial';
 import type { MeshData } from '@ifc-lite/geometry';
 
@@ -103,27 +103,33 @@ export function useIfcCache() {
         // Quick scan to rebuild entity index with byte offsets (needed for on-demand extraction)
         const { StepTokenizer } = await import('@ifc-lite/parser');
         const tokenizer = new StepTokenizer(dataStore.source);
-        const entityIndex = {
-          byId: new Map<number, any>(),
-          byType: new Map<string, number[]>(),
-        };
 
+        // Collect refs first, then build compact index with known max ID
+        const scannedRefs: Array<{ expressId: number; type: string; offset: number; length: number; line: number }> = [];
+        let maxId = 0;
         for (const ref of tokenizer.scanEntitiesFast()) {
-          entityIndex.byId.set(ref.expressId, {
+          scannedRefs.push(ref);
+          if (ref.expressId > maxId) maxId = ref.expressId;
+        }
+
+        const byId = new CompactEntityIndex(maxId);
+        const byType = new Map<string, number[]>();
+        for (const ref of scannedRefs) {
+          byId.set(ref.expressId, {
             expressId: ref.expressId,
             type: ref.type,
             byteOffset: ref.offset,
             byteLength: ref.length,
             lineNumber: ref.line,
           });
-          let typeList = entityIndex.byType.get(ref.type);
+          let typeList = byType.get(ref.type);
           if (!typeList) {
             typeList = [];
-            entityIndex.byType.set(ref.type, typeList);
+            byType.set(ref.type, typeList);
           }
           typeList.push(ref.expressId);
         }
-        dataStore.entityIndex = entityIndex;
+        dataStore.entityIndex = { byId, byType };
 
         // Rebuild on-demand maps from relationships
         // Pass entityIndex which contains ALL entity types including IfcPropertySet/IfcElementQuantity

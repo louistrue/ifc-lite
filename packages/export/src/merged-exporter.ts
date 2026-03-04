@@ -10,8 +10,7 @@
  * structure unification, and infrastructure deduplication.
  */
 
-import type { IfcDataStore } from '@ifc-lite/parser';
-import { generateHeader } from '@ifc-lite/parser';
+import { CompactEntityIndex, generateHeader, type IfcDataStore } from '@ifc-lite/parser';
 import { collectReferencedEntityIds, getVisibleEntityIds, collectStyleEntities } from './reference-collector.js';
 import { convertStepLine, needsConversion, type IfcSchemaVersion } from './schema-converter.js';
 
@@ -142,8 +141,13 @@ export class MergedExporter {
     for (const model of this.models) {
       modelOffsets.set(model.id, nextAvailableId - 1); // offset = nextAvailableId - 1 so IDs start at nextAvailableId
       let maxId = 0;
-      for (const [id] of model.dataStore.entityIndex.byId) {
-        if (id > maxId) maxId = id;
+      const byId = model.dataStore.entityIndex.byId;
+      if (byId instanceof CompactEntityIndex) {
+        maxId = byId.getMaxId();
+      } else {
+        for (const [id] of byId) {
+          if (id > maxId) maxId = id;
+        }
       }
       nextAvailableId += maxId;
     }

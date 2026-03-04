@@ -27,7 +27,7 @@
  *      (via IfcRelVoidsElement propagation).
  */
 
-import type { IfcDataStore } from '@ifc-lite/parser';
+import type { IfcDataStore, EntityLookup } from '@ifc-lite/parser';
 
 /** ASCII code points for byte-level scanning. */
 const HASH = 0x23;  // '#'
@@ -253,7 +253,7 @@ function extractRefsFromBytes(
 export function collectReferencedEntityIds(
   rootIds: Set<number>,
   source: Uint8Array,
-  entityIndex: Map<number, { byteOffset: number; byteLength: number }>,
+  entityIndex: EntityLookup,
   excludeIds?: Set<number>,
 ): Set<number> {
   const visited = new Set<number>();
@@ -455,7 +455,7 @@ export function collectStyleEntities(
   closure: Set<number>,
   source: Uint8Array,
   entityIndex: {
-    byId: Map<number, { type: string; byteOffset: number; byteLength: number }>;
+    byId: EntityLookup;
     byType: Map<string, number[]>;
   },
 ): void {
