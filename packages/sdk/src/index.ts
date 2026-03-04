@@ -106,24 +106,91 @@ export { MutateNamespace } from './namespaces/mutate.js';
 export { LensNamespace } from './namespaces/lens.js';
 export { ExportNamespace } from './namespaces/export.js';
 export type { ExportCsvOptions, ExportGltfOptions, ExportStepOptions } from './namespaces/export.js';
+
+// IDS — full validation, facets, constraints, translation
 export { IDSNamespace } from './namespaces/ids.js';
-export type { IDSValidationSummary } from './namespaces/ids.js';
+export type { IDSValidationSummary, IDSSupportedLocale, IDSValidateOptions } from './namespaces/ids.js';
+
+// BCF — full collaboration: topics, viewpoints, comments, GUID, colors, IDS→BCF
 export { BCFNamespace } from './namespaces/bcf.js';
-export type { TopicOptions, CommentOptions } from './namespaces/bcf.js';
+export type { TopicOptions, CommentOptions, ViewpointOptions, IDSBCFOptions } from './namespaces/bcf.js';
+
+// Drawing — section cuts, styles, symbols, sheets, SVG, graphic overrides
 export { DrawingNamespace } from './namespaces/drawing.js';
-export type { SectionCutOptions, FloorPlanOptions } from './namespaces/drawing.js';
+export type { SectionCutOptions, FloorPlanOptions, SVGExportOptions, GraphicOverrideOptions, SheetOptions } from './namespaces/drawing.js';
+
 export { ListNamespace } from './namespaces/list.js';
 export { SpatialNamespace } from './namespaces/spatial.js';
 export { EventsNamespace } from './namespaces/events.js';
 export { CreateNamespace } from './namespaces/create.js';
 
+// ============================================================================
 // Re-export creation types for convenience
+// ============================================================================
+
 export { IfcCreator } from '@ifc-lite/create';
 export type {
-  WallParams, SlabParams, ColumnParams, BeamParams, StairParams, RoofParams,
-  ProjectParams, StoreyParams, PropertySetDef, QuantitySetDef,
-  PropertyDef, QuantityDef, CreatedEntity, CreateResult,
-  Point3D, Point2D, RectangularOpening,
+  // Geometry primitives
+  Point3D,
+  Point2D,
+  Placement3D,
+  RectangleProfile,
+  ArbitraryProfile,
+  CircleProfile,
+  CircleHollowProfile,
+  IShapeProfile,
+  LShapeProfile,
+  TShapeProfile,
+  UShapeProfile,
+  CShapeProfile,
+  RectangleHollowProfile,
+  ProfileDef,
+  RectangularOpening,
+
+  // Element parameters — structural
+  ElementAttributes,
+  WallParams,
+  SlabParams,
+  ColumnParams,
+  BeamParams,
+  StairParams,
+  RoofParams,
+  PlateParams,
+  MemberParams,
+  FootingParams,
+  PileParams,
+
+  // Element parameters — architectural
+  DoorParams,
+  WindowParams,
+  RampParams,
+  RailingParams,
+  SpaceParams,
+  CurtainWallParams,
+  FurnishingParams,
+  ProxyParams,
+
+  // Properties & quantities
+  PropertySetDef,
+  QuantitySetDef,
+  PropertyDef,
+  QuantityDef,
+  PropertyType,
+  QuantityKind,
+
+  // Materials
+  MaterialDef,
+  MaterialLayerDef,
+
+  // Spatial structure
+  ProjectParams,
+  SiteParams,
+  BuildingParams,
+  StoreyParams,
+
+  // Results
+  CreatedEntity,
+  CreateResult,
 } from '@ifc-lite/create';
 
 // ============================================================================

@@ -39,7 +39,116 @@ export interface ArbitraryProfile {
   OuterCurve: Point2D[];
 }
 
-export type ProfileDef = RectangleProfile | ArbitraryProfile;
+/** Circle profile (centred at origin) */
+export interface CircleProfile {
+  ProfileType: 'AREA';
+  Radius: number;
+}
+
+/** Hollow circle profile (centred at origin) */
+export interface CircleHollowProfile {
+  ProfileType: 'AREA';
+  Radius: number;
+  WallThickness: number;
+}
+
+/** I-shape profile (wide-flange / H-shape, centred at origin) */
+export interface IShapeProfile {
+  ProfileType: 'AREA';
+  /** Overall width of flanges */
+  OverallWidth: number;
+  /** Overall depth (height) */
+  OverallDepth: number;
+  /** Web thickness */
+  WebThickness: number;
+  /** Flange thickness */
+  FlangeThickness: number;
+  /** Fillet radius at web-flange junction */
+  FilletRadius?: number;
+}
+
+/** L-shape profile (angle section, corner at origin) */
+export interface LShapeProfile {
+  ProfileType: 'AREA';
+  /** Depth (vertical leg) */
+  Depth: number;
+  /** Width (horizontal leg) */
+  Width: number;
+  /** Thickness of both legs */
+  Thickness: number;
+  /** Fillet radius at inner corner */
+  FilletRadius?: number;
+}
+
+/** T-shape profile (tee section, centred at origin) */
+export interface TShapeProfile {
+  ProfileType: 'AREA';
+  /** Flange width */
+  FlangeWidth: number;
+  /** Overall depth */
+  Depth: number;
+  /** Web thickness */
+  WebThickness: number;
+  /** Flange thickness */
+  FlangeThickness: number;
+  /** Fillet radius */
+  FilletRadius?: number;
+}
+
+/** U-shape profile (channel section, centred at origin) */
+export interface UShapeProfile {
+  ProfileType: 'AREA';
+  /** Overall depth */
+  Depth: number;
+  /** Flange width */
+  FlangeWidth: number;
+  /** Web thickness */
+  WebThickness: number;
+  /** Flange thickness */
+  FlangeThickness: number;
+  /** Fillet radius */
+  FilletRadius?: number;
+}
+
+/** C-shape profile (cold-formed channel, centred at origin) */
+export interface CShapeProfile {
+  ProfileType: 'AREA';
+  /** Overall depth */
+  Depth: number;
+  /** Overall width */
+  Width: number;
+  /** Wall thickness */
+  WallThickness: number;
+  /** Girth (lip length) */
+  Girth: number;
+}
+
+/** Rectangle hollow profile (tube section, centred at origin) */
+export interface RectangleHollowProfile {
+  ProfileType: 'AREA';
+  /** Outer width */
+  XDim: number;
+  /** Outer height */
+  YDim: number;
+  /** Wall thickness */
+  WallThickness: number;
+  /** Inner fillet radius */
+  InnerFilletRadius?: number;
+  /** Outer fillet radius */
+  OuterFilletRadius?: number;
+}
+
+export type ProfileDef =
+  | RectangleProfile
+  | ArbitraryProfile
+  | CircleProfile
+  | CircleHollowProfile
+  | IShapeProfile
+  | LShapeProfile
+  | TShapeProfile
+  | UShapeProfile
+  | CShapeProfile
+  | RectangleHollowProfile;
 
 /** Rectangular opening cut (width, height, position relative to host element) */
 export interface RectangularOpening {
@@ -144,6 +253,172 @@ export interface RoofParams extends ElementAttributes {
   Depth: number;
   /** Slope angle in radians (0 = flat). Slope is along X axis. */
   Slope?: number;
+}
+
+/** Door: placed in a wall opening */
+export interface DoorParams extends ElementAttributes {
+  /** Door position (in wall local space or world) */
+  Position: Point3D;
+  /** Door width */
+  Width: number;
+  /** Door height */
+  Height: number;
+  /** Door thickness (panel depth) */
+  Thickness?: number;
+  /** Operation type */
+  OperationType?: 'SINGLE_SWING_LEFT' | 'SINGLE_SWING_RIGHT' | 'DOUBLE_SWING' | 'SLIDING' | 'FOLDING' | 'REVOLVING' | 'NOTDEFINED';
+}
+
+/** Window: placed in a wall opening */
+export interface WindowParams extends ElementAttributes {
+  /** Window position */
+  Position: Point3D;
+  /** Window width */
+  Width: number;
+  /** Window height */
+  Height: number;
+  /** Window thickness (frame depth) */
+  Thickness?: number;
+  /** Partitioning type */
+  PartitioningType?: 'SINGLE_PANEL' | 'DOUBLE_PANEL_HORIZONTAL' | 'DOUBLE_PANEL_VERTICAL' | 'TRIPLE_PANEL_HORIZONTAL' | 'NOTDEFINED';
+}
+
+/** Ramp: extruded profile with optional slope */
+export interface RampParams extends ElementAttributes {
+  /** Placement origin */
+  Position: Point3D;
+  /** Ramp width */
+  Width: number;
+  /** Ramp length (horizontal run) */
+  Length: number;
+  /** Ramp thickness */
+  Thickness: number;
+  /** Rise (vertical height change) */
+  Rise?: number;
+}
+
+/** Railing: extruded along a path */
+export interface RailingParams extends ElementAttributes {
+  /** Start point */
+  Start: Point3D;
+  /** End point */
+  End: Point3D;
+  /** Railing height */
+  Height: number;
+  /** Rail diameter/width */
+  Width?: number;
+}
+
+/** Plate: thin flat element (e.g. steel plate) */
+export interface PlateParams extends ElementAttributes {
+  /** Placement origin */
+  Position: Point3D;
+  /** Width (X) */
+  Width: number;
+  /** Depth (Y) */
+  Depth: number;
+  /** Plate thickness (Z) */
+  Thickness: number;
+  /** Custom profile outline (overrides Width/Depth) */
+  Profile?: Point2D[];
+}
+
+/** Member: structural member (e.g. steel brace, strut) */
+export interface MemberParams extends ElementAttributes {
+  /** Start point */
+  Start: Point3D;
+  /** End point */
+  End: Point3D;
+  /** Cross-section width */
+  Width: number;
+  /** Cross-section height */
+  Height: number;
+}
+
+/** Footing: foundation element */
+export interface FootingParams extends ElementAttributes {
+  /** Placement origin (top centre) */
+  Position: Point3D;
+  /** Footing width (X) */
+  Width: number;
+  /** Footing depth (Y) */
+  Depth: number;
+  /** Footing height (Z, extends downward) */
+  Height: number;
+  /** Footing type */
+  PredefinedType?: 'STRIP_FOOTING' | 'PAD_FOOTING' | 'PILE_CAP' | 'NOTDEFINED';
+}
+
+/** Pile: deep foundation element */
+export interface PileParams extends ElementAttributes {
+  /** Top of pile position */
+  Position: Point3D;
+  /** Pile length (extends downward) */
+  Length: number;
+  /** Pile diameter (circular) or width (rectangular) */
+  Diameter: number;
+  /** If true, uses rectangular cross-section instead of circular */
+  IsRectangular?: boolean;
+  /** Depth for rectangular piles (default = Diameter) */
+  RectangularDepth?: number;
+}
+
+/** Space: an enclosed volume (room) */
+export interface SpaceParams extends ElementAttributes {
+  /** Placement origin */
+  Position: Point3D;
+  /** Width (X) */
+  Width: number;
+  /** Depth (Y) */
+  Depth: number;
+  /** Height (Z) */
+  Height: number;
+  /** Long name (room name) */
+  LongName?: string;
+  /** Custom profile outline (overrides Width/Depth) */
+  Profile?: Point2D[];
+}
+
+/** Curtain wall: planar curtain wall panel */
+export interface CurtainWallParams extends ElementAttributes {
+  /** Start point of wall axis */
+  Start: Point3D;
+  /** End point of wall axis */
+  End: Point3D;
+  /** Curtain wall height */
+  Height: number;
+  /** Panel thickness */
+  Thickness?: number;
+}
+
+/** Furnishing element: generic furniture/equipment */
+export interface FurnishingParams extends ElementAttributes {
+  /** Placement origin */
+  Position: Point3D;
+  /** Bounding box width (X) */
+  Width: number;
+  /** Bounding box depth (Y) */
+  Depth: number;
+  /** Bounding box height (Z) */
+  Height: number;
+  /** Direction angle in XY plane (radians, 0 = +X) */
+  Direction?: number;
+}
+
+/** Proxy element: generic element for anything not covered by specific types */
+export interface ProxyParams extends ElementAttributes {
+  /** Placement origin */
+  Position: Point3D;
+  /** Width (X) */
+  Width: number;
+  /** Depth (Y) */
+  Depth: number;
+  /** Height (Z) */
+  Height: number;
+  /** Custom profile outline (overrides Width/Depth) */
+  Profile?: Point2D[];
+  /** Proxy type hint */
+  ProxyType?: string;
 }
 
 // ============================================================================
