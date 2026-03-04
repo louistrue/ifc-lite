@@ -541,3 +541,82 @@ export interface CreateResult {
     fileSize: number;
   };
 }
+
+// ============================================================================
+// Generic element creation (low-level API)
+// ============================================================================
+
+/**
+ * Parameters for the generic addElement() method.
+ * Allows creating ANY IFC entity type with ANY geometry creation method.
+ *
+ * ```ts
+ * creator.addElement(storeyId, {
+ *   IfcType: 'IFCFLOWSEGMENT',
+ *   Placement: { Location: [0, 0, 0] },
+ *   Profile: { ProfileType: 'AREA', Radius: 0.1 },
+ *   Depth: 5,
+ * });
+ * ```
+ */
+export interface GenericElementParams extends ElementAttributes {
+  /**
+   * IFC entity type name in UPPERCASE (e.g. 'IFCFLOWSEGMENT', 'IFCFLOWFITTING',
+   * 'IFCELECTRICALAPPLIANCE', 'IFCWALLSTANDARDCASE', etc.).
+   *
+   * Any IFC product type can be used. The only requirement is that it extends
+   * IfcProduct in the IFC schema (i.e. it can have a placement and representation).
+   */
+  IfcType: string;
+
+  /** 3D placement for the element */
+  Placement: Placement3D;
+
+  /**
+   * Cross-section profile to extrude. Supports all profile types:
+   * Rectangle, Circle, CircleHollow, IShape, LShape, TShape, UShape, CShape,
+   * RectangleHollow, or Arbitrary (polyline).
+   */
+  Profile: ProfileDef;
+
+  /** Extrusion depth (length along the extrusion direction) */
+  Depth: number;
+
+  /**
+   * Extrusion direction in local coordinates. Default: [0, 0, 1] (upward / along local Z).
+   * Use [1, 0, 0] for along X, [0, 1, 0] for along Y, etc.
+   */
+  ExtrusionDirection?: Point3D;
+
+  /**
+   * Optional predefined type suffix. Added as the last STEP argument.
+   * E.g. '.RIGIDSEGMENT.' or '.NOTDEFINED.'
+   */
+  PredefinedType?: string;
+}
+
+/**
+ * Parameters for creating an extruded element along an axis (Start → End).
+ * The profile is extruded along the axis between Start and End.
+ *
+ * ```ts
+ * creator.addAxisElement(storeyId, {
+ *   IfcType: 'IFCPIPESEGMENT',
+ *   Start: [0, 0, 3],
+ *   End: [5, 0, 3],
+ *   Profile: { ProfileType: 'AREA', Radius: 0.05 },
+ * });
+ * ```
+ */
+export interface AxisElementParams extends ElementAttributes {
+  /** IFC entity type name in UPPERCASE */
+  IfcType: string;
+  /** Start point of the element axis */
+  Start: Point3D;
+  /** End point of the element axis */
+  End: Point3D;
+  /** Cross-section profile (extruded along the axis) */
+  Profile: ProfileDef;
+  /** Optional predefined type suffix, e.g. '.RIGIDSEGMENT.' */
+  PredefinedType?: string;
+}

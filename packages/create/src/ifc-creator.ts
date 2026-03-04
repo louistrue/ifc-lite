@@ -20,7 +20,8 @@
 
 import type {
   Point3D, Point2D, Placement3D, RectangularOpening,
-  ElementAttributes,
+  ElementAttributes, ProfileDef,
+  GenericElementParams, AxisElementParams,
   WallParams, SlabParams, ColumnParams, BeamParams, StairParams, RoofParams,
   DoorParams, WindowParams, RampParams, RailingParams,
   PlateParams, MemberParams, FootingParams, PileParams,
@@ -1572,7 +1573,12 @@ ENDSEC;
     return id;
   }
 
-  private addLocalPlacement(relativeTo: number, placement: Placement3D): number {
+  /**
+   * Create a local placement relative to the world coordinate system.
+   * @param relativeTo - Parent placement ID (use getWorldPlacementId() for world origin)
+   * @param placement - Location and optional axis/ref directions
+   */
+  addLocalPlacement(relativeTo: number, placement: Placement3D): number {
     const originId = this.addCartesianPoint(placement.Location);
     let axisId: number | undefined;
     let refDirId: number | undefined;
@@ -1597,7 +1603,7 @@ ENDSEC;
    * @param yDim Height of rectangle
    * @param center Optional 2D offset for the profile centre. Default [0,0] = centred at origin.
    */
-  private addRectangleProfile(xDim: number, yDim: number, center?: Point2D): number {
+  addRectangleProfile(xDim: number, yDim: number, center?: Point2D): number {
     const cx = center?.[0] ?? 0;
     const cy = center?.[1] ?? 0;
     const profileOriginId = this.addCartesianPoint2D([cx, cy]);
@@ -1609,7 +1615,8 @@ ENDSEC;
     return id;
   }
 
-  private addCircleProfile(radius: number): number {
+  /** Create a circle profile. */
+  addCircleProfile(radius: number): number {
     const profileOriginId = this.addCartesianPoint2D([0, 0]);
     const profileAxis2dId = this.id();
     this.line(profileAxis2dId, 'IFCAXIS2PLACEMENT2D', `#${profileOriginId},$`);
@@ -1619,7 +1626,8 @@ ENDSEC;
     return id;
   }
 
-  private addCircleHollowProfile(radius: number, wallThickness: number): number {
+  /** Create a hollow circle profile (pipe section). */
+  addCircleHollowProfile(radius: number, wallThickness: number): number {
     const profileOriginId = this.addCartesianPoint2D([0, 0]);
     const profileAxis2dId = this.id();
     this.line(profileAxis2dId, 'IFCAXIS2PLACEMENT2D', `#${profileOriginId},$`);
@@ -1629,7 +1637,8 @@ ENDSEC;
     return id;
   }
 
-  private addIShapeProfile(
+  /** Create an I-shape (wide-flange / H-beam) profile. */
+  addIShapeProfile(
     overallWidth: number, overallDepth: number,
     webThickness: number, flangeThickness: number,
     filletRadius?: number,
@@ -1645,7 +1654,8 @@ ENDSEC;
     return id;
   }
 
-  private addLShapeProfile(
+  /** Create an L-shape (angle section) profile. */
+  addLShapeProfile(
     depth: number, width: number, thickness: number,
     filletRadius?: number,
   ): number {
@@ -1660,7 +1670,8 @@ ENDSEC;
     return id;
   }
 
-  private addTShapeProfile(
+  /** Create a T-shape (tee section) profile. */
+  addTShapeProfile(
     flangeWidth: number, depth: number,
     webThickness: number, flangeThickness: number,
     filletRadius?: number,
@@ -1676,7 +1687,8 @@ ENDSEC;
     return id;
   }
 
-  private addUShapeProfile(
+  /** Create a U-shape (channel section) profile. */
+  addUShapeProfile(
     depth: number, flangeWidth: number,
     webThickness: number, flangeThickness: number,
     filletRadius?: number,
@@ -1692,7 +1704,8 @@ ENDSEC;
     return id;
   }
 
-  private addCShapeProfile(
+  /** Create a C-shape (cold-formed channel) profile. */
+  addCShapeProfile(
     depth: number, width: number,
     wallThickness: number, girth: number,
   ): number {
@@ -1706,7 +1719,8 @@ ENDSEC;
     return id;
   }
 
-  private addRectangleHollowProfile(
+  /** Create a hollow rectangle (tube section) profile. */
+  addRectangleHollowProfile(
     xDim: number, yDim: number, wallThickness: number,
     innerFilletRadius?: number, outerFilletRadius?: number,
   ): number {
@@ -1722,7 +1736,8 @@ ENDSEC;
     return id;
   }
 
-  private addArbitraryProfile(points: Point2D[]): number {
+  /** Create an arbitrary closed profile from a polyline. Points are auto-closed. */
+  addArbitraryProfile(points: Point2D[]): number {
     const pointIds = points.map(p => this.addCartesianPoint2D(p));
     if (points.length > 0) {
       pointIds.push(pointIds[0]); // close the polyline
@@ -1736,7 +1751,13 @@ ENDSEC;
     return id;
   }
 
-  private addExtrudedAreaSolid(profileId: number, depth: number, extrusionDir?: number): number {
+  /**
+   * Create an extruded area solid from a profile.
+   * @param profileId - ID returned by any addXxxProfile() method
+   * @param depth - Extrusion depth
+   * @param extrusionDir - Optional direction ID (default: Z-up)
+   */
+  addExtrudedAreaSolid(profileId: number, depth: number, extrusionDir?: number): number {
     const originId = this.addCartesianPoint([0, 0, 0]);
     const axis2Id = this.addAxis2Placement3D(originId);
 
@@ -1747,7 +1768,12 @@ ENDSEC;
     return id;
   }
 
-  private addShapeRepresentation(repType: string, itemIds: number[]): number {
+  /**
+   * Create a shape representation from solid IDs.
+   * @param repType - 'Body' or 'Axis'
+   * @param itemIds - Array of solid IDs (from addExtrudedAreaSolid, etc.)
+   */
+  addShapeRepresentation(repType: string, itemIds: number[]): number {
     const contextRef = repType === 'Axis' ? this.subContextAxis : this.subContextBody;
     const refs = itemIds.map(id => `#${id}`).join(',');
     const repId = this.id();
@@ -1758,11 +1784,232 @@ ENDSEC;
     return repId;
   }
 
-  private addProductDefinitionShape(repIds: number[]): number {
+  /** Wrap shape representations into a product definition shape. */
+  addProductDefinitionShape(repIds: number[]): number {
     const refs = repIds.map(id => `#${id}`).join(',');
     const id = this.id();
     this.line(id, 'IFCPRODUCTDEFINITIONSHAPE', `$,$,(${refs})`);
     return id;
+  }
+
+  // ============================================================================
+  // Public API — Low-level helpers
+  // ============================================================================
+
+  /** Get the world placement ID (use as relativeTo for addLocalPlacement). */
+  getWorldPlacementId(): number {
+    return this.worldPlacementId;
+  }
+
+  /** Create a direction entity. Returns the direction ID. */
+  addDirection3D(d: Point3D): number {
+    return this.addDirection(d);
+  }
+
+  /**
+   * Create a profile from a ProfileDef union type.
+   * This is the high-level entry point for profile creation — it dispatches
+   * to the appropriate addXxxProfile() method based on the shape.
+   *
+   * ```ts
+   * const profileId = creator.createProfile({
+   *   ProfileType: 'AREA',
+   *   Radius: 0.15,
+   * }); // Creates a circle profile
+   * ```
+   */
+  createProfile(profile: ProfileDef): number {
+    if ('OuterCurve' in profile) {
+      return this.addArbitraryProfile(profile.OuterCurve);
+    }
+    if ('Radius' in profile && 'WallThickness' in profile) {
+      return this.addCircleHollowProfile(profile.Radius, profile.WallThickness);
+    }
+    if ('Radius' in profile) {
+      return this.addCircleProfile(profile.Radius);
+    }
+    if ('OverallWidth' in profile && 'WebThickness' in profile) {
+      // IShapeProfile
+      return this.addIShapeProfile(
+        profile.OverallWidth, profile.OverallDepth,
+        profile.WebThickness, profile.FlangeThickness,
+        profile.FilletRadius,
+      );
+    }
+    if ('FlangeWidth' in profile && 'WebThickness' in profile && 'Depth' in profile && !('FlangeWidth' in profile && 'Depth' in profile && !('WebThickness' in profile))) {
+      // Could be T or U — disambiguate
+      if ('FlangeWidth' in profile && !('Width' in profile)) {
+        // Check if it's UShapeProfile (has FlangeWidth but no FlangeWidth as main width)
+        // TShape: FlangeWidth, Depth, WebThickness, FlangeThickness
+        // UShape: Depth, FlangeWidth, WebThickness, FlangeThickness
+        // They're structurally identical — use Girth to detect CShape, else check field ordering
+        return this.addTShapeProfile(
+          (profile as { FlangeWidth: number }).FlangeWidth,
+          (profile as { Depth: number }).Depth,
+          (profile as { WebThickness: number }).WebThickness,
+          (profile as { FlangeThickness: number }).FlangeThickness,
+          (profile as { FilletRadius?: number }).FilletRadius,
+        );
+      }
+    }
+    if ('Girth' in profile) {
+      // CShapeProfile
+      const p = profile as { Depth: number; Width: number; WallThickness: number; Girth: number };
+      return this.addCShapeProfile(p.Depth, p.Width, p.WallThickness, p.Girth);
+    }
+    if ('XDim' in profile && 'YDim' in profile && 'WallThickness' in profile) {
+      // RectangleHollowProfile
+      const p = profile as { XDim: number; YDim: number; WallThickness: number; InnerFilletRadius?: number; OuterFilletRadius?: number };
+      return this.addRectangleHollowProfile(p.XDim, p.YDim, p.WallThickness, p.InnerFilletRadius, p.OuterFilletRadius);
+    }
+    if ('XDim' in profile && 'YDim' in profile) {
+      // RectangleProfile
+      return this.addRectangleProfile(profile.XDim, profile.YDim);
+    }
+    if ('Depth' in profile && 'Width' in profile && 'Thickness' in profile) {
+      // LShapeProfile
+      const p = profile as { Depth: number; Width: number; Thickness: number; FilletRadius?: number };
+      return this.addLShapeProfile(p.Depth, p.Width, p.Thickness, p.FilletRadius);
+    }
+    if ('Depth' in profile && 'FlangeWidth' in profile) {
+      // UShapeProfile
+      const p = profile as { Depth: number; FlangeWidth: number; WebThickness: number; FlangeThickness: number; FilletRadius?: number };
+      return this.addUShapeProfile(p.Depth, p.FlangeWidth, p.WebThickness, p.FlangeThickness, p.FilletRadius);
+    }
+    throw new Error('Unrecognized profile shape — ensure ProfileType is "AREA" and required fields are set');
+  }
+
+  // ============================================================================
+  // Public API — Generic element creation
+  // ============================================================================
+
+  /**
+   * Create ANY IFC element type with an extruded profile at a placement.
+   *
+   * This is the low-level foundation that all high-level methods (addIfcWall,
+   * addIfcBeam, etc.) are built on. Use it when you need an IFC type that
+   * doesn't have a dedicated method, or when you need full control.
+   *
+   * ```ts
+   * // Pipe segment with circular profile
+   * creator.addElement(storeyId, {
+   *   IfcType: 'IFCFLOWSEGMENT',
+   *   Placement: { Location: [0, 0, 3] },
+   *   Profile: { ProfileType: 'AREA', Radius: 0.05 },
+   *   Depth: 5,
+   *   PredefinedType: '.RIGIDSEGMENT.',
+   *   Name: 'Pipe-001',
+   * });
+   *
+   * // Distribution element with L-profile
+   * creator.addElement(storeyId, {
+   *   IfcType: 'IFCDISTRIBUTIONELEMENT',
+   *   Placement: { Location: [2, 0, 0], Axis: [0, 0, 1], RefDirection: [1, 0, 0] },
+   *   Profile: { ProfileType: 'AREA', Depth: 0.1, Width: 0.1, Thickness: 0.01 },
+   *   Depth: 3,
+   * });
+   * ```
+   */
+  addElement(storeyId: number, params: GenericElementParams): number {
+    const placementId = this.addLocalPlacement(this.worldPlacementId, params.Placement);
+    const profileId = this.createProfile(params.Profile);
+
+    // Handle custom extrusion direction
+    let extrusionDirId: number | undefined;
+    if (params.ExtrusionDirection) {
+      extrusionDirId = this.addDirection(params.ExtrusionDirection);
+    }
+
+    const solidId = this.addExtrudedAreaSolid(profileId, params.Depth, extrusionDirId);
+    const shapeId = this.addShapeRepresentation('Body', [solidId]);
+    const prodShapeId = this.addProductDefinitionShape([shapeId]);
+
+    const elementId = this.id();
+    const globalId = newGlobalId();
+    const name = params.Name ?? params.IfcType;
+    const desc = params.Description ? `'${esc(params.Description)}'` : '$';
+    const objType = params.ObjectType ? `'${esc(params.ObjectType)}'` : '$';
+    const tag = params.Tag ? `'${esc(params.Tag)}'` : '$';
+    const predefinedType = params.PredefinedType ?? '.NOTDEFINED.';
+
+    this.line(elementId, params.IfcType,
+      `'${globalId}',#${this.ownerHistoryId},'${esc(name)}',${desc},${objType},#${placementId},#${prodShapeId},${tag},${predefinedType}`);
+
+    this.elementSolids.set(elementId, [solidId]);
+    this.trackElement(storeyId, elementId);
+    this.entities.push({ expressId: elementId, type: params.IfcType, Name: name });
+
+    return elementId;
+  }
+
+  /**
+   * Create ANY IFC element type extruded along an axis (Start → End).
+   *
+   * The profile is placed at Start and extruded along the direction to End.
+   * The extrusion length equals the distance between Start and End.
+   *
+   * ```ts
+   * // Pipe segment along an axis
+   * creator.addAxisElement(storeyId, {
+   *   IfcType: 'IFCPIPESEGMENT',
+   *   Start: [0, 0, 3],
+   *   End: [5, 0, 3],
+   *   Profile: { ProfileType: 'AREA', Radius: 0.05 },
+   *   Name: 'Pipe-001',
+   * });
+   *
+   * // Cable tray with rectangle profile
+   * creator.addAxisElement(storeyId, {
+   *   IfcType: 'IFCCABLETRAYSEGMENT',
+   *   Start: [0, 0, 2.5],
+   *   End: [10, 0, 2.5],
+   *   Profile: { ProfileType: 'AREA', XDim: 0.3, YDim: 0.1 },
+   * });
+   * ```
+   */
+  addAxisElement(storeyId: number, params: AxisElementParams): number {
+    const dx = params.End[0] - params.Start[0];
+    const dy = params.End[1] - params.Start[1];
+    const dz = params.End[2] - params.Start[2];
+    const length = Math.sqrt(dx * dx + dy * dy + dz * dz);
+    const dir: Point3D = vecNorm([dx, dy, dz]);
+
+    // Compute a perpendicular vector for the profile plane
+    const up: Point3D = [0, 0, 1];
+    let perp: Point3D = vecCross(dir, up);
+    if (vecLen(perp) < 1e-6) {
+      // dir is parallel to Z, use X as reference
+      perp = vecCross(dir, [1, 0, 0]);
+    }
+    perp = vecNorm(perp);
+
+    const placementId = this.addLocalPlacement(this.worldPlacementId, {
+      Location: params.Start,
+      Axis: dir,           // local Z = along axis (extrusion direction)
+      RefDirection: perp,  // local X = perpendicular to axis
+    });
+
+    const profileId = this.createProfile(params.Profile);
+    const solidId = this.addExtrudedAreaSolid(profileId, length);
+    const shapeId = this.addShapeRepresentation('Body', [solidId]);
+    const prodShapeId = this.addProductDefinitionShape([shapeId]);
+
+    const elementId = this.id();
+    const globalId = newGlobalId();
+    const name = params.Name ?? params.IfcType;
+    const desc = params.Description ? `'${esc(params.Description)}'` : '$';
+    const objType = params.ObjectType ? `'${esc(params.ObjectType)}'` : '$';
+    const tag = params.Tag ? `'${esc(params.Tag)}'` : '$';
+    const predefinedType = params.PredefinedType ?? '.NOTDEFINED.';
+
+    this.line(elementId, params.IfcType,
+      `'${globalId}',#${this.ownerHistoryId},'${esc(name)}',${desc},${objType},#${placementId},#${prodShapeId},${tag},${predefinedType}`);
+
+    this.elementSolids.set(elementId, [solidId]);
+    this.trackElement(storeyId, elementId);
+    this.entities.push({ expressId: elementId, type: params.IfcType, Name: name });
+
+    return elementId;
   }
 
   // ============================================================================

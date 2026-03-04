@@ -41,6 +41,10 @@ export type {
   ProfileDef,
   RectangularOpening,
 
+  // Generic element creation (low-level API)
+  GenericElementParams,
+  AxisElementParams,
+
   // Element parameters
   ElementAttributes,
   WallParams,
