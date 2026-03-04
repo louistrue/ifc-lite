@@ -1144,3 +1144,10 @@ export function initSync(module: { module: SyncInitInput } | SyncInitInput): Ini
  * @returns {Promise<InitOutput>}
  */
 export default function __wbg_init (module_or_path?: { module_or_path: InitInput | Promise<InitInput> } | InitInput | Promise<InitInput>): Promise<InitOutput>;
+
+/**
+ * Release the WebAssembly instance and its linear memory.
+ * The compiled module is retained for fast re-initialization via init().
+ * Call this after all WASM operations are complete to reclaim ~1-2 GB.
+ */
+export function deinit(): void;

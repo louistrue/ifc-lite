@@ -268,6 +268,10 @@ export class IfcParser {
     // Build columnar structures with on-demand property extraction
     const columnarParser = new ColumnarParser();
     const dataStore = await columnarParser.parseLite(buffer, entityRefs, options);
+    // Release the entityRefs array container. The individual EntityRef objects
+    // are now owned by dataStore.entityIndex.byId Map, so only the outer array
+    // (~67MB of pointers for 8.4M entities) becomes GC-eligible.
+    entityRefs = null as any;
     console.log(`[ColumnarParser] Parsed ${dataStore.entityCount} entities in ${dataStore.parseTime.toFixed(0)}ms`);
     return dataStore;
   }

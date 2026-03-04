@@ -2928,7 +2928,10 @@ async function __wbg_init(module_or_path) {
         }
     }
 
-    if (module_or_path === undefined) {
+    // Re-use previously compiled module if available (fast re-init after deinit)
+    if (module_or_path === undefined && wasmModule !== undefined) {
+        module_or_path = wasmModule;
+    } else if (module_or_path === undefined) {
         module_or_path = new URL('ifc-lite_bg.wasm', import.meta.url);
     }
     const imports = __wbg_get_imports();
@@ -2942,4 +2945,18 @@ async function __wbg_init(module_or_path) {
     return __wbg_finalize_init(instance, module);
 }
 
-export { initSync, __wbg_init as default };
+/**
+ * Release the WebAssembly instance and its linear memory.
+ * The compiled module is retained for fast re-initialization via init().
+ * Call this after all WASM operations are complete to reclaim ~1-2 GB.
+ */
+function deinit() {
+    wasm = undefined;
+    cachedDataViewMemory0 = null;
+    cachedFloat32ArrayMemory0 = null;
+    cachedFloat64ArrayMemory0 = null;
+    cachedUint32ArrayMemory0 = null;
+    cachedUint8ArrayMemory0 = null;
+}
+
+export { initSync, __wbg_init as default, deinit };

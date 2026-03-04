@@ -8,7 +8,7 @@
  */
 
 import { createLogger } from '@ifc-lite/data';
-import init, { IfcAPI, MeshCollection, MeshDataJs, InstancedMeshCollection, InstancedGeometry, InstanceData, SymbolicRepresentationCollection, SymbolicPolyline, SymbolicCircle } from '@ifc-lite/wasm';
+import init, { deinit, IfcAPI, MeshCollection, MeshDataJs, InstancedMeshCollection, InstancedGeometry, InstanceData, SymbolicRepresentationCollection, SymbolicPolyline, SymbolicCircle } from '@ifc-lite/wasm';
 export type { MeshCollection, MeshDataJs, InstancedMeshCollection, InstancedGeometry, InstanceData, SymbolicRepresentationCollection, SymbolicPolyline, SymbolicCircle };
 
 const log = createLogger('Geometry');
@@ -203,8 +203,10 @@ export class IfcLiteBridge {
 
   /**
    * Dispose WASM resources.
-   * Frees the IfcAPI instance and its backing WASM linear memory.
-   * After calling dispose(), this bridge is no longer usable.
+   * Frees the IfcAPI Rust-side allocations, then releases the entire
+   * WebAssembly.Instance and its linear memory (~1-2 GB for large files).
+   * The compiled WebAssembly.Module is retained so that a future init()
+   * call can re-instantiate quickly without re-fetching the .wasm file.
    */
   dispose(): void {
     if (this.ifcApi) {
@@ -216,5 +218,8 @@ export class IfcLiteBridge {
       this.ifcApi = null;
     }
     this.initialized = false;
+    // Release the WebAssembly instance and its linear memory.
+    // The compiled module is kept for fast re-init on next file load.
+    deinit();
   }
 }
