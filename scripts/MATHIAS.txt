@@ -1,8 +1,10 @@
 
 # START SERVER
-cd C:\Users\mass\GitHub\ifc-lite
+cd C:\Users\mass\GitHub\Linkajou\ifc-lite
 $env:PORT="8080"
 $env:RUST_LOG="warn"
+$env:MAX_FILE_SIZE_MB = "2000"
+$env:REQUEST_TIMEOUT_SECS = "1800"
 .\target\release\ifc-lite-server.exe
 
 
@@ -10,4 +12,12 @@ $env:RUST_LOG="warn"
 Get-Process cargo,rustc -ErrorAction SilentlyContinue | Stop-Process -Force
 
 # BUILD
-PS C:\Users\mass\GitHub\ifc-lite> cargo build -p ifc-lite-server --release
+cd C:\Users\mass\GitHub\Linkajou\ifc-lite
+cargo build -p ifc-lite-server --release
+
+
+# Build alt
+cd C:\Users\mass\GitHub\ifc-lite\apps\server
+$env:MAX_FILE_SIZE_MB="2048"   # or your value
+cargo build --release
+cargo run --release
