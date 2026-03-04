@@ -3,7 +3,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 import { describe, it, expect } from 'vitest';
-import { transpileTypeScript, naiveTypeStrip } from './transpile.js';
+import { transpileTypeScript, naiveTypeStrip, getLastTranspileMode } from './transpile.js';
 
 describe('transpileTypeScript', () => {
   it('strips interface declarations', async () => {
@@ -135,5 +135,40 @@ describe('naiveTypeStrip (fallback)', () => {
     expect(result).toContain('const b = []');
     expect(result).toContain('const c = []');
     expect(result).toContain('let d');
+  });
+
+  it('preserves plain JS BIM object literals', () => {
+    const code = `
+const slab = bim.create.addIfcSlab(h, s0, {
+  Position: [0, 0, 0],
+  Width: 10,
+  Depth: 8,
+  Thickness: 0.3
+});
+`;
+    const result = naiveTypeStrip(code);
+    expect(result).toMatch(/Position\s*:\s*\[0,\s*0,\s*0\]/);
+    expect(result).toMatch(/Width\s*:\s*10/);
+    expect(result).toMatch(/Depth\s*:\s*8/);
+    expect(result).toMatch(/Thickness\s*:\s*0\.3/);
+  });
+});
+
+describe('transpile observability', () => {
+  it('records transpile mode and preserves BIM keys in JS', async () => {
+    const code = `
+const wall = bim.create.addIfcWall(h, s0, {
+  Start: [0, 0, 0],
+  End: [5, 0, 0],
+  Thickness: 0.2,
+  Height: 3
+});
+`;
+    const result = await transpileTypeScript(code);
+    expect(result).toMatch(/Start\s*:\s*\[0,\s*0,\s*0\]/);
+    expect(result).toMatch(/End\s*:\s*\[5,\s*0,\s*0\]/);
+    expect(result).toMatch(/Thickness\s*:\s*0\.2/);
+    expect(result).toMatch(/Height\s*:\s*3/);
+    expect(['esbuild', 'fallback-ts', 'fallback-js']).toContain(getLastTranspileMode());
   });
 });

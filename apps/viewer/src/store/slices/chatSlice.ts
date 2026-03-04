@@ -76,6 +76,11 @@ export interface ChatUsage {
   billable?: boolean;
 }
 
+/** Build the standardized "Fix this" feedback message sent to the LLM. */
+export function buildErrorFeedbackContent(code: string, error: string): string {
+  return `The script failed with this error:\n\n\`\`\`\n${error}\n\`\`\`\n\nHere is the code that failed:\n\n\`\`\`js\n${code}\n\`\`\`\n\nPlease fix the issue and provide a corrected version.`;
+}
+
 function loadStoredModel(): string {
   try {
     return localStorage.getItem(MODEL_STORAGE_KEY) ?? DEFAULT_FREE_MODEL.id;
@@ -247,7 +252,7 @@ export const createChatSlice: StateCreator<ChatSlice, [], [], ChatSlice> = (set,
     const feedbackMessage: ChatMessage = {
       id: crypto.randomUUID(),
       role: 'user',
-      content: `The script failed with this error:\n\n\`\`\`\n${error}\n\`\`\`\n\nHere is the code that failed:\n\n\`\`\`js\n${code}\n\`\`\`\n\nPlease fix the issue and provide a corrected version.`,
+      content: buildErrorFeedbackContent(code, error),
       createdAt: Date.now(),
     };
     const messages = [...get().chatMessages, feedbackMessage];

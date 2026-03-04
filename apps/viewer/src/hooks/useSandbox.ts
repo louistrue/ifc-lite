@@ -14,6 +14,7 @@ import { useCallback, useEffect, useRef } from 'react';
 import { useBim } from '../sdk/BimProvider.js';
 import { useViewerStore } from '../store/index.js';
 import type { Sandbox, ScriptResult, SandboxConfig } from '@ifc-lite/sandbox';
+import { validateScriptPreflight } from '../lib/llm/script-preflight.js';
 
 /** Type guard for ScriptError shape (has logs + durationMs) */
 function isScriptError(err: unknown): err is { message: string; logs: Array<{ level: string; args: unknown[]; timestamp: number }>; durationMs: number } {
@@ -46,6 +47,14 @@ export function useSandbox(config?: SandboxConfig) {
   const execute = useCallback(async (code: string): Promise<ScriptResult | null> => {
     setExecutionState('running');
     setError(null);
+
+    const preflightErrors = validateScriptPreflight(code);
+    if (preflightErrors.length > 0) {
+      setError(
+        `Preflight validation failed:\n${preflightErrors.map((e) => `- ${e}`).join('\n')}`,
+      );
+      return null;
+    }
 
     let sandbox: Sandbox | null = null;
     try {

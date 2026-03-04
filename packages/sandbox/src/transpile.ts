@@ -22,6 +22,15 @@ interface EsbuildLike {
   transform: (code: string, options: { loader: string; target: string }) => Promise<{ code: string }>;
 }
 
+export type TranspileMode = 'esbuild' | 'fallback-ts' | 'fallback-js';
+
+let lastTranspileMode: TranspileMode = 'esbuild';
+let fallbackWarningShown = false;
+
+export function getLastTranspileMode(): TranspileMode {
+  return lastTranspileMode;
+}
+
 let esbuildReady: Promise<EsbuildLike | null> | null = null;
 
 /**
@@ -75,14 +84,25 @@ export async function transpileTypeScript(code: string): Promise<string> {
         target: 'es2022',
       });
       js = result.code;
+      lastTranspileMode = 'esbuild';
     } else {
       // Fallback mode: only strip types when the input actually looks like TS.
       // Running naive stripping on plain JS can corrupt object literals
       // (e.g. `Position: [0,0,0]` -> `Position`) and cause runtime errors.
       js = isLikelyTypeScript ? naiveTypeStrip(code) : code;
+      lastTranspileMode = isLikelyTypeScript ? 'fallback-ts' : 'fallback-js';
+      if (!fallbackWarningShown) {
+        fallbackWarningShown = true;
+        console.warn('[ifc-lite/sandbox] esbuild unavailable, using fallback transpiler');
+      }
     }
   } catch {
     js = isLikelyTypeScript ? naiveTypeStrip(code) : code;
+    lastTranspileMode = isLikelyTypeScript ? 'fallback-ts' : 'fallback-js';
+    if (!fallbackWarningShown) {
+      fallbackWarningShown = true;
+      console.warn('[ifc-lite/sandbox] esbuild failed, using fallback transpiler');
+    }
   }
 
   // Strip import/export statements — QuickJS has no module system
@@ -99,7 +119,9 @@ function looksLikeTypeScript(code: string): boolean {
     /\btype\s+\w+\s*=/.test(code) ||
     /\b(?:as)\s+[A-Za-z_]\w*(?:\[\])?/.test(code) ||
     /\b(?:const|let|var)\s+\w+\s*:\s*[A-Za-z_]/.test(code) ||
-    /\([^)]*:\s*(?:string|number|boolean|void|any|unknown|never|Record<|Array<|Map<|Set<)/.test(code)
+    /\([^)]*:\s*(?:string|number|boolean|void|any|unknown|never|Record<|Array<|Map<|Set<)/.test(code) ||
+    /\)\s*:\s*[A-Za-z_][\w<>,\s[\]|]*\s*\{/.test(code) ||
+    /\w<\w+(?:\s*,\s*\w+)*>\s*\(/.test(code)
   );
 }
 
@@ -152,7 +174,8 @@ export function naiveTypeStrip(code: string): string {
   result = stripVariableAnnotations(result);
 
   // Remove function parameter type annotations: (x: TYPE, y: TYPE)
-  result = result.replace(/(\w+)\s*:\s*(?:string|number|boolean|void|any|unknown|never|null|undefined|Record<[^>]+>|Array<[^>]+>|Map<[^>]+>|Set<[^>]+>|\[[^\]]*\](?:\[\])?|\w+(?:\[\])?(?:\s*\|\s*(?:string|number|boolean|null|undefined|\w+))*)\s*(?=[,)])/g, '$1');
+  // Keep this scoped to parameter lists by requiring a leading "(" or ",".
+  result = result.replace(/([,(]\s*)(\w+)\s*:\s*(?:string|number|boolean|void|any|unknown|never|null|undefined|Record<[^>]+>|Array<[^>]+>|Map<[^>]+>|Set<[^>]+>|\[[^\]]*\](?:\[\])?|[A-Za-z_]\w*(?:\[\])?(?:\s*\|\s*(?:string|number|boolean|null|undefined|[A-Za-z_]\w*))*)\s*(?=[,)])/g, '$1$2');
 
   // Remove function return type annotations: ): Type {
   result = result.replace(/\):\s*[^{]+\{/g, ') {');

@@ -35,6 +35,7 @@ import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Switch } from '@/components/ui/switch';
 import { useViewerStore } from '@/store';
+import { buildErrorFeedbackContent } from '@/store/slices/chatSlice';
 import { ChatMessageComponent } from './chat/ChatMessage';
 import { ModelSelector } from './chat/ModelSelector';
 import { fetchUsageSnapshot, streamChat, type TextContentPart, type ImageContentPart, type UsageInfo } from '@/lib/llm/stream-client';
@@ -92,7 +93,6 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
   const removeAttachment = useViewerStore((s) => s.removeChatAttachment);
   const clearAttachments = useViewerStore((s) => s.clearChatAttachments);
   const clearMessages = useViewerStore((s) => s.clearChatMessages);
-  const sendErrorFeedback = useViewerStore((s) => s.sendErrorFeedback);
   const authToken = useViewerStore((s) => s.chatAuthToken);
   const hasPro = useViewerStore((s) => s.chatHasPro);
   const usage = useViewerStore((s) => s.chatUsage);
@@ -349,14 +349,9 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
 
   // ── Error feedback (Fix this) ──
   const handleFixError = useCallback((code: string, errorMsg: string) => {
-    sendErrorFeedback(code, errorMsg);
-    // Auto-send the feedback to the LLM
-    const state = useViewerStore.getState();
-    const lastMsg = state.chatMessages[state.chatMessages.length - 1];
-    if (lastMsg && lastMsg.role === 'user') {
-      doSend(lastMsg.content);
-    }
-  }, [sendErrorFeedback, doSend]);
+    // Send exactly one feedback prompt; doSend() appends it as a user message.
+    void doSend(buildErrorFeedbackContent(code, errorMsg));
+  }, [doSend]);
 
   // ── Clickable example prompts ──
   const handleExampleClick = useCallback((prompt: string) => {
