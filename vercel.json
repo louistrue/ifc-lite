@@ -4,6 +4,11 @@
   "outputDirectory": "apps/viewer/dist",
   "installCommand": "pnpm install",
   "framework": "vite",
+  "functions": {
+    "api/**/*.ts": {
+      "runtime": "@vercel/edge"
+    }
+  },
   "rewrites": [
     {
       "source": "/api/bsdd/:path*",
@@ -17,6 +22,23 @@
         {
           "key": "Content-Type",
           "value": "application/wasm"
+        }
+      ]
+    },
+    {
+      "source": "/api/(.*)",
+      "headers": [
+        {
+          "key": "Access-Control-Allow-Origin",
+          "value": "*"
+        },
+        {
+          "key": "Access-Control-Allow-Methods",
+          "value": "POST, OPTIONS"
+        },
+        {
+          "key": "Access-Control-Allow-Headers",
+          "value": "Content-Type, Authorization"
         }
       ]
     }
