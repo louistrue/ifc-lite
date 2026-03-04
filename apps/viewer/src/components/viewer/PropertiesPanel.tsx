@@ -125,16 +125,21 @@ export function PropertiesPanel() {
 
     const updateTabDensity = () => {
       const tabWidth = tabsElement.clientWidth / 3;
-      setCompactTabs(tabWidth < 88);
+      // Switch to icon-only mode early enough to avoid cramped labels.
+      setCompactTabs(tabWidth < 120);
     };
 
     updateTabDensity();
 
-    const resizeObserver = new ResizeObserver(updateTabDensity);
+    const resizeObserver = new ResizeObserver(() => {
+      requestAnimationFrame(updateTabDensity);
+    });
     resizeObserver.observe(tabsElement);
+    window.addEventListener('resize', updateTabDensity);
 
     return () => {
       resizeObserver.disconnect();
+      window.removeEventListener('resize', updateTabDensity);
     };
   }, []);
 
