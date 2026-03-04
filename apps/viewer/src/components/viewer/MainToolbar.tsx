@@ -37,7 +37,6 @@ import {
   Palette,
   Orbit,
   LayoutTemplate,
-  Bot,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
@@ -196,9 +195,6 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
   const lensPanelVisible = useViewerStore((state) => state.lensPanelVisible);
   const toggleLensPanel = useViewerStore((state) => state.toggleLensPanel);
   const setLensPanelVisible = useViewerStore((state) => state.setLensPanelVisible);
-  // Chat state
-  const chatPanelVisible = useViewerStore((state) => state.chatPanelVisible);
-  const toggleChatPanel = useViewerStore((state) => state.toggleChatPanel);
 
   // Check which type geometries exist across ALL loaded models (federation-aware).
   // PERF: Use meshes.length as dep proxy instead of full geometryResult, and
@@ -686,7 +682,6 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
               (e.currentTarget as HTMLButtonElement).blur();
               // Close other bottom panels (bottom-panel exclusivity)
               useViewerStore.getState().setScriptPanelVisible(false);
-              useViewerStore.getState().setChatPanelVisible(false);
               if (!listPanelVisible) {
                 setRightPanelCollapsed(false);
               }
@@ -698,27 +693,6 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
           </Button>
         </TooltipTrigger>
         <TooltipContent>Lists</TooltipContent>
-      </Tooltip>
-
-      {/* AI Chat Button */}
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            variant={chatPanelVisible ? 'default' : 'ghost'}
-            size="icon-sm"
-            onClick={(e) => {
-              (e.currentTarget as HTMLButtonElement).blur();
-              // Close other bottom panels (bottom-panel exclusivity)
-              useViewerStore.getState().setScriptPanelVisible(false);
-              useViewerStore.getState().setListPanelVisible(false);
-              toggleChatPanel();
-            }}
-            className={cn(chatPanelVisible && 'bg-primary text-primary-foreground')}
-          >
-            <Bot className="h-4 w-4" />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>AI Assistant (Chat)</TooltipContent>
       </Tooltip>
 
       <Separator orientation="vertical" className="h-6 mx-1" />
