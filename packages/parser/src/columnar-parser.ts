@@ -10,6 +10,7 @@
  */
 
 import type { EntityRef, IfcEntity, Relationship } from './types.js';
+import { SparseEntityMap } from './sparse-entity-map.js';
 import { SpatialHierarchyBuilder } from './spatial-hierarchy-builder.js';
 import { EntityExtractor } from './entity-extractor.js';
 import { extractLengthUnitScale } from './unit-extractor.js';
@@ -218,8 +219,10 @@ export class ColumnarParser {
         const relationshipGraphBuilder = new RelationshipGraphBuilder();
 
         // Build entity index early (needed for property relationship lookup)
+        // SparseEntityMap: ~15 bytes/slot vs ~120 bytes/entry for Map<number, EntityRef>
+        // For 8.4M entities: ~126MB vs ~1008MB → ~880MB savings
         const entityIndex = {
-            byId: new Map<number, EntityRef>(),
+            byId: new SparseEntityMap(entityRefs.length + 1) as unknown as Map<number, EntityRef>,
             byType: new Map<string, number[]>(),
         };
 

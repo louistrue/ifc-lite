@@ -16,7 +16,7 @@ import {
   type IfcDataStore as CacheDataStore,
   type GeometryData,
 } from '@ifc-lite/cache';
-import { SpatialHierarchyBuilder, extractLengthUnitScale, type IfcDataStore } from '@ifc-lite/parser';
+import { SpatialHierarchyBuilder, extractLengthUnitScale, SparseEntityMap, type IfcDataStore } from '@ifc-lite/parser';
 import { buildSpatialIndex } from '@ifc-lite/spatial';
 import type { MeshData } from '@ifc-lite/geometry';
 
@@ -104,7 +104,7 @@ export function useIfcCache() {
         const { StepTokenizer } = await import('@ifc-lite/parser');
         const tokenizer = new StepTokenizer(dataStore.source);
         const entityIndex = {
-          byId: new Map<number, any>(),
+          byId: new SparseEntityMap() as unknown as Map<number, any>,
           byType: new Map<string, number[]>(),
         };
 

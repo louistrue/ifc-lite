@@ -264,7 +264,7 @@ export class GeometryProcessor {
 
     // Convert buffer to string (IFC files are text)
     const decoder = new TextDecoder();
-    const content = decoder.decode(buffer);
+    let content = decoder.decode(buffer);
 
     yield { type: 'model-open', modelID: 0 };
 
@@ -291,6 +291,10 @@ export class GeometryProcessor {
       }
 
       const collector = new IfcLiteMeshCollector(this.bridge.getApi(), content);
+      // Release the local content reference - collector holds its own copy.
+      // For large files this string is ~400-800MB; dropping the local ref
+      // allows GC once the collector releases it after streaming.
+      content = '';
       let totalMeshes = 0;
       let extractedBuildingRotation: number | undefined = undefined;
 
@@ -545,9 +549,15 @@ export class GeometryProcessor {
   }
 
   /**
-   * Cleanup resources
+   * Cleanup resources.
+   * Frees the WASM bridge and its backing linear memory (~1-2GB for large files).
+   * Call after geometry streaming and data model parsing are both complete.
    */
   dispose(): void {
-    // No cleanup needed
+    if (this.bridge) {
+      this.bridge.dispose();
+      this.bridge = null;
+    }
+    this.platformBridge = null;
   }
 }

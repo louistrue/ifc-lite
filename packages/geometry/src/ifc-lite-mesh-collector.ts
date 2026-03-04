@@ -51,11 +51,19 @@ export type StreamingEvent = StreamingBatchEvent | StreamingCompleteEvent | Stre
 
 export class IfcLiteMeshCollector {
   private ifcApi: IfcAPI;
-  private content: string;
+  private content: string | null;
 
   constructor(ifcApi: IfcAPI, content: string) {
     this.ifcApi = ifcApi;
     this.content = content;
+  }
+
+  /**
+   * Release the IFC content string to free memory.
+   * Call after streaming/parsing is complete (the string can be ~400-800MB for large files).
+   */
+  releaseContent(): void {
+    this.content = null;
   }
 
   /**
@@ -102,6 +110,9 @@ export class IfcLiteMeshCollector {
    * Much faster than web-ifc (~1.9x speedup)
    */
   collectMeshes(): MeshData[] {
+    if (!this.content) {
+      throw new Error('Content already released - cannot collect meshes');
+    }
     let collection: MeshCollection;
     try {
       collection = this.ifcApi.parseMeshes(this.content);
@@ -191,6 +202,9 @@ export class IfcLiteMeshCollector {
    * @param batchSize Number of meshes per batch (default: 25 for faster first frame)
    */
   async *collectMeshesStreaming(batchSize: number = 25): AsyncGenerator<MeshData[] | StreamingColorUpdateEvent | StreamingRtcOffsetEvent> {
+    if (!this.content) {
+      throw new Error('Content already released - cannot collect meshes');
+    }
     // Queue to hold batches produced by async callback
     const batchQueue: (MeshData[] | StreamingColorUpdateEvent | StreamingRtcOffsetEvent)[] = [];
     let resolveWaiting: (() => void) | null = null;
@@ -345,14 +359,19 @@ export class IfcLiteMeshCollector {
 
     // Warn if WASM returned 0 results for a non-trivially-sized file
     // This typically indicates WASM ran out of memory during parsing
-    if (yieldedBatchCount === 0 && this.content.length > 1000) {
-      const sizeMB = (this.content.length / (1024 * 1024)).toFixed(1);
+    const contentLength = this.content?.length ?? 0;
+    if (yieldedBatchCount === 0 && contentLength > 1000) {
+      const sizeMB = (contentLength / (1024 * 1024)).toFixed(1);
       log.warn(
         `WASM streaming returned 0 batches for ${sizeMB}MB file - ` +
         `this may indicate insufficient memory for large file processing`,
-        { operation: 'collectMeshesStreaming', data: { contentLength: this.content.length } },
+        { operation: 'collectMeshesStreaming', data: { contentLength } },
       );
     }
+
+    // Release the content string to free memory (~400-800MB for large files).
+    // WASM has finished parsing and no longer needs it.
+    this.releaseContent();
 
     // Ensure processing is complete
     await processingPromise;
@@ -407,6 +426,9 @@ export class IfcLiteMeshCollector {
    * @param batchSize Number of unique geometries per batch (default: 25)
    */
   async *collectInstancedGeometryStreaming(batchSize: number = 25): AsyncGenerator<InstancedGeometry[]> {
+    if (!this.content) {
+      throw new Error('Content already released - cannot collect instanced geometry');
+    }
     // Queue to hold batches produced by async callback
     const batchQueue: InstancedGeometry[][] = [];
     let resolveWaiting: (() => void) | null = null;
@@ -475,14 +497,18 @@ export class IfcLiteMeshCollector {
 
     // Warn if WASM returned 0 results for a non-trivially-sized file
     // This typically indicates WASM ran out of memory during parsing
-    if (yieldedBatchCount === 0 && this.content.length > 1000) {
-      const sizeMB = (this.content.length / (1024 * 1024)).toFixed(1);
+    const contentLength = this.content?.length ?? 0;
+    if (yieldedBatchCount === 0 && contentLength > 1000) {
+      const sizeMB = (contentLength / (1024 * 1024)).toFixed(1);
       log.warn(
         `WASM instanced streaming returned 0 batches for ${sizeMB}MB file - ` +
         `this may indicate insufficient memory for large file processing`,
-        { operation: 'collectInstancedGeometryStreaming', data: { contentLength: this.content.length } },
+        { operation: 'collectInstancedGeometryStreaming', data: { contentLength } },
       );
     }
+
+    // Release the content string to free memory
+    this.releaseContent();
 
     // Ensure processing is complete
     await processingPromise;

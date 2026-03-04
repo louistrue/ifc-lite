@@ -9,6 +9,7 @@
 
 export { StepTokenizer } from './tokenizer.js';
 export { EntityIndexBuilder } from './entity-index.js';
+export { SparseEntityMap } from './sparse-entity-map.js';
 export { EntityExtractor } from './entity-extractor.js';
 export { PropertyExtractor } from './property-extractor.js';
 export { QuantityExtractor } from './quantity-extractor.js';
@@ -198,23 +199,32 @@ export class IfcParser {
               const content = decoder.decode(buffer);
               return options.wasmApi!.scanEntitiesFast(content);
             };
-        const wasmRefs = scanFn() as Array<{
+        let wasmRefs = scanFn() as Array<{
           express_id: number;
           entity_type: string;
           byte_offset: number;
           byte_length: number;
           line_number: number;
         }>;
-        
-        // Direct mapping - optimized by JS engine, no intermediate loop/push
-        entityRefs = wasmRefs.map((ref) => ({
-          expressId: ref.express_id,
-          type: ref.entity_type,
-          byteOffset: ref.byte_offset,
-          byteLength: ref.byte_length,
-          lineNumber: ref.line_number,
-        }));
-        
+
+        // Pre-allocate and map in a loop so we can release wasmRefs sooner.
+        // For large files (~6M+ entities), wasmRefs holds ~400-600MB of
+        // intermediate objects that should be freed before parseLite starts.
+        const refCount = wasmRefs.length;
+        entityRefs = new Array(refCount);
+        for (let i = 0; i < refCount; i++) {
+          const ref = wasmRefs[i];
+          entityRefs[i] = {
+            expressId: ref.express_id,
+            type: ref.entity_type,
+            byteOffset: ref.byte_offset,
+            byteLength: ref.byte_length,
+            lineNumber: ref.line_number,
+          };
+        }
+        // Release WASM scan results to reduce peak memory
+        wasmRefs = null as any;
+
         processed = entityRefs.length;
       } catch (error) {
         console.warn('[IfcParser] WASM scan failed, falling back to TypeScript:', error);
@@ -259,6 +269,10 @@ export class IfcParser {
     // Build columnar structures with on-demand property extraction
     const columnarParser = new ColumnarParser();
     const dataStore = await columnarParser.parseLite(buffer, entityRefs, options);
+    // Release the entityRefs array container. The individual EntityRef objects
+    // are now owned by dataStore.entityIndex.byId Map, so only the outer array
+    // (~67MB of pointers for 8.4M entities) becomes GC-eligible.
+    entityRefs = null as any;
     console.log(`[ColumnarParser] Parsed ${dataStore.entityCount} entities in ${dataStore.parseTime.toFixed(0)}ms`);
     return dataStore;
   }
