@@ -547,6 +547,263 @@ export const NAMESPACE_SCHEMAS: NamespaceSchema[] = [
         },
         returns: 'value',
       },
+      // ── Missing high-level element methods ──
+      {
+        name: 'addIfcDoor',
+        doc: 'Add a door. Returns expressId.',
+        args: ['number', 'number', 'dump'],
+        paramNames: ['handle', 'storeyId', 'params'],
+        tsReturn: 'number',
+        call: (_sdk, args) => {
+          const creator = creatorRegistry.get(args[0] as number);
+          return creator.addIfcDoor(args[1] as number, args[2] as any);
+        },
+        returns: 'value',
+      },
+      {
+        name: 'addIfcWindow',
+        doc: 'Add a window. Returns expressId.',
+        args: ['number', 'number', 'dump'],
+        paramNames: ['handle', 'storeyId', 'params'],
+        tsReturn: 'number',
+        call: (_sdk, args) => {
+          const creator = creatorRegistry.get(args[0] as number);
+          return creator.addIfcWindow(args[1] as number, args[2] as any);
+        },
+        returns: 'value',
+      },
+      {
+        name: 'addIfcRamp',
+        doc: 'Add a ramp. Returns expressId.',
+        args: ['number', 'number', 'dump'],
+        paramNames: ['handle', 'storeyId', 'params'],
+        tsReturn: 'number',
+        call: (_sdk, args) => {
+          const creator = creatorRegistry.get(args[0] as number);
+          return creator.addIfcRamp(args[1] as number, args[2] as any);
+        },
+        returns: 'value',
+      },
+      {
+        name: 'addIfcRailing',
+        doc: 'Add a railing. Returns expressId.',
+        args: ['number', 'number', 'dump'],
+        paramNames: ['handle', 'storeyId', 'params'],
+        tsReturn: 'number',
+        call: (_sdk, args) => {
+          const creator = creatorRegistry.get(args[0] as number);
+          return creator.addIfcRailing(args[1] as number, args[2] as any);
+        },
+        returns: 'value',
+      },
+      {
+        name: 'addIfcPlate',
+        doc: 'Add a plate. Returns expressId.',
+        args: ['number', 'number', 'dump'],
+        paramNames: ['handle', 'storeyId', 'params'],
+        tsReturn: 'number',
+        call: (_sdk, args) => {
+          const creator = creatorRegistry.get(args[0] as number);
+          return creator.addIfcPlate(args[1] as number, args[2] as any);
+        },
+        returns: 'value',
+      },
+      {
+        name: 'addIfcMember',
+        doc: 'Add a structural member. Returns expressId.',
+        args: ['number', 'number', 'dump'],
+        paramNames: ['handle', 'storeyId', 'params'],
+        tsReturn: 'number',
+        call: (_sdk, args) => {
+          const creator = creatorRegistry.get(args[0] as number);
+          return creator.addIfcMember(args[1] as number, args[2] as any);
+        },
+        returns: 'value',
+      },
+      {
+        name: 'addIfcFooting',
+        doc: 'Add a footing. Returns expressId.',
+        args: ['number', 'number', 'dump'],
+        paramNames: ['handle', 'storeyId', 'params'],
+        tsReturn: 'number',
+        call: (_sdk, args) => {
+          const creator = creatorRegistry.get(args[0] as number);
+          return creator.addIfcFooting(args[1] as number, args[2] as any);
+        },
+        returns: 'value',
+      },
+      {
+        name: 'addIfcPile',
+        doc: 'Add a pile. Returns expressId.',
+        args: ['number', 'number', 'dump'],
+        paramNames: ['handle', 'storeyId', 'params'],
+        tsReturn: 'number',
+        call: (_sdk, args) => {
+          const creator = creatorRegistry.get(args[0] as number);
+          return creator.addIfcPile(args[1] as number, args[2] as any);
+        },
+        returns: 'value',
+      },
+      {
+        name: 'addIfcSpace',
+        doc: 'Add a space (room). Returns expressId.',
+        args: ['number', 'number', 'dump'],
+        paramNames: ['handle', 'storeyId', 'params'],
+        tsReturn: 'number',
+        call: (_sdk, args) => {
+          const creator = creatorRegistry.get(args[0] as number);
+          return creator.addIfcSpace(args[1] as number, args[2] as any);
+        },
+        returns: 'value',
+      },
+      {
+        name: 'addIfcCurtainWall',
+        doc: 'Add a curtain wall. Returns expressId.',
+        args: ['number', 'number', 'dump'],
+        paramNames: ['handle', 'storeyId', 'params'],
+        tsReturn: 'number',
+        call: (_sdk, args) => {
+          const creator = creatorRegistry.get(args[0] as number);
+          return creator.addIfcCurtainWall(args[1] as number, args[2] as any);
+        },
+        returns: 'value',
+      },
+      {
+        name: 'addIfcFurnishingElement',
+        doc: 'Add a furnishing element. Returns expressId.',
+        args: ['number', 'number', 'dump'],
+        paramNames: ['handle', 'storeyId', 'params'],
+        tsReturn: 'number',
+        call: (_sdk, args) => {
+          const creator = creatorRegistry.get(args[0] as number);
+          return creator.addIfcFurnishingElement(args[1] as number, args[2] as any);
+        },
+        returns: 'value',
+      },
+      {
+        name: 'addIfcBuildingElementProxy',
+        doc: 'Add a generic proxy element. Returns expressId.',
+        args: ['number', 'number', 'dump'],
+        paramNames: ['handle', 'storeyId', 'params'],
+        tsReturn: 'number',
+        call: (_sdk, args) => {
+          const creator = creatorRegistry.get(args[0] as number);
+          return creator.addIfcBuildingElementProxy(args[1] as number, args[2] as any);
+        },
+        returns: 'value',
+      },
+      // ── Specialized profile elements ──
+      {
+        name: 'addIfcCircularColumn',
+        doc: 'Add a circular column. Returns expressId.',
+        args: ['number', 'number', 'dump'],
+        paramNames: ['handle', 'storeyId', 'params'],
+        tsReturn: 'number',
+        call: (_sdk, args) => {
+          const creator = creatorRegistry.get(args[0] as number);
+          return creator.addIfcCircularColumn(args[1] as number, args[2] as any);
+        },
+        returns: 'value',
+      },
+      {
+        name: 'addIfcIShapeBeam',
+        doc: 'Add an I-shape beam. Returns expressId.',
+        args: ['number', 'number', 'dump'],
+        paramNames: ['handle', 'storeyId', 'params'],
+        tsReturn: 'number',
+        call: (_sdk, args) => {
+          const creator = creatorRegistry.get(args[0] as number);
+          return creator.addIfcIShapeBeam(args[1] as number, args[2] as any);
+        },
+        returns: 'value',
+      },
+      {
+        name: 'addIfcLShapeMember',
+        doc: 'Add an L-shape member. Returns expressId.',
+        args: ['number', 'number', 'dump'],
+        paramNames: ['handle', 'storeyId', 'params'],
+        tsReturn: 'number',
+        call: (_sdk, args) => {
+          const creator = creatorRegistry.get(args[0] as number);
+          return creator.addIfcLShapeMember(args[1] as number, args[2] as any);
+        },
+        returns: 'value',
+      },
+      {
+        name: 'addIfcTShapeMember',
+        doc: 'Add a T-shape member. Returns expressId.',
+        args: ['number', 'number', 'dump'],
+        paramNames: ['handle', 'storeyId', 'params'],
+        tsReturn: 'number',
+        call: (_sdk, args) => {
+          const creator = creatorRegistry.get(args[0] as number);
+          return creator.addIfcTShapeMember(args[1] as number, args[2] as any);
+        },
+        returns: 'value',
+      },
+      {
+        name: 'addIfcUShapeMember',
+        doc: 'Add a U-shape member. Returns expressId.',
+        args: ['number', 'number', 'dump'],
+        paramNames: ['handle', 'storeyId', 'params'],
+        tsReturn: 'number',
+        call: (_sdk, args) => {
+          const creator = creatorRegistry.get(args[0] as number);
+          return creator.addIfcUShapeMember(args[1] as number, args[2] as any);
+        },
+        returns: 'value',
+      },
+      {
+        name: 'addIfcHollowCircularColumn',
+        doc: 'Add a hollow circular column. Returns expressId.',
+        args: ['number', 'number', 'dump'],
+        paramNames: ['handle', 'storeyId', 'params'],
+        tsReturn: 'number',
+        call: (_sdk, args) => {
+          const creator = creatorRegistry.get(args[0] as number);
+          return creator.addIfcHollowCircularColumn(args[1] as number, args[2] as any);
+        },
+        returns: 'value',
+      },
+      {
+        name: 'addIfcRectangleHollowBeam',
+        doc: 'Add a rectangle hollow beam. Returns expressId.',
+        args: ['number', 'number', 'dump'],
+        paramNames: ['handle', 'storeyId', 'params'],
+        tsReturn: 'number',
+        call: (_sdk, args) => {
+          const creator = creatorRegistry.get(args[0] as number);
+          return creator.addIfcRectangleHollowBeam(args[1] as number, args[2] as any);
+        },
+        returns: 'value',
+      },
+      // ── Generic low-level element creation ──
+      {
+        name: 'addElement',
+        doc: 'Create ANY IFC type with a profile at a placement. Returns expressId.',
+        args: ['number', 'number', 'dump'],
+        paramNames: ['handle', 'storeyId', 'params'],
+        tsParamTypes: [undefined, undefined, '{ IfcType: string; Placement: { Location: [number,number,number]; Axis?: [number,number,number]; RefDirection?: [number,number,number] }; Profile: object; Depth: number; ExtrusionDirection?: [number,number,number]; PredefinedType?: string; Name?: string; Description?: string; ObjectType?: string; Tag?: string }'],
+        tsReturn: 'number',
+        call: (_sdk, args) => {
+          const creator = creatorRegistry.get(args[0] as number);
+          return creator.addElement(args[1] as number, args[2] as any);
+        },
+        returns: 'value',
+      },
+      {
+        name: 'addAxisElement',
+        doc: 'Create ANY IFC type extruded along a Start→End axis. Returns expressId.',
+        args: ['number', 'number', 'dump'],
+        paramNames: ['handle', 'storeyId', 'params'],
+        tsParamTypes: [undefined, undefined, '{ IfcType: string; Start: [number,number,number]; End: [number,number,number]; Profile: object; PredefinedType?: string; Name?: string; Description?: string; ObjectType?: string; Tag?: string }'],
+        tsReturn: 'number',
+        call: (_sdk, args) => {
+          const creator = creatorRegistry.get(args[0] as number);
+          return creator.addAxisElement(args[1] as number, args[2] as any);
+        },
+        returns: 'value',
+      },
       {
         name: 'setColor',
         doc: 'Assign a named colour to an element. Call before toIfc().',
