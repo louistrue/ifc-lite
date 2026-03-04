@@ -55,7 +55,10 @@ export interface FileAttachment {
   isImage?: boolean;
 }
 
-export type ModelTier = 'free' | 'budget' | 'frontier';
+export type ModelTier = 'free' | 'pro';
+
+/** Relative cost indicator for paid models */
+export type ModelCost = '$' | '$$' | '$$$';
 
 export interface LLMModel {
   id: string;
@@ -65,6 +68,8 @@ export interface LLMModel {
   contextWindow: number;
   /** Notes shown in model selector */
   notes?: string;
+  /** Relative cost indicator (pro models only) */
+  cost?: ModelCost;
 }
 
 export type ChatStatus = 'idle' | 'sending' | 'streaming' | 'error';

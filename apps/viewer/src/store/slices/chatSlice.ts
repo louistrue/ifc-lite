@@ -34,8 +34,8 @@ export interface ChatSlice {
   chatAuthToken: string | null;
   /** Whether the current user has a pro subscription (unlocks budget + frontier models) */
   chatHasPro: boolean;
-  /** Budget usage info from the server (pro users only) */
-  chatBudget: { limit: number; spent: number; pct: number; resetAt: number } | null;
+  /** Usage info from the server: budget (pro) or request count (free) */
+  chatUsage: { type: 'budget' | 'requests'; used: number; limit: number; pct: number; resetAt: number } | null;
 
   // Actions
   setChatPanelVisible: (visible: boolean) => void;
@@ -63,8 +63,8 @@ export interface ChatSlice {
   setChatAuthToken: (token: string | null) => void;
   /** Set whether user has pro subscription (called by ClerkProvider wrapper) */
   setChatHasPro: (hasPro: boolean) => void;
-  /** Update budget usage info from server response headers */
-  setChatBudget: (budget: { limit: number; spent: number; pct: number; resetAt: number } | null) => void;
+  /** Update usage info from server response headers */
+  setChatUsage: (usage: { type: 'budget' | 'requests'; used: number; limit: number; pct: number; resetAt: number } | null) => void;
 }
 
 function loadStoredModel(): string {
@@ -138,7 +138,7 @@ export const createChatSlice: StateCreator<ChatSlice, [], [], ChatSlice> = (set,
   chatViewportScreenshot: null,
   chatAuthToken: null,
   chatHasPro: false,
-  chatBudget: null,
+  chatUsage: null,
 
   // Actions
   setChatPanelVisible: (chatPanelVisible) => set({ chatPanelVisible }),
@@ -232,7 +232,7 @@ export const createChatSlice: StateCreator<ChatSlice, [], [], ChatSlice> = (set,
 
   setChatHasPro: (chatHasPro) => set({ chatHasPro }),
 
-  setChatBudget: (chatBudget) => set({ chatBudget }),
+  setChatUsage: (chatUsage) => set({ chatUsage }),
 
   sendErrorFeedback: (code, error) => {
     const feedbackMessage: ChatMessage = {

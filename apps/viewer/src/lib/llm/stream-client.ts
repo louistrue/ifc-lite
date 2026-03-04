@@ -29,15 +29,17 @@ export interface StreamMessage {
   content: MessageContent;
 }
 
-/** Budget usage info extracted from proxy response headers */
-export interface BudgetInfo {
-  /** Monthly budget limit in USD (0 = free tier) */
+/** Usage info extracted from proxy response headers (both free and pro) */
+export interface UsageInfo {
+  /** 'budget' for pro (USD-based), 'requests' for free (count-based) */
+  type: 'budget' | 'requests';
+  /** Amount used: USD spent (pro) or request count (free) */
+  used: number;
+  /** Limit: USD budget (pro) or request cap (free) */
   limit: number;
-  /** Amount spent so far in USD */
-  spent: number;
-  /** Percentage of budget used (0-100) */
+  /** Percentage used (0-100) */
   pct: number;
-  /** Budget reset time (epoch seconds) */
+  /** Reset time (epoch seconds) */
   resetAt: number;
 }
 
@@ -60,8 +62,8 @@ export interface StreamOptions {
   onComplete: (fullText: string) => void;
   /** Called on error */
   onError: (error: Error) => void;
-  /** Called with budget usage info from response headers */
-  onBudgetInfo?: (budget: BudgetInfo) => void;
+  /** Called with usage info from response headers (budget or request count) */
+  onUsageInfo?: (usage: UsageInfo) => void;
 }
 
 /**
@@ -69,7 +71,7 @@ export interface StreamOptions {
  * Parses OpenRouter's SSE format (data: {...}\n\n).
  */
 export async function streamChat(options: StreamOptions): Promise<void> {
-  const { proxyUrl, model, messages, system, authToken, signal, onChunk, onComplete, onError, onBudgetInfo } = options;
+  const { proxyUrl, model, messages, system, authToken, signal, onChunk, onComplete, onError, onUsageInfo } = options;
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -117,14 +119,31 @@ export async function streamChat(options: StreamOptions): Promise<void> {
     return;
   }
 
-  // Extract budget info from response headers
-  if (onBudgetInfo) {
+  // Extract usage info from response headers (pro: budget, free: request count)
+  if (onUsageInfo) {
     const budgetLimit = parseFloat(response.headers.get('X-Budget-Limit') ?? '0');
     const budgetSpent = parseFloat(response.headers.get('X-Budget-Spent') ?? '0');
-    const budgetPct = parseInt(response.headers.get('X-Budget-Pct') ?? '0', 10);
-    const budgetReset = parseInt(response.headers.get('X-Budget-Reset') ?? '0', 10);
-    if (budgetLimit > 0 || budgetSpent > 0) {
-      onBudgetInfo({ limit: budgetLimit, spent: budgetSpent, pct: budgetPct, resetAt: budgetReset });
+    const usageUsed = parseInt(response.headers.get('X-Usage-Used') ?? '0', 10);
+    const usageLimit = parseInt(response.headers.get('X-Usage-Limit') ?? '0', 10);
+
+    if (budgetLimit > 0) {
+      // Pro user: budget-based
+      onUsageInfo({
+        type: 'budget',
+        used: budgetSpent,
+        limit: budgetLimit,
+        pct: parseInt(response.headers.get('X-Budget-Pct') ?? '0', 10),
+        resetAt: parseInt(response.headers.get('X-Budget-Reset') ?? '0', 10),
+      });
+    } else if (usageLimit > 0) {
+      // Free user: request count-based
+      onUsageInfo({
+        type: 'requests',
+        used: usageUsed,
+        limit: usageLimit,
+        pct: parseInt(response.headers.get('X-Usage-Pct') ?? '0', 10),
+        resetAt: parseInt(response.headers.get('X-Usage-Reset') ?? '0', 10),
+      });
     }
   }
 

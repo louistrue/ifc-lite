@@ -29,22 +29,22 @@ const FREE_MODELS = new Set([
   'openai/gpt-oss-120b:free',
 ]);
 
-const BUDGET_MODELS = new Set([
+const PRO_MODELS = new Set([
+  // $ cheap
   'qwen/qwen3-coder',
-  'x-ai/grok-code-fast-1',
-  'minimax/minimax-m2.1',
   'google/gemini-3-flash-preview',
+  'minimax/minimax-m2.1',
   'z-ai/glm-4.7',
-]);
-
-const FRONTIER_MODELS = new Set([
+  // $$ moderate
+  'x-ai/grok-code-fast-1',
   'anthropic/claude-sonnet-4.5',
   'anthropic/claude-sonnet-4.6',
-  'anthropic/claude-opus-4.5',
+  'openai/gpt-5.2',
+  'x-ai/grok-4.1-fast',
+  // $$$ expensive
   'google/gemini-3-pro-preview',
   'google/gemini-3.1-pro-preview',
-  'openai/gpt-5.2-20251211',
-  'x-ai/grok-4.1-fast',
+  'anthropic/claude-opus-4.5',
 ]);
 
 function isFreeModel(model: string): boolean {
@@ -52,11 +52,11 @@ function isFreeModel(model: string): boolean {
 }
 
 function isPaidModel(model: string): boolean {
-  return BUDGET_MODELS.has(model) || FRONTIER_MODELS.has(model);
+  return PRO_MODELS.has(model);
 }
 
 function isAllowedModel(model: string): boolean {
-  return FREE_MODELS.has(model) || BUDGET_MODELS.has(model) || FRONTIER_MODELS.has(model);
+  return FREE_MODELS.has(model) || PRO_MODELS.has(model);
 }
 
 // ---------------------------------------------------------------------------
@@ -204,6 +204,7 @@ const CORS_HEADERS: Record<string, string> = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+  'Access-Control-Expose-Headers': 'X-Budget-Limit, X-Budget-Spent, X-Budget-Pct, X-Budget-Reset, X-Usage-Used, X-Usage-Limit, X-Usage-Pct, X-Usage-Reset',
 };
 
 function corsResponse(status: number, body?: object, extraHeaders?: Record<string, string>): Response {
@@ -347,10 +348,26 @@ export default async function handler(req: Request): Promise<Response> {
     return corsResponse(502, { error: 'No response body from upstream' });
   }
 
-  // 8. Build budget info headers
-  const bucket = getBudget(userId, userTier);
-  const budgetLimit = MONTHLY_BUDGETS[userTier];
-  const budgetPct = budgetLimit > 0 ? Math.min(100, Math.round((bucket.spent / budgetLimit) * 100)) : 0;
+  // 8. Build usage info headers for client display
+  const usageHeaders: Record<string, string> = {};
+
+  if (userTier === 'pro') {
+    const bucket = getBudget(userId, 'pro');
+    const budgetLimit = MONTHLY_BUDGETS.pro;
+    const budgetPct = Math.min(100, Math.round((bucket.spent / budgetLimit) * 100));
+    usageHeaders['X-Budget-Limit'] = String(budgetLimit);
+    usageHeaders['X-Budget-Spent'] = String(bucket.spent.toFixed(4));
+    usageHeaders['X-Budget-Pct'] = String(budgetPct);
+    usageHeaders['X-Budget-Reset'] = String(Math.ceil(bucket.resetAt / 1000));
+  } else {
+    // Free tier: show request count / cap
+    let entry = freeRequestCounts.get(userId);
+    if (!entry) entry = { count: 0, resetAt: Date.now() + 24 * 60 * 60 * 1000 };
+    usageHeaders['X-Usage-Used'] = String(entry.count);
+    usageHeaders['X-Usage-Limit'] = String(FREE_DAILY_REQUEST_CAP);
+    usageHeaders['X-Usage-Pct'] = String(Math.min(100, Math.round((entry.count / FREE_DAILY_REQUEST_CAP) * 100)));
+    usageHeaders['X-Usage-Reset'] = String(Math.ceil(entry.resetAt / 1000));
+  }
 
   // 9. Stream response, intercepting generation ID for cost tracking
   // We use a TransformStream to pass data through while extracting the gen ID.
@@ -388,13 +405,9 @@ export default async function handler(req: Request): Promise<Response> {
     status: 200,
     headers: {
       ...CORS_HEADERS,
+      ...usageHeaders,
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',
-      // Budget headers for client-side display
-      'X-Budget-Limit': String(budgetLimit),
-      'X-Budget-Spent': String(bucket.spent.toFixed(4)),
-      'X-Budget-Pct': String(budgetPct),
-      'X-Budget-Reset': String(Math.ceil(bucket.resetAt / 1000)),
     },
   });
 }

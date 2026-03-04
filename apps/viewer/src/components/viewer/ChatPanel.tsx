@@ -36,7 +36,7 @@ import { Switch } from '@/components/ui/switch';
 import { useViewerStore } from '@/store';
 import { ChatMessageComponent } from './chat/ChatMessage';
 import { ModelSelector } from './chat/ModelSelector';
-import { streamChat, type TextContentPart, type ImageContentPart, type BudgetInfo } from '@/lib/llm/stream-client';
+import { streamChat, type TextContentPart, type ImageContentPart, type UsageInfo } from '@/lib/llm/stream-client';
 import { buildSystemPrompt } from '@/lib/llm/system-prompt';
 import { getModelContext, parseCSV } from '@/lib/llm/context-builder';
 import { extractCodeBlocks } from '@/lib/llm/code-extractor';
@@ -89,8 +89,8 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
   const sendErrorFeedback = useViewerStore((s) => s.sendErrorFeedback);
   const authToken = useViewerStore((s) => s.chatAuthToken);
   const hasPro = useViewerStore((s) => s.chatHasPro);
-  const budget = useViewerStore((s) => s.chatBudget);
-  const setChatBudget = useViewerStore((s) => s.setChatBudget);
+  const usage = useViewerStore((s) => s.chatUsage);
+  const setChatUsage = useViewerStore((s) => s.setChatUsage);
 
   const [inputText, setInputText] = useState('');
   const [showClearConfirm, setShowClearConfirm] = useState(false);
@@ -257,8 +257,8 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
           }
         }
       },
-      onBudgetInfo: (info: BudgetInfo) => {
-        setChatBudget(info);
+      onUsageInfo: (info: UsageInfo) => {
+        setChatUsage(info);
       },
       onError: (err) => {
         setChatError(err.message);
@@ -268,7 +268,7 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
   }, [
     status, messages, activeModel, attachments, authToken,
     addMessage, setChatStatus, updateStreaming, finalizeAssistant,
-    setChatError, setChatAbortController, clearAttachments, setChatBudget,
+    setChatError, setChatAbortController, clearAttachments, setChatUsage,
   ]);
 
   const handleSend = useCallback(() => {
@@ -448,24 +448,27 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
         <Bot className="h-4 w-4 text-blue-500 shrink-0" />
         <span className="text-sm font-medium">AI Assistant</span>
         <ModelSelector hasPro={hasPro} />
-        {/* Budget usage indicator (pro users with budget > 0) */}
-        {budget && budget.limit > 0 && (
+        {/* Usage indicator (free: requests/day, pro: $/month budget) */}
+        {usage && (
           <Tooltip>
             <TooltipTrigger asChild>
               <div className="flex items-center gap-1 mx-1">
-                <div className="w-16 h-1.5 bg-muted rounded-full overflow-hidden">
+                <div className="w-14 h-1.5 bg-muted rounded-full overflow-hidden">
                   <div
                     className={`h-full rounded-full transition-all ${
-                      budget.pct >= 90 ? 'bg-destructive' : budget.pct >= 70 ? 'bg-amber-500' : 'bg-emerald-500'
+                      usage.pct >= 90 ? 'bg-destructive' : usage.pct >= 70 ? 'bg-amber-500' : 'bg-emerald-500'
                     }`}
-                    style={{ width: `${Math.min(100, budget.pct)}%` }}
+                    style={{ width: `${Math.min(100, usage.pct)}%` }}
                   />
                 </div>
-                <span className="text-[10px] text-muted-foreground tabular-nums">{budget.pct}%</span>
+                <span className="text-[10px] text-muted-foreground tabular-nums">{usage.pct}%</span>
               </div>
             </TooltipTrigger>
             <TooltipContent>
-              ${budget.spent.toFixed(2)} / ${budget.limit.toFixed(2)} monthly budget used
+              {usage.type === 'budget'
+                ? `$${usage.used.toFixed(2)} / $${usage.limit.toFixed(2)} monthly budget`
+                : `${usage.used} / ${usage.limit} requests today`
+              }
             </TooltipContent>
           </Tooltip>
         )}
