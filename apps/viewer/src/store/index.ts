@@ -31,6 +31,7 @@ import { createListSlice, type ListSlice } from './slices/listSlice.js';
 import { createPinboardSlice, type PinboardSlice } from './slices/pinboardSlice.js';
 import { createLensSlice, type LensSlice } from './slices/lensSlice.js';
 import { createScriptSlice, type ScriptSlice } from './slices/scriptSlice.js';
+import { createChatSlice, type ChatSlice } from './slices/chatSlice.js';
 import { invalidateVisibleBasketCache } from './basketVisibleSet.js';
 
 // Import constants for reset function
@@ -72,6 +73,9 @@ export type { LensSlice, Lens, LensRule, LensCriteria } from './slices/lensSlice
 // Re-export Script types
 export type { ScriptSlice } from './slices/scriptSlice.js';
 
+// Re-export Chat types
+export type { ChatSlice } from './slices/chatSlice.js';
+
 // Combined store type
 export type ViewerState = LoadingSlice &
   SelectionSlice &
@@ -91,7 +95,8 @@ export type ViewerState = LoadingSlice &
   ListSlice &
   PinboardSlice &
   LensSlice &
-  ScriptSlice & {
+  ScriptSlice &
+  ChatSlice & {
     resetViewerState: () => void;
   };
 
@@ -119,6 +124,7 @@ export const useViewerStore = create<ViewerState>()((...args) => ({
   ...createPinboardSlice(...args),
   ...createLensSlice(...args),
   ...createScriptSlice(...args),
+  ...createChatSlice(...args),
 
   // Reset all viewer state when loading new file
   // Note: Does NOT clear models - use clearAllModels() for that
@@ -289,6 +295,12 @@ export const useViewerStore = create<ViewerState>()((...args) => ({
       lensHiddenIds: new Set<number>(),
       lensRuleCounts: new Map<string, number>(),
       lensRuleEntityIds: new Map<string, number[]>(),
+
+      // Chat - keep messages and panel visible, reset streaming state
+      chatStatus: 'idle' as const,
+      chatStreamingContent: '',
+      chatError: null,
+      chatAbortController: null,
     });
   },
 }));
