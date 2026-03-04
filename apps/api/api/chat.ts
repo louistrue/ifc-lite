@@ -21,7 +21,6 @@
  *   DATABASE_URL
  */
 
-import { verifyToken as verifyClerkToken } from '@clerk/backend';
 import { neon } from '@neondatabase/serverless';
 
 // ---------------------------------------------------------------------------
@@ -94,7 +93,7 @@ function summarizeUserId(userId: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// JWT verification (lightweight decode + expiry check)
+// JWT verification (Edge-safe, networkless when CLERK_JWT_KEY is set)
 // ---------------------------------------------------------------------------
 
 interface AuthClaims {
@@ -147,23 +146,76 @@ function base64UrlDecode(str: string): string {
   return atob(padded);
 }
 
+function base64ToBytes(base64: string): Uint8Array {
+  const normalized = base64.replace(/\s+/g, '');
+  const binary = atob(normalized);
+  const out = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) out[i] = binary.charCodeAt(i);
+  return out;
+}
+
+function base64UrlToBytes(value: string): Uint8Array {
+  const base64 = value.replace(/-/g, '+').replace(/_/g, '/');
+  const padded = base64 + '='.repeat((4 - (base64.length % 4)) % 4);
+  return base64ToBytes(padded);
+}
+
+function pemToDerBytes(pem: string): Uint8Array {
+  const body = pem
+    .replace(/-----BEGIN PUBLIC KEY-----/g, '')
+    .replace(/-----END PUBLIC KEY-----/g, '')
+    .trim();
+  return base64ToBytes(body);
+}
+
+function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+}
+
+async function verifyJwtWithPublicKey(token: string, jwtKeyPem: string): Promise<boolean> {
+  const parts = token.split('.');
+  if (parts.length !== 3) return false;
+  const [headerB64, payloadB64, signatureB64] = parts;
+
+  let header: { alg?: string };
+  try {
+    header = JSON.parse(base64UrlDecode(headerB64)) as { alg?: string };
+  } catch {
+    return false;
+  }
+
+  if (header.alg !== 'RS256') return false;
+
+  const key = await crypto.subtle.importKey(
+    'spki',
+    toArrayBuffer(pemToDerBytes(jwtKeyPem)),
+    { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
+    false,
+    ['verify'],
+  );
+
+  const data = new TextEncoder().encode(`${headerB64}.${payloadB64}`);
+  const signature = base64UrlToBytes(signatureB64);
+  return crypto.subtle.verify(
+    'RSASSA-PKCS1-v1_5',
+    key,
+    toArrayBuffer(signature),
+    toArrayBuffer(data),
+  );
+}
+
 async function verifyToken(token: string | undefined): Promise<AuthClaims | null> {
   if (!token) return null;
-
-  const secretKey = process.env.CLERK_SECRET_KEY;
-  if (secretKey) {
-    try {
-      const payload = await verifyClerkToken(token, { secretKey });
-      return payload as AuthClaims;
-    } catch {
-      return null;
-    }
-  }
 
   try {
     const parts = token.split('.');
     if (parts.length !== 3) return null;
     const payload = JSON.parse(base64UrlDecode(parts[1])) as AuthClaims;
+    const jwtKey = process.env.CLERK_JWT_KEY?.trim();
+    if (jwtKey) {
+      const valid = await verifyJwtWithPublicKey(token, jwtKey);
+      if (!valid) return null;
+    }
     if (payload.exp && payload.exp * 1000 < Date.now()) return null;
     return payload;
   } catch {
