@@ -549,9 +549,15 @@ export class GeometryProcessor {
   }
 
   /**
-   * Cleanup resources
+   * Cleanup resources.
+   * Frees the WASM bridge and its backing linear memory (~1-2GB for large files).
+   * Call after geometry streaming and data model parsing are both complete.
    */
   dispose(): void {
-    // No cleanup needed
+    if (this.bridge) {
+      this.bridge.dispose();
+      this.bridge = null;
+    }
+    this.platformBridge = null;
   }
 }

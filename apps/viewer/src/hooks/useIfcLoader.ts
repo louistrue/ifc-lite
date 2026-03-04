@@ -497,6 +497,12 @@ export function useIfcLoader() {
               // Build spatial index and cache in background (non-blocking)
               // Wait for data model to complete first
               dataStorePromise.then(dataStore => {
+                // Free WASM bridge and its linear memory (~1-2GB for large files).
+                // Both geometry streaming and data model parsing (which uses the
+                // WASM scanner) are now complete, so the WASM instance is no
+                // longer needed. Drawing generation creates its own processor.
+                geometryProcessor.dispose();
+
                 // Build spatial index from meshes (in background)
                 if (meshesForBackground.length > 0) {
                   const meshesRef = meshesForBackground;
@@ -544,6 +550,8 @@ export function useIfcLoader() {
               }).catch(err => {
                 // Data model parsing failed - spatial index and caching skipped
                 console.warn('[useIfc] Skipping spatial index/cache - data model unavailable:', err);
+                // Still free WASM on error path
+                geometryProcessor.dispose();
               });
               break;
           }

@@ -200,4 +200,21 @@ export class IfcLiteBridge {
   getVersion(): string {
     return this.ifcApi?.version ?? 'unknown';
   }
+
+  /**
+   * Dispose WASM resources.
+   * Frees the IfcAPI instance and its backing WASM linear memory.
+   * After calling dispose(), this bridge is no longer usable.
+   */
+  dispose(): void {
+    if (this.ifcApi) {
+      try {
+        this.ifcApi.free();
+      } catch {
+        // Ignore errors during cleanup
+      }
+      this.ifcApi = null;
+    }
+    this.initialized = false;
+  }
 }
