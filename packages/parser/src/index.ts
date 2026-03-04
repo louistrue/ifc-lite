@@ -198,23 +198,32 @@ export class IfcParser {
               const content = decoder.decode(buffer);
               return options.wasmApi!.scanEntitiesFast(content);
             };
-        const wasmRefs = scanFn() as Array<{
+        let wasmRefs = scanFn() as Array<{
           express_id: number;
           entity_type: string;
           byte_offset: number;
           byte_length: number;
           line_number: number;
         }>;
-        
-        // Direct mapping - optimized by JS engine, no intermediate loop/push
-        entityRefs = wasmRefs.map((ref) => ({
-          expressId: ref.express_id,
-          type: ref.entity_type,
-          byteOffset: ref.byte_offset,
-          byteLength: ref.byte_length,
-          lineNumber: ref.line_number,
-        }));
-        
+
+        // Pre-allocate and map in a loop so we can release wasmRefs sooner.
+        // For large files (~6M+ entities), wasmRefs holds ~400-600MB of
+        // intermediate objects that should be freed before parseLite starts.
+        const refCount = wasmRefs.length;
+        entityRefs = new Array(refCount);
+        for (let i = 0; i < refCount; i++) {
+          const ref = wasmRefs[i];
+          entityRefs[i] = {
+            expressId: ref.express_id,
+            type: ref.entity_type,
+            byteOffset: ref.byte_offset,
+            byteLength: ref.byte_length,
+            lineNumber: ref.line_number,
+          };
+        }
+        // Release WASM scan results to reduce peak memory
+        wasmRefs = null as any;
+
         processed = entityRefs.length;
       } catch (error) {
         console.warn('[IfcParser] WASM scan failed, falling back to TypeScript:', error);

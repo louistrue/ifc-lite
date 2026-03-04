@@ -341,12 +341,12 @@ export function useIfcLoader() {
       // Use adaptive processing: sync for small files, streaming for large files
       let estimatedTotal = 0;
       let totalMeshes = 0;
-      const allMeshes: MeshData[] = []; // Collect all meshes for BVH building
+      let allMeshes: MeshData[] | null = []; // Collect all meshes for BVH building (nulled after use)
       let finalCoordinateInfo: CoordinateInfo | null = null;
       // Capture RTC offset from WASM for proper multi-model alignment
       let capturedRtcOffset: { x: number; y: number; z: number } | null = null;
       // Track all deferred style updates so cache data always uses final colors.
-      const cumulativeColorUpdates = new Map<number, [number, number, number, number]>();
+      let cumulativeColorUpdates: Map<number, [number, number, number, number]> | null = new Map();
 
       // Clear existing geometry result
       setGeometryResult(null);
@@ -394,10 +394,10 @@ export function useIfcLoader() {
               // calling updateMeshColors() per event (which triggers a
               // React reconciliation each time + O(n) scan over all meshes).
               for (const [expressId, color] of event.updates) {
-                cumulativeColorUpdates.set(expressId, color);
+                cumulativeColorUpdates!.set(expressId, color);
               }
               // Keep local mesh snapshots in sync for cache serialization.
-              applyColorUpdatesToMeshes(allMeshes, event.updates);
+              applyColorUpdatesToMeshes(allMeshes!, event.updates);
               applyColorUpdatesToMeshes(pendingMeshes, event.updates);
               break;
             }
@@ -421,7 +421,7 @@ export function useIfcLoader() {
               const processStart = performance.now();
 
               // Collect meshes for BVH building (use loop to avoid stack overflow with large batches)
-              for (let i = 0; i < event.meshes.length; i++) allMeshes.push(event.meshes[i]);
+              for (let i = 0; i < event.meshes.length; i++) allMeshes!.push(event.meshes[i]);
               finalCoordinateInfo = event.coordinateInfo ?? null;
               totalMeshes = event.totalSoFar;
               lastTotalMeshes = event.totalSoFar;
@@ -468,8 +468,8 @@ export function useIfcLoader() {
 
               // Apply all accumulated color updates in a single store update
               // instead of one updateMeshColors() call per colorUpdate event.
-              if (cumulativeColorUpdates.size > 0) {
-                updateMeshColors(cumulativeColorUpdates);
+              if (cumulativeColorUpdates!.size > 0) {
+                updateMeshColors(cumulativeColorUpdates!);
               }
 
               // Store captured RTC offset in coordinate info for multi-model alignment
@@ -485,14 +485,24 @@ export function useIfcLoader() {
               console.log(`Total wait (WASM): ${totalWaitTime.toFixed(0)}ms`);
               console.log(`Total process (JS): ${totalProcessTime.toFixed(0)}ms`);
 
+              // Capture references for background tasks, then release closure-captured originals.
+              // This allows GC to reclaim the main allMeshes/cumulativeColorUpdates
+              // arrays sooner (they can be hundreds of MB for large models).
+              const meshesForBackground = allMeshes!;
+              const colorsForBackground = cumulativeColorUpdates!;
+              const bufferByteLength = buffer.byteLength;
+              allMeshes = null;
+              cumulativeColorUpdates = null;
+
               // Build spatial index and cache in background (non-blocking)
               // Wait for data model to complete first
               dataStorePromise.then(dataStore => {
                 // Build spatial index from meshes (in background)
-                if (allMeshes.length > 0) {
+                if (meshesForBackground.length > 0) {
+                  const meshesRef = meshesForBackground;
                   const buildIndex = () => {
                     try {
-                      const spatialIndex = buildSpatialIndex(allMeshes);
+                      const spatialIndex = buildSpatialIndex(meshesRef);
                       dataStore.spatialIndex = spatialIndex;
                       setIfcDataStore({ ...dataStore });
                     } catch (err) {
@@ -513,21 +523,23 @@ export function useIfcLoader() {
                 // source buffer is required for on-demand property/quantity
                 // extraction, spatial hierarchy elevations, and IFC re-export.
                 // Caching without it would silently degrade those features.
+                // Use dataStore.source.buffer instead of the closure-captured buffer
+                // to allow earlier GC of the original ArrayBuffer reference.
                 if (
-                  buffer.byteLength >= CACHE_SIZE_THRESHOLD &&
-                  buffer.byteLength <= CACHE_MAX_SOURCE_SIZE &&
-                  allMeshes.length > 0 &&
+                  bufferByteLength >= CACHE_SIZE_THRESHOLD &&
+                  bufferByteLength <= CACHE_MAX_SOURCE_SIZE &&
+                  meshesForBackground.length > 0 &&
                   finalCoordinateInfo
                 ) {
                   // Final safety pass so cache always contains post-style colors.
-                  applyColorUpdatesToMeshes(allMeshes, cumulativeColorUpdates);
+                  applyColorUpdatesToMeshes(meshesForBackground, colorsForBackground);
                   const geometryData: GeometryData = {
-                    meshes: allMeshes,
-                    totalVertices: allMeshes.reduce((sum, m) => sum + m.positions.length / 3, 0),
-                    totalTriangles: allMeshes.reduce((sum, m) => sum + m.indices.length / 3, 0),
+                    meshes: meshesForBackground,
+                    totalVertices: meshesForBackground.reduce((sum, m) => sum + m.positions.length / 3, 0),
+                    totalTriangles: meshesForBackground.reduce((sum, m) => sum + m.indices.length / 3, 0),
                     coordinateInfo: finalCoordinateInfo,
                   };
-                  saveToCache(cacheKey, dataStore, geometryData, buffer, file.name);
+                  saveToCache(cacheKey, dataStore, geometryData, dataStore.source.buffer as ArrayBuffer, file.name);
                 }
               }).catch(err => {
                 // Data model parsing failed - spatial index and caching skipped
@@ -545,10 +557,9 @@ export function useIfcLoader() {
 
       // Log developer-friendly summary with key metrics
       const totalElapsedMs = performance.now() - totalStartTime;
-      const totalVertices = allMeshes.reduce((sum, m) => sum + m.positions.length / 3, 0);
       console.log(
         `[useIfc] ✓ ${file.name} (${fileSizeMB.toFixed(1)}MB) → ` +
-        `${allMeshes.length} meshes, ${(totalVertices / 1000).toFixed(0)}k vertices | ` +
+        `${lastTotalMeshes} meshes | ` +
         `first: ${firstGeometryTime.toFixed(0)}ms, total: ${totalElapsedMs.toFixed(0)}ms`
       );
       console.log(`[useIfc] TOTAL LOAD TIME (local): ${totalElapsedMs.toFixed(0)}ms (${(totalElapsedMs / 1000).toFixed(1)}s)`);
