@@ -275,6 +275,11 @@ impl GpuGeometry {
             return;
         }
 
+        // Safety: ensure normals match positions length
+        if normals.len() < positions.len() {
+            return;
+        }
+
         // Get or add IFC type name
         let ifc_type_idx = self.get_or_add_ifc_type(ifc_type);
 
@@ -288,6 +293,11 @@ impl GpuGeometry {
 
         for i in 0..vertex_count {
             let pi = i * 3;
+
+            // Bounds check (positions.len() may not be exact multiple of 3)
+            if pi + 2 >= positions.len() || pi + 2 >= normals.len() {
+                break;
+            }
 
             // Position (convert Z-up to Y-up)
             let px = positions[pi];
@@ -473,6 +483,11 @@ impl GpuInstancedGeometry {
     pub fn set_geometry(&mut self, positions: &[f32], normals: &[f32], indices: &[u32]) {
         let vertex_count = positions.len() / 3;
 
+        // Safety: ensure normals match positions length
+        if normals.len() < positions.len() {
+            return;
+        }
+
         // Clear and reserve
         self.vertex_data.clear();
         self.vertex_data.reserve(vertex_count * 6);
@@ -482,6 +497,11 @@ impl GpuInstancedGeometry {
         // Interleave with Z-up to Y-up conversion
         for i in 0..vertex_count {
             let pi = i * 3;
+
+            // Bounds check
+            if pi + 2 >= positions.len() || pi + 2 >= normals.len() {
+                break;
+            }
 
             // Position (convert Z-up to Y-up)
             self.vertex_data.push(positions[pi]);

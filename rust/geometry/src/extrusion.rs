@@ -310,6 +310,9 @@ fn create_cap_mesh(triangulation: &Triangulation, z: f64, normal: Vector3<f64>, 
 
     // Add triangles
     for i in (0..triangulation.indices.len()).step_by(3) {
+        if i + 2 >= triangulation.indices.len() {
+            break;
+        }
         let i0 = base_index + triangulation.indices[i] as u32;
         let i1 = base_index + triangulation.indices[i + 1] as u32;
         let i2 = base_index + triangulation.indices[i + 2] as u32;

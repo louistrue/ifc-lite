@@ -68,8 +68,19 @@ export class IfcLiteBridge {
       log.error('Failed to initialize WASM geometry engine', error, {
         operation: 'init',
       });
+      // Reset state so re-initialization can be attempted
+      this.initialized = false;
+      this.ifcApi = null;
       throw error;
     }
+  }
+
+  /**
+   * Reset WASM state after a crash. Allows re-initialization.
+   */
+  reset(): void {
+    this.initialized = false;
+    this.ifcApi = null;
   }
 
   /**
@@ -89,6 +100,10 @@ export class IfcLiteBridge {
         operation: 'parseMeshes',
         data: { contentLength: content.length },
       });
+      // WASM panics corrupt module state - reset so next attempt re-initializes
+      if (error instanceof Error && error.message?.includes('RuntimeError')) {
+        this.reset();
+      }
       throw error;
     }
   }
@@ -111,6 +126,9 @@ export class IfcLiteBridge {
         operation: 'parseMeshesInstanced',
         data: { contentLength: content.length },
       });
+      if (error instanceof Error && error.message?.includes('RuntimeError')) {
+        this.reset();
+      }
       throw error;
     }
   }
@@ -131,6 +149,9 @@ export class IfcLiteBridge {
         operation: 'parseMeshesAsync',
         data: { contentLength: content.length },
       });
+      if (error instanceof Error && error.message?.includes('RuntimeError')) {
+        this.reset();
+      }
       throw error;
     }
   }
@@ -152,6 +173,9 @@ export class IfcLiteBridge {
         operation: 'parseMeshesInstancedAsync',
         data: { contentLength: content.length },
       });
+      if (error instanceof Error && error.message?.includes('RuntimeError')) {
+        this.reset();
+      }
       throw error;
     }
   }

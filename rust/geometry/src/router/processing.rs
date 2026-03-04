@@ -22,12 +22,12 @@ impl GeometryRouter {
         let mut y: Vec<f64> = translations.iter().map(|(_, y, _)| *y).collect();
         let mut z: Vec<f64> = translations.iter().map(|(_, _, z)| *z).collect();
 
-        x.sort_by(|a, b| a.partial_cmp(b).unwrap());
-        y.sort_by(|a, b| a.partial_cmp(b).unwrap());
-        z.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        x.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        y.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        z.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
 
         let mid = x.len() / 2;
-        let centroid = (x[mid], y[mid], z[mid]);
+        let centroid = (*x.get(mid).unwrap_or(&0.0), *y.get(mid).unwrap_or(&0.0), *z.get(mid).unwrap_or(&0.0));
 
         const THRESHOLD: f64 = 10000.0;
         if centroid.0.abs() > THRESHOLD
