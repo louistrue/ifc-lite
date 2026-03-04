@@ -9,6 +9,7 @@
 
 export { StepTokenizer } from './tokenizer.js';
 export { EntityIndexBuilder } from './entity-index.js';
+export { SparseEntityMap } from './sparse-entity-map.js';
 export { EntityExtractor } from './entity-extractor.js';
 export { PropertyExtractor } from './property-extractor.js';
 export { QuantityExtractor } from './quantity-extractor.js';
