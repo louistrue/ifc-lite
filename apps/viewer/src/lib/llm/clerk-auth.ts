@@ -56,14 +56,14 @@ export const SUBSCRIPTION_PLANS = {
     name: 'Free',
     price: 0,
     features: ['llm_chat', 'free_models'],
-    description: 'AI chat with free models (20 requests/day)',
+    description: 'AI chat with free models (50 requests/day)',
   },
   pro: {
     slug: 'pro',
     name: 'Pro',
     price: 8,
     features: ['llm_chat', 'free_models', 'frontier_models'],
-    description: 'Full access to all models (100 requests/week)',
+    description: 'All models with $5/month budget — expensive models use more budget',
   },
 } as const;
 
@@ -77,12 +77,15 @@ export const FEATURES = {
 } as const;
 
 /**
- * Rate limits matching server-side enforcement.
+ * Budget/usage limits matching server-side enforcement.
  * Used for client-side display only — server enforces the actual limits.
+ *
+ * Free tier: daily request cap (free models cost $0 via OpenRouter).
+ * Pro tier: monthly USD budget — expensive models consume more budget.
  */
-export const RATE_LIMITS = {
-  free: { maxRequests: 20, window: 'day' as const },
-  pro: { maxRequests: 100, window: 'week' as const },
+export const USAGE_LIMITS = {
+  free: { type: 'requests' as const, limit: 50, window: 'day' as const },
+  pro: { type: 'budget' as const, limit: 5.00, window: 'month' as const, currency: 'USD' },
 } as const;
 
 /**

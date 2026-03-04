@@ -6,12 +6,15 @@
  * Vercel Edge Function — LLM proxy for ifc-lite chat.
  *
  * Validates Clerk JWT, checks subscription tier, enforces per-user
- * rate limits, then proxies streaming requests to OpenRouter.
- * The OpenRouter API key is stored server-side and never exposed to the client.
+ * **budget-based** limits, then proxies streaming requests to OpenRouter.
  *
- * Rate limits:
- * - Anonymous/free: 20 requests/day on free models only
- * - Pro (authenticated): 100 requests/week on all models
+ * Budget limits (monthly, auto-reset):
+ * - Anonymous/free: $0 budget — free models only (OpenRouter covers cost)
+ * - Pro (authenticated): $5/month — any model, tracked via OpenRouter cost
+ *
+ * After each streamed response, the proxy polls OpenRouter's
+ * GET /api/v1/generation?id={id} to get the actual cost and accumulates
+ * it against the user's monthly budget.
  */
 
 // ---------------------------------------------------------------------------
@@ -44,6 +47,10 @@ const FRONTIER_MODELS = new Set([
   'x-ai/grok-4.1-fast',
 ]);
 
+function isFreeModel(model: string): boolean {
+  return FREE_MODELS.has(model);
+}
+
 function isPaidModel(model: string): boolean {
   return BUDGET_MODELS.has(model) || FRONTIER_MODELS.has(model);
 }
@@ -65,7 +72,6 @@ interface ClerkClaims {
 }
 
 function base64UrlDecode(str: string): string {
-  // Replace URL-safe chars and pad
   const base64 = str.replace(/-/g, '+').replace(/_/g, '/');
   const padded = base64 + '='.repeat((4 - (base64.length % 4)) % 4);
   return atob(padded);
@@ -81,8 +87,6 @@ async function verifyClerkToken(token: string | undefined): Promise<ClerkClaims 
     if (parts.length !== 3) return null;
 
     const payload = JSON.parse(base64UrlDecode(parts[1])) as ClerkClaims;
-
-    // Check expiry
     if (payload.exp && payload.exp * 1000 < Date.now()) return null;
 
     return payload;
@@ -92,60 +96,103 @@ async function verifyClerkToken(token: string | undefined): Promise<ClerkClaims 
 }
 
 // ---------------------------------------------------------------------------
-// In-memory per-user rate limiting
+// Budget-based per-user spending tracker
 // ---------------------------------------------------------------------------
-// Uses edge function memory (resets on cold start, shared within instance).
+// Uses edge function memory (resets on cold start).
 // For production at scale, swap for Vercel KV / Upstash Redis.
 
-interface RateBucket {
-  count: number;
-  resetAt: number; // epoch ms
+interface BudgetBucket {
+  /** Cumulative spend in USD this period */
+  spent: number;
+  /** When this budget period resets (epoch ms, monthly) */
+  resetAt: number;
 }
 
-const rateLimits = new Map<string, RateBucket>();
+const budgets = new Map<string, BudgetBucket>();
 
-const RATE_LIMITS = {
-  /** Anonymous / free users: daily limit on free models */
-  free: { maxRequests: 20, windowMs: 24 * 60 * 60 * 1000 },
-  /** Pro users: weekly limit on all models */
-  pro: { maxRequests: 100, windowMs: 7 * 24 * 60 * 60 * 1000 },
+/** Monthly budget per tier in USD */
+const MONTHLY_BUDGETS = {
+  free: 0,   // Free users can only use free models (zero cost to us)
+  pro: 5.00, // $5/month budget for pro users
 } as const;
 
-/**
- * Check and increment rate limit for a user.
- * Returns remaining requests, or -1 if limit exceeded.
- */
-function checkRateLimit(userId: string, tier: 'free' | 'pro'): { remaining: number; resetAt: number } {
-  const config = RATE_LIMITS[tier];
-  const now = Date.now();
-  const key = `${tier}:${userId}`;
+/** Daily request cap for free users (prevents abuse even on free models) */
+const FREE_DAILY_REQUEST_CAP = 50;
+const freeRequestCounts = new Map<string, { count: number; resetAt: number }>();
 
-  let bucket = rateLimits.get(key);
-
-  // Reset expired buckets
-  if (!bucket || now >= bucket.resetAt) {
-    bucket = { count: 0, resetAt: now + config.windowMs };
-    rateLimits.set(key, bucket);
-  }
-
-  bucket.count++;
-
-  if (bucket.count > config.maxRequests) {
-    return { remaining: 0, resetAt: bucket.resetAt };
-  }
-
-  return { remaining: config.maxRequests - bucket.count, resetAt: bucket.resetAt };
+function getMonthlyResetTime(): number {
+  const now = new Date();
+  // Reset on the 1st of next month
+  const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+  return nextMonth.getTime();
 }
 
-// Periodically prune expired entries to prevent memory leaks (every 100 requests)
+function getBudget(userId: string, tier: 'free' | 'pro'): BudgetBucket {
+  const key = `${tier}:${userId}`;
+  let bucket = budgets.get(key);
+  const now = Date.now();
+
+  if (!bucket || now >= bucket.resetAt) {
+    bucket = { spent: 0, resetAt: getMonthlyResetTime() };
+    budgets.set(key, bucket);
+  }
+
+  return bucket;
+}
+
+function checkFreeRequestCap(userId: string): { allowed: boolean; remaining: number; resetAt: number } {
+  const now = Date.now();
+  let entry = freeRequestCounts.get(userId);
+
+  if (!entry || now >= entry.resetAt) {
+    entry = { count: 0, resetAt: now + 24 * 60 * 60 * 1000 };
+    freeRequestCounts.set(userId, entry);
+  }
+
+  entry.count++;
+  if (entry.count > FREE_DAILY_REQUEST_CAP) {
+    return { allowed: false, remaining: 0, resetAt: entry.resetAt };
+  }
+
+  return { allowed: true, remaining: FREE_DAILY_REQUEST_CAP - entry.count, resetAt: entry.resetAt };
+}
+
+function recordSpend(userId: string, tier: 'free' | 'pro', cost: number): void {
+  const bucket = getBudget(userId, tier);
+  bucket.spent += cost;
+}
+
+// Prune expired entries every 200 requests
 let requestCounter = 0;
 function maybePrune() {
-  if (++requestCounter % 100 !== 0) return;
+  if (++requestCounter % 200 !== 0) return;
   const now = Date.now();
-  for (const [key, bucket] of rateLimits) {
-    if (now >= bucket.resetAt) {
-      rateLimits.delete(key);
-    }
+  for (const [key, bucket] of budgets) {
+    if (now >= bucket.resetAt) budgets.delete(key);
+  }
+  for (const [key, entry] of freeRequestCounts) {
+    if (now >= entry.resetAt) freeRequestCounts.delete(key);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// OpenRouter cost tracking
+// ---------------------------------------------------------------------------
+
+/**
+ * Poll OpenRouter for generation cost. Called after stream completes.
+ * Returns total_cost in USD, or 0 if unavailable.
+ */
+async function fetchGenerationCost(generationId: string, apiKey: string): Promise<number> {
+  try {
+    const res = await fetch(`https://openrouter.ai/api/v1/generation?id=${generationId}`, {
+      headers: { 'Authorization': `Bearer ${apiKey}` },
+    });
+    if (!res.ok) return 0;
+    const data = (await res.json()) as { data?: { total_cost?: number } };
+    return data.data?.total_cost ?? 0;
+  } catch {
+    return 0;
   }
 }
 
@@ -195,7 +242,7 @@ export default async function handler(req: Request): Promise<Response> {
   const token = authHeader?.replace('Bearer ', '') || undefined;
   const claims = await verifyClerkToken(token);
 
-  // 3. Parse request body (content can be string or multimodal array for vision)
+  // 3. Parse request body
   const body = (await req.json()) as {
     messages: Array<{ role: string; content: string | Array<{ type: string; text?: string; image_url?: { url: string } }> }>;
     model: string;
@@ -211,25 +258,10 @@ export default async function handler(req: Request): Promise<Response> {
     return corsResponse(400, { error: `Model not available: ${body.model}` });
   }
 
-  if (isPaidModel(body.model)) {
-    const hasPro = claims?.features?.includes('frontier_models') ||
-                   claims?.plan === 'pro';
-    if (!hasPro) {
-      return corsResponse(403, {
-        error: 'Pro subscription required for budget and frontier models',
-        upgrade: true,
-      });
-    }
-  }
-
-  // 5. Rate limiting
-  maybePrune();
-
   const userTier = (claims?.plan === 'pro' || claims?.features?.includes('frontier_models'))
     ? 'pro' as const
     : 'free' as const;
 
-  // Use Clerk user ID if authenticated, otherwise derive from IP
   const userId = claims?.sub
     ?? req.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
     ?? 'anonymous';
@@ -242,21 +274,40 @@ export default async function handler(req: Request): Promise<Response> {
     });
   }
 
-  const rateResult = checkRateLimit(userId, userTier);
-  if (rateResult.remaining <= 0) {
-    const resetDate = new Date(rateResult.resetAt).toISOString();
-    const window = userTier === 'free' ? 'daily' : 'weekly';
-    return corsResponse(429, {
-      error: `Rate limit exceeded. ${RATE_LIMITS[userTier].maxRequests} requests per ${window === 'daily' ? 'day' : 'week'}. Resets at ${resetDate}.`,
-      resetAt: rateResult.resetAt,
-      limit: RATE_LIMITS[userTier].maxRequests,
-      window,
-    }, {
-      'Retry-After': String(Math.ceil((rateResult.resetAt - Date.now()) / 1000)),
-      'X-RateLimit-Limit': String(RATE_LIMITS[userTier].maxRequests),
-      'X-RateLimit-Remaining': '0',
-      'X-RateLimit-Reset': String(Math.ceil(rateResult.resetAt / 1000)),
-    });
+  // 5. Budget / rate checks
+  maybePrune();
+
+  if (userTier === 'free') {
+    // Free tier: daily request cap (free models cost us $0 but we cap abuse)
+    const capResult = checkFreeRequestCap(userId);
+    if (!capResult.allowed) {
+      return corsResponse(429, {
+        error: `Daily limit reached (${FREE_DAILY_REQUEST_CAP} requests/day on free models). Resets ${new Date(capResult.resetAt).toISOString()}.`,
+        resetAt: capResult.resetAt,
+        limit: FREE_DAILY_REQUEST_CAP,
+        window: 'day',
+        type: 'request_cap',
+      }, {
+        'Retry-After': String(Math.ceil((capResult.resetAt - Date.now()) / 1000)),
+      });
+    }
+  } else {
+    // Pro tier: check monthly budget
+    const bucket = getBudget(userId, 'pro');
+    const budgetLimit = MONTHLY_BUDGETS.pro;
+    if (bucket.spent >= budgetLimit) {
+      const pctUsed = 100;
+      return corsResponse(429, {
+        error: `Monthly budget exhausted ($${budgetLimit.toFixed(2)}/month). Resets ${new Date(bucket.resetAt).toISOString()}.`,
+        resetAt: bucket.resetAt,
+        budgetLimit,
+        budgetSpent: bucket.spent,
+        budgetPct: pctUsed,
+        type: 'budget',
+      }, {
+        'Retry-After': String(Math.ceil((bucket.resetAt - Date.now()) / 1000)),
+      });
+    }
   }
 
   // 6. Build OpenRouter request
@@ -292,20 +343,58 @@ export default async function handler(req: Request): Promise<Response> {
     });
   }
 
-  // 8. Stream response back to client with rate limit headers
   if (!upstream.body) {
     return corsResponse(502, { error: 'No response body from upstream' });
   }
 
-  return new Response(upstream.body, {
+  // 8. Build budget info headers
+  const bucket = getBudget(userId, userTier);
+  const budgetLimit = MONTHLY_BUDGETS[userTier];
+  const budgetPct = budgetLimit > 0 ? Math.min(100, Math.round((bucket.spent / budgetLimit) * 100)) : 0;
+
+  // 9. Stream response, intercepting generation ID for cost tracking
+  // We use a TransformStream to pass data through while extracting the gen ID.
+  let generationId: string | null = null;
+
+  const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>({
+    transform(chunk, controller) {
+      controller.enqueue(chunk);
+
+      // Try to extract generation ID from SSE chunks
+      if (!generationId) {
+        const text = new TextDecoder().decode(chunk);
+        const idMatch = text.match(/"id"\s*:\s*"(gen-[^"]+)"/);
+        if (idMatch) {
+          generationId = idMatch[1];
+        }
+      }
+    },
+    async flush() {
+      // After stream ends, fetch generation cost and record spend
+      if (generationId && userTier === 'pro' && !isFreeModel(body.model)) {
+        // Fire-and-forget: don't block the response
+        fetchGenerationCost(generationId, openRouterKey!).then((cost) => {
+          if (cost > 0) {
+            recordSpend(userId, userTier, cost);
+          }
+        }).catch(() => {});
+      }
+    },
+  });
+
+  upstream.body.pipeTo(writable).catch(() => {});
+
+  return new Response(readable, {
     status: 200,
     headers: {
       ...CORS_HEADERS,
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',
-      'X-RateLimit-Limit': String(RATE_LIMITS[userTier].maxRequests),
-      'X-RateLimit-Remaining': String(rateResult.remaining),
-      'X-RateLimit-Reset': String(Math.ceil(rateResult.resetAt / 1000)),
+      // Budget headers for client-side display
+      'X-Budget-Limit': String(budgetLimit),
+      'X-Budget-Spent': String(bucket.spent.toFixed(4)),
+      'X-Budget-Pct': String(budgetPct),
+      'X-Budget-Reset': String(Math.ceil(bucket.resetAt / 1000)),
     },
   });
 }

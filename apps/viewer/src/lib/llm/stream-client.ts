@@ -7,8 +7,7 @@
  *
  * Sends chat messages to the Vercel Edge proxy and streams
  * the response back as SSE, parsing OpenRouter's streaming format.
- * This is a lightweight client that doesn't depend on the AI SDK,
- * keeping the bundle small while providing full streaming support.
+ * Extracts budget usage headers from the response for UI display.
  */
 
 /** A text content part in a multimodal message */
@@ -30,6 +29,18 @@ export interface StreamMessage {
   content: MessageContent;
 }
 
+/** Budget usage info extracted from proxy response headers */
+export interface BudgetInfo {
+  /** Monthly budget limit in USD (0 = free tier) */
+  limit: number;
+  /** Amount spent so far in USD */
+  spent: number;
+  /** Percentage of budget used (0-100) */
+  pct: number;
+  /** Budget reset time (epoch seconds) */
+  resetAt: number;
+}
+
 export interface StreamOptions {
   /** Proxy URL (Vercel Edge Function) */
   proxyUrl: string;
@@ -49,6 +60,8 @@ export interface StreamOptions {
   onComplete: (fullText: string) => void;
   /** Called on error */
   onError: (error: Error) => void;
+  /** Called with budget usage info from response headers */
+  onBudgetInfo?: (budget: BudgetInfo) => void;
 }
 
 /**
@@ -56,7 +69,7 @@ export interface StreamOptions {
  * Parses OpenRouter's SSE format (data: {...}\n\n).
  */
 export async function streamChat(options: StreamOptions): Promise<void> {
-  const { proxyUrl, model, messages, system, authToken, signal, onChunk, onComplete, onError } = options;
+  const { proxyUrl, model, messages, system, authToken, signal, onChunk, onComplete, onError, onBudgetInfo } = options;
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -88,17 +101,31 @@ export async function streamChat(options: StreamOptions): Promise<void> {
       if (response.status === 403 && errorBody.upgrade) {
         errorDetail = 'Pro subscription required for this model. Upgrade to unlock budget & frontier models.';
       }
-      // Surface rate limit info for 429
+      // Surface budget/rate limit info for 429
       if (response.status === 429) {
-        const resetAt = errorBody.resetAt ? new Date(errorBody.resetAt).toLocaleString() : '';
-        const window = errorBody.window === 'day' ? 'daily' : 'weekly';
-        errorDetail = `Rate limit reached (${errorBody.limit ?? '?'} requests/${window === 'daily' ? 'day' : 'week'}). Resets ${resetAt || 'soon'}.`;
+        if (errorBody.type === 'budget') {
+          errorDetail = `Monthly budget exhausted ($${errorBody.budgetLimit?.toFixed(2) ?? '?'}/month, ${errorBody.budgetPct ?? 100}% used). Resets ${errorBody.resetAt ? new Date(errorBody.resetAt).toLocaleDateString() : 'next month'}.`;
+        } else {
+          const resetAt = errorBody.resetAt ? new Date(errorBody.resetAt).toLocaleString() : '';
+          errorDetail = `Daily limit reached (${errorBody.limit ?? '?'} requests/day). Resets ${resetAt || 'soon'}.`;
+        }
       }
     } catch {
       // ignore parse failure
     }
     onError(new Error(errorDetail));
     return;
+  }
+
+  // Extract budget info from response headers
+  if (onBudgetInfo) {
+    const budgetLimit = parseFloat(response.headers.get('X-Budget-Limit') ?? '0');
+    const budgetSpent = parseFloat(response.headers.get('X-Budget-Spent') ?? '0');
+    const budgetPct = parseInt(response.headers.get('X-Budget-Pct') ?? '0', 10);
+    const budgetReset = parseInt(response.headers.get('X-Budget-Reset') ?? '0', 10);
+    if (budgetLimit > 0 || budgetSpent > 0) {
+      onBudgetInfo({ limit: budgetLimit, spent: budgetSpent, pct: budgetPct, resetAt: budgetReset });
+    }
   }
 
   if (!response.body) {
