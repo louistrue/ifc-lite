@@ -13,7 +13,7 @@
 import { useCallback } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useViewerStore } from '../store.js';
-import { IfcParser, CompactEntityIndex, detectFormat, parseIfcx, type IfcDataStore } from '@ifc-lite/parser';
+import { IfcParser, detectFormat, parseIfcx, type IfcDataStore } from '@ifc-lite/parser';
 import { GeometryProcessor, GeometryQuality, type MeshData, type CoordinateInfo } from '@ifc-lite/geometry';
 import { buildSpatialIndex } from '@ifc-lite/spatial';
 import { type GeometryData, loadGLBToMeshData } from '@ifc-lite/cache';
@@ -189,7 +189,7 @@ export function useIfcLoader() {
             parseTime: ifcxResult.parseTime,
             source: new Uint8Array(buffer),
             entityIndex: {
-              byId: new CompactEntityIndex(0),
+              byId: new Map(),
               byType: new Map(),
             },
             strings: ifcxResult.strings,

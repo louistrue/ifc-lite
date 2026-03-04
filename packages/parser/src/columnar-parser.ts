@@ -9,8 +9,7 @@
  * Instead of multiple passes through entities, we extract everything in ONE loop.
  */
 
-import type { EntityRef, EntityLookup, IfcEntity, Relationship } from './types.js';
-import { CompactEntityIndex } from './compact-entity-index.js';
+import type { EntityRef, IfcEntity, Relationship } from './types.js';
 import { SpatialHierarchyBuilder } from './spatial-hierarchy-builder.js';
 import { EntityExtractor } from './entity-extractor.js';
 import { extractLengthUnitScale } from './unit-extractor.js';
@@ -39,7 +38,7 @@ export interface IfcDataStore {
     parseTime: number;
 
     source: Uint8Array;
-    entityIndex: { byId: EntityLookup; byType: Map<string, number[]> };
+    entityIndex: { byId: Map<number, EntityRef>; byType: Map<string, number[]> };
 
     strings: StringTable;
     entities: ReturnType<EntityTableBuilder['build']>;
@@ -218,16 +217,9 @@ export class ColumnarParser {
         const quantityTableBuilder = new QuantityTableBuilder(strings);
         const relationshipGraphBuilder = new RelationshipGraphBuilder();
 
-        // Build entity index early (needed for property relationship lookup).
-        // Find max expressId first to pre-allocate the compact index.
-        let maxExpressId = 0;
-        for (let i = 0; i < entityRefs.length; i++) {
-            const id = entityRefs[i].expressId;
-            if (id > maxExpressId) maxExpressId = id;
-        }
-
-        const entityIndex: { byId: CompactEntityIndex; byType: Map<string, number[]> } = {
-            byId: new CompactEntityIndex(maxExpressId),
+        // Build entity index early (needed for property relationship lookup)
+        const entityIndex = {
+            byId: new Map<number, EntityRef>(),
             byType: new Map<string, number[]>(),
         };
 

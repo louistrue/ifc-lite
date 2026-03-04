@@ -9,7 +9,7 @@
  * Used to convert elevation values and other length measurements to meters.
  */
 
-import type { EntityRef, EntityLookup } from './types.js';
+import type { EntityRef } from './types.js';
 import { EntityExtractor } from './entity-extractor.js';
 
 /**
@@ -61,7 +61,7 @@ const CONVERSION_BASED_UNIT_FACTORS: Record<string, number> = {
  */
 export function extractLengthUnitScale(
   source: Uint8Array,
-  entityIndex: { byId: EntityLookup; byType: Map<string, number[]> }
+  entityIndex: { byId: Map<number, EntityRef>; byType: Map<string, number[]> }
 ): number {
   const extractor = new EntityExtractor(source);
 

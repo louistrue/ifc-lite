@@ -6,8 +6,6 @@
  * Core types for IFC parsing
  */
 
-import type { CompactEntityIndex } from './compact-entity-index.js';
-
 export interface EntityRef {
   expressId: number;
   type: string;
@@ -16,14 +14,8 @@ export interface EntityRef {
   lineNumber: number;
 }
 
-/**
- * Entity lookup interface — subset of Map used by consumers.
- * Satisfied by both Map<number, EntityRef> and CompactEntityIndex.
- */
-export type EntityLookup = CompactEntityIndex | Map<number, EntityRef>;
-
 export interface EntityIndex {
-  byId: EntityLookup;
+  byId: Map<number, EntityRef>;
   byType: Map<string, number[]>;
 }
 

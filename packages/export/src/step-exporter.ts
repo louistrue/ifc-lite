@@ -9,7 +9,7 @@
  * Supports applying property mutations before export.
  */
 
-import { CompactEntityIndex, type IfcDataStore } from '@ifc-lite/parser';
+import type { IfcDataStore } from '@ifc-lite/parser';
 import {
   generateHeader,
   serializeValue,
@@ -540,12 +540,8 @@ export class StepExporter {
    * Find the maximum EXPRESS ID in the data store
    */
   private findMaxExpressId(): number {
-    const byId = this.dataStore.entityIndex.byId;
-    if (byId instanceof CompactEntityIndex) {
-      return byId.getMaxId();
-    }
     let max = 0;
-    for (const [id] of byId) {
+    for (const [id] of this.dataStore.entityIndex.byId) {
       if (id > max) max = id;
     }
     return max;

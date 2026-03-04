@@ -13,7 +13,7 @@
 import { useCallback } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useViewerStore, type FederatedModel, type SchemaVersion } from '../store.js';
-import { IfcParser, CompactEntityIndex, detectFormat, parseIfcx, parseFederatedIfcx, type IfcDataStore, type FederatedIfcxParseResult } from '@ifc-lite/parser';
+import { IfcParser, detectFormat, parseIfcx, parseFederatedIfcx, type IfcDataStore, type FederatedIfcxParseResult } from '@ifc-lite/parser';
 import { GeometryProcessor, GeometryQuality, type MeshData, type CoordinateInfo } from '@ifc-lite/geometry';
 import { IfcQuery } from '@ifc-lite/query';
 import { buildSpatialIndex } from '@ifc-lite/spatial';
@@ -145,15 +145,11 @@ export function useIfcFederation() {
         // IMPORTANT: Include ALL entities, not just meshes, for proper globalId resolution
         const legacyMeshes = currentGeometryResult.meshes || [];
         const legacyMaxExpressIdFromMeshes = legacyMeshes.reduce((max: number, m: MeshData) => Math.max(max, m.expressId), 0);
+        // FIXED: Use iteration instead of spread to avoid stack overflow with large Maps
         let legacyMaxExpressIdFromEntities = 0;
         if (currentIfcDataStore.entityIndex?.byId) {
-          const byId = currentIfcDataStore.entityIndex.byId;
-          if (byId instanceof CompactEntityIndex) {
-            legacyMaxExpressIdFromEntities = byId.getMaxId();
-          } else {
-            for (const key of byId.keys()) {
-              if (key > legacyMaxExpressIdFromEntities) legacyMaxExpressIdFromEntities = key;
-            }
+          for (const key of currentIfcDataStore.entityIndex.byId.keys()) {
+            if (key > legacyMaxExpressIdFromEntities) legacyMaxExpressIdFromEntities = key;
           }
         }
         const legacyMaxExpressId = Math.max(legacyMaxExpressIdFromMeshes, legacyMaxExpressIdFromEntities);
@@ -230,7 +226,7 @@ export function useIfcFederation() {
           entityCount: ifcxResult.entityCount,
           parseTime: ifcxResult.parseTime,
           source: new Uint8Array(buffer),
-          entityIndex: { byId: new CompactEntityIndex(0), byType: new Map() },
+          entityIndex: { byId: new Map(), byType: new Map() },
           strings: ifcxResult.strings,
           entities: ifcxResult.entities,
           properties: ifcxResult.properties,
@@ -270,7 +266,7 @@ export function useIfcFederation() {
           entityCount: meshes.length,
           parseTime: 0,
           source: new Uint8Array(0),
-          entityIndex: { byId: new CompactEntityIndex(0), byType: new Map() },
+          entityIndex: { byId: new Map(), byType: new Map() },
           strings: { getString: () => undefined, getStringId: () => undefined, count: 0 } as unknown as IfcDataStore['strings'],
           entities: { count: 0, getId: () => 0, getType: () => 0, getName: () => undefined, getGlobalId: () => undefined } as unknown as IfcDataStore['entities'],
           properties: { count: 0, getPropertiesForEntity: () => [], getPropertySetForEntity: () => [] } as unknown as IfcDataStore['properties'],
@@ -376,15 +372,11 @@ export function useIfcFederation() {
       // IMPORTANT: Use ALL entities from data store, not just meshes
       // Spatial containers (IfcProject, IfcSite, etc.) don't have geometry but need valid globalId resolution
       const maxExpressIdFromMeshes = parsedGeometry.meshes.reduce((max, m) => Math.max(max, m.expressId), 0);
+      // FIXED: Use iteration instead of spread to avoid stack overflow with large Maps
       let maxExpressIdFromEntities = 0;
       if (parsedDataStore.entityIndex?.byId) {
-        const byId = parsedDataStore.entityIndex.byId;
-        if (byId instanceof CompactEntityIndex) {
-          maxExpressIdFromEntities = byId.getMaxId();
-        } else {
-          for (const key of byId.keys()) {
-            if (key > maxExpressIdFromEntities) maxExpressIdFromEntities = key;
-          }
+        for (const key of parsedDataStore.entityIndex.byId.keys()) {
+          if (key > maxExpressIdFromEntities) maxExpressIdFromEntities = key;
         }
       }
       const maxExpressId = Math.max(maxExpressIdFromMeshes, maxExpressIdFromEntities);
@@ -624,7 +616,7 @@ export function useIfcFederation() {
         parseTime: result.parseTime,
         source: new Uint8Array(buffers[0].buffer),
         entityIndex: {
-          byId: new CompactEntityIndex(0),
+          byId: new Map(),
           byType: new Map(),
         },
         strings: result.strings,
