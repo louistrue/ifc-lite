@@ -61,7 +61,7 @@ const CONVERSION_BASED_UNIT_FACTORS: Record<string, number> = {
  */
 export function extractLengthUnitScale(
   source: Uint8Array,
-  entityIndex: { byId: Map<number, EntityRef>; byType: Map<string, number[]> }
+  entityIndex: { byId: { get(expressId: number): EntityRef | undefined }; byType: Map<string, number[]> }
 ): number {
   const extractor = new EntityExtractor(source);
 
