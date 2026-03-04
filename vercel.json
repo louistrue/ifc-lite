@@ -4,11 +4,6 @@
   "outputDirectory": "apps/viewer/dist",
   "installCommand": "pnpm install",
   "framework": "vite",
-  "functions": {
-    "api/**/*.ts": {
-      "runtime": "@vercel/edge"
-    }
-  },
   "rewrites": [
     {
       "source": "/api/bsdd/:path*",
