@@ -32,10 +32,10 @@ export interface ChatSlice {
   chatViewportScreenshot: string | null;
   /** Clerk JWT for authenticated API calls (null for anonymous/free tier) */
   chatAuthToken: string | null;
-  /** Whether the current user has a pro subscription (unlocks budget + frontier models) */
+  /** Whether the current user has a pro subscription */
   chatHasPro: boolean;
-  /** Usage info from the server: budget (pro) or request count (free) */
-  chatUsage: { type: 'budget' | 'requests'; used: number; limit: number; pct: number; resetAt: number } | null;
+  /** Usage info from the server: credits (pro) or request count (free) */
+  chatUsage: { type: 'credits' | 'requests'; used: number; limit: number; pct: number; resetAt: number } | null;
 
   // Actions
   setChatPanelVisible: (visible: boolean) => void;
@@ -64,7 +64,7 @@ export interface ChatSlice {
   /** Set whether user has pro subscription (called by ClerkProvider wrapper) */
   setChatHasPro: (hasPro: boolean) => void;
   /** Update usage info from server response headers */
-  setChatUsage: (usage: { type: 'budget' | 'requests'; used: number; limit: number; pct: number; resetAt: number } | null) => void;
+  setChatUsage: (usage: { type: 'credits' | 'requests'; used: number; limit: number; pct: number; resetAt: number } | null) => void;
 }
 
 function loadStoredModel(): string {

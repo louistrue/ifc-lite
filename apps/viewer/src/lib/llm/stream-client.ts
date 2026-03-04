@@ -3,11 +3,10 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 /**
- * Streaming client for the LLM proxy.
+ * Streaming client for the LLM chat proxy.
  *
- * Sends chat messages to the Vercel Edge proxy and streams
- * the response back as SSE, parsing OpenRouter's streaming format.
- * Extracts budget usage headers from the response for UI display.
+ * Sends chat messages to the Edge proxy and streams the response
+ * back as SSE. Extracts usage headers from the response for UI display.
  */
 
 /** A text content part in a multimodal message */
@@ -16,7 +15,7 @@ export interface TextContentPart {
   text: string;
 }
 
-/** An image content part in a multimodal message (OpenRouter/OpenAI vision format) */
+/** An image content part in a multimodal message */
 export interface ImageContentPart {
   type: 'image_url';
   image_url: { url: string };
@@ -29,13 +28,13 @@ export interface StreamMessage {
   content: MessageContent;
 }
 
-/** Usage info extracted from proxy response headers (both free and pro) */
+/** Usage info extracted from proxy response headers */
 export interface UsageInfo {
-  /** 'budget' for pro (USD-based), 'requests' for free (count-based) */
-  type: 'budget' | 'requests';
-  /** Amount used: USD spent (pro) or request count (free) */
+  /** 'credits' for pro, 'requests' for free */
+  type: 'credits' | 'requests';
+  /** Amount used: credits consumed (pro) or request count (free) */
   used: number;
-  /** Limit: USD budget (pro) or request cap (free) */
+  /** Limit: credit allowance (pro) or request cap (free) */
   limit: number;
   /** Percentage used (0-100) */
   pct: number;
@@ -44,15 +43,15 @@ export interface UsageInfo {
 }
 
 export interface StreamOptions {
-  /** Proxy URL (Vercel Edge Function) */
+  /** Proxy URL (Edge Function) */
   proxyUrl: string;
-  /** Model ID (e.g. 'google/gemini-2.5-flash') */
+  /** Model ID */
   model: string;
   /** Conversation messages */
   messages: StreamMessage[];
-  /** System prompt (sent separately for prompt caching) */
+  /** System prompt */
   system?: string;
-  /** Clerk JWT for authentication */
+  /** Auth JWT */
   authToken?: string | null;
   /** AbortSignal for cancellation */
   signal?: AbortSignal;
@@ -62,13 +61,13 @@ export interface StreamOptions {
   onComplete: (fullText: string) => void;
   /** Called on error */
   onError: (error: Error) => void;
-  /** Called with usage info from response headers (budget or request count) */
+  /** Called with usage info from response headers */
   onUsageInfo?: (usage: UsageInfo) => void;
 }
 
 /**
  * Stream a chat completion from the LLM proxy.
- * Parses OpenRouter's SSE format (data: {...}\n\n).
+ * Parses SSE format (data: {...}\n\n).
  */
 export async function streamChat(options: StreamOptions): Promise<void> {
   const { proxyUrl, model, messages, system, authToken, signal, onChunk, onComplete, onError, onUsageInfo } = options;
@@ -99,21 +98,18 @@ export async function streamChat(options: StreamOptions): Promise<void> {
     try {
       const errorBody = await response.json();
       errorDetail = errorBody.error || errorDetail;
-      // Surface upgrade hint for 403
+
       if (response.status === 403 && errorBody.upgrade) {
-        errorDetail = 'Pro subscription required for this model. Upgrade to unlock budget & frontier models.';
+        errorDetail = 'Upgrade to Pro to use this model.';
       }
-      // Surface rate limit / budget info for 429
+
       if (response.status === 429) {
-        if (errorBody.type === 'budget') {
-          // Our proxy: pro user budget exhausted
-          errorDetail = `Monthly budget exhausted ($${(errorBody.budgetSpent ?? 0).toFixed(2)} / $${(errorBody.budgetLimit ?? 5).toFixed(2)}). Resets ${errorBody.resetAt ? new Date(errorBody.resetAt).toLocaleDateString() : 'next month'}.`;
+        if (errorBody.type === 'credits') {
+          errorDetail = `Monthly credits used up. Resets ${errorBody.resetAt ? new Date(errorBody.resetAt).toLocaleDateString() : 'next month'}.`;
         } else if (errorBody.type === 'request_cap') {
-          // Our proxy: free user daily cap
-          errorDetail = `Daily limit reached (${errorBody.limit ?? 50} requests/day). Resets ${errorBody.resetAt ? new Date(errorBody.resetAt).toLocaleString() : 'tomorrow'}.`;
+          errorDetail = errorBody.error || 'Daily limit reached. Upgrade to Pro for more.';
         } else {
-          // Fallback for any other 429
-          errorDetail = errorBody.error || 'You\'ve reached your daily free limit. Upgrade to Pro for more.';
+          errorDetail = errorBody.error || 'Limit reached. Please try again later.';
         }
       }
     } catch {
@@ -123,24 +119,22 @@ export async function streamChat(options: StreamOptions): Promise<void> {
     return;
   }
 
-  // Extract usage info from response headers (pro: budget, free: request count)
+  // Extract usage info from response headers
   if (onUsageInfo) {
-    const budgetLimit = parseFloat(response.headers.get('X-Budget-Limit') ?? '0');
-    const budgetSpent = parseFloat(response.headers.get('X-Budget-Spent') ?? '0');
+    const creditsUsed = parseInt(response.headers.get('X-Credits-Used') ?? '0', 10);
+    const creditsLimit = parseInt(response.headers.get('X-Credits-Limit') ?? '0', 10);
     const usageUsed = parseInt(response.headers.get('X-Usage-Used') ?? '0', 10);
     const usageLimit = parseInt(response.headers.get('X-Usage-Limit') ?? '0', 10);
 
-    if (budgetLimit > 0) {
-      // Pro user: budget-based
+    if (creditsLimit > 0) {
       onUsageInfo({
-        type: 'budget',
-        used: budgetSpent,
-        limit: budgetLimit,
-        pct: parseInt(response.headers.get('X-Budget-Pct') ?? '0', 10),
-        resetAt: parseInt(response.headers.get('X-Budget-Reset') ?? '0', 10),
+        type: 'credits',
+        used: creditsUsed,
+        limit: creditsLimit,
+        pct: parseInt(response.headers.get('X-Credits-Pct') ?? '0', 10),
+        resetAt: parseInt(response.headers.get('X-Credits-Reset') ?? '0', 10),
       });
     } else if (usageLimit > 0) {
-      // Free user: request count-based
       onUsageInfo({
         type: 'requests',
         used: usageUsed,
@@ -169,7 +163,6 @@ export async function streamChat(options: StreamOptions): Promise<void> {
 
       buffer += decoder.decode(value, { stream: true });
 
-      // Process complete SSE events (separated by double newline)
       const events = buffer.split('\n\n');
       buffer = events.pop() ?? '';
 

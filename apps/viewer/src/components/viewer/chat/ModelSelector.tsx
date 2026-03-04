@@ -72,7 +72,7 @@ export function ModelSelector({ hasPro = false }: ModelSelectorProps) {
 
         {/* Pro tier */}
         <div className="px-2 py-1 mt-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1">
-          Pro — $5/mo budget
+          Pro
         </div>
         {PRO_MODELS.map((m) => (
           <SelectItem

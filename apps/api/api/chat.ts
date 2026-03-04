@@ -3,25 +3,43 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 /**
- * Vercel Edge Function — LLM proxy for ifc-lite chat.
+ * Vercel Edge Function — LLM chat proxy.
  *
- * Validates Clerk JWT, checks subscription tier, enforces per-user
- * **budget-based** limits, then proxies streaming requests to OpenRouter.
+ * Authenticates users, enforces usage limits, and proxies streaming
+ * requests to the configured LLM provider. All model IDs, limits,
+ * and API configuration are read from environment variables.
  *
- * Budget limits (monthly, auto-reset):
- * - Anonymous/free: $0 budget — free models only (OpenRouter covers cost)
- * - Pro (authenticated): $5/month — any model, tracked via OpenRouter cost
- *
- * After each streamed response, the proxy polls OpenRouter's
- * GET /api/v1/generation?id={id} to get the actual cost and accumulates
- * it against the user's monthly budget.
+ * Env vars (set in Vercel project settings):
+ *   LLM_API_KEY          — provider API key
+ *   LLM_API_BASE         — provider base URL
+ *   LLM_FREE_MODELS      — comma-separated free model IDs
+ *   LLM_PRO_MODELS       — comma-separated pro model IDs
+ *   LLM_FREE_DAILY_LIMIT — daily request cap for free users (default: 50)
+ *   LLM_PRO_MONTHLY_CREDITS — monthly credit allowance for pro users (default: 1000)
+ *   LLM_COST_TO_CREDITS  — multiplier: API cost × this = credits consumed (default: 200)
+ *   APP_URL              — app URL for referer header
  */
 
 // ---------------------------------------------------------------------------
-// Model tier definitions
+// Configuration from environment
 // ---------------------------------------------------------------------------
 
-const FREE_MODELS = new Set([
+function getEnvSet(key: string, fallback: string[]): Set<string> {
+  const val = process.env[key];
+  if (!val) return new Set(fallback);
+  return new Set(val.split(',').map((s) => s.trim()).filter(Boolean));
+}
+
+function getEnvInt(key: string, fallback: number): number {
+  const val = process.env[key];
+  if (!val) return fallback;
+  const n = parseInt(val, 10);
+  return isNaN(n) ? fallback : n;
+}
+
+const API_BASE = (process.env.LLM_API_BASE ?? 'https://openrouter.ai/api/v1').replace(/\/+$/, '');
+
+const FREE_MODELS = getEnvSet('LLM_FREE_MODELS', [
   'qwen/qwen3-coder:free',
   'mistralai/devstral-2512:free',
   'deepseek/deepseek-r1:free',
@@ -29,23 +47,24 @@ const FREE_MODELS = new Set([
   'openai/gpt-oss-120b:free',
 ]);
 
-const PRO_MODELS = new Set([
-  // $ cheap
+const PRO_MODELS = getEnvSet('LLM_PRO_MODELS', [
   'qwen/qwen3-coder',
   'google/gemini-3-flash-preview',
   'minimax/minimax-m2.1',
   'z-ai/glm-4.7',
-  // $$ moderate
   'x-ai/grok-code-fast-1',
   'anthropic/claude-sonnet-4.5',
   'anthropic/claude-sonnet-4.6',
   'openai/gpt-5.2',
   'x-ai/grok-4.1-fast',
-  // $$$ expensive
   'google/gemini-3-pro-preview',
   'google/gemini-3.1-pro-preview',
   'anthropic/claude-opus-4.5',
 ]);
+
+const FREE_DAILY_LIMIT = getEnvInt('LLM_FREE_DAILY_LIMIT', 50);
+const PRO_MONTHLY_CREDITS = getEnvInt('LLM_PRO_MONTHLY_CREDITS', 1000);
+const COST_TO_CREDITS = getEnvInt('LLM_COST_TO_CREDITS', 200);
 
 function isFreeModel(model: string): boolean {
   return FREE_MODELS.has(model);
@@ -60,10 +79,10 @@ function isAllowedModel(model: string): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// Clerk JWT verification (lightweight decode + expiry check)
+// JWT verification (lightweight decode + expiry check)
 // ---------------------------------------------------------------------------
 
-interface ClerkClaims {
+interface AuthClaims {
   sub: string;
   features?: string[];
   plan?: string;
@@ -77,18 +96,13 @@ function base64UrlDecode(str: string): string {
   return atob(padded);
 }
 
-async function verifyClerkToken(token: string | undefined): Promise<ClerkClaims | null> {
+async function verifyToken(token: string | undefined): Promise<AuthClaims | null> {
   if (!token) return null;
-
-  // Lightweight decode + expiry check for initial implementation.
-  // TODO: Add full JWKS verification via @clerk/backend in production.
   try {
     const parts = token.split('.');
     if (parts.length !== 3) return null;
-
-    const payload = JSON.parse(base64UrlDecode(parts[1])) as ClerkClaims;
+    const payload = JSON.parse(base64UrlDecode(parts[1])) as AuthClaims;
     if (payload.exp && payload.exp * 1000 < Date.now()) return null;
-
     return payload;
   } catch {
     return null;
@@ -96,96 +110,66 @@ async function verifyClerkToken(token: string | undefined): Promise<ClerkClaims 
 }
 
 // ---------------------------------------------------------------------------
-// Budget-based per-user spending tracker
+// Per-user usage tracking (in-memory, resets on cold start)
 // ---------------------------------------------------------------------------
-// Uses edge function memory (resets on cold start).
-// For production at scale, swap for Vercel KV / Upstash Redis.
 
-interface BudgetBucket {
-  /** Cumulative spend in USD this period */
-  spent: number;
-  /** When this budget period resets (epoch ms, monthly) */
+interface CreditBucket {
+  used: number;
   resetAt: number;
 }
 
-const budgets = new Map<string, BudgetBucket>();
-
-/** Monthly budget per tier in USD */
-const MONTHLY_BUDGETS = {
-  free: 0,   // Free users can only use free models (zero cost to us)
-  pro: 5.00, // $5/month budget for pro users
-} as const;
-
-/** Daily request cap for free users (prevents abuse even on free models) */
-const FREE_DAILY_REQUEST_CAP = 50;
+const creditBuckets = new Map<string, CreditBucket>();
 const freeRequestCounts = new Map<string, { count: number; resetAt: number }>();
 
 function getMonthlyResetTime(): number {
   const now = new Date();
-  // Reset on the 1st of next month
-  const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-  return nextMonth.getTime();
+  return new Date(now.getFullYear(), now.getMonth() + 1, 1).getTime();
 }
 
-function getBudget(userId: string, tier: 'free' | 'pro'): BudgetBucket {
-  const key = `${tier}:${userId}`;
-  let bucket = budgets.get(key);
+function getCreditBucket(userId: string): CreditBucket {
   const now = Date.now();
-
+  let bucket = creditBuckets.get(userId);
   if (!bucket || now >= bucket.resetAt) {
-    bucket = { spent: 0, resetAt: getMonthlyResetTime() };
-    budgets.set(key, bucket);
+    bucket = { used: 0, resetAt: getMonthlyResetTime() };
+    creditBuckets.set(userId, bucket);
   }
-
   return bucket;
 }
 
-function checkFreeRequestCap(userId: string): { allowed: boolean; remaining: number; resetAt: number } {
+function checkFreeLimit(userId: string): { allowed: boolean; remaining: number; resetAt: number } {
   const now = Date.now();
   let entry = freeRequestCounts.get(userId);
-
   if (!entry || now >= entry.resetAt) {
     entry = { count: 0, resetAt: now + 24 * 60 * 60 * 1000 };
     freeRequestCounts.set(userId, entry);
   }
-
   entry.count++;
-  if (entry.count > FREE_DAILY_REQUEST_CAP) {
+  if (entry.count > FREE_DAILY_LIMIT) {
     return { allowed: false, remaining: 0, resetAt: entry.resetAt };
   }
-
-  return { allowed: true, remaining: FREE_DAILY_REQUEST_CAP - entry.count, resetAt: entry.resetAt };
+  return { allowed: true, remaining: FREE_DAILY_LIMIT - entry.count, resetAt: entry.resetAt };
 }
 
-function recordSpend(userId: string, tier: 'free' | 'pro', cost: number): void {
-  const bucket = getBudget(userId, tier);
-  bucket.spent += cost;
+function recordCredits(userId: string, apiCost: number): void {
+  const bucket = getCreditBucket(userId);
+  bucket.used += apiCost * COST_TO_CREDITS;
 }
 
-// Prune expired entries every 200 requests
-let requestCounter = 0;
+let reqCounter = 0;
 function maybePrune() {
-  if (++requestCounter % 200 !== 0) return;
+  if (++reqCounter % 200 !== 0) return;
   const now = Date.now();
-  for (const [key, bucket] of budgets) {
-    if (now >= bucket.resetAt) budgets.delete(key);
-  }
-  for (const [key, entry] of freeRequestCounts) {
-    if (now >= entry.resetAt) freeRequestCounts.delete(key);
-  }
+  for (const [k, v] of creditBuckets) { if (now >= v.resetAt) creditBuckets.delete(k); }
+  for (const [k, v] of freeRequestCounts) { if (now >= v.resetAt) freeRequestCounts.delete(k); }
 }
 
 // ---------------------------------------------------------------------------
-// OpenRouter cost tracking
+// Cost tracking — poll provider for generation cost after stream
 // ---------------------------------------------------------------------------
 
-/**
- * Poll OpenRouter for generation cost. Called after stream completes.
- * Returns total_cost in USD, or 0 if unavailable.
- */
 async function fetchGenerationCost(generationId: string, apiKey: string): Promise<number> {
   try {
-    const res = await fetch(`https://openrouter.ai/api/v1/generation?id=${generationId}`, {
+    const res = await fetch(`${API_BASE}/generation?id=${generationId}`, {
       headers: { 'Authorization': `Bearer ${apiKey}` },
     });
     if (!res.ok) return 0;
@@ -197,20 +181,20 @@ async function fetchGenerationCost(generationId: string, apiKey: string): Promis
 }
 
 // ---------------------------------------------------------------------------
-// CORS headers
+// CORS
 // ---------------------------------------------------------------------------
 
 const CORS_HEADERS: Record<string, string> = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-  'Access-Control-Expose-Headers': 'X-Budget-Limit, X-Budget-Spent, X-Budget-Pct, X-Budget-Reset, X-Usage-Used, X-Usage-Limit, X-Usage-Pct, X-Usage-Reset',
+  'Access-Control-Expose-Headers': 'X-Credits-Used, X-Credits-Limit, X-Credits-Pct, X-Credits-Reset, X-Usage-Used, X-Usage-Limit, X-Usage-Pct, X-Usage-Reset',
 };
 
-function corsResponse(status: number, body?: object, extraHeaders?: Record<string, string>): Response {
+function corsResponse(status: number, body?: object, extra?: Record<string, string>): Response {
   return new Response(body ? JSON.stringify(body) : null, {
     status,
-    headers: { ...CORS_HEADERS, 'Content-Type': 'application/json', ...extraHeaders },
+    headers: { ...CORS_HEADERS, 'Content-Type': 'application/json', ...extra },
   });
 }
 
@@ -218,32 +202,27 @@ function corsResponse(status: number, body?: object, extraHeaders?: Record<strin
 // Edge handler
 // ---------------------------------------------------------------------------
 
-export const config = {
-  runtime: 'edge',
-};
+export const config = { runtime: 'edge' };
 
 export default async function handler(req: Request): Promise<Response> {
-  // Handle CORS preflight
   if (req.method === 'OPTIONS') {
     return new Response(null, { status: 200, headers: CORS_HEADERS });
   }
-
   if (req.method !== 'POST') {
     return corsResponse(405, { error: 'Method not allowed' });
   }
 
-  // 1. Validate API key exists server-side
-  const openRouterKey = process.env.OPENROUTER_API_KEY;
-  if (!openRouterKey) {
+  const apiKey = process.env.LLM_API_KEY ?? process.env.OPENROUTER_API_KEY;
+  if (!apiKey) {
     return corsResponse(500, { error: 'AI service not configured. Please contact support.' });
   }
 
-  // 2. Authenticate user via Clerk JWT (optional for free tier)
+  // Auth
   const authHeader = req.headers.get('authorization');
   const token = authHeader?.replace('Bearer ', '') || undefined;
-  const claims = await verifyClerkToken(token);
+  const claims = await verifyToken(token);
 
-  // 3. Parse request body
+  // Parse body
   const body = (await req.json()) as {
     messages: Array<{ role: string; content: string | Array<{ type: string; text?: string; image_url?: { url: string } }> }>;
     model: string;
@@ -254,12 +233,11 @@ export default async function handler(req: Request): Promise<Response> {
     return corsResponse(400, { error: 'Missing messages or model' });
   }
 
-  // 4. Model access control
   if (!isAllowedModel(body.model)) {
-    return corsResponse(400, { error: `Model not available: ${body.model}` });
+    return corsResponse(400, { error: 'Model not available' });
   }
 
-  const userTier = (claims?.plan === 'pro' || claims?.features?.includes('frontier_models'))
+  const userTier = (claims?.plan === 'pro' || claims?.features?.includes('pro_models'))
     ? 'pro' as const
     : 'free' as const;
 
@@ -267,93 +245,79 @@ export default async function handler(req: Request): Promise<Response> {
     ?? req.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
     ?? 'anonymous';
 
-  // Free users can only use free models
   if (userTier === 'free' && isPaidModel(body.model)) {
     return corsResponse(403, {
-      error: 'Pro subscription required for this model',
+      error: 'Upgrade to Pro to use this model',
       upgrade: true,
     });
   }
 
-  // 5. Budget / rate checks
+  // Usage checks
   maybePrune();
 
   if (userTier === 'free') {
-    // Free tier: daily request cap (free models cost us $0 but we cap abuse)
-    const capResult = checkFreeRequestCap(userId);
-    if (!capResult.allowed) {
+    const cap = checkFreeLimit(userId);
+    if (!cap.allowed) {
       return corsResponse(429, {
-        error: `Daily limit reached (${FREE_DAILY_REQUEST_CAP} requests/day on free models). Resets ${new Date(capResult.resetAt).toISOString()}.`,
-        resetAt: capResult.resetAt,
-        limit: FREE_DAILY_REQUEST_CAP,
-        window: 'day',
+        error: 'You\'ve reached your daily limit. Upgrade to Pro for more.',
         type: 'request_cap',
+        limit: FREE_DAILY_LIMIT,
+        resetAt: cap.resetAt,
       }, {
-        'Retry-After': String(Math.ceil((capResult.resetAt - Date.now()) / 1000)),
+        'Retry-After': String(Math.ceil((cap.resetAt - Date.now()) / 1000)),
       });
     }
   } else {
-    // Pro tier: check monthly budget
-    const bucket = getBudget(userId, 'pro');
-    const budgetLimit = MONTHLY_BUDGETS.pro;
-    if (bucket.spent >= budgetLimit) {
-      const pctUsed = 100;
+    const bucket = getCreditBucket(userId);
+    if (bucket.used >= PRO_MONTHLY_CREDITS) {
       return corsResponse(429, {
-        error: `Monthly budget exhausted ($${budgetLimit.toFixed(2)}/month). Resets ${new Date(bucket.resetAt).toISOString()}.`,
+        error: 'Monthly credits used up. Resets next month.',
+        type: 'credits',
+        creditsUsed: Math.round(bucket.used),
+        creditsLimit: PRO_MONTHLY_CREDITS,
         resetAt: bucket.resetAt,
-        budgetLimit,
-        budgetSpent: bucket.spent,
-        budgetPct: pctUsed,
-        type: 'budget',
       }, {
         'Retry-After': String(Math.ceil((bucket.resetAt - Date.now()) / 1000)),
       });
     }
   }
 
-  // 6. Build OpenRouter request
-  const openRouterMessages = body.system
+  // Build upstream request
+  const upstreamMessages = body.system
     ? [{ role: 'system', content: body.system }, ...body.messages]
     : body.messages;
 
-  const openRouterBody = {
-    model: body.model,
-    messages: openRouterMessages,
-    stream: true,
-    temperature: 0.3,
-    max_tokens: 8192,
-  };
-
-  // 7. Proxy to OpenRouter with streaming
-  const upstream = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+  const upstream = await fetch(`${API_BASE}/chat/completions`, {
     method: 'POST',
     headers: {
-      'Authorization': `Bearer ${openRouterKey}`,
+      'Authorization': `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
       'HTTP-Referer': process.env.APP_URL ?? 'https://ifc-lite.com',
       'X-Title': 'ifc-lite',
     },
-    body: JSON.stringify(openRouterBody),
+    body: JSON.stringify({
+      model: body.model,
+      messages: upstreamMessages,
+      stream: true,
+      temperature: 0.3,
+      max_tokens: 8192,
+    }),
   });
 
   if (!upstream.ok) {
-    const errorText = await upstream.text();
+    const _errorText = await upstream.text();
 
-    // If OpenRouter returns 429 (rate limit), show as our own limit
     if (upstream.status === 429) {
       return corsResponse(429, {
-        error: 'You\'ve reached your daily free limit. Upgrade to Pro for more requests and access to all models.',
+        error: 'You\'ve reached your daily limit. Upgrade to Pro for more.',
         type: 'request_cap',
-        limit: FREE_DAILY_REQUEST_CAP,
-        window: 'day',
+        limit: FREE_DAILY_LIMIT,
       });
     }
 
-    // If OpenRouter returns 402 (payment required / no credits)
     if (upstream.status === 402) {
       return corsResponse(502, {
         error: 'Service temporarily unavailable. Please try again later.',
-        detail: errorText,
       });
     }
 
@@ -363,55 +327,44 @@ export default async function handler(req: Request): Promise<Response> {
   }
 
   if (!upstream.body) {
-    return corsResponse(502, { error: 'No response body from upstream' });
+    return corsResponse(502, { error: 'No response body' });
   }
 
-  // 8. Build usage info headers for client display
+  // Usage headers
   const usageHeaders: Record<string, string> = {};
 
   if (userTier === 'pro') {
-    const bucket = getBudget(userId, 'pro');
-    const budgetLimit = MONTHLY_BUDGETS.pro;
-    const budgetPct = Math.min(100, Math.round((bucket.spent / budgetLimit) * 100));
-    usageHeaders['X-Budget-Limit'] = String(budgetLimit);
-    usageHeaders['X-Budget-Spent'] = String(bucket.spent.toFixed(4));
-    usageHeaders['X-Budget-Pct'] = String(budgetPct);
-    usageHeaders['X-Budget-Reset'] = String(Math.ceil(bucket.resetAt / 1000));
+    const bucket = getCreditBucket(userId);
+    const pct = Math.min(100, Math.round((bucket.used / PRO_MONTHLY_CREDITS) * 100));
+    usageHeaders['X-Credits-Used'] = String(Math.round(bucket.used));
+    usageHeaders['X-Credits-Limit'] = String(PRO_MONTHLY_CREDITS);
+    usageHeaders['X-Credits-Pct'] = String(pct);
+    usageHeaders['X-Credits-Reset'] = String(Math.ceil(bucket.resetAt / 1000));
   } else {
-    // Free tier: show request count / cap
     let entry = freeRequestCounts.get(userId);
     if (!entry) entry = { count: 0, resetAt: Date.now() + 24 * 60 * 60 * 1000 };
     usageHeaders['X-Usage-Used'] = String(entry.count);
-    usageHeaders['X-Usage-Limit'] = String(FREE_DAILY_REQUEST_CAP);
-    usageHeaders['X-Usage-Pct'] = String(Math.min(100, Math.round((entry.count / FREE_DAILY_REQUEST_CAP) * 100)));
+    usageHeaders['X-Usage-Limit'] = String(FREE_DAILY_LIMIT);
+    usageHeaders['X-Usage-Pct'] = String(Math.min(100, Math.round((entry.count / FREE_DAILY_LIMIT) * 100)));
     usageHeaders['X-Usage-Reset'] = String(Math.ceil(entry.resetAt / 1000));
   }
 
-  // 9. Stream response, intercepting generation ID for cost tracking
-  // We use a TransformStream to pass data through while extracting the gen ID.
+  // Stream through, capturing generation ID for cost tracking
   let generationId: string | null = null;
 
   const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>({
     transform(chunk, controller) {
       controller.enqueue(chunk);
-
-      // Try to extract generation ID from SSE chunks
       if (!generationId) {
         const text = new TextDecoder().decode(chunk);
-        const idMatch = text.match(/"id"\s*:\s*"(gen-[^"]+)"/);
-        if (idMatch) {
-          generationId = idMatch[1];
-        }
+        const m = text.match(/"id"\s*:\s*"(gen-[^"]+)"/);
+        if (m) generationId = m[1];
       }
     },
     async flush() {
-      // After stream ends, fetch generation cost and record spend
       if (generationId && userTier === 'pro' && !isFreeModel(body.model)) {
-        // Fire-and-forget: don't block the response
-        fetchGenerationCost(generationId, openRouterKey!).then((cost) => {
-          if (cost > 0) {
-            recordSpend(userId, userTier, cost);
-          }
+        fetchGenerationCost(generationId, apiKey!).then((cost) => {
+          if (cost > 0) recordCredits(userId, cost);
         }).catch(() => {});
       }
     },

@@ -448,7 +448,7 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
         <Bot className="h-4 w-4 text-blue-500 shrink-0" />
         <span className="text-sm font-medium">AI Assistant</span>
         <ModelSelector hasPro={hasPro} />
-        {/* Usage indicator (free: requests/day, pro: $/month budget) */}
+        {/* Usage indicator */}
         {usage && (
           <Tooltip>
             <TooltipTrigger asChild>
@@ -465,8 +465,8 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
               </div>
             </TooltipTrigger>
             <TooltipContent>
-              {usage.type === 'budget'
-                ? `$${usage.used.toFixed(2)} / $${usage.limit.toFixed(2)} monthly budget`
+              {usage.type === 'credits'
+                ? `${usage.used} / ${usage.limit} credits this month`
                 : `${usage.used} / ${usage.limit} requests today`
               }
             </TooltipContent>

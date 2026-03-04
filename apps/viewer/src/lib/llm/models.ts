@@ -3,17 +3,17 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 /**
- * LLM model registry — available models across free and pro tiers.
+ * LLM model registry.
  *
- * Free tier: zero-cost models (OpenRouter :free suffix), daily request cap.
- * Pro tier: all paid models with monthly budget — cost indicator shows relative expense.
- *   $ = cheap (~$0.001-0.01/request), $$ = moderate (~$0.01-0.10), $$$ = expensive (~$0.10+)
+ * Free tier: zero-cost models, daily request cap.
+ * Pro tier: all models with monthly credit allowance.
+ *   Cost indicator: $ = low, $$ = moderate, $$$ = high credit usage per request.
  */
 
 import type { LLMModel } from './types.js';
 
 // ---------------------------------------------------------------------------
-// FREE TIER — zero cost, 50 requests/day for anonymous/free users
+// FREE TIER
 // ---------------------------------------------------------------------------
 
 export const FREE_MODELS: LLMModel[] = [
@@ -60,11 +60,11 @@ export const FREE_MODELS: LLMModel[] = [
 ];
 
 // ---------------------------------------------------------------------------
-// PRO TIER — $5/month budget, expensive models use more budget
+// PRO TIER — monthly credit allowance
 // ---------------------------------------------------------------------------
 
 export const PRO_MODELS: LLMModel[] = [
-  // $ — cheap models (stretch your budget)
+  // $ — low credit usage
   {
     id: 'qwen/qwen3-coder',
     name: 'Qwen3 Coder',
@@ -101,7 +101,7 @@ export const PRO_MODELS: LLMModel[] = [
     cost: '$',
     notes: 'Strong agentic + front-end',
   },
-  // $$ — moderate cost models
+  // $$ — moderate credit usage
   {
     id: 'x-ai/grok-code-fast-1',
     name: 'Grok Code Fast 1',
@@ -147,7 +147,7 @@ export const PRO_MODELS: LLMModel[] = [
     cost: '$$',
     notes: 'Best tool-calling, 2M context',
   },
-  // $$$ — expensive frontier models
+  // $$$ — high credit usage
   {
     id: 'google/gemini-3-pro-preview',
     name: 'Gemini 3 Pro',
