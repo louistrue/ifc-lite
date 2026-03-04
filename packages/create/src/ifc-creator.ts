@@ -121,6 +121,8 @@ export class IfcCreator {
   // Tracking for spatial aggregation
   private storeyIds: number[] = [];
   private storeyElements: Map<number, number[]> = new Map();
+  /** Storey expressId → its IfcLocalPlacement id (at [0,0,elevation]) */
+  private storeyPlacements: Map<number, number> = new Map();
 
   private projectParams: ProjectParams;
 
@@ -142,13 +144,24 @@ export class IfcCreator {
     const desc = params.Description ? `'${esc(params.Description)}'` : '$';
     const elevation = num(params.Elevation);
 
+    // Create a placement at [0, 0, elevation] so child elements are offset to the correct height
+    const storeyPlacementId = this.addLocalPlacement(this.worldPlacementId, {
+      Location: [0, 0, params.Elevation],
+    });
+
     this.line(id, 'IFCBUILDINGSTOREY',
-      `'${globalId}',#${this.ownerHistoryId},'${esc(name)}',${desc},$,$,#${this.worldPlacementId},$,.ELEMENT.,${elevation}`);
+      `'${globalId}',#${this.ownerHistoryId},'${esc(name)}',${desc},$,$,#${storeyPlacementId},$,.ELEMENT.,${elevation}`);
 
     this.storeyIds.push(id);
     this.storeyElements.set(id, []);
+    this.storeyPlacements.set(id, storeyPlacementId);
     this.entities.push({ expressId: id, type: 'IfcBuildingStorey', Name: name });
     return id;
+  }
+
+  /** Get the IfcLocalPlacement for a storey (falls back to world if unknown) */
+  private getStoreyPlacement(storeyId: number): number {
+    return this.storeyPlacements.get(storeyId) ?? this.worldPlacementId;
   }
 
   // ============================================================================
@@ -169,8 +182,8 @@ export class IfcCreator {
     const wallLen = Math.sqrt(dx * dx + dy * dy + dz * dz);
     const dir: Point3D = vecNorm([dx, dy, dz]);
 
-    // Placement at Start. Local X = wall direction, Z = up (default).
-    const placementId = this.addLocalPlacement(this.worldPlacementId, {
+    // Placement at Start, relative to storey. Local X = wall direction, Z = up (default).
+    const placementId = this.addLocalPlacement(this.getStoreyPlacement(storeyId), {
       Location: params.Start,
       RefDirection: dir,
     });
@@ -214,7 +227,7 @@ export class IfcCreator {
    * Width along +X, Depth along +Y, Thickness extruded along +Z.
    */
   addIfcSlab(storeyId: number, params: SlabParams): number {
-    const placementId = this.addLocalPlacement(this.worldPlacementId, {
+    const placementId = this.addLocalPlacement(this.getStoreyPlacement(storeyId), {
       Location: params.Position,
     });
 
@@ -260,7 +273,7 @@ export class IfcCreator {
    * Cross-section centered, extruded upward by Height.
    */
   addIfcColumn(storeyId: number, params: ColumnParams): number {
-    const placementId = this.addLocalPlacement(this.worldPlacementId, {
+    const placementId = this.addLocalPlacement(this.getStoreyPlacement(storeyId), {
       Location: params.Position,
     });
 
@@ -299,7 +312,7 @@ export class IfcCreator {
 
     // Local Z = beam direction, so extrusion along Z = along beam.
     // Local X, Y define the cross-section plane.
-    const placementId = this.addLocalPlacement(this.worldPlacementId, {
+    const placementId = this.addLocalPlacement(this.getStoreyPlacement(storeyId), {
       Location: params.Start,
       Axis: dir,
       RefDirection: this.computeRefDirection(dir),
@@ -340,7 +353,7 @@ export class IfcCreator {
 
     const direction = params.Direction ?? 0;
     // Use LocalPlacement rotation so both step positions AND profiles rotate together
-    const placementId = this.addLocalPlacement(this.worldPlacementId, {
+    const placementId = this.addLocalPlacement(this.getStoreyPlacement(storeyId), {
       Location: params.Position,
       RefDirection: direction !== 0 ? [Math.cos(direction), Math.sin(direction), 0] : undefined,
     });
@@ -401,7 +414,7 @@ export class IfcCreator {
       refDir = [Math.cos(slope), 0, -Math.sin(slope)];
     }
 
-    const placementId = this.addLocalPlacement(this.worldPlacementId, {
+    const placementId = this.addLocalPlacement(this.getStoreyPlacement(storeyId), {
       Location: params.Position,
       Axis: axis,
       RefDirection: refDir,

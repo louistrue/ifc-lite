@@ -344,11 +344,11 @@ describe('IfcCreator', () => {
     // Columns
     creator.addIfcColumn(gf, { Position: [5, 4, 0], Width: 0.4, Depth: 0.4, Height: 3 });
 
-    // First floor slab
-    creator.addIfcSlab(ff, { Position: [0, 0, 3], Thickness: 0.3, Width: 10, Depth: 8 });
+    // First floor slab (Z=0 relative to storey elevation 3.2 → world Z=3.2)
+    creator.addIfcSlab(ff, { Position: [0, 0, 0], Thickness: 0.3, Width: 10, Depth: 8 });
 
-    // Roof
-    creator.addIfcRoof(ff, { Position: [0, 0, 6.2], Width: 10, Depth: 8, Thickness: 0.25 });
+    // Roof (Z=3 relative to storey elevation 3.2 → world Z=6.2)
+    creator.addIfcRoof(ff, { Position: [0, 0, 3], Width: 10, Depth: 8, Thickness: 0.25 });
 
     const result = creator.toIfc();
 
