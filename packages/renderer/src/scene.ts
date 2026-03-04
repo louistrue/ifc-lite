@@ -11,6 +11,7 @@ import type { MeshData } from '@ifc-lite/geometry';
 import { MathUtils } from './math.js';
 import type { RenderPipeline } from './pipeline.js';
 import { BATCH_CONSTANTS } from './constants.js';
+import { MeshBlobStore } from './mesh-blob-store.js';
 
 const MAX_ENCODED_ENTITY_ID = 0xFFFFFF;
 let warnedEntityIdRange = false;
@@ -57,6 +58,15 @@ export class Scene {
   // Temporary fragment batches created during streaming for immediate rendering.
   // Destroyed and replaced by proper merged batches in finalizeStreaming().
   private streamingFragments: BatchedMesh[] = [];
+
+  // Blob storage for offloaded mesh geometry (~1.9GB freed from V8 heap)
+  private meshBlobStore: MeshBlobStore = new MeshBlobStore();
+  private meshDataOffloaded = false;
+  // Pre-computed scene bounds (set during offload)
+  private _sceneBounds: { min: [number, number, number]; max: [number, number, number] } | null = null;
+  // Guard against concurrent async batch rebuilds
+  private _asyncRebuildInProgress = false;
+  private _asyncRebuildPending = false;
 
   /**
    * Add mesh to scene
@@ -146,6 +156,9 @@ export class Scene {
     }
 
     // All pieces have same color - safe to merge
+    // If data is offloaded, can't merge — return first piece
+    if (pieces[0]._offloaded) return pieces[0];
+
     // Calculate total sizes
     let totalPositions = 0;
     let totalIndices = 0;
@@ -288,17 +301,29 @@ export class Scene {
    * Each bucket key already maps to data that fits within the GPU buffer
    * limit (enforced at accumulation time by resolveActiveBucket), so no
    * splitting is needed here — just create one batch per key.
+   *
+   * When mesh data is offloaded, automatically dispatches to async rebuild.
    */
   rebuildPendingBatches(device: GPUDevice, pipeline: RenderPipeline): void {
     if (this.pendingBatchKeys.size === 0) return;
 
+    // If mesh data is offloaded, use async rebuild (reads geometry from Blob)
+    if (this.meshDataOffloaded) {
+      this.scheduleAsyncRebuild(device, pipeline);
+      return;
+    }
+
+    this.rebuildPendingBatchesSync(device, pipeline);
+  }
+
+  /** Synchronous rebuild — used when mesh data is in memory */
+  private rebuildPendingBatchesSync(device: GPUDevice, pipeline: RenderPipeline): void {
     for (const key of this.pendingBatchKeys) {
       const meshDataForKey = this.batchedMeshData.get(key);
 
       const existingBatch = this.batchedMeshMap.get(key);
 
       if (existingBatch) {
-        // Destroy old batch buffers
         existingBatch.vertexBuffer.destroy();
         existingBatch.indexBuffer.destroy();
         if (existingBatch.uniformBuffer) {
@@ -307,11 +332,9 @@ export class Scene {
       }
 
       if (!meshDataForKey || meshDataForKey.length === 0) {
-        // Bucket is empty — clean up
         this.batchedMeshMap.delete(key);
         this.batchedMeshData.delete(key);
         this.bucketVertexBytes.delete(key);
-        // Swap-remove from flat array using O(1) index lookup
         const arrayIdx = this.batchedMeshIndex.get(key);
         if (arrayIdx !== undefined) {
           const lastIdx = this.batchedMeshes.length - 1;
@@ -326,12 +349,10 @@ export class Scene {
         continue;
       }
 
-      // Create new batch with all accumulated meshes for this bucket
       const color = meshDataForKey[0].color;
       const batchedMesh = this.createBatchedMesh(meshDataForKey, color, device, pipeline, key);
       this.batchedMeshMap.set(key, batchedMesh);
 
-      // Update array using O(1) index lookup instead of O(N) findIndex
       const existingIndex = this.batchedMeshIndex.get(key);
       if (existingIndex !== undefined) {
         this.batchedMeshes[existingIndex] = batchedMesh;
@@ -343,6 +364,94 @@ export class Scene {
     }
 
     this.pendingBatchKeys.clear();
+  }
+
+  /**
+   * Schedule an async batch rebuild (reads offloaded geometry from Blob).
+   * Old batches continue rendering until replacement is ready.
+   */
+  private scheduleAsyncRebuild(device: GPUDevice, pipeline: RenderPipeline): void {
+    if (this._asyncRebuildInProgress) {
+      this._asyncRebuildPending = true;
+      return;
+    }
+    this._asyncRebuildInProgress = true;
+    this.rebuildPendingBatchesAsync(device, pipeline).then(() => {
+      this._asyncRebuildInProgress = false;
+      if (this._asyncRebuildPending) {
+        this._asyncRebuildPending = false;
+        this.scheduleAsyncRebuild(device, pipeline);
+      }
+    }).catch(err => {
+      console.warn('[Scene] Async batch rebuild failed:', err);
+      this._asyncRebuildInProgress = false;
+    });
+  }
+
+  /** Async rebuild — reads geometry from Blob for offloaded meshes */
+  private async rebuildPendingBatchesAsync(device: GPUDevice, pipeline: RenderPipeline): Promise<void> {
+    const keysToRebuild = new Set(this.pendingBatchKeys);
+    this.pendingBatchKeys.clear();
+
+    // Collect all meshes that need geometry loaded from Blob
+    const meshesNeedingData: MeshData[] = [];
+    for (const key of keysToRebuild) {
+      const meshDataForKey = this.batchedMeshData.get(key);
+      if (meshDataForKey) {
+        for (const md of meshDataForKey) {
+          if (md._offloaded) meshesNeedingData.push(md);
+        }
+      }
+    }
+
+    // Batch-read geometry from Blob
+    let geometryMap: Map<MeshData, { positions: Float32Array; normals: Float32Array; indices: Uint32Array }> | undefined;
+    if (meshesNeedingData.length > 0) {
+      geometryMap = await this.meshBlobStore.readMeshBatch(meshesNeedingData);
+    }
+
+    // Now rebuild batches synchronously with the loaded geometry
+    for (const key of keysToRebuild) {
+      const meshDataForKey = this.batchedMeshData.get(key);
+      const existingBatch = this.batchedMeshMap.get(key);
+
+      if (existingBatch) {
+        existingBatch.vertexBuffer.destroy();
+        existingBatch.indexBuffer.destroy();
+        if (existingBatch.uniformBuffer) existingBatch.uniformBuffer.destroy();
+      }
+
+      if (!meshDataForKey || meshDataForKey.length === 0) {
+        this.batchedMeshMap.delete(key);
+        this.batchedMeshData.delete(key);
+        this.bucketVertexBytes.delete(key);
+        const arrayIdx = this.batchedMeshIndex.get(key);
+        if (arrayIdx !== undefined) {
+          const lastIdx = this.batchedMeshes.length - 1;
+          if (arrayIdx !== lastIdx) {
+            const lastBatch = this.batchedMeshes[lastIdx];
+            this.batchedMeshes[arrayIdx] = lastBatch;
+            this.batchedMeshIndex.set(lastBatch.colorKey, arrayIdx);
+          }
+          this.batchedMeshes.pop();
+          this.batchedMeshIndex.delete(key);
+        }
+        continue;
+      }
+
+      const color = meshDataForKey[0].color;
+      const batchedMesh = this.createBatchedMesh(meshDataForKey, color, device, pipeline, key, geometryMap);
+      this.batchedMeshMap.set(key, batchedMesh);
+
+      const existingIndex = this.batchedMeshIndex.get(key);
+      if (existingIndex !== undefined) {
+        this.batchedMeshes[existingIndex] = batchedMesh;
+      } else {
+        const newIndex = this.batchedMeshes.length;
+        this.batchedMeshes.push(batchedMesh);
+        this.batchedMeshIndex.set(key, newIndex);
+      }
+    }
   }
 
   /**
@@ -529,7 +638,7 @@ export class Scene {
           }
 
           // Decrease old bucket size tracking
-          const meshBytes = (meshData.positions.length / 3) * BATCH_CONSTANTS.BYTES_PER_VERTEX;
+          const meshBytes = this.meshVertexCount(meshData) * BATCH_CONSTANTS.BYTES_PER_VERTEX;
           const oldSize = this.bucketVertexBytes.get(oldBucketKey) ?? 0;
           this.bucketVertexBytes.set(oldBucketKey, Math.max(0, oldSize - meshBytes));
 
@@ -576,9 +685,10 @@ export class Scene {
     color: [number, number, number, number],
     device: GPUDevice,
     pipeline: RenderPipeline,
-    bucketKey?: string
+    bucketKey?: string,
+    geometryMap?: Map<MeshData, { positions: Float32Array; normals: Float32Array; indices: Uint32Array }>
   ): BatchedMesh {
-    const merged = this.mergeGeometry(meshDataArray);
+    const merged = this.mergeGeometry(meshDataArray, geometryMap);
     const expressIds = meshDataArray.map(m => m.expressId);
 
     // Create vertex buffer (interleaved positions + normals)
@@ -627,11 +737,16 @@ export class Scene {
 
 
   /**
-   * Merge multiple mesh geometries into single vertex/index buffers
+   * Merge multiple mesh geometries into single vertex/index buffers.
+   * Supports both in-memory arrays and Blob-backed offloaded data.
    *
-   * OPTIMIZATION: Uses efficient loops and bulk index adjustment
+   * @param meshDataArray - Meshes to merge
+   * @param geometryMap - If provided, supplies geometry for offloaded meshes (from Blob read)
    */
-  private mergeGeometry(meshDataArray: MeshData[]): {
+  private mergeGeometry(
+    meshDataArray: MeshData[],
+    geometryMap?: Map<MeshData, { positions: Float32Array; normals: Float32Array; indices: Uint32Array }>
+  ): {
     vertexData: Float32Array;
     indices: Uint32Array;
     bounds: { min: [number, number, number]; max: [number, number, number] };
@@ -641,8 +756,8 @@ export class Scene {
 
     // Calculate total sizes
     for (const mesh of meshDataArray) {
-      totalVertices += mesh.positions.length / 3;
-      totalIndices += mesh.indices.length;
+      totalVertices += this.meshVertexCount(mesh);
+      totalIndices += this.meshIndexCount(mesh);
     }
 
     // Create merged buffers
@@ -659,8 +774,9 @@ export class Scene {
     let vertexBase = 0;
 
     for (const mesh of meshDataArray) {
-      const positions = mesh.positions;
-      const normals = mesh.normals;
+      const geo = geometryMap?.get(mesh);
+      const positions = geo ? geo.positions : mesh.positions;
+      const normals = geo ? geo.normals : mesh.normals;
       const vertexCount = positions.length / 3;
 
       // Interleave vertex data (position + normal)
@@ -697,8 +813,7 @@ export class Scene {
       }
 
       // Copy indices with vertex base offset
-      // Use subarray for slightly better cache locality
-      const meshIndices = mesh.indices;
+      const meshIndices = geo ? geo.indices : mesh.indices;
       const indexCount = meshIndices.length;
       for (let i = 0; i < indexCount; i++) {
         indices[indexOffset + i] = meshIndices[i] + vertexBase;
@@ -739,8 +854,8 @@ export class Scene {
     let totalVertexBytes = 0;
     let totalIndexBytes = 0;
     for (const mesh of meshDataArray) {
-      totalVertexBytes += (mesh.positions.length / 3) * BATCH_CONSTANTS.BYTES_PER_VERTEX;
-      totalIndexBytes += mesh.indices.length * BATCH_CONSTANTS.BYTES_PER_INDEX;
+      totalVertexBytes += this.meshVertexCount(mesh) * BATCH_CONSTANTS.BYTES_PER_VERTEX;
+      totalIndexBytes += this.meshIndexCount(mesh) * BATCH_CONSTANTS.BYTES_PER_INDEX;
     }
     if (totalVertexBytes <= maxBufferSize && totalIndexBytes <= maxBufferSize) {
       return [meshDataArray];
@@ -753,8 +868,8 @@ export class Scene {
     let currentIndexBytes = 0;
 
     for (const mesh of meshDataArray) {
-      const meshVertexBytes = (mesh.positions.length / 3) * BATCH_CONSTANTS.BYTES_PER_VERTEX;
-      const meshIndexBytes = mesh.indices.length * BATCH_CONSTANTS.BYTES_PER_INDEX;
+      const meshVertexBytes = this.meshVertexCount(mesh) * BATCH_CONSTANTS.BYTES_PER_VERTEX;
+      const meshIndexBytes = this.meshIndexCount(mesh) * BATCH_CONSTANTS.BYTES_PER_INDEX;
 
       // Would adding this mesh exceed the limit? Start a new chunk.
       // (Skip check when chunk is empty — a single mesh must always be included.)
@@ -790,7 +905,7 @@ export class Scene {
   private resolveActiveBucket(baseColorKey: string, meshData: MeshData): string {
     let bucketKey = this.activeBucketKey.get(baseColorKey) ?? baseColorKey;
     const currentBytes = this.bucketVertexBytes.get(bucketKey) ?? 0;
-    const meshBytes = (meshData.positions.length / 3) * BATCH_CONSTANTS.BYTES_PER_VERTEX;
+    const meshBytes = this.meshVertexCount(meshData) * BATCH_CONSTANTS.BYTES_PER_VERTEX;
 
     if (currentBytes > 0 && currentBytes + meshBytes > this.cachedMaxBufferSize) {
       // Overflow — create a new sub-bucket
@@ -1052,21 +1167,117 @@ export class Scene {
     this.pendingBatchKeys.clear();
     this.partialBatchCache.clear();
     this.partialBatchCacheKeys.clear();
+    this.meshBlobStore.dispose();
+    this.meshDataOffloaded = false;
+    this._sceneBounds = null;
+  }
+
+  // ─── Mesh data offload helpers ──────────────────────────────────────
+
+  /** Get vertex count for a mesh, using metadata if offloaded */
+  private meshVertexCount(mesh: MeshData): number {
+    return mesh._offloaded ? (mesh._vertexCount ?? 0) : mesh.positions.length / 3;
+  }
+  /** Get index count for a mesh, using metadata if offloaded */
+  private meshIndexCount(mesh: MeshData): number {
+    return mesh._offloaded ? (mesh._indexCount ?? 0) : mesh.indices.length;
   }
 
   /**
-   * Calculate bounding box from actual mesh vertex data
+   * Offload mesh normals to Blob storage.
+   * Frees ~600-700MB of V8 heap for large models. Call after finalizeStreaming().
+   *
+   * Pre-computes per-entity and scene bounds from positions (which stay in memory).
+   * Positions/indices remain available for sync raycasting and snap detection.
+   * Batch rebuilds (color changes) async-read normals from the Blob.
+   */
+  offloadMeshData(): void {
+    if (this.meshDataOffloaded) return;
+
+    // 1. Pre-compute scene bounds and per-entity bounds
+    let sMinX = Infinity, sMinY = Infinity, sMinZ = Infinity;
+    let sMaxX = -Infinity, sMaxY = -Infinity, sMaxZ = -Infinity;
+
+    for (const [expressId, pieces] of this.meshDataMap) {
+      let eMinX = Infinity, eMinY = Infinity, eMinZ = Infinity;
+      let eMaxX = -Infinity, eMaxY = -Infinity, eMaxZ = -Infinity;
+
+      for (const piece of pieces) {
+        const positions = piece.positions;
+        for (let i = 0; i < positions.length; i += 3) {
+          const x = positions[i], y = positions[i + 1], z = positions[i + 2];
+          if (x < eMinX) eMinX = x; if (x > eMaxX) eMaxX = x;
+          if (y < eMinY) eMinY = y; if (y > eMaxY) eMaxY = y;
+          if (z < eMinZ) eMinZ = z; if (z > eMaxZ) eMaxZ = z;
+        }
+      }
+
+      // Cache entity bounding box
+      if (Number.isFinite(eMinX)) {
+        this.boundingBoxes.set(expressId, {
+          min: { x: eMinX, y: eMinY, z: eMinZ },
+          max: { x: eMaxX, y: eMaxY, z: eMaxZ },
+        });
+        if (eMinX < sMinX) sMinX = eMinX; if (eMaxX > sMaxX) sMaxX = eMaxX;
+        if (eMinY < sMinY) sMinY = eMinY; if (eMaxY > sMaxY) sMaxY = eMaxY;
+        if (eMinZ < sMinZ) sMinZ = eMinZ; if (eMaxZ > sMaxZ) sMaxZ = eMaxZ;
+      }
+    }
+
+    if (Number.isFinite(sMinX)) {
+      this._sceneBounds = {
+        min: [sMinX, sMinY, sMinZ],
+        max: [sMaxX, sMaxY, sMaxZ],
+      };
+    }
+
+    // 2. Collect all mesh data for Blob offload
+    const allMeshes: MeshData[] = [];
+    for (const pieces of this.meshDataMap.values()) {
+      for (const piece of pieces) {
+        allMeshes.push(piece);
+      }
+    }
+
+    // 3. Offload normals to Blob (frees V8 normal arrays, keeps positions/indices)
+    this.meshBlobStore.offload(allMeshes);
+    this.meshDataOffloaded = true;
+
+    console.log(`[Scene] Offloaded normals for ${allMeshes.length} meshes to Blob (${(this.meshBlobStore.size / 1e6).toFixed(0)}MB freed from V8 heap)`);
+  }
+
+  /**
+   * Calculate bounding box from mesh data or pre-computed bounds
    */
   getBounds(): { min: { x: number; y: number; z: number }; max: { x: number; y: number; z: number } } | null {
+    // Use pre-computed bounds if mesh data has been offloaded
+    if (this._sceneBounds) {
+      const [minX, minY, minZ] = this._sceneBounds.min;
+      const [maxX, maxY, maxZ] = this._sceneBounds.max;
+      return {
+        min: { x: minX, y: minY, z: minZ },
+        max: { x: maxX, y: maxY, z: maxZ },
+      };
+    }
+
     if (this.meshDataMap.size === 0) return null;
 
     let minX = Infinity, minY = Infinity, minZ = Infinity;
     let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
     let hasValidData = false;
 
-    // Compute bounds from all mesh data
     for (const pieces of this.meshDataMap.values()) {
       for (const piece of pieces) {
+        // Use pre-computed per-mesh bounds if available
+        if (piece._bounds) {
+          const [pMinX, pMinY, pMinZ] = piece._bounds.min;
+          const [pMaxX, pMaxY, pMaxZ] = piece._bounds.max;
+          hasValidData = true;
+          if (pMinX < minX) minX = pMinX; if (pMaxX > maxX) maxX = pMaxX;
+          if (pMinY < minY) minY = pMinY; if (pMaxY > maxY) maxY = pMaxY;
+          if (pMinZ < minZ) minZ = pMinZ; if (pMaxZ > maxZ) maxZ = pMaxZ;
+          continue;
+        }
         const positions = piece.positions;
         for (let i = 0; i < positions.length; i += 3) {
           const x = positions[i];
@@ -1107,11 +1318,11 @@ export class Scene {
    * @returns Bounding box with min/max corners, or null if no mesh data exists
    */
   getEntityBoundingBox(expressId: number): BoundingBox | null {
-    // Check cache first
+    // Check cache first (always populated after offloadMeshData)
     const cached = this.boundingBoxes.get(expressId);
     if (cached) return cached;
 
-    // Compute from mesh data
+    // Compute from mesh data (before offload)
     const pieces = this.meshDataMap.get(expressId);
     if (!pieces || pieces.length === 0) return null;
 
@@ -1119,17 +1330,19 @@ export class Scene {
     let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
 
     for (const piece of pieces) {
-      const positions = piece.positions;
-      for (let i = 0; i < positions.length; i += 3) {
-        const x = positions[i];
-        const y = positions[i + 1];
-        const z = positions[i + 2];
-        if (x < minX) minX = x;
-        if (y < minY) minY = y;
-        if (z < minZ) minZ = z;
-        if (x > maxX) maxX = x;
-        if (y > maxY) maxY = y;
-        if (z > maxZ) maxZ = z;
+      if (piece._bounds) {
+        const [pMinX, pMinY, pMinZ] = piece._bounds.min;
+        const [pMaxX, pMaxY, pMaxZ] = piece._bounds.max;
+        if (pMinX < minX) minX = pMinX; if (pMaxX > maxX) maxX = pMaxX;
+        if (pMinY < minY) minY = pMinY; if (pMaxY > maxY) maxY = pMaxY;
+        if (pMinZ < minZ) minZ = pMinZ; if (pMaxZ > maxZ) maxZ = pMaxZ;
+      } else {
+        const positions = piece.positions;
+        for (let i = 0; i < positions.length; i += 3) {
+          const x = positions[i], y = positions[i + 1], z = positions[i + 2];
+          if (x < minX) minX = x; if (y < minY) minY = y; if (z < minZ) minZ = z;
+          if (x > maxX) maxX = x; if (y > maxY) maxY = y; if (z > maxZ) maxZ = z;
+        }
       }
     }
 

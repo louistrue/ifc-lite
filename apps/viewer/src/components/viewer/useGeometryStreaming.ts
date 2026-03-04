@@ -509,6 +509,11 @@ export function useGeometryStreaming(params: UseGeometryStreamingParams): void {
         clearColor: clearColorRef.current,
       });
       lastStreamRenderTimeRef.current = Date.now();
+
+      // Offload mesh normals to Blob storage after all sync work is done.
+      // Frees ~600-700MB of V8 heap for large models. Positions/indices
+      // remain in memory for sync raycasting and snap detection.
+      scene.offloadMeshData();
     }
     prevIsStreamingRef.current = isStreaming;
   }, [isStreaming, isInitialized]);

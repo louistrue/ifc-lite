@@ -14,6 +14,13 @@ export interface MeshData {
   normals: Float32Array;    // [nx,ny,nz, ...]
   indices: Uint32Array;     // Triangle indices
   color: [number, number, number, number];
+  /** Pre-computed metadata — set when mesh data is offloaded to Blob storage */
+  _vertexCount?: number;
+  _indexCount?: number;
+  _bounds?: { min: [number, number, number]; max: [number, number, number] };
+  _blobOffset?: number;     // Byte offset within the geometry Blob
+  _blobSize?: number;       // Total bytes (positions + normals + indices) in the Blob
+  _offloaded?: boolean;     // True after positions/normals/indices have been freed
 }
 
 export interface Vec3 {
