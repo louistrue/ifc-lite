@@ -111,12 +111,9 @@ export async function streamChat(options: StreamOptions): Promise<void> {
         } else if (errorBody.type === 'request_cap') {
           // Our proxy: free user daily cap
           errorDetail = `Daily limit reached (${errorBody.limit ?? 50} requests/day). Resets ${errorBody.resetAt ? new Date(errorBody.resetAt).toLocaleString() : 'tomorrow'}.`;
-        } else if (errorBody.type === 'openrouter_limit') {
-          // OpenRouter's own rate limit (passed through by our proxy)
-          errorDetail = errorBody.error || 'Rate limit reached. Please wait a moment and try again.';
         } else {
           // Fallback for any other 429
-          errorDetail = errorBody.error || 'Rate limit reached. Please wait and try again.';
+          errorDetail = errorBody.error || 'You\'ve reached your daily free limit. Upgrade to Pro for more.';
         }
       }
     } catch {

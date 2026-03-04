@@ -235,7 +235,7 @@ export default async function handler(req: Request): Promise<Response> {
   // 1. Validate API key exists server-side
   const openRouterKey = process.env.OPENROUTER_API_KEY;
   if (!openRouterKey) {
-    return corsResponse(500, { error: 'OpenRouter API key not configured' });
+    return corsResponse(500, { error: 'AI service not configured. Please contact support.' });
   }
 
   // 2. Authenticate user via Clerk JWT (optional for free tier)
@@ -339,27 +339,26 @@ export default async function handler(req: Request): Promise<Response> {
   if (!upstream.ok) {
     const errorText = await upstream.text();
 
-    // If OpenRouter returns 429 (rate limit), provide a helpful message
+    // If OpenRouter returns 429 (rate limit), show as our own limit
     if (upstream.status === 429) {
-      // OpenRouter free tier: 50 req/day shared across all free models
       return corsResponse(429, {
-        error: 'OpenRouter rate limit reached. Free models share a 50 requests/day limit on OpenRouter. Please wait a minute and try again, or try a different model.',
-        type: 'openrouter_limit',
-        detail: errorText,
+        error: 'You\'ve reached your daily free limit. Upgrade to Pro for more requests and access to all models.',
+        type: 'request_cap',
+        limit: FREE_DAILY_REQUEST_CAP,
+        window: 'day',
       });
     }
 
     // If OpenRouter returns 402 (payment required / no credits)
     if (upstream.status === 402) {
       return corsResponse(502, {
-        error: 'OpenRouter credits exhausted. The server API key needs more credits.',
+        error: 'Service temporarily unavailable. Please try again later.',
         detail: errorText,
       });
     }
 
     return corsResponse(upstream.status, {
-      error: `OpenRouter error: ${upstream.status}`,
-      detail: errorText,
+      error: `Request failed (${upstream.status}). Please try again.`,
     });
   }
 
