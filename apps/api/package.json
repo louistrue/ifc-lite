@@ -5,7 +5,8 @@
   "description": "Vercel Edge Functions for ifc-lite LLM proxy",
   "type": "module",
   "dependencies": {
-    "@clerk/backend": "^2.0.0"
+    "@clerk/backend": "^2.0.0",
+    "@neondatabase/serverless": "^1.0.2"
   },
   "devDependencies": {
     "@vercel/node": "^5.0.0",

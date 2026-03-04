@@ -35,7 +35,7 @@ export interface ChatSlice {
   /** Whether the current user has a pro subscription */
   chatHasPro: boolean;
   /** Usage info from the server: credits (pro) or request count (free) */
-  chatUsage: { type: 'credits' | 'requests'; used: number; limit: number; pct: number; resetAt: number } | null;
+  chatUsage: ChatUsage | null;
 
   // Actions
   setChatPanelVisible: (visible: boolean) => void;
@@ -64,7 +64,16 @@ export interface ChatSlice {
   /** Set whether user has pro subscription (called by ClerkProvider wrapper) */
   setChatHasPro: (hasPro: boolean) => void;
   /** Update usage info from server response headers */
-  setChatUsage: (usage: { type: 'credits' | 'requests'; used: number; limit: number; pct: number; resetAt: number } | null) => void;
+  setChatUsage: (usage: ChatUsage | null) => void;
+}
+
+export interface ChatUsage {
+  type: 'credits' | 'requests';
+  used: number;
+  limit: number;
+  pct: number;
+  resetAt: number;
+  billable?: boolean;
 }
 
 function loadStoredModel(): string {

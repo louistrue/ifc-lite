@@ -66,9 +66,10 @@ export function useSandbox(config?: SandboxConfig) {
       return result;
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
-      setError(message);
 
-      // If the error is a ScriptError with captured logs, preserve them
+      // If the error is a ScriptError with captured logs, preserve them.
+      // Important: setError must run AFTER setResult, because setResult clears
+      // scriptLastError in the store.
       if (isScriptError(err)) {
         setResult({
           value: undefined,
@@ -76,6 +77,7 @@ export function useSandbox(config?: SandboxConfig) {
           durationMs: err.durationMs,
         });
       }
+      setError(message);
       return null;
     } finally {
       // Always dispose the sandbox after execution

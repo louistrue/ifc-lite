@@ -65,6 +65,7 @@ function getEsbuild(): Promise<EsbuildLike | null> {
 /** Transpile TypeScript to JavaScript by stripping types, then strip imports */
 export async function transpileTypeScript(code: string): Promise<string> {
   let js: string;
+  const isLikelyTypeScript = looksLikeTypeScript(code);
 
   try {
     const esbuild = await getEsbuild();
@@ -75,14 +76,31 @@ export async function transpileTypeScript(code: string): Promise<string> {
       });
       js = result.code;
     } else {
-      js = naiveTypeStrip(code);
+      // Fallback mode: only strip types when the input actually looks like TS.
+      // Running naive stripping on plain JS can corrupt object literals
+      // (e.g. `Position: [0,0,0]` -> `Position`) and cause runtime errors.
+      js = isLikelyTypeScript ? naiveTypeStrip(code) : code;
     }
   } catch {
-    js = naiveTypeStrip(code);
+    js = isLikelyTypeScript ? naiveTypeStrip(code) : code;
   }
 
   // Strip import/export statements — QuickJS has no module system
   return stripModuleSyntax(js);
+}
+
+/**
+ * Conservative TS detector used only for fallback mode when esbuild isn't available.
+ * We intentionally avoid broad `:` heuristics because they collide with JS object literals.
+ */
+function looksLikeTypeScript(code: string): boolean {
+  return (
+    /\binterface\s+\w+/.test(code) ||
+    /\btype\s+\w+\s*=/.test(code) ||
+    /\b(?:as)\s+[A-Za-z_]\w*(?:\[\])?/.test(code) ||
+    /\b(?:const|let|var)\s+\w+\s*:\s*[A-Za-z_]/.test(code) ||
+    /\([^)]*:\s*(?:string|number|boolean|void|any|unknown|never|Record<|Array<|Map<|Set<)/.test(code)
+  );
 }
 
 // ============================================================================

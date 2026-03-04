@@ -30,18 +30,20 @@ import {
   ArrowDown,
   Zap,
 } from 'lucide-react';
+import { SignInButton, SignedIn, SignedOut, UserButton } from '@clerk/clerk-react';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Switch } from '@/components/ui/switch';
 import { useViewerStore } from '@/store';
 import { ChatMessageComponent } from './chat/ChatMessage';
 import { ModelSelector } from './chat/ModelSelector';
-import { streamChat, type TextContentPart, type ImageContentPart, type UsageInfo } from '@/lib/llm/stream-client';
+import { fetchUsageSnapshot, streamChat, type TextContentPart, type ImageContentPart, type UsageInfo } from '@/lib/llm/stream-client';
 import { buildSystemPrompt } from '@/lib/llm/system-prompt';
 import { getModelContext, parseCSV } from '@/lib/llm/context-builder';
 import { extractCodeBlocks } from '@/lib/llm/code-extractor';
 import type { ChatMessage, FileAttachment } from '@/lib/llm/types';
 import { Image as ImageIcon } from 'lucide-react';
+import { isClerkConfigured } from '@/lib/llm/clerk-auth';
 
 // Environment variable for the proxy URL
 const PROXY_URL = import.meta.env.VITE_LLM_PROXY_URL as string || '/api/chat';
@@ -52,6 +54,10 @@ const EXAMPLE_PROMPTS = [
   'Export a quantity takeoff as CSV',
   'Create a skyscraper with 4x4 column grid, 30x40m, concrete shaft',
 ];
+
+const CONTINUE_PROMPT = 'Continue from exactly where your last response stopped. Do not repeat previously generated text.';
+const DEFAULT_PRO_MONTHLY_CREDIT_LIMIT = 1000;
+const USAGE_REFRESH_INTERVAL_MS = 15_000;
 
 /** Convert a File to a base64 data URL */
 function fileToBase64(file: File): Promise<string> {
@@ -91,6 +97,19 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
   const hasPro = useViewerStore((s) => s.chatHasPro);
   const usage = useViewerStore((s) => s.chatUsage);
   const setChatUsage = useViewerStore((s) => s.setChatUsage);
+  const displayUsage: UsageInfo | null = usage ?? (hasPro
+    ? {
+      type: 'credits',
+      used: 0,
+      limit: DEFAULT_PRO_MONTHLY_CREDIT_LIMIT,
+      pct: 0,
+      resetAt: 0,
+      billable: false,
+    }
+    : null);
+  const usageResetLabel = displayUsage?.resetAt && displayUsage.resetAt > 0
+    ? new Date(displayUsage.resetAt * 1000).toLocaleDateString()
+    : '—';
 
   const [inputText, setInputText] = useState('');
   const [showClearConfirm, setShowClearConfirm] = useState(false);
@@ -141,6 +160,27 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
   useEffect(() => {
     inputRef.current?.focus();
   }, []);
+
+  // Keep usage meter hydrated even before first prompt and refresh periodically.
+  useEffect(() => {
+    let cancelled = false;
+    const refreshUsage = async () => {
+      const snapshot = await fetchUsageSnapshot(PROXY_URL, authToken);
+      if (!cancelled && snapshot) {
+        setChatUsage(snapshot);
+      }
+    };
+
+    void refreshUsage();
+    const timer = window.setInterval(() => {
+      void refreshUsage();
+    }, USAGE_REFRESH_INTERVAL_MS);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [authToken, setChatUsage]);
 
   // ── Keyboard shortcuts ──
   useEffect(() => {
@@ -274,6 +314,17 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
   const handleSend = useCallback(() => {
     doSend(inputText);
   }, [inputText, doSend]);
+
+  const handleContinue = useCallback(() => {
+    const state = useViewerStore.getState();
+    const partial = state.chatStreamingContent.trim();
+    if (!partial) return;
+
+    // Preserve the partial completion in history, then request continuation.
+    finalizeAssistant(partial);
+    setChatError(null);
+    doSend(CONTINUE_PROMPT);
+  }, [doSend, finalizeAssistant, setChatError]);
 
   const handleStop = useCallback(() => {
     const controller = useViewerStore.getState().chatAbortController;
@@ -424,6 +475,16 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
   }, [processFiles]);
 
   const isActive = status === 'streaming' || status === 'sending';
+  const clerkEnabled = isClerkConfigured();
+  const showUpgradeNudge = Boolean(error && (error.includes('Upgrade to Pro') || error.includes('daily limit')));
+  const showSupportEmail = Boolean(error && error.includes('louis@ltplus.com'));
+  const canContinue = Boolean(error && streamingContent.trim().length > 0 && !isActive);
+  const openUpgradePage = useCallback(() => {
+    const currentPath = `${window.location.pathname}${window.location.search}`;
+    const target = `/upgrade?returnTo=${encodeURIComponent(currentPath)}`;
+    window.history.pushState({}, '', target);
+    window.dispatchEvent(new PopStateEvent('popstate'));
+  }, []);
 
   return (
     <div
@@ -449,30 +510,54 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
         <span className="text-sm font-medium">AI Assistant</span>
         <ModelSelector hasPro={hasPro} />
         {/* Usage indicator */}
-        {usage && (
+        {displayUsage && (
           <Tooltip>
             <TooltipTrigger asChild>
               <div className="flex items-center gap-1 mx-1">
                 <div className="w-14 h-1.5 bg-muted rounded-full overflow-hidden">
                   <div
-                    className={`h-full rounded-full transition-all ${
-                      usage.pct >= 90 ? 'bg-destructive' : usage.pct >= 70 ? 'bg-amber-500' : 'bg-emerald-500'
-                    }`}
-                    style={{ width: `${Math.min(100, usage.pct)}%` }}
+                    className={`h-full rounded-full transition-all ${displayUsage.pct >= 90 ? 'bg-destructive' : displayUsage.pct >= 70 ? 'bg-amber-500' : 'bg-emerald-500'
+                      }`}
+                    style={{ width: `${Math.min(100, displayUsage.pct)}%` }}
                   />
                 </div>
-                <span className="text-[10px] text-muted-foreground tabular-nums">{usage.pct}%</span>
+                <span className="text-[10px] text-muted-foreground tabular-nums">{displayUsage.pct}%</span>
               </div>
             </TooltipTrigger>
             <TooltipContent>
-              {usage.type === 'credits'
-                ? `${usage.used} / ${usage.limit} credits this month`
-                : `${usage.used} / ${usage.limit} requests today`
+              {displayUsage.type === 'credits'
+                ? `${displayUsage.used}/${displayUsage.limit} credits, resets ${usageResetLabel}`
+                : `${displayUsage.used}/${displayUsage.limit} requests, resets ${usageResetLabel}`
               }
             </TooltipContent>
           </Tooltip>
         )}
         <div className="flex-1" />
+
+        {clerkEnabled && (
+          <div className="flex items-center gap-1 mr-1">
+            <SignedOut>
+              <SignInButton mode="modal">
+                <Button variant="ghost" size="sm" className="h-6 px-2 text-xs">
+                  Sign in
+                </Button>
+              </SignInButton>
+            </SignedOut>
+            {!hasPro && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-6 px-2 text-xs"
+                onClick={openUpgradePage}
+              >
+                Upgrade
+              </Button>
+            )}
+            <SignedIn>
+              <UserButton afterSignOutUrl="/" />
+            </SignedIn>
+          </div>
+        )}
 
         {/* Auto-execute toggle */}
         <Tooltip>
@@ -610,8 +695,35 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
 
       {/* Error display */}
       {error && (
-        <div className="px-3 py-1.5 bg-destructive/10 text-destructive text-xs border-t">
-          {error}
+        <div className="px-3 py-1.5 bg-destructive/10 text-destructive text-xs border-t flex items-center justify-between gap-2">
+          <span>{error}</span>
+          <div className="flex items-center gap-2">
+            {canContinue && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-5 px-2 text-[10px]"
+                onClick={handleContinue}
+              >
+                Continue
+              </Button>
+            )}
+            {showUpgradeNudge && clerkEnabled && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-5 px-2 text-[10px]"
+                onClick={openUpgradePage}
+              >
+                Upgrade
+              </Button>
+            )}
+            {showSupportEmail && (
+              <a className="underline text-[10px]" href="mailto:louis@ltplus.com">
+                Contact support
+              </a>
+            )}
+          </div>
         </div>
       )}
 

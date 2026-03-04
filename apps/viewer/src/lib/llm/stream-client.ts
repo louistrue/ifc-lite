@@ -40,6 +40,8 @@ export interface UsageInfo {
   pct: number;
   /** Reset time (epoch seconds) */
   resetAt: number;
+  /** Whether this request can consume credits (pro paid model) */
+  billable?: boolean;
 }
 
 export interface StreamOptions {
@@ -65,6 +67,79 @@ export interface StreamOptions {
   onUsageInfo?: (usage: UsageInfo) => void;
 }
 
+function parseUsageFromHeaders(headers: Headers): UsageInfo | null {
+  const creditsUsed = parseInt(headers.get('X-Credits-Used') ?? '0', 10);
+  const creditsLimit = parseInt(headers.get('X-Credits-Limit') ?? '0', 10);
+  const usageUsed = parseInt(headers.get('X-Usage-Used') ?? '0', 10);
+  const usageLimit = parseInt(headers.get('X-Usage-Limit') ?? '0', 10);
+
+  if (creditsLimit > 0) {
+    const billable = headers.get('X-Credits-Billable');
+    return {
+      type: 'credits',
+      used: creditsUsed,
+      limit: creditsLimit,
+      pct: parseInt(headers.get('X-Credits-Pct') ?? '0', 10),
+      resetAt: parseInt(headers.get('X-Credits-Reset') ?? '0', 10),
+      billable: billable === null ? undefined : billable === 'true',
+    };
+  }
+
+  if (usageLimit > 0) {
+    return {
+      type: 'requests',
+      used: usageUsed,
+      limit: usageLimit,
+      pct: parseInt(headers.get('X-Usage-Pct') ?? '0', 10),
+      resetAt: parseInt(headers.get('X-Usage-Reset') ?? '0', 10),
+    };
+  }
+
+  return null;
+}
+
+/**
+ * Fetch current usage snapshot without sending a chat message.
+ * Used for instant UI hydration and periodic refresh.
+ */
+export async function fetchUsageSnapshot(proxyUrl: string, authToken?: string | null): Promise<UsageInfo | null> {
+  const headers: Record<string, string> = {};
+  if (authToken) {
+    headers['Authorization'] = `Bearer ${authToken}`;
+  }
+
+  const snapshotUrl = `${proxyUrl}${proxyUrl.includes('?') ? '&' : '?'}usage=1`;
+  const appSnapshotUrl = '/api/chat?usage=1';
+  const canFallbackToAppProxy = snapshotUrl !== appSnapshotUrl;
+  const fetchSnapshot = (url: string) => fetch(url, { method: 'GET', headers });
+
+  let response: Response;
+  try {
+    response = await fetchSnapshot(snapshotUrl);
+  } catch {
+    if (!canFallbackToAppProxy) return null;
+    try {
+      response = await fetchSnapshot(appSnapshotUrl);
+    } catch {
+      return null;
+    }
+  }
+
+  if (!response.ok && response.status === 404 && canFallbackToAppProxy) {
+    try {
+      const retry = await fetchSnapshot(appSnapshotUrl);
+      if (retry.ok || retry.status !== 404) {
+        response = retry;
+      }
+    } catch {
+      // keep original response
+    }
+  }
+
+  if (!response.ok) return null;
+  return parseUsageFromHeaders(response.headers);
+}
+
 /**
  * Stream a chat completion from the LLM proxy.
  * Parses SSE format (data: {...}\n\n).
@@ -79,18 +154,46 @@ export async function streamChat(options: StreamOptions): Promise<void> {
     headers['Authorization'] = `Bearer ${authToken}`;
   }
 
+  const requestBody = JSON.stringify({ messages, model, system });
+  const fetchChat = (url: string) => fetch(url, {
+    method: 'POST',
+    headers,
+    body: requestBody,
+    signal,
+  });
+  const canFallbackToAppProxy = proxyUrl !== '/api/chat';
+
   let response: Response;
   try {
-    response = await fetch(proxyUrl, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({ messages, model, system }),
-      signal,
-    });
+    response = await fetchChat(proxyUrl);
   } catch (err) {
     if (signal?.aborted) return;
-    onError(err instanceof Error ? err : new Error(String(err)));
-    return;
+    if (!canFallbackToAppProxy) {
+      onError(err instanceof Error ? err : new Error(String(err)));
+      return;
+    }
+    // Local dev resilience: if direct API URL is down/unreachable, retry once
+    // through app-relative proxy path.
+    try {
+      response = await fetchChat('/api/chat');
+    } catch (fallbackErr) {
+      if (signal?.aborted) return;
+      onError(fallbackErr instanceof Error ? fallbackErr : new Error(String(fallbackErr)));
+      return;
+    }
+  }
+
+  // Local dev resilience: if direct API URL 404s (common when vercel dev
+  // port/process changes), retry once through the app proxy path.
+  if (!response.ok && response.status === 404 && canFallbackToAppProxy) {
+    try {
+      const retry = await fetchChat('/api/chat');
+      if (retry.ok || retry.status !== 404) {
+        response = retry;
+      }
+    } catch {
+      // ignore fallback failure, original response handling below will surface error
+    }
   }
 
   if (!response.ok) {
@@ -103,9 +206,15 @@ export async function streamChat(options: StreamOptions): Promise<void> {
         errorDetail = 'Upgrade to Pro to use this model.';
       }
 
+      if (response.status === 401) {
+        errorDetail = 'Authentication expired. Please sign out and sign in again.';
+      }
+
       if (response.status === 429) {
         if (errorBody.type === 'credits') {
-          errorDetail = `Monthly credits used up. Resets ${errorBody.resetAt ? new Date(errorBody.resetAt).toLocaleDateString() : 'next month'}.`;
+          const contactEmail = errorBody.contactEmail as string | undefined;
+          const contactSuffix = contactEmail ? ` Need more? Reach out at ${contactEmail}.` : '';
+          errorDetail = `Monthly credits used up. Resets ${errorBody.resetAt ? new Date(errorBody.resetAt).toLocaleDateString() : 'next month'}.${contactSuffix}`;
         } else if (errorBody.type === 'request_cap') {
           errorDetail = errorBody.error || 'Daily limit reached. Upgrade to Pro for more.';
         } else {
@@ -121,27 +230,9 @@ export async function streamChat(options: StreamOptions): Promise<void> {
 
   // Extract usage info from response headers
   if (onUsageInfo) {
-    const creditsUsed = parseInt(response.headers.get('X-Credits-Used') ?? '0', 10);
-    const creditsLimit = parseInt(response.headers.get('X-Credits-Limit') ?? '0', 10);
-    const usageUsed = parseInt(response.headers.get('X-Usage-Used') ?? '0', 10);
-    const usageLimit = parseInt(response.headers.get('X-Usage-Limit') ?? '0', 10);
-
-    if (creditsLimit > 0) {
-      onUsageInfo({
-        type: 'credits',
-        used: creditsUsed,
-        limit: creditsLimit,
-        pct: parseInt(response.headers.get('X-Credits-Pct') ?? '0', 10),
-        resetAt: parseInt(response.headers.get('X-Credits-Reset') ?? '0', 10),
-      });
-    } else if (usageLimit > 0) {
-      onUsageInfo({
-        type: 'requests',
-        used: usageUsed,
-        limit: usageLimit,
-        pct: parseInt(response.headers.get('X-Usage-Pct') ?? '0', 10),
-        resetAt: parseInt(response.headers.get('X-Usage-Reset') ?? '0', 10),
-      });
+    const usage = parseUsageFromHeaders(response.headers);
+    if (usage) {
+      onUsageInfo(usage);
     }
   }
 
@@ -175,11 +266,18 @@ export async function streamChat(options: StreamOptions): Promise<void> {
 
           try {
             const parsed = JSON.parse(data) as {
+              __ifcLiteUsage?: UsageInfo;
               choices?: Array<{
                 delta?: { content?: string };
                 finish_reason?: string | null;
               }>;
             };
+
+            // Final usage update emitted by proxy after stream-end reconciliation.
+            if (parsed.__ifcLiteUsage && onUsageInfo) {
+              onUsageInfo(parsed.__ifcLiteUsage);
+              continue;
+            }
 
             const content = parsed.choices?.[0]?.delta?.content;
             if (content) {

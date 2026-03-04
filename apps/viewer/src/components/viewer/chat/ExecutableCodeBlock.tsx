@@ -103,15 +103,14 @@ export const ExecutableCodeBlock = memo(function ExecutableCodeBlock({
           }, 500);
         }
       } else {
-        // Preserve logs from failed execution (ScriptError captures them)
-        const store = useViewerStore.getState();
-        const error = store.scriptLastError;
-        const lastResult = store.scriptLastResult;
+        // useSandbox sets scriptLastError synchronously before returning null —
+        // read it immediately after the await to get the actual error message.
+        const { scriptLastError, scriptLastResult } = useViewerStore.getState();
         setCodeExecResult(messageId, block.index, {
           status: 'error',
-          error: error ?? 'Script execution failed',
-          logs: lastResult?.logs,
-          durationMs: lastResult?.durationMs,
+          error: scriptLastError ?? 'Script execution failed',
+          logs: scriptLastResult?.logs,
+          durationMs: scriptLastResult?.durationMs,
         });
       }
     } catch (err) {

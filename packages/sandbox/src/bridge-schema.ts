@@ -231,7 +231,22 @@ export const NAMESPACE_SCHEMAS: NamespaceSchema[] = [
         call: (sdk, args) => {
           const ref = toRef(args[0]);
           if (!ref) return [];
-          return sdk.properties(ref);
+          return sdk.properties(ref).map(pset => ({
+            name: pset.name, Name: pset.name,
+            globalId: pset.globalId, GlobalId: pset.globalId,
+            properties: pset.properties.map(p => ({
+              name: p.name, Name: p.name,
+              value: p.value, Value: p.value,
+              NominalValue: p.value,
+              type: p.type, Type: p.type,
+            })),
+            Properties: pset.properties.map(p => ({
+              name: p.name, Name: p.name,
+              value: p.value, Value: p.value,
+              NominalValue: p.value,
+              type: p.type, Type: p.type,
+            })),
+          }));
         },
         returns: 'value',
       },
@@ -245,7 +260,19 @@ export const NAMESPACE_SCHEMAS: NamespaceSchema[] = [
         call: (sdk, args) => {
           const ref = toRef(args[0]);
           if (!ref) return [];
-          return sdk.quantities(ref);
+          return sdk.quantities(ref).map(qset => ({
+            name: qset.name, Name: qset.name,
+            quantities: qset.quantities.map(q => ({
+              name: q.name, Name: q.name,
+              value: q.value, Value: q.value,
+              type: q.type, Type: q.type,
+            })),
+            Quantities: qset.quantities.map(q => ({
+              name: q.name, Name: q.name,
+              value: q.value, Value: q.value,
+              type: q.type, Type: q.type,
+            })),
+          }));
         },
         returns: 'value',
       },

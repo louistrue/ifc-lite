@@ -10,7 +10,7 @@
  * in a log console. AI chat is integrated as a collapsible side panel.
  */
 
-import { useCallback, useMemo, useState, memo } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, memo } from 'react';
 import {
   Play,
   Save,
@@ -115,6 +115,46 @@ export function ScriptPanel({ onClose }: ScriptPanelProps) {
   const [outputCollapsed, setOutputCollapsed] = useState(false);
   const chatPanelVisible = useViewerStore((s) => s.chatPanelVisible);
   const setChatPanelVisible = useViewerStore((s) => s.setChatPanelVisible);
+
+  // Chat panel width (px) — resizable via drag handle
+  const [chatWidth, setChatWidth] = useState(380);
+  const chatDragRef = useRef<{ startX: number; startWidth: number } | null>(null);
+  const cleanupChatDragRef = useRef<(() => void) | null>(null);
+
+  // Open chat by default when script panel mounts
+  useEffect(() => {
+    setChatPanelVisible(true);
+    return () => { cleanupChatDragRef.current?.(); };
+  }, [setChatPanelVisible]);
+
+  const handleChatResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    chatDragRef.current = { startX: e.clientX, startWidth: chatWidth };
+
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      if (!chatDragRef.current) return;
+      const delta = chatDragRef.current.startX - moveEvent.clientX;
+      const newWidth = Math.min(700, Math.max(240, chatDragRef.current.startWidth + delta));
+      setChatWidth(newWidth);
+    };
+
+    const cleanup = () => {
+      chatDragRef.current = null;
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      cleanupChatDragRef.current = null;
+    };
+
+    const onMouseUp = () => { cleanup(); };
+
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    cleanupChatDragRef.current = cleanup;
+  }, [chatWidth]);
 
   const activeScript = useMemo(
     () => savedScripts.find((s) => s.id === activeScriptId),
@@ -370,11 +410,14 @@ export function ScriptPanel({ onClose }: ScriptPanelProps) {
         </div>
       </div>
 
-      {/* Right side: AI Chat panel (collapsible) */}
+      {/* Right side: AI Chat panel (collapsible, resizable) */}
       {chatPanelVisible && (
         <>
-          <div className="w-px bg-border shrink-0" />
-          <div className="w-[380px] shrink-0 h-full">
+          <div
+            className="w-1.5 bg-border hover:bg-primary/50 active:bg-primary/70 transition-colors cursor-col-resize shrink-0 h-full"
+            onMouseDown={handleChatResizeStart}
+          />
+          <div style={{ width: chatWidth }} className="shrink-0 h-full min-w-0">
             <ChatPanel onClose={() => setChatPanelVisible(false)} />
           </div>
         </>

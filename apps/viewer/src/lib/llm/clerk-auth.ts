@@ -10,7 +10,7 @@
  * 2. Set VITE_CLERK_PUBLISHABLE_KEY in .env
  * 3. Create plans in dashboard:
  *    - Free plan (slug: 'free', features: ['llm_chat', 'free_models'])
- *    - Pro plan (slug: 'pro', features: ['llm_chat', 'free_models', 'pro_models'])
+ *    - Pro plan (slug: 'pro', $8/month, features: ['llm_chat', 'free_models', 'pro_models'])
  * 4. Wrap app with <ClerkProvider>
  *
  * Usage in components:
@@ -40,7 +40,7 @@ export const SUBSCRIPTION_PLANS = {
     slug: 'pro',
     name: 'Pro',
     features: ['llm_chat', 'free_models', 'pro_models'],
-    description: 'All models with monthly credit allowance',
+    description: 'All models with monthly credits ($8/month)',
   },
 } as const;
 
