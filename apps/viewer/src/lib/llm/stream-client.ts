@@ -103,13 +103,20 @@ export async function streamChat(options: StreamOptions): Promise<void> {
       if (response.status === 403 && errorBody.upgrade) {
         errorDetail = 'Pro subscription required for this model. Upgrade to unlock budget & frontier models.';
       }
-      // Surface budget/rate limit info for 429
+      // Surface rate limit / budget info for 429
       if (response.status === 429) {
         if (errorBody.type === 'budget') {
-          errorDetail = `Monthly budget exhausted ($${errorBody.budgetLimit?.toFixed(2) ?? '?'}/month, ${errorBody.budgetPct ?? 100}% used). Resets ${errorBody.resetAt ? new Date(errorBody.resetAt).toLocaleDateString() : 'next month'}.`;
+          // Our proxy: pro user budget exhausted
+          errorDetail = `Monthly budget exhausted ($${(errorBody.budgetSpent ?? 0).toFixed(2)} / $${(errorBody.budgetLimit ?? 5).toFixed(2)}). Resets ${errorBody.resetAt ? new Date(errorBody.resetAt).toLocaleDateString() : 'next month'}.`;
+        } else if (errorBody.type === 'request_cap') {
+          // Our proxy: free user daily cap
+          errorDetail = `Daily limit reached (${errorBody.limit ?? 50} requests/day). Resets ${errorBody.resetAt ? new Date(errorBody.resetAt).toLocaleString() : 'tomorrow'}.`;
+        } else if (errorBody.type === 'openrouter_limit') {
+          // OpenRouter's own rate limit (passed through by our proxy)
+          errorDetail = errorBody.error || 'Rate limit reached. Please wait a moment and try again.';
         } else {
-          const resetAt = errorBody.resetAt ? new Date(errorBody.resetAt).toLocaleString() : '';
-          errorDetail = `Daily limit reached (${errorBody.limit ?? '?'} requests/day). Resets ${resetAt || 'soon'}.`;
+          // Fallback for any other 429
+          errorDetail = errorBody.error || 'Rate limit reached. Please wait and try again.';
         }
       }
     } catch {

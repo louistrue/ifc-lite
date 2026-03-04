@@ -338,6 +338,25 @@ export default async function handler(req: Request): Promise<Response> {
 
   if (!upstream.ok) {
     const errorText = await upstream.text();
+
+    // If OpenRouter returns 429 (rate limit), provide a helpful message
+    if (upstream.status === 429) {
+      // OpenRouter free tier: 50 req/day shared across all free models
+      return corsResponse(429, {
+        error: 'OpenRouter rate limit reached. Free models share a 50 requests/day limit on OpenRouter. Please wait a minute and try again, or try a different model.',
+        type: 'openrouter_limit',
+        detail: errorText,
+      });
+    }
+
+    // If OpenRouter returns 402 (payment required / no credits)
+    if (upstream.status === 402) {
+      return corsResponse(502, {
+        error: 'OpenRouter credits exhausted. The server API key needs more credits.',
+        detail: errorText,
+      });
+    }
+
     return corsResponse(upstream.status, {
       error: `OpenRouter error: ${upstream.status}`,
       detail: errorText,
