@@ -119,10 +119,21 @@ export type { TopicOptions, CommentOptions, ViewpointOptions, IDSBCFOptions } fr
 export { DrawingNamespace } from './namespaces/drawing.js';
 export type { SectionCutOptions, FloorPlanOptions, SVGExportOptions, GraphicOverrideOptions, SheetOptions } from './namespaces/drawing.js';
 
+// List — entity tables, column discovery, CSV export
 export { ListNamespace } from './namespaces/list.js';
+export type { ListColumn, ListCondition, ListDefinition } from './namespaces/list.js';
+
 export { SpatialNamespace } from './namespaces/spatial.js';
 export { EventsNamespace } from './namespaces/events.js';
 export { CreateNamespace } from './namespaces/create.js';
+
+// bSDD — buildingSMART Data Dictionary property/classification lookup
+export { BsddNamespace } from './namespaces/bsdd.js';
+export type { BsddClassInfo, BsddClassProperty, BsddSearchResult, BsddOptions } from './namespaces/bsdd.js';
+
+// Sandbox — secure script execution in QuickJS-WASM
+export { SandboxNamespace } from './namespaces/sandbox.js';
+export type { SandboxConfig, SandboxPermissions, SandboxLimits, ScriptResult } from './namespaces/sandbox.js';
 
 // ============================================================================
 // Re-export creation types for convenience
