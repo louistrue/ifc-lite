@@ -14,6 +14,7 @@ import { SpatialHierarchyBuilder } from './spatial-hierarchy-builder.js';
 import { EntityExtractor } from './entity-extractor.js';
 import { extractLengthUnitScale } from './unit-extractor.js';
 import { getAttributeNames } from './ifc-schema.js';
+import { CompactEntityIndex, buildCompactEntityIndex } from './compact-entity-index.js';
 import {
     StringTable,
     EntityTableBuilder,
@@ -31,6 +32,18 @@ export interface SpatialIndex {
     raycast(origin: [number, number, number], direction: [number, number, number]): number[];
 }
 
+/**
+ * Entity-by-ID lookup interface. Supports both Map<number, EntityRef> (legacy)
+ * and CompactEntityIndex (memory-optimized typed arrays with LRU cache).
+ */
+export type EntityByIdIndex = {
+    get(expressId: number): EntityRef | undefined;
+    has(expressId: number): boolean;
+    readonly size: number;
+    keys(): IterableIterator<number>;
+    [Symbol.iterator](): IterableIterator<[number, EntityRef]>;
+};
+
 export interface IfcDataStore {
     fileSize: number;
     schemaVersion: 'IFC2X3' | 'IFC4' | 'IFC4X3' | 'IFC5';
@@ -38,7 +51,7 @@ export interface IfcDataStore {
     parseTime: number;
 
     source: Uint8Array;
-    entityIndex: { byId: Map<number, EntityRef>; byType: Map<string, number[]> };
+    entityIndex: { byId: EntityByIdIndex; byType: Map<string, number[]> };
 
     strings: StringTable;
     entities: ReturnType<EntityTableBuilder['build']>;
@@ -217,11 +230,32 @@ export class ColumnarParser {
         const quantityTableBuilder = new QuantityTableBuilder(strings);
         const relationshipGraphBuilder = new RelationshipGraphBuilder();
 
-        // Build entity index early (needed for property relationship lookup)
+        // Build compact entity index (typed arrays instead of Map for ~3x memory reduction)
+        const compactByIdIndex = buildCompactEntityIndex(entityRefs);
+        // entityRefs is now sorted by expressId (side effect of buildCompactEntityIndex)
+
+        // Also build byType index (Map<string, number[]>)
+        const byType = new Map<string, number[]>();
+        for (const ref of entityRefs) {
+            let typeList = byType.get(ref.type);
+            if (!typeList) {
+                typeList = [];
+                byType.set(ref.type, typeList);
+            }
+            typeList.push(ref.expressId);
+        }
+
         const entityIndex = {
-            byId: new Map<number, EntityRef>(),
-            byType: new Map<string, number[]>(),
+            byId: compactByIdIndex as EntityByIdIndex,
+            byType,
         };
+
+        // Temporary Map for fast lookup during parsing (needed for property ref resolution)
+        // This is transient — freed after parsing completes.
+        const tempByIdMap = new Map<number, EntityRef>();
+        for (const ref of entityRefs) {
+            tempByIdMap.set(ref.expressId, ref);
+        }
 
         // First pass: collect spatial, geometry, relationship, and property refs for targeted parsing
         const spatialRefs: EntityRef[] = [];
@@ -232,14 +266,6 @@ export class ColumnarParser {
         const associationRelRefs: EntityRef[] = [];
 
         for (const ref of entityRefs) {
-            // Build entity index
-            entityIndex.byId.set(ref.expressId, ref);
-            let typeList = entityIndex.byType.get(ref.type);
-            if (!typeList) {
-                typeList = [];
-                entityIndex.byType.set(ref.type, typeList);
-            }
-            typeList.push(ref.expressId);
 
             // Categorize refs for targeted parsing
             const typeUpper = ref.type.toUpperCase();
@@ -338,7 +364,7 @@ export class ColumnarParser {
                     }
 
                     // Find if the relating definition is a property set or quantity set
-                    const defRef = entityIndex.byId.get(relatingDef);
+                    const defRef = tempByIdMap.get(relatingDef);
                     if (defRef) {
                         const defTypeUpper = defRef.type.toUpperCase();
                         const isPropertySet = defTypeUpper === 'IFCPROPERTYSET';

@@ -186,7 +186,7 @@ export function rebuildSpatialHierarchy(
  * Entity index type for property/quantity set lookup
  */
 export interface EntityIndex {
-  byId: Map<number, unknown>;
+  byId: { get(expressId: number): unknown; has(expressId: number): boolean; readonly size: number };
   byType: Map<string, number[]>;
 }
 

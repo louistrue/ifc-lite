@@ -101,29 +101,29 @@ export function useIfcCache() {
         dataStore.source = new Uint8Array(cacheResult.sourceBuffer);
 
         // Quick scan to rebuild entity index with byte offsets (needed for on-demand extraction)
-        const { StepTokenizer } = await import('@ifc-lite/parser');
+        const { StepTokenizer, buildCompactEntityIndex } = await import('@ifc-lite/parser');
         const tokenizer = new StepTokenizer(dataStore.source);
-        const entityIndex = {
-          byId: new Map<number, any>(),
-          byType: new Map<string, number[]>(),
-        };
+        const entityRefs: Array<{ expressId: number; type: string; byteOffset: number; byteLength: number; lineNumber: number }> = [];
+        const byType = new Map<string, number[]>();
 
         for (const ref of tokenizer.scanEntitiesFast()) {
-          entityIndex.byId.set(ref.expressId, {
+          entityRefs.push({
             expressId: ref.expressId,
             type: ref.type,
             byteOffset: ref.offset,
             byteLength: ref.length,
             lineNumber: ref.line,
           });
-          let typeList = entityIndex.byType.get(ref.type);
+          let typeList = byType.get(ref.type);
           if (!typeList) {
             typeList = [];
-            entityIndex.byType.set(ref.type, typeList);
+            byType.set(ref.type, typeList);
           }
           typeList.push(ref.expressId);
         }
-        dataStore.entityIndex = entityIndex;
+        // Use compact entity index (typed arrays) for lower memory usage
+        const compactByIdIndex = buildCompactEntityIndex(entityRefs);
+        dataStore.entityIndex = { byId: compactByIdIndex, byType };
 
         // Rebuild on-demand maps from relationships
         // Pass entityIndex which contains ALL entity types including IfcPropertySet/IfcElementQuantity
