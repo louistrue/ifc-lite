@@ -82,6 +82,7 @@ type AnyFn = (...args: unknown[]) => unknown;
 export class SandboxNamespace {
   private bimContext: unknown;
   private activeSandbox: unknown | null = null;
+  private evalInProgress = false;
 
   constructor(bimContext?: unknown) {
     this.bimContext = bimContext ?? null;
@@ -116,7 +117,12 @@ export class SandboxNamespace {
       await this.create(config);
     }
     const sandbox = this.activeSandbox as { eval: (s: string) => Promise<ScriptResult> };
-    return sandbox.eval(script);
+    this.evalInProgress = true;
+    try {
+      return await sandbox.eval(script);
+    } finally {
+      this.evalInProgress = false;
+    }
   }
 
   /**
@@ -130,10 +136,13 @@ export class SandboxNamespace {
 
   /** Dispose the active sandbox and free WASM resources. */
   async dispose(): Promise<void> {
+    if (this.evalInProgress) {
+      throw new Error('Cannot dispose sandbox while eval() is in progress');
+    }
     if (this.activeSandbox) {
       const sandbox = this.activeSandbox as { dispose: () => void };
-      sandbox.dispose();
       this.activeSandbox = null;
+      sandbox.dispose();
     }
   }
 

@@ -102,15 +102,15 @@ export class IDSNamespace {
   }
 
   /** Check an entity facet (IfcType matching). */
-  async checkEntityFacet(facet: unknown, entityData: unknown): Promise<unknown> {
+  async checkEntityFacet(facet: unknown, entityData: unknown, accessor: unknown): Promise<unknown> {
     const mod = await loadIDS();
-    return (mod.checkEntityFacet as AnyFn)(facet, entityData);
+    return (mod.checkEntityFacet as AnyFn)(facet, entityData, accessor);
   }
 
   /** Filter entities by entity facet (IfcType). */
-  async filterByEntityFacet(facet: unknown, entities: unknown[]): Promise<unknown[]> {
+  async filterByEntityFacet(facet: unknown, entities: unknown[], accessor: unknown): Promise<unknown[]> {
     const mod = await loadIDS();
-    return (mod.filterByEntityFacet as AnyFn)(facet, entities) as Promise<unknown[]>;
+    return (mod.filterByEntityFacet as AnyFn)(facet, entities, accessor) as Promise<unknown[]>;
   }
 
   /** Check an attribute facet (Name, Description, ObjectType). */

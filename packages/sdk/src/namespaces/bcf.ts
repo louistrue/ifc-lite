@@ -155,19 +155,34 @@ export class BCFNamespace {
   /** Create a BCF viewpoint from viewer camera/section state. */
   async createViewpoint(options?: ViewpointOptions): Promise<unknown> {
     const mod = await loadBCF();
-    // Map SDK's GlobalId (IFC convention) to BCF library's ifcGuid
-    const components = options?.components ? {
-      selection: options.components.selection?.map(c => ({ ifcGuid: c.GlobalId })),
-      visibility: options.components.visibility ? {
-        defaultVisibility: options.components.visibility.defaultVisibility,
-        exceptions: options.components.visibility.exceptions?.map(c => ({ ifcGuid: c.GlobalId })),
-      } : undefined,
-      coloring: options.components.coloring?.map(g => ({
+    if (!options) return (mod.createViewpoint as AnyFn)({});
+
+    // Map SDK's GlobalId (IFC convention) to BCF library's guid-based lists
+    const comps = options.components;
+    const bcfOptions: Record<string, unknown> = {};
+    if (options.camera) bcfOptions.camera = options.camera;
+    if (options.sectionPlane) bcfOptions.sectionPlane = options.sectionPlane;
+
+    if (comps?.selection) {
+      bcfOptions.selectedGuids = comps.selection.map(c => c.GlobalId);
+    }
+    if (comps?.visibility) {
+      if (comps.visibility.defaultVisibility) {
+        // Default visible → exceptions are hidden
+        bcfOptions.hiddenGuids = comps.visibility.exceptions?.map(c => c.GlobalId);
+      } else {
+        // Default hidden → exceptions are visible (isolation mode)
+        bcfOptions.visibleGuids = comps.visibility.exceptions?.map(c => c.GlobalId);
+      }
+    }
+    if (comps?.coloring) {
+      bcfOptions.coloredGuids = comps.coloring.map(g => ({
         color: g.color,
-        components: g.components.map(c => ({ ifcGuid: c.GlobalId })),
-      })),
-    } : undefined;
-    return (mod.createViewpoint as AnyFn)(options?.camera, options?.sectionPlane, components);
+        guids: g.components.map(c => c.GlobalId),
+      }));
+    }
+
+    return (mod.createViewpoint as AnyFn)(bcfOptions);
   }
 
   /** Add a viewpoint to a topic. */
