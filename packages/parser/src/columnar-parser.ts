@@ -223,13 +223,14 @@ export class ColumnarParser {
             byType: new Map<string, number[]>(),
         };
 
-        // First pass: collect spatial, geometry, relationship, and property refs for targeted parsing
+        // First pass: collect spatial, geometry, relationship, property, and type refs for targeted parsing
         const spatialRefs: EntityRef[] = [];
         const geometryRefs: EntityRef[] = [];
         const relationshipRefs: EntityRef[] = [];
         const propertyRelRefs: EntityRef[] = [];
         const propertyEntityRefs: EntityRef[] = [];
         const associationRelRefs: EntityRef[] = [];
+        const typeObjectRefs: EntityRef[] = [];
 
         for (const ref of entityRefs) {
             // Build entity index
@@ -255,6 +256,8 @@ export class ColumnarParser {
                 propertyEntityRefs.push(ref);
             } else if (ASSOCIATION_REL_TYPES.has(typeUpper)) {
                 associationRelRefs.push(ref);
+            } else if (typeUpper.endsWith('TYPE')) {
+                typeObjectRefs.push(ref);
             }
         }
 
@@ -281,6 +284,19 @@ export class ColumnarParser {
         // IFC entities with geometry have GlobalId at attribute[0] and Name at attribute[2]
         options.onProgress?.({ phase: 'parsing geometry globalIds', percent: 12 });
         for (const ref of geometryRefs) {
+            const entity = extractor.extractEntity(ref);
+            if (entity) {
+                const attrs = entity.attributes || [];
+                const globalId = typeof attrs[0] === 'string' ? attrs[0] : '';
+                const name = typeof attrs[2] === 'string' ? attrs[2] : '';
+                parsedEntityData.set(ref.expressId, { globalId, name });
+            }
+        }
+
+        // Parse type objects (IfcWallType, IfcDoorType, etc.) for GlobalId and Name
+        // Type objects derive from IfcRoot: attrs[0]=GlobalId, attrs[2]=Name
+        // Needed for IDS validation against type entities
+        for (const ref of typeObjectRefs) {
             const entity = extractor.extractEntity(ref);
             if (entity) {
                 const attrs = entity.attributes || [];
