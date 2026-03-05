@@ -1473,6 +1473,52 @@ export function extractTypePropertiesOnDemand(
 }
 
 /**
+ * Extract properties from a type entity's own HasPropertySets attribute.
+ * Used when the type entity itself is selected (e.g., via "By Type" tree).
+ * Returns the type's own property sets from attribute index 5 + any via IfcRelDefinesByProperties.
+ */
+export function extractTypeEntityOwnProperties(
+    store: IfcDataStore,
+    typeEntityId: number
+): Array<{ name: string; globalId?: string; properties: Array<{ name: string; type: number; value: PropertyValue }> }> {
+    const ref = store.entityIndex.byId.get(typeEntityId);
+    if (!ref || !store.source?.length) return [];
+
+    const extractor = new EntityExtractor(store.source);
+    const typeEntity = extractor.extractEntity(ref);
+    if (!typeEntity) return [];
+
+    const allPsets: Array<{ name: string; globalId?: string; properties: Array<{ name: string; type: number; value: PropertyValue }> }> = [];
+    const seenPsetNames = new Set<string>();
+
+    // Source 1: HasPropertySets attribute (index 5 for IfcTypeObject subtypes)
+    const hasPropertySets = typeEntity.attributes?.[5];
+    if (Array.isArray(hasPropertySets)) {
+        const psetIds = hasPropertySets.filter((id): id is number => typeof id === 'number');
+        const psets = extractPsetsFromIds(store, extractor, psetIds);
+        for (const pset of psets) {
+            seenPsetNames.add(pset.name);
+            allPsets.push(pset);
+        }
+    }
+
+    // Source 2: onDemandPropertyMap (IFC4: via IFCRELDEFINESBYPROPERTIES)
+    if (store.onDemandPropertyMap) {
+        const typePsetIds = store.onDemandPropertyMap.get(typeEntityId);
+        if (typePsetIds && typePsetIds.length > 0) {
+            const psets = extractPsetsFromIds(store, extractor, typePsetIds);
+            for (const pset of psets) {
+                if (!seenPsetNames.has(pset.name)) {
+                    allPsets.push(pset);
+                }
+            }
+        }
+    }
+
+    return allPsets;
+}
+
+/**
  * Structured document info from IFC document references.
  */
 export interface DocumentInfo {

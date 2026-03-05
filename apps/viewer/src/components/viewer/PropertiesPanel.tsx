@@ -30,7 +30,8 @@ import { useViewerStore } from '@/store';
 import { useIfc } from '@/hooks/useIfc';
 import { IfcQuery } from '@ifc-lite/query';
 import { MutablePropertyView } from '@ifc-lite/mutations';
-import { extractPropertiesOnDemand, extractQuantitiesOnDemand, extractClassificationsOnDemand, extractMaterialsOnDemand, extractTypePropertiesOnDemand, extractDocumentsOnDemand, extractRelationshipsOnDemand, type IfcDataStore } from '@ifc-lite/parser';
+import { extractPropertiesOnDemand, extractQuantitiesOnDemand, extractClassificationsOnDemand, extractMaterialsOnDemand, extractTypePropertiesOnDemand, extractTypeEntityOwnProperties, extractDocumentsOnDemand, extractRelationshipsOnDemand, type IfcDataStore } from '@ifc-lite/parser';
+import { EntityFlags } from '@ifc-lite/data';
 import type { EntityRef, FederatedModel } from '@/store/types';
 
 import { CoordVal, CoordRow } from './properties/CoordinateDisplay';
@@ -305,6 +306,16 @@ export function PropertiesPanel() {
     return modelQuery.entity(originalExpressId);
   }, [selectedEntity, modelQuery]);
 
+  // Check if the selected entity is a type entity (IfcWallType, etc.)
+  // Uses the entity type name to detect — type entity names end with "Type"
+  const isTypeEntity = useMemo(() => {
+    if (!selectedEntity) return false;
+    const dataStore = model?.ifcDataStore ?? ifcDataStore;
+    if (!dataStore?.entities) return false;
+    const typeName = dataStore.entities.getTypeName(selectedEntity.expressId);
+    return typeName.endsWith('Type');
+  }, [selectedEntity, model, ifcDataStore]);
+
   // Unified property/quantity access - EntityNode handles on-demand extraction automatically
   // These hooks must be called before any early return to maintain hook order
   // Use MutablePropertyView as primary source when available (it handles base + mutations)
@@ -367,12 +378,28 @@ export function PropertiesPanel() {
     if (!entityNode) return [];
 
     const rawProps = entityNode.properties();
-    return rawProps.map(pset => ({
+    let result = rawProps.map(pset => ({
       name: pset.name,
       properties: pset.properties.map(p => ({ name: p.name, value: p.value, isMutated: false })),
       isNewPset: false,
     }));
-  }, [entityNode, selectedEntity, mutationViews, mutationVersion]);
+
+    // For type entities, also extract HasPropertySets (attribute[5]) since they
+    // aren't linked via IfcRelDefinesByProperties and thus not in onDemandPropertyMap
+    if (isTypeEntity && result.length === 0 && expressId) {
+      const dataStore = (activeDataStore ?? ifcDataStore) as IfcDataStore | null;
+      if (dataStore) {
+        const typeOwnProps = extractTypeEntityOwnProperties(dataStore, expressId);
+        result = typeOwnProps.map(pset => ({
+          name: pset.name,
+          properties: pset.properties.map(p => ({ name: p.name, value: p.value, isMutated: false })),
+          isNewPset: false,
+        }));
+      }
+    }
+
+    return result;
+  }, [entityNode, selectedEntity, mutationViews, mutationVersion, isTypeEntity, activeDataStore, ifcDataStore]);
 
   const quantities: QuantitySet[] = useMemo(() => {
     let modelId = selectedEntity?.modelId;
@@ -549,48 +576,43 @@ export function PropertiesPanel() {
     return stats.length > 0 ? stats : null;
   }, [selectedEntity, model, ifcDataStore]);
 
-  // Merge instance-level and type-level property sets into a single unified list.
-  // - Same-named psets: instance properties take precedence, type-level props are appended (deduped by name)
-  // - Type-only psets: added to the main list (no separate "Type" section)
-  // This matches how reference IFC viewers display properties.
-  const mergedProperties: PropertySet[] = useMemo(() => {
-    if (!typeProperties || typeProperties.psets.length === 0) return properties;
-    if (properties.length === 0) return typeProperties.psets;
+  // Separate occurrence (instance) and inherited type properties.
+  // Occurrence properties are displayed first, type properties in a separate section.
+  // When a pset exists at both levels, occurrence takes precedence; the type-only
+  // properties (not overridden at instance level) are shown in the inherited section.
+  const { occurrenceProperties, inheritedTypeProperties } = useMemo(() => {
+    const occ: PropertySet[] = properties.map(p => ({ ...p, source: 'instance' as const }));
 
-    const instanceByName = new Map<string, PropertySet>();
-    for (const pset of properties) {
-      instanceByName.set(pset.name, pset);
+    if (!typeProperties || typeProperties.psets.length === 0) {
+      return { occurrenceProperties: occ, inheritedTypeProperties: [] as PropertySet[] };
     }
 
-    // Start with instance psets, merging type-level props into matching ones
-    const result: PropertySet[] = [];
-    const merged = new Set<string>();
+    const instanceByName = new Set(properties.map(p => p.name));
+    const inherited: PropertySet[] = [];
 
-    for (const pset of properties) {
-      const typePset = typeProperties.psets.find(tp => tp.name === pset.name);
-      if (typePset) {
-        // Merge: add type-level properties not already present in instance pset
-        const existingNames = new Set(pset.properties.map(p => p.name));
-        const extraProps = typePset.properties.filter(p => !existingNames.has(p.name));
-        result.push({
-          ...pset,
-          properties: [...pset.properties, ...extraProps],
-        });
-        merged.add(pset.name);
-      } else {
-        result.push(pset);
-      }
-    }
-
-    // Add type-only psets that don't exist at instance level
     for (const typePset of typeProperties.psets) {
-      if (!merged.has(typePset.name) && !instanceByName.has(typePset.name)) {
-        result.push(typePset);
+      if (instanceByName.has(typePset.name)) {
+        // Pset exists at instance level - add type-only props that aren't overridden
+        const instancePset = properties.find(p => p.name === typePset.name)!;
+        const instancePropNames = new Set(instancePset.properties.map(p => p.name));
+        const extraProps = typePset.properties.filter(p => !instancePropNames.has(p.name));
+        if (extraProps.length > 0) {
+          inherited.push({ ...typePset, properties: extraProps, source: 'type' });
+        }
+      } else {
+        // Type-only pset - show fully in inherited section
+        inherited.push({ ...typePset, source: 'type' });
       }
     }
 
-    return result;
+    return { occurrenceProperties: occ, inheritedTypeProperties: inherited };
   }, [properties, typeProperties]);
+
+  // Combined list of all properties for bSDD deduplication and edit toolbar
+  const mergedProperties: PropertySet[] = useMemo(
+    () => [...occurrenceProperties, ...inheritedTypeProperties],
+    [occurrenceProperties, inheritedTypeProperties]
+  );
 
   // Build a set of existing property keys ("PsetName:PropName") for bSDD deduplication
   const existingProps = useMemo(() => {
@@ -963,22 +985,54 @@ export function PropertiesPanel() {
               <p className="text-sm text-zinc-500 dark:text-zinc-500 text-center py-8 font-mono">No property sets</p>
             ) : (
               <div className="space-y-3 w-full overflow-hidden">
-                {/* Type badge - show which type this element inherits from */}
-                {typeProperties && typeProperties.psets.length > 0 && (
-                  <div className="flex items-center gap-2 px-1 pb-0.5 text-[11px] text-indigo-600/70 dark:text-indigo-400/60">
-                    <Building2 className="h-3 w-3 shrink-0" />
-                    <span className="font-medium truncate">Type: {typeProperties.typeName}</span>
-                  </div>
+                {/* Occurrence/Type Properties (based on whether entity itself is a type) */}
+                {occurrenceProperties.length > 0 && (
+                  <>
+                    {(isTypeEntity || (typeProperties && typeProperties.psets.length > 0)) && (
+                      <div className="flex items-center gap-2 px-1 pb-0.5 text-[11px] text-zinc-500 dark:text-zinc-400 uppercase tracking-wider font-semibold">
+                        {isTypeEntity ? (
+                          <>
+                            <Building2 className="h-3 w-3 shrink-0 text-indigo-500" />
+                            Type Properties:
+                          </>
+                        ) : 'Occurrence Properties:'}
+                      </div>
+                    )}
+                    {occurrenceProperties.map((pset: PropertySet) => (
+                      <PropertySetCard
+                        key={`occ-${pset.name}`}
+                        pset={pset}
+                        modelId={selectedEntity?.modelId}
+                        entityId={selectedEntity?.expressId}
+                        enableEditing={editMode}
+                        isTypeProperty={isTypeEntity}
+                      />
+                    ))}
+                  </>
                 )}
-                {mergedProperties.map((pset: PropertySet) => (
-                  <PropertySetCard
-                    key={pset.name}
-                    pset={pset}
-                    modelId={selectedEntity?.modelId}
-                    entityId={selectedEntity?.expressId}
-                    enableEditing={editMode}
-                  />
-                ))}
+
+                {/* Inherited Type Properties */}
+                {inheritedTypeProperties.length > 0 && typeProperties && (
+                  <>
+                    {occurrenceProperties.length > 0 && (
+                      <div className="border-t border-indigo-200 dark:border-indigo-800/50 pt-2 mt-2" />
+                    )}
+                    <div className="flex items-center gap-2 px-1 pb-0.5 text-[11px] text-indigo-600/70 dark:text-indigo-400/60 uppercase tracking-wider font-semibold">
+                      <Building2 className="h-3 w-3 shrink-0" />
+                      <span className="truncate">Inherited Type Properties: {typeProperties.typeName}</span>
+                    </div>
+                    {inheritedTypeProperties.map((pset: PropertySet) => (
+                      <PropertySetCard
+                        key={`type-${pset.name}`}
+                        pset={pset}
+                        modelId={selectedEntity?.modelId}
+                        entityId={typeProperties.typeId}
+                        enableEditing={editMode}
+                        isTypeProperty
+                      />
+                    ))}
+                  </>
+                )}
 
                 {/* Classifications */}
                 {classifications.length > 0 && (

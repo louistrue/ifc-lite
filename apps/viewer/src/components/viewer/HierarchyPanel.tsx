@@ -209,6 +209,37 @@ export function HierarchyPanel() {
       return;
     }
 
+    // IFC type entity nodes (e.g. IfcWallType/W01) - select type entity for property panel + isolate instances
+    if (node.type === 'ifc-type') {
+      const modelId = node.modelIds[0];
+      // The type entity expressId is encoded in the node id: "ifctype-{modelId}-{expressId}"
+      const typeExpressId = parseInt(node.id.split('-').pop()!, 10);
+
+      if (modelId && modelId !== 'legacy') {
+        const model = models.get(modelId);
+        const globalId = typeExpressId + (model?.idOffset ?? 0);
+        setSelectedEntityId(globalId);
+        setSelectedEntity({ modelId, expressId: typeExpressId });
+        setActiveModel(modelId);
+      } else {
+        setSelectedEntityId(typeExpressId);
+        setSelectedEntity({ modelId: 'legacy', expressId: typeExpressId });
+      }
+
+      // Isolate instances of this type
+      const elements = getNodeElements(node);
+      if (elements.length > 0) {
+        setSelectedEntityIds([]);
+        isolateEntities(elements);
+      }
+
+      // Toggle expand
+      if (node.hasChildren) {
+        toggleExpand(node.id);
+      }
+      return;
+    }
+
     // Spatial container nodes (IfcProject/IfcSite/IfcBuilding) - select for property panel + expand
     if (isSpatialContainer(node.type)) {
       const entityId = node.expressIds[0];
@@ -313,20 +344,29 @@ export function HierarchyPanel() {
   // Compute selection and visibility state for a node
   const computeNodeState = useCallback((node: TreeNode): { isSelected: boolean; nodeHidden: boolean; modelVisible?: boolean } => {
     // Determine if node is selected
+    // For ifc-type nodes, check if the type entity itself is selected
     const isSelected = node.type === 'unified-storey'
       ? node.expressIds.some(id => selectedStoreys.has(id))
       : node.type === 'IfcBuildingStorey'
         ? selectedStoreys.has(node.expressIds[0])
         : node.type === 'element'
           ? selectedEntityId === node.expressIds[0]
-          : false;
+          : node.type === 'ifc-type'
+            ? (() => {
+                const typeExpressId = parseInt(node.id.split('-').pop()!, 10);
+                const mId = node.modelIds[0];
+                const m = mId && mId !== 'legacy' ? models.get(mId) : null;
+                const gId = typeExpressId + (m?.idOffset ?? 0);
+                return selectedEntityId === gId;
+              })()
+            : false;
 
     // Compute visibility inline - for elements check directly, for storeys use getNodeElements
     let nodeHidden = false;
     if (node.type === 'element') {
       nodeHidden = hiddenEntities.has(node.expressIds[0]);
     } else if (node.type === 'IfcBuildingStorey' || node.type === 'unified-storey' ||
-               node.type === 'type-group' ||
+               node.type === 'type-group' || node.type === 'ifc-type' ||
                (node.type === 'model-header' && node.id.startsWith('contrib-'))) {
       const elements = getNodeElements(node);
       nodeHidden = elements.length > 0 && elements.every(id => hiddenEntities.has(id));
@@ -407,10 +447,19 @@ export function HierarchyPanel() {
         <Layers className="h-3 w-3 mr-1" />
         By Class
       </Button>
+      <Button
+        variant={groupingMode === 'ifc-type' ? 'default' : 'outline'}
+        size="sm"
+        className="h-6 text-[10px] flex-1 rounded-none uppercase tracking-wider"
+        onClick={() => setGroupingMode('ifc-type')}
+      >
+        <FileBox className="h-3 w-3 mr-1" />
+        By Type
+      </Button>
     </div>
   );
 
-  // In type grouping mode, always use flat tree layout (even for multi-model)
+  // In type/ifc-type grouping mode, always use flat tree layout (even for multi-model)
   if (isMultiModel && groupingMode === 'spatial') {
     return (
       <div ref={containerRef} className="h-full flex flex-col border-r-2 border-zinc-200 dark:border-zinc-800 bg-white dark:bg-black">
@@ -523,7 +572,7 @@ export function HierarchyPanel() {
       </div>
 
       {/* Section Header */}
-      <SectionHeader icon={groupingMode === 'type' ? Layers : Building2} title={groupingMode === 'type' ? 'By Class' : 'Hierarchy'} count={filteredNodes.length} />
+      <SectionHeader icon={groupingMode === 'spatial' ? Building2 : groupingMode === 'type' ? Layers : FileBox} title={groupingMode === 'spatial' ? 'Hierarchy' : groupingMode === 'type' ? 'By Class' : 'By Type'} count={filteredNodes.length} />
 
       {/* Tree */}
       <div ref={parentRef} className="flex-1 overflow-auto scrollbar-thin bg-white dark:bg-black">
