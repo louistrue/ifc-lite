@@ -605,9 +605,8 @@ export default async function handler(req: Request): Promise<Response> {
   // Auth
   const authHeader = req.headers.get('authorization');
   const token = authHeader?.replace('Bearer ', '') || undefined;
-  const jwtVerificationEnabled = Boolean(process.env.CLERK_JWT_KEY?.trim());
   const claims = await verifyToken(token);
-  if (token && !claims && jwtVerificationEnabled) {
+  if (token && !claims) {
     return corsResponse(401, requestOrigin, {
       error: 'Authentication invalid or expired. Please sign in again.',
       code: 'auth_invalid',

@@ -801,9 +801,8 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
                 <div className="flex items-center gap-1.5 cursor-default">
                   <div className="w-12 h-1 bg-muted rounded-full overflow-hidden">
                     <div
-                      className={`h-full rounded-full transition-all ${
-                        displayUsage.pct >= 90 ? 'bg-destructive' : displayUsage.pct >= 70 ? 'bg-amber-500' : 'bg-emerald-500'
-                      }`}
+                      className={`h-full rounded-full transition-all ${displayUsage.pct >= 90 ? 'bg-destructive' : displayUsage.pct >= 70 ? 'bg-amber-500' : 'bg-emerald-500'
+                        }`}
                       style={{ width: `${Math.min(100, displayUsage.pct)}%` }}
                     />
                   </div>
