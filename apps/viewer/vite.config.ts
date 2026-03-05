@@ -208,6 +208,8 @@ export default defineConfig({
     },
     proxy: {
       '/api/chat': {
+        // Single API source of truth lives at repo-root `api/chat.ts`.
+        // For local dev, run `pnpm dev:api` from repo root.
         target: 'http://localhost:3001',
         changeOrigin: true,
       },

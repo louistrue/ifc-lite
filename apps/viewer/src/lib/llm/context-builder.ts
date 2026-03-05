@@ -11,6 +11,52 @@
 import { useViewerStore } from '@/store';
 import type { ModelContext } from './system-prompt.js';
 
+let cachedTypeCountsFingerprint = '';
+let cachedTypeCounts: Record<string, number> = {};
+
+function buildFingerprint(state: ReturnType<typeof useViewerStore.getState>): string {
+  if (state.models.size > 0) {
+    const items: string[] = [];
+    for (const [id, model] of state.models) {
+      const count = model.ifcDataStore?.entities.count ?? 0;
+      items.push(`${id}:${count}`);
+    }
+    items.sort();
+    return `federated|${items.join('|')}`;
+  }
+
+  const legacyCount = state.ifcDataStore?.entities.count ?? 0;
+  return `legacy|${legacyCount}`;
+}
+
+function computeTypeCounts(state: ReturnType<typeof useViewerStore.getState>): Record<string, number> {
+  const typeCounts: Record<string, number> = {};
+
+  if (state.models.size > 0) {
+    for (const [, model] of state.models) {
+      const store = model.ifcDataStore;
+      if (!store) continue;
+      for (let i = 0; i < store.entities.count; i++) {
+        const id = store.entities.expressId[i];
+        const type = store.entities.getTypeName(id);
+        if (type) typeCounts[type] = (typeCounts[type] ?? 0) + 1;
+      }
+    }
+    return typeCounts;
+  }
+
+  if (state.ifcDataStore) {
+    const store = state.ifcDataStore;
+    for (let i = 0; i < store.entities.count; i++) {
+      const id = store.entities.expressId[i];
+      const type = store.entities.getTypeName(id);
+      if (type) typeCounts[type] = (typeCounts[type] ?? 0) + 1;
+    }
+  }
+
+  return typeCounts;
+}
+
 /**
  * Snapshot the current model context from the Zustand store.
  * Called before each LLM request to provide up-to-date context.
@@ -19,7 +65,7 @@ export function getModelContext(): ModelContext {
   const state = useViewerStore.getState();
 
   const models: ModelContext['models'] = [];
-  const typeCounts: Record<string, number> = {};
+  const fingerprint = buildFingerprint(state);
 
   // Federated models
   if (state.models.size > 0) {
@@ -29,18 +75,6 @@ export function getModelContext(): ModelContext {
         name: model.name ?? 'Unknown',
         entityCount,
       });
-
-      // Aggregate type counts
-      if (model.ifcDataStore) {
-        const store = model.ifcDataStore;
-        for (let i = 0; i < store.entities.count; i++) {
-          const id = store.entities.expressId[i];
-          const type = store.entities.getTypeName(id);
-          if (type) {
-            typeCounts[type] = (typeCounts[type] ?? 0) + 1;
-          }
-        }
-      }
     }
   }
 
@@ -51,14 +85,11 @@ export function getModelContext(): ModelContext {
       name: 'Model',
       entityCount: store.entities.count,
     });
+  }
 
-    for (let i = 0; i < store.entities.count; i++) {
-      const id = store.entities.expressId[i];
-      const type = store.entities.getTypeName(id);
-      if (type) {
-        typeCounts[type] = (typeCounts[type] ?? 0) + 1;
-      }
-    }
+  if (fingerprint !== cachedTypeCountsFingerprint) {
+    cachedTypeCounts = computeTypeCounts(state);
+    cachedTypeCountsFingerprint = fingerprint;
   }
 
   // Selection count
@@ -66,7 +97,7 @@ export function getModelContext(): ModelContext {
     ? state.selectedEntityIds.size
     : state.selectedEntityId !== null ? 1 : 0;
 
-  return { models, typeCounts, selectedCount };
+  return { models, typeCounts: cachedTypeCounts, selectedCount };
 }
 
 /**

@@ -13,6 +13,7 @@ import { User, Bot, Paperclip } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ExecutableCodeBlock } from './ExecutableCodeBlock';
 import type { ChatMessage as ChatMessageType } from '@/lib/llm/types';
+import { renderTextContent } from './renderTextContent';
 
 interface ChatMessageProps {
   message: ChatMessageType;
@@ -56,15 +57,6 @@ function splitContent(content: string): Array<{ type: 'text'; text: string } | {
   }
 
   return parts;
-}
-
-/** Simple markdown-ish rendering for text segments */
-function renderTextContent(text: string): string {
-  return text
-    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-    .replace(/\*(.*?)\*/g, '<em>$1</em>')
-    .replace(/`([^`]+)`/g, '<code class="bg-muted px-1 py-0.5 rounded text-xs font-mono">$1</code>')
-    .replace(/\n/g, '<br/>');
 }
 
 export const ChatMessageComponent = memo(function ChatMessageComponent({

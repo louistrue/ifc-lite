@@ -28,7 +28,7 @@ export function ClerkChatSync() {
 
     const syncAuth = async () => {
       try {
-        const token = await getToken();
+        const token = await getToken({ skipCache: true });
         const proPlan = has?.({ plan: 'pro' }) ?? false;
         const proFeature = has?.({ feature: 'pro_models' }) ?? false;
         if (!cancelled) {
@@ -44,8 +44,13 @@ export function ClerkChatSync() {
     };
 
     void syncAuth();
+    // Keep short-lived JWTs fresh so chat/usage polling doesn't reuse expired tokens.
+    const timer = window.setInterval(() => {
+      void syncAuth();
+    }, 15_000);
     return () => {
       cancelled = true;
+      window.clearInterval(timer);
     };
   }, [getToken, has, isLoaded, isSignedIn, setChatAuthToken, setChatHasPro]);
 

@@ -15,6 +15,7 @@ import { extractCodeBlocks } from '../../lib/llm/code-extractor.js';
 const MODEL_STORAGE_KEY = 'ifc-lite-chat-model';
 const MESSAGES_STORAGE_KEY = 'ifc-lite-chat-messages';
 const AUTO_EXEC_STORAGE_KEY = 'ifc-lite-chat-auto-execute';
+const PANEL_VISIBLE_STORAGE_KEY = 'ifc-lite-chat-panel-visible';
 const MAX_MESSAGES = 200;
 
 export interface ChatSlice {
@@ -91,7 +92,16 @@ function loadStoredModel(): string {
 
 function loadStoredAutoExecute(): boolean {
   try {
-    return localStorage.getItem(AUTO_EXEC_STORAGE_KEY) === 'true';
+    const val = localStorage.getItem(AUTO_EXEC_STORAGE_KEY);
+    return val === null ? true : val === 'true';
+  } catch {
+    return true;
+  }
+}
+
+function loadStoredPanelVisible(): boolean {
+  try {
+    return localStorage.getItem(PANEL_VISIBLE_STORAGE_KEY) === 'true';
   } catch {
     return false;
   }
@@ -140,7 +150,7 @@ function persistMessages(messages: ChatMessage[]) {
 
 export const createChatSlice: StateCreator<ChatSlice, [], [], ChatSlice> = (set, get) => ({
   // Initial state
-  chatPanelVisible: false,
+  chatPanelVisible: loadStoredPanelVisible(),
   chatMessages: loadStoredMessages(),
   chatStatus: 'idle',
   chatStreamingContent: '',
@@ -155,9 +165,16 @@ export const createChatSlice: StateCreator<ChatSlice, [], [], ChatSlice> = (set,
   chatUsage: null,
 
   // Actions
-  setChatPanelVisible: (chatPanelVisible) => set({ chatPanelVisible }),
+  setChatPanelVisible: (chatPanelVisible) => {
+    try { localStorage.setItem(PANEL_VISIBLE_STORAGE_KEY, String(chatPanelVisible)); } catch { /* ignore */ }
+    set({ chatPanelVisible });
+  },
 
-  toggleChatPanel: () => set((state) => ({ chatPanelVisible: !state.chatPanelVisible })),
+  toggleChatPanel: () => {
+    const next = !get().chatPanelVisible;
+    try { localStorage.setItem(PANEL_VISIBLE_STORAGE_KEY, String(next)); } catch { /* ignore */ }
+    set({ chatPanelVisible: next });
+  },
 
   addChatMessage: (message) => {
     const messages = [...get().chatMessages, message];

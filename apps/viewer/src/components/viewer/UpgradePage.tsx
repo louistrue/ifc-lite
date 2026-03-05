@@ -49,7 +49,11 @@ export function UpgradePage() {
           <div className="mt-6">
             <SignedOut>
               <div className="flex items-center justify-center py-12">
-                <SignInButton mode="modal">
+                <SignInButton
+                  mode="modal"
+                  fallbackRedirectUrl={returnTo}
+                  forceRedirectUrl={returnTo}
+                >
                   <Button>Sign in to continue</Button>
                 </SignInButton>
               </div>

@@ -108,6 +108,7 @@ interface AuthClaims {
   iss: string;
 }
 
+
 function normalizeScopedValue(value: string): string {
   const idx = value.indexOf(':');
   return idx >= 0 ? value.slice(idx + 1) : value;
@@ -160,48 +161,117 @@ function base64UrlToBytes(value: string): Uint8Array {
   return base64ToBytes(padded);
 }
 
+function normalizePemKey(input: string): string {
+  let key = input.trim();
+  if ((key.startsWith('"') && key.endsWith('"')) || (key.startsWith('\'') && key.endsWith('\''))) {
+    key = key.slice(1, -1);
+  }
+  return key.replace(/\\n/g, '\n').replace(/\\ /g, ' ').trim();
+}
+
 function pemToDerBytes(pem: string): Uint8Array {
   const body = pem
     .replace(/-----BEGIN PUBLIC KEY-----/g, '')
     .replace(/-----END PUBLIC KEY-----/g, '')
+    .replace(/['"]/g, '')
     .trim();
   return base64ToBytes(body);
 }
 
-function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
-  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+interface JwtHeader {
+  alg?: string;
+  kid?: string;
 }
 
 async function verifyJwtWithPublicKey(token: string, jwtKeyPem: string): Promise<boolean> {
-  const parts = token.split('.');
-  if (parts.length !== 3) return false;
-  const [headerB64, payloadB64, signatureB64] = parts;
-
-  let header: { alg?: string };
   try {
-    header = JSON.parse(base64UrlDecode(headerB64)) as { alg?: string };
+    const parts = token.split('.');
+    if (parts.length !== 3) return false;
+    const [headerB64, payloadB64, signatureB64] = parts;
+
+    const header = JSON.parse(base64UrlDecode(headerB64)) as JwtHeader;
+    if (header.alg !== 'RS256') return false;
+
+    const key = await crypto.subtle.importKey(
+      'spki',
+      Uint8Array.from(pemToDerBytes(normalizePemKey(jwtKeyPem))),
+      { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
+      false,
+      ['verify'],
+    );
+
+    const data = Uint8Array.from(new TextEncoder().encode(`${headerB64}.${payloadB64}`));
+    const signature = Uint8Array.from(base64UrlToBytes(signatureB64));
+    return await crypto.subtle.verify(
+      'RSASSA-PKCS1-v1_5',
+      key,
+      signature,
+      data,
+    );
   } catch {
     return false;
   }
+}
 
-  if (header.alg !== 'RS256') return false;
+type ClerkJwk = JsonWebKey & { kid?: string };
+const jwksCache = new Map<string, { keys: ClerkJwk[]; expiresAt: number }>();
+const JWKS_TTL_MS = 5 * 60 * 1000;
 
-  const key = await crypto.subtle.importKey(
-    'spki',
-    toArrayBuffer(pemToDerBytes(jwtKeyPem)),
-    { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
-    false,
-    ['verify'],
-  );
+function isTrustedClerkIssuer(iss: string): boolean {
+  try {
+    const url = new URL(iss);
+    if (url.protocol !== 'https:') return false;
+    return url.hostname.endsWith('.clerk.accounts.dev') || url.hostname.endsWith('.clerk.com');
+  } catch {
+    return false;
+  }
+}
 
-  const data = new TextEncoder().encode(`${headerB64}.${payloadB64}`);
-  const signature = base64UrlToBytes(signatureB64);
-  return crypto.subtle.verify(
-    'RSASSA-PKCS1-v1_5',
-    key,
-    toArrayBuffer(signature),
-    toArrayBuffer(data),
-  );
+async function getJwksForIssuer(iss: string): Promise<ClerkJwk[]> {
+  const now = Date.now();
+  const cached = jwksCache.get(iss);
+  if (cached && cached.expiresAt > now) return cached.keys;
+
+  const res = await fetch(`${iss.replace(/\/+$/, '')}/.well-known/jwks.json`);
+  if (!res.ok) return [];
+  const data = (await res.json()) as { keys?: ClerkJwk[] };
+  const keys = Array.isArray(data.keys) ? data.keys : [];
+  jwksCache.set(iss, { keys, expiresAt: now + JWKS_TTL_MS });
+  return keys;
+}
+
+async function verifyJwtWithIssuerJwks(token: string, iss: string): Promise<boolean> {
+  try {
+    if (!isTrustedClerkIssuer(iss)) return false;
+    const parts = token.split('.');
+    if (parts.length !== 3) return false;
+    const [headerB64, payloadB64, signatureB64] = parts;
+
+    const header = JSON.parse(base64UrlDecode(headerB64)) as JwtHeader;
+    if (header.alg !== 'RS256' || !header.kid) return false;
+
+    const jwks = await getJwksForIssuer(iss);
+    const jwk = jwks.find((k) => k.kid === header.kid && (k.kty === 'RSA' || !k.kty));
+    if (!jwk) return false;
+
+    const key = await crypto.subtle.importKey(
+      'jwk',
+      jwk,
+      { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
+      false,
+      ['verify'],
+    );
+    const data = Uint8Array.from(new TextEncoder().encode(`${headerB64}.${payloadB64}`));
+    const signature = Uint8Array.from(base64UrlToBytes(signatureB64));
+    return await crypto.subtle.verify(
+      'RSASSA-PKCS1-v1_5',
+      key,
+      signature,
+      data,
+    );
+  } catch {
+    return false;
+  }
 }
 
 async function verifyToken(token: string | undefined): Promise<AuthClaims | null> {
@@ -212,10 +282,14 @@ async function verifyToken(token: string | undefined): Promise<AuthClaims | null
     if (parts.length !== 3) return null;
     const payload = JSON.parse(base64UrlDecode(parts[1])) as AuthClaims;
     const jwtKey = process.env.CLERK_JWT_KEY?.trim();
+    let valid = false;
     if (jwtKey) {
-      const valid = await verifyJwtWithPublicKey(token, jwtKey);
-      if (!valid) return null;
+      valid = await verifyJwtWithPublicKey(token, jwtKey);
     }
+    if (!valid && payload.iss) {
+      valid = await verifyJwtWithIssuerJwks(token, payload.iss);
+    }
+    if (!valid) return null;
     if (payload.exp && payload.exp * 1000 < Date.now()) return null;
     return payload;
   } catch {
@@ -235,8 +309,7 @@ interface CreditBucket {
 
 const creditBuckets = new Map<string, CreditBucket>();
 const freeRequestCounts = new Map<string, { count: number; resetAt: number }>();
-const providerUsageWatermarkByUser = new Map<string, number>();
-const providerUsageLockByUser = new Map<string, Promise<void>>();
+const ANONYMOUS_USER_ID = 'anonymous';
 let usageTableReadyPromise: Promise<void> | null = null;
 
 function getNextCycleResetFromAnchor(anchorAt: number, nowMs: number = Date.now()): number {
@@ -277,7 +350,6 @@ async function ensureUsageTableReady(): Promise<boolean> {
           credits_used DOUBLE PRECISION NOT NULL DEFAULT 0,
           billing_anchor_at BIGINT NOT NULL,
           reset_at BIGINT NOT NULL,
-          provider_usage_watermark DOUBLE PRECISION NULL,
           updated_at BIGINT NOT NULL
         )
       `;
@@ -306,16 +378,16 @@ async function loadUsageStateFromDb(userId: string): Promise<void> {
   const initialResetAt = getNextCycleResetFromAnchor(initialAnchorAt, now);
   try {
     await neonSql`
-      INSERT INTO llm_chat_usage (user_id, credits_used, billing_anchor_at, reset_at, provider_usage_watermark, updated_at)
-      VALUES (${userId}, 0, ${initialAnchorAt}, ${initialResetAt}, NULL, ${now})
+      INSERT INTO llm_chat_usage (user_id, credits_used, billing_anchor_at, reset_at, updated_at)
+      VALUES (${userId}, 0, ${initialAnchorAt}, ${initialResetAt}, ${now})
       ON CONFLICT (user_id) DO NOTHING
     `;
     const rows = await neonSql`
-      SELECT credits_used, billing_anchor_at, reset_at, provider_usage_watermark
+      SELECT credits_used, billing_anchor_at, reset_at
       FROM llm_chat_usage
       WHERE user_id = ${userId}
       LIMIT 1
-    ` as Array<{ credits_used: number; billing_anchor_at: number | null; reset_at: number; provider_usage_watermark: number | null }>;
+    ` as Array<{ credits_used: number; billing_anchor_at: number | null; reset_at: number }>;
     const row = rows[0];
     if (!row) return;
 
@@ -324,32 +396,22 @@ async function loadUsageStateFromDb(userId: string): Promise<void> {
       ? row.billing_anchor_at
       : initialAnchorAt;
     let resetAt = typeof row.reset_at === 'number' ? row.reset_at : getNextCycleResetFromAnchor(anchorAt, now);
-    let watermark = typeof row.provider_usage_watermark === 'number'
-      ? row.provider_usage_watermark
-      : undefined;
 
     // Per-user cycle rollover keeps accounting bounded to their billing period.
     if (now >= resetAt) {
       used = 0;
       resetAt = getNextCycleResetFromAnchor(anchorAt, now);
-      watermark = undefined;
       await neonSql`
         UPDATE llm_chat_usage
         SET credits_used = 0,
             billing_anchor_at = ${anchorAt},
             reset_at = ${resetAt},
-            provider_usage_watermark = NULL,
             updated_at = ${now}
         WHERE user_id = ${userId}
       `;
     }
 
     creditBuckets.set(userId, { used, anchorAt, resetAt });
-    if (watermark === undefined) {
-      providerUsageWatermarkByUser.delete(userId);
-    } else {
-      providerUsageWatermarkByUser.set(userId, watermark);
-    }
   } catch (error) {
     debugCredits('db_load_error', {
       userId: summarizeUserId(userId),
@@ -361,18 +423,16 @@ async function loadUsageStateFromDb(userId: string): Promise<void> {
 async function persistUsageStateToDb(userId: string): Promise<void> {
   if (!(await ensureUsageTableReady())) return;
   const bucket = getCreditBucket(userId);
-  const watermark = providerUsageWatermarkByUser.get(userId);
   const now = Date.now();
   try {
     await neonSql`
-      INSERT INTO llm_chat_usage (user_id, credits_used, billing_anchor_at, reset_at, provider_usage_watermark, updated_at)
-      VALUES (${userId}, ${bucket.used}, ${bucket.anchorAt}, ${bucket.resetAt}, ${watermark ?? null}, ${now})
+      INSERT INTO llm_chat_usage (user_id, credits_used, billing_anchor_at, reset_at, updated_at)
+      VALUES (${userId}, ${bucket.used}, ${bucket.anchorAt}, ${bucket.resetAt}, ${now})
       ON CONFLICT (user_id)
       DO UPDATE SET
         credits_used = EXCLUDED.credits_used,
         billing_anchor_at = EXCLUDED.billing_anchor_at,
         reset_at = EXCLUDED.reset_at,
-        provider_usage_watermark = EXCLUDED.provider_usage_watermark,
         updated_at = EXCLUDED.updated_at
     `;
   } catch (error) {
@@ -381,14 +441,6 @@ async function persistUsageStateToDb(userId: string): Promise<void> {
       reason: error instanceof Error ? error.message : 'unknown',
     });
   }
-}
-
-interface ReconcileResult {
-  providerUsageUsd: number | null;
-  watermarkBeforeUsd: number | null;
-  watermarkAfterUsd: number | null;
-  deltaUsd: number;
-  committedUsd: number;
 }
 
 function checkFreeLimit(userId: string): { allowed: boolean; remaining: number; resetAt: number } {
@@ -425,199 +477,53 @@ function maybePrune() {
   const now = Date.now();
   for (const [k, v] of creditBuckets) { if (now >= v.resetAt) creditBuckets.delete(k); }
   for (const [k, v] of freeRequestCounts) { if (now >= v.resetAt) freeRequestCounts.delete(k); }
-  // Keep reconciliation maps bounded by active users.
-  if (providerUsageWatermarkByUser.size > 2000) {
-    providerUsageWatermarkByUser.clear();
-  }
-  if (providerUsageLockByUser.size > 2000) {
-    providerUsageLockByUser.clear();
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Provider usage reconciliation
-// ---------------------------------------------------------------------------
-
-async function fetchCurrentKeyUsage(apiKey: string): Promise<number | null> {
-  try {
-    const res = await fetch(`${API_BASE}/key`, {
-      headers: { 'Authorization': `Bearer ${apiKey}` },
-    });
-    if (!res.ok) return null;
-    const data = (await res.json()) as { data?: { usage?: number } };
-    const usage = data.data?.usage;
-    return typeof usage === 'number' ? usage : null;
-  } catch {
-    return null;
-  }
-}
-
-async function withProviderUsageLock<T>(userId: string, run: () => Promise<T>): Promise<T> {
-  const existingLock = providerUsageLockByUser.get(userId);
-  if (existingLock) {
-    debugCredits('lock_contention', { userId: summarizeUserId(userId) });
-  }
-
-  const prev = existingLock ?? Promise.resolve();
-  let releaseLock!: () => void;
-  const current = new Promise<void>((resolve) => {
-    releaseLock = resolve;
-  });
-  providerUsageLockByUser.set(userId, prev.then(() => current));
-
-  await prev;
-  try {
-    return await run();
-  } finally {
-    releaseLock();
-  }
-}
-
-async function reconcileProviderUsage(userId: string, apiKey: string, phase: string): Promise<ReconcileResult> {
-  return withProviderUsageLock(userId, async () => {
-    const summarizedUserId = summarizeUserId(userId);
-    debugCredits('reconcile_start', { userId: summarizedUserId, phase });
-    const finish = async (result: ReconcileResult): Promise<ReconcileResult> => {
-      await persistUsageStateToDb(userId);
-      debugCredits('reconcile_end', { userId: summarizedUserId, phase, ...result });
-      return result;
-    };
-
-    const providerUsageUsd = await fetchCurrentKeyUsage(apiKey);
-    debugCredits('provider_usage_read', {
-      userId: summarizedUserId,
-      phase,
-      providerUsageUsd,
-    });
-
-    const watermarkBefore = providerUsageWatermarkByUser.get(userId);
-    if (providerUsageUsd === null) {
-      const result: ReconcileResult = {
-        providerUsageUsd: null,
-        watermarkBeforeUsd: watermarkBefore ?? null,
-        watermarkAfterUsd: watermarkBefore ?? null,
-        deltaUsd: 0,
-        committedUsd: 0,
-      };
-      debugCredits('delta_skipped', {
-        userId: summarizedUserId,
-        phase,
-        reason: 'provider_usage_unavailable',
-        watermarkBeforeUsd: result.watermarkBeforeUsd,
-      });
-      return finish(result);
-    }
-
-    // First sighting bootstraps the watermark and does not charge retroactively.
-    if (watermarkBefore === undefined) {
-      providerUsageWatermarkByUser.set(userId, providerUsageUsd);
-      const bucket = getCreditBucket(userId);
-      // DB migration/bootstrap path: seed visible usage from provider total once.
-      if (bucket.used <= 0 && providerUsageUsd > 0) {
-        if (!bucket.anchorAt || bucket.anchorAt <= 0) {
-          bucket.anchorAt = Date.now();
-          bucket.resetAt = getNextCycleResetFromAnchor(bucket.anchorAt, Date.now());
-        }
-        bucket.used = providerUsageUsd * COST_TO_CREDITS;
-        debugCredits('bootstrap_seeded_from_provider', {
-          userId: summarizedUserId,
-          phase,
-          providerUsageUsd: Number(providerUsageUsd.toFixed(8)),
-          seededCreditsUsed: Number(bucket.used.toFixed(4)),
-        });
-      }
-      const result: ReconcileResult = {
-        providerUsageUsd,
-        watermarkBeforeUsd: null,
-        watermarkAfterUsd: providerUsageUsd,
-        deltaUsd: 0,
-        committedUsd: 0,
-      };
-      debugCredits('delta_skipped', {
-        userId: summarizedUserId,
-        phase,
-        reason: 'watermark_bootstrap',
-        watermarkAfterUsd: result.watermarkAfterUsd,
-      });
-      return finish(result);
-    }
-
-    if (providerUsageUsd < watermarkBefore) {
-      providerUsageWatermarkByUser.set(userId, providerUsageUsd);
-      const result: ReconcileResult = {
-        providerUsageUsd,
-        watermarkBeforeUsd: watermarkBefore,
-        watermarkAfterUsd: providerUsageUsd,
-        deltaUsd: 0,
-        committedUsd: 0,
-      };
-      debugCredits('delta_skipped', {
-        userId: summarizedUserId,
-        phase,
-        reason: 'provider_usage_reset_or_rollover',
-        watermarkBeforeUsd: result.watermarkBeforeUsd,
-        watermarkAfterUsd: result.watermarkAfterUsd,
-      });
-      return finish(result);
-    }
-
-    const deltaUsd = providerUsageUsd - watermarkBefore;
-    if (deltaUsd <= 0) {
-      const result: ReconcileResult = {
-        providerUsageUsd,
-        watermarkBeforeUsd: watermarkBefore,
-        watermarkAfterUsd: watermarkBefore,
-        deltaUsd: 0,
-        committedUsd: 0,
-      };
-      debugCredits('delta_skipped', {
-        userId: summarizedUserId,
-        phase,
-        reason: 'no_positive_delta',
-        watermarkBeforeUsd: result.watermarkBeforeUsd,
-        providerUsageUsd: result.providerUsageUsd,
-      });
-      return finish(result);
-    }
-
-    recordCredits(userId, deltaUsd);
-    providerUsageWatermarkByUser.set(userId, providerUsageUsd);
-    const result: ReconcileResult = {
-      providerUsageUsd,
-      watermarkBeforeUsd: watermarkBefore,
-      watermarkAfterUsd: providerUsageUsd,
-      deltaUsd,
-      committedUsd: deltaUsd,
-    };
-    debugCredits('delta_committed', {
-      userId: summarizedUserId,
-      phase,
-      committedUsd: Number(result.committedUsd.toFixed(8)),
-      watermarkBeforeUsd: Number((result.watermarkBeforeUsd ?? 0).toFixed(8)),
-      watermarkAfterUsd: Number((result.watermarkAfterUsd ?? 0).toFixed(8)),
-    });
-    return finish({
-      ...result,
-      committedUsd: Number(result.committedUsd.toFixed(8)),
-    });
-  });
 }
 
 // ---------------------------------------------------------------------------
 // CORS
 // ---------------------------------------------------------------------------
 
-const CORS_HEADERS: Record<string, string> = {
-  'Access-Control-Allow-Origin': '*',
+function getAllowedOrigin(requestOrigin: string | null): string {
+  if (!requestOrigin) return APP_URL;
+  if (requestOrigin === APP_URL) return requestOrigin;
+
+  const extraAllowedOrigins = (process.env.APP_ALLOWED_ORIGINS ?? '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (extraAllowedOrigins.includes(requestOrigin)) {
+    return requestOrigin;
+  }
+
+  if (process.env.NODE_ENV !== 'production') {
+    try {
+      const url = new URL(requestOrigin);
+      const isLocalhost = url.hostname === 'localhost' || url.hostname === '127.0.0.1';
+      if (isLocalhost && (url.protocol === 'http:' || url.protocol === 'https:')) {
+        return requestOrigin;
+      }
+    } catch {
+      // Invalid origins fall through to APP_URL.
+    }
+  }
+
+  return APP_URL;
+}
+
+function getCorsHeaders(requestOrigin: string | null): Record<string, string> {
+  return {
+  'Access-Control-Allow-Origin': getAllowedOrigin(requestOrigin),
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
   'Access-Control-Expose-Headers': 'X-Credits-Used, X-Credits-Limit, X-Credits-Pct, X-Credits-Reset, X-Credits-Billable, X-Usage-Used, X-Usage-Limit, X-Usage-Pct, X-Usage-Reset',
+  Vary: 'Origin',
 };
+}
 
-function corsResponse(status: number, body?: object, extra?: Record<string, string>): Response {
+function corsResponse(status: number, requestOrigin: string | null, body?: object, extra?: Record<string, string>): Response {
   return new Response(body ? JSON.stringify(body) : null, {
     status,
-    headers: { ...CORS_HEADERS, 'Content-Type': 'application/json', ...extra },
+    headers: { ...getCorsHeaders(requestOrigin), 'Content-Type': 'application/json', ...extra },
   });
 }
 
@@ -684,13 +590,14 @@ export const config = { runtime: 'edge' };
 export default async function handler(req: Request): Promise<Response> {
   const supportEmail = 'louis@ltplus.com';
   const url = new URL(req.url);
+  const requestOrigin = req.headers.get('origin');
   const isUsageSnapshotRequest = req.method === 'GET' && url.searchParams.get('usage') === '1';
 
   if (req.method === 'OPTIONS') {
-    return new Response(null, { status: 200, headers: CORS_HEADERS });
+    return new Response(null, { status: 200, headers: getCorsHeaders(requestOrigin) });
   }
   if (req.method !== 'POST' && !isUsageSnapshotRequest) {
-    return corsResponse(405, { error: 'Method not allowed' });
+    return corsResponse(405, requestOrigin, { error: 'Method not allowed' });
   }
 
   const apiKey = API_KEY;
@@ -698,9 +605,10 @@ export default async function handler(req: Request): Promise<Response> {
   // Auth
   const authHeader = req.headers.get('authorization');
   const token = authHeader?.replace('Bearer ', '') || undefined;
+  const jwtVerificationEnabled = Boolean(process.env.CLERK_JWT_KEY?.trim());
   const claims = await verifyToken(token);
-  if (token && !claims) {
-    return corsResponse(401, {
+  if (token && !claims && jwtVerificationEnabled) {
+    return corsResponse(401, requestOrigin, {
       error: 'Authentication invalid or expired. Please sign in again.',
       code: 'auth_invalid',
     });
@@ -711,38 +619,40 @@ export default async function handler(req: Request): Promise<Response> {
     ? 'pro' as const
     : 'free' as const;
 
-  const userId = claims?.sub
-    ?? req.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
-    ?? 'anonymous';
+  const userId = claims?.sub ?? ANONYMOUS_USER_ID;
 
   // Always-available usage snapshot endpoint for instant UI hydration/polling.
   if (isUsageSnapshotRequest) {
     maybePrune();
     if (userTier === 'pro') {
       await loadUsageStateFromDb(userId);
-      await reconcileProviderUsage(userId, apiKey, 'usage_snapshot');
     }
     const snapshot = buildUsageSnapshot(userTier, userId, false);
-    return corsResponse(200, { usage: snapshot }, buildUsageHeaders(snapshot));
+    return corsResponse(200, requestOrigin, { usage: snapshot }, buildUsageHeaders(snapshot));
   }
 
   // Parse body (POST only)
-  const body = (await req.json()) as {
+  let body: {
     messages: Array<{ role: string; content: string | Array<{ type: string; text?: string; image_url?: { url: string } }> }>;
     model: string;
     system?: string;
   };
+  try {
+    body = (await req.json()) as typeof body;
+  } catch {
+    return corsResponse(400, requestOrigin, { error: 'Invalid JSON body' });
+  }
 
   if (!body?.messages || !body?.model) {
-    return corsResponse(400, { error: 'Missing messages or model' });
+    return corsResponse(400, requestOrigin, { error: 'Missing messages or model' });
   }
 
   if (!isAllowedModel(body.model)) {
-    return corsResponse(400, { error: 'Model not available' });
+    return corsResponse(400, requestOrigin, { error: 'Model not available' });
   }
 
   if (userTier === 'free' && isPaidModel(body.model)) {
-    return corsResponse(403, {
+    return corsResponse(403, requestOrigin, {
       error: 'Upgrade to Pro to use this model',
       code: 'plan_required',
       upgrade: true,
@@ -756,13 +666,12 @@ export default async function handler(req: Request): Promise<Response> {
 
   if (userTier === 'pro') {
     await loadUsageStateFromDb(userId);
-    await reconcileProviderUsage(userId, apiKey, 'pre_limit_check');
   }
 
   if (userTier === 'free') {
     const cap = checkFreeLimit(userId);
     if (!cap.allowed) {
-      return corsResponse(429, {
+      return corsResponse(429, requestOrigin, {
         error: 'You\'ve reached your daily limit. Upgrade to Pro for more.',
         type: 'request_cap',
         code: 'quota_exceeded',
@@ -775,7 +684,7 @@ export default async function handler(req: Request): Promise<Response> {
   } else {
     const bucket = getCreditBucket(userId);
     if (bucket.used >= PRO_MONTHLY_CREDITS) {
-      return corsResponse(429, {
+      return corsResponse(429, requestOrigin, {
         error: `Monthly credits used up. Need more? Reach out at ${supportEmail}.`,
         type: 'credits',
         code: 'credits_exhausted',
@@ -826,7 +735,7 @@ export default async function handler(req: Request): Promise<Response> {
       const limitMessage = userTier === 'pro'
         ? 'Request rate limit reached. Please retry shortly.'
         : 'You\'ve reached your daily limit. Upgrade to Pro for more.';
-      return corsResponse(429, {
+      return corsResponse(429, requestOrigin, {
         error: limitMessage,
         type: 'request_cap',
         code: 'quota_exceeded',
@@ -835,18 +744,18 @@ export default async function handler(req: Request): Promise<Response> {
     }
 
     if (upstream.status === 402) {
-      return corsResponse(502, {
+      return corsResponse(502, requestOrigin, {
         error: 'Service temporarily unavailable. Please try again later.',
       });
     }
 
-    return corsResponse(upstream.status, {
+    return corsResponse(upstream.status, requestOrigin, {
       error: `Request failed (${upstream.status}). Please try again.`,
     });
   }
 
   if (!upstream.body) {
-    return corsResponse(502, { error: 'No response body' });
+    return corsResponse(502, requestOrigin, { error: 'No response body' });
   }
 
   const usageHeaders = buildUsageHeaders(buildUsageSnapshot(userTier, userId, billableRequest));
@@ -860,7 +769,9 @@ export default async function handler(req: Request): Promise<Response> {
     },
     async flush(controller) {
       if (billableRequest) {
-        await reconcileProviderUsage(userId, apiKey, 'post_stream');
+        // Bill per request to avoid attributing shared provider key totals to a single user.
+        recordCredits(userId, 1 / COST_TO_CREDITS);
+        await persistUsageStateToDb(userId);
       }
 
       const snapshot = buildUsageSnapshot(userTier, userId, billableRequest);
@@ -884,7 +795,7 @@ export default async function handler(req: Request): Promise<Response> {
   return new Response(readable, {
     status: 200,
     headers: {
-      ...CORS_HEADERS,
+      ...getCorsHeaders(requestOrigin),
       ...usageHeaders,
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',

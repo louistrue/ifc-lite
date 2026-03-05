@@ -12,6 +12,7 @@ import type { SavedScript } from '../../lib/scripts/persistence.js';
 import { loadSavedScripts, saveScripts, validateScriptName, canCreateScript, isScriptWithinSizeLimit } from '../../lib/scripts/persistence.js';
 
 export type ScriptExecutionState = 'idle' | 'running' | 'error' | 'success';
+const SCRIPT_PANEL_VISIBLE_STORAGE_KEY = 'ifc-lite-script-panel-visible';
 
 export interface LogEntry {
   level: 'log' | 'warn' | 'error' | 'info';
@@ -71,6 +72,14 @@ for (const [type, count] of Object.entries(counts).sort((a, b) => b[1] - a[1])) 
 }
 `;
 
+function loadStoredScriptPanelVisible(): boolean {
+  try {
+    return localStorage.getItem(SCRIPT_PANEL_VISIBLE_STORAGE_KEY) === 'true';
+  } catch {
+    return false;
+  }
+}
+
 export const createScriptSlice: StateCreator<ScriptSlice, [], [], ScriptSlice> = (set, get) => ({
   // Initial state
   savedScripts: loadSavedScripts(),
@@ -80,7 +89,7 @@ export const createScriptSlice: StateCreator<ScriptSlice, [], [], ScriptSlice> =
   scriptExecutionState: 'idle',
   scriptLastResult: null,
   scriptLastError: null,
-  scriptPanelVisible: false,
+  scriptPanelVisible: loadStoredScriptPanelVisible(),
   scriptDeleteConfirmId: null,
 
   // Actions
@@ -210,9 +219,16 @@ export const createScriptSlice: StateCreator<ScriptSlice, [], [], ScriptSlice> =
     }
   },
 
-  setScriptPanelVisible: (scriptPanelVisible) => set({ scriptPanelVisible }),
+  setScriptPanelVisible: (scriptPanelVisible) => {
+    try { localStorage.setItem(SCRIPT_PANEL_VISIBLE_STORAGE_KEY, String(scriptPanelVisible)); } catch { /* ignore */ }
+    set({ scriptPanelVisible });
+  },
 
-  toggleScriptPanel: () => set((state) => ({ scriptPanelVisible: !state.scriptPanelVisible })),
+  toggleScriptPanel: () => {
+    const next = !get().scriptPanelVisible;
+    try { localStorage.setItem(SCRIPT_PANEL_VISIBLE_STORAGE_KEY, String(next)); } catch { /* ignore */ }
+    set({ scriptPanelVisible: next });
+  },
 
   setScriptDeleteConfirmId: (scriptDeleteConfirmId) => set({ scriptDeleteConfirmId }),
 });

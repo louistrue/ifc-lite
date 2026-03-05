@@ -49,6 +49,10 @@ export class IfcLiteBridge {
   private ifcApi: IfcAPI | null = null;
   private initialized: boolean = false;
 
+  private isWasmRuntimeError(error: unknown): boolean {
+    return error instanceof WebAssembly.RuntimeError;
+  }
+
   /**
    * Initialize IFC-Lite WASM
    * The WASM binary is automatically resolved from the same location as the JS module
@@ -101,7 +105,7 @@ export class IfcLiteBridge {
         data: { contentLength: content.length },
       });
       // WASM panics corrupt module state - reset so next attempt re-initializes
-      if (error instanceof Error && error.message?.includes('RuntimeError')) {
+      if (this.isWasmRuntimeError(error)) {
         this.reset();
       }
       throw error;
@@ -126,7 +130,7 @@ export class IfcLiteBridge {
         operation: 'parseMeshesInstanced',
         data: { contentLength: content.length },
       });
-      if (error instanceof Error && error.message?.includes('RuntimeError')) {
+      if (this.isWasmRuntimeError(error)) {
         this.reset();
       }
       throw error;
@@ -149,7 +153,7 @@ export class IfcLiteBridge {
         operation: 'parseMeshesAsync',
         data: { contentLength: content.length },
       });
-      if (error instanceof Error && error.message?.includes('RuntimeError')) {
+      if (this.isWasmRuntimeError(error)) {
         this.reset();
       }
       throw error;
@@ -173,7 +177,7 @@ export class IfcLiteBridge {
         operation: 'parseMeshesInstancedAsync',
         data: { contentLength: content.length },
       });
-      if (error instanceof Error && error.message?.includes('RuntimeError')) {
+      if (this.isWasmRuntimeError(error)) {
         this.reset();
       }
       throw error;
@@ -197,6 +201,9 @@ export class IfcLiteBridge {
         operation: 'parseSymbolicRepresentations',
         data: { contentLength: content.length },
       });
+      if (this.isWasmRuntimeError(error)) {
+        this.reset();
+      }
       throw error;
     }
   }

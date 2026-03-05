@@ -23,7 +23,6 @@ import {
   X,
   Send,
   Square,
-  Bot,
   Trash2,
   Paperclip,
   Loader2,
@@ -33,7 +32,6 @@ import {
 import { SignInButton, SignedIn, SignedOut, UserButton } from '@clerk/clerk-react';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { Switch } from '@/components/ui/switch';
 import { useViewerStore } from '@/store';
 import { buildErrorFeedbackContent } from '@/store/slices/chatSlice';
 import { ChatMessageComponent } from './chat/ChatMessage';
@@ -500,77 +498,7 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
       )}
 
       {/* Header */}
-      <div className="flex items-center gap-1 px-2 py-1.5 border-b shrink-0">
-        <Bot className="h-4 w-4 text-blue-500 shrink-0" />
-        <span className="text-sm font-medium">AI Assistant</span>
-        <ModelSelector hasPro={hasPro} />
-        {/* Usage indicator */}
-        {displayUsage && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <div className="flex items-center gap-1 mx-1">
-                <div className="w-14 h-1.5 bg-muted rounded-full overflow-hidden">
-                  <div
-                    className={`h-full rounded-full transition-all ${displayUsage.pct >= 90 ? 'bg-destructive' : displayUsage.pct >= 70 ? 'bg-amber-500' : 'bg-emerald-500'
-                      }`}
-                    style={{ width: `${Math.min(100, displayUsage.pct)}%` }}
-                  />
-                </div>
-                <span className="text-[10px] text-muted-foreground tabular-nums">{displayUsage.pct}%</span>
-              </div>
-            </TooltipTrigger>
-            <TooltipContent>
-              {displayUsage.type === 'credits'
-                ? `${displayUsage.used}/${displayUsage.limit} credits, resets ${usageResetLabel}`
-                : `${displayUsage.used}/${displayUsage.limit} requests, resets ${usageResetLabel}`
-              }
-            </TooltipContent>
-          </Tooltip>
-        )}
-        <div className="flex-1" />
-
-        {clerkEnabled && (
-          <div className="flex items-center gap-1 mr-1">
-            <SignedOut>
-              <SignInButton mode="modal">
-                <Button variant="ghost" size="sm" className="h-6 px-2 text-xs">
-                  Sign in
-                </Button>
-              </SignInButton>
-            </SignedOut>
-            {!hasPro && (
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-6 px-2 text-xs"
-                onClick={openUpgradePage}
-              >
-                Upgrade
-              </Button>
-            )}
-            <SignedIn>
-              <UserButton afterSignOutUrl="/" />
-            </SignedIn>
-          </div>
-        )}
-
-        {/* Auto-execute toggle */}
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <div className="flex items-center gap-1 mr-1">
-              <Zap className={`h-3 w-3 ${autoExecute ? 'text-amber-500' : 'text-muted-foreground/50'}`} />
-              <Switch
-                checked={autoExecute}
-                onCheckedChange={setAutoExecute}
-                className="scale-75 origin-center"
-              />
-            </div>
-          </TooltipTrigger>
-          <TooltipContent>
-            Auto-execute: {autoExecute ? 'ON' : 'OFF'} — automatically run code when LLM responds
-          </TooltipContent>
-        </Tooltip>
-
+      <div className="flex items-center gap-0.5 px-2 py-1 border-b shrink-0">
         <Tooltip>
           <TooltipTrigger asChild>
             <Button
@@ -582,17 +510,55 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
               <Trash2 className="h-3.5 w-3.5" />
             </Button>
           </TooltipTrigger>
-          <TooltipContent>Clear conversation</TooltipContent>
+          <TooltipContent>Clear</TooltipContent>
         </Tooltip>
-        {onClose && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button variant="ghost" size="icon-xs" onClick={onClose}>
-                <X className="h-3.5 w-3.5" />
+
+        <ModelSelector hasPro={hasPro} />
+        <div className="flex-1" />
+
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              onClick={() => setAutoExecute(!autoExecute)}
+              className={autoExecute ? 'text-amber-500' : ''}
+            >
+              <Zap className="h-3.5 w-3.5" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Auto-run: {autoExecute ? 'ON' : 'OFF'}</TooltipContent>
+        </Tooltip>
+
+        {clerkEnabled && (
+          <>
+            <SignedOut>
+              <SignInButton mode="modal">
+                <Button variant="ghost" size="sm" className="h-6 px-2 text-xs text-muted-foreground">
+                  Sign in
+                </Button>
+              </SignInButton>
+            </SignedOut>
+            {!hasPro && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 px-2 text-xs text-muted-foreground"
+                onClick={openUpgradePage}
+              >
+                Pro
               </Button>
-            </TooltipTrigger>
-            <TooltipContent>Close (Esc)</TooltipContent>
-          </Tooltip>
+            )}
+            <SignedIn>
+              <UserButton afterSignOutUrl="/" />
+            </SignedIn>
+          </>
+        )}
+
+        {onClose && (
+          <Button variant="ghost" size="icon-xs" onClick={onClose}>
+            <X className="h-3.5 w-3.5" />
+          </Button>
         )}
       </div>
 
@@ -621,19 +587,16 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
 
       {/* Messages */}
       <div className="flex-1 min-h-0 overflow-y-auto relative" ref={scrollRef}>
-        {/* Empty state with clickable examples */}
+        {/* Empty state */}
         {messages.length === 0 && !streamingContent && (
-          <div className="flex flex-col items-center justify-center py-8 px-4 text-center">
-            <Bot className="h-8 w-8 text-muted-foreground/40 mb-3" />
-            <p className="text-sm text-muted-foreground mb-3">
-              Describe what you want to build or analyze
-            </p>
-            <div className="flex flex-col gap-1.5 w-full max-w-xs">
+          <div className="flex flex-col justify-end h-full px-3 pb-2">
+            <p className="text-xs text-muted-foreground/60 mb-2">Try something:</p>
+            <div className="flex flex-col gap-1">
               {EXAMPLE_PROMPTS.map((prompt) => (
                 <button
                   key={prompt}
                   onClick={() => handleExampleClick(prompt)}
-                  className="text-xs text-left px-3 py-2 rounded-md border border-border/50 hover:border-border hover:bg-muted/50 text-muted-foreground hover:text-foreground transition-colors"
+                  className="text-xs text-left px-2.5 py-1.5 rounded border border-transparent hover:border-border hover:bg-muted/50 text-muted-foreground hover:text-foreground transition-colors"
                 >
                   {prompt}
                 </button>
@@ -787,9 +750,9 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
             onChange={(e) => setInputText(e.target.value)}
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
-            placeholder="Describe what to create or analyze..."
+            placeholder="Ask anything..."
             rows={1}
-            className="flex-1 resize-none rounded-md border bg-background px-3 py-1.5 text-sm min-h-[32px] max-h-[120px] focus:outline-none focus:ring-1 focus:ring-ring"
+            className="flex-1 resize-none rounded-md border border-input bg-background text-foreground placeholder:text-muted-foreground px-3 py-1.5 text-sm min-h-[32px] max-h-[120px] focus:outline-none focus:ring-1 focus:ring-ring"
             style={{ height: 'auto', overflow: 'hidden' }}
             onInput={(e) => {
               const target = e.currentTarget;
@@ -829,13 +792,35 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
             </Tooltip>
           )}
         </div>
-        <div className="flex items-center justify-between mt-1">
-          <span className="text-[10px] text-muted-foreground/50">
-            {isActive ? 'Streaming...' : 'Shift+Enter for new line'}
-          </span>
-          <span className="text-[10px] text-muted-foreground/50">
-            Ctrl+L focus
-          </span>
+        <div className="flex items-center justify-between mt-1 px-0.5">
+          {isActive ? (
+            <span className="text-[10px] text-muted-foreground/50">Streaming...</span>
+          ) : displayUsage ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div className="flex items-center gap-1.5 cursor-default">
+                  <div className="w-12 h-1 bg-muted rounded-full overflow-hidden">
+                    <div
+                      className={`h-full rounded-full transition-all ${
+                        displayUsage.pct >= 90 ? 'bg-destructive' : displayUsage.pct >= 70 ? 'bg-amber-500' : 'bg-emerald-500'
+                      }`}
+                      style={{ width: `${Math.min(100, displayUsage.pct)}%` }}
+                    />
+                  </div>
+                  <span className="text-[10px] text-muted-foreground/40 tabular-nums">{displayUsage.pct}%</span>
+                </div>
+              </TooltipTrigger>
+              <TooltipContent>
+                {displayUsage.type === 'credits'
+                  ? `${displayUsage.used}/${displayUsage.limit} credits · resets ${usageResetLabel}`
+                  : `${displayUsage.used}/${displayUsage.limit} requests · resets ${usageResetLabel}`
+                }
+              </TooltipContent>
+            </Tooltip>
+          ) : (
+            <span className="text-[10px] text-muted-foreground/40">Shift+Enter new line</span>
+          )}
+          <span className="text-[10px] text-muted-foreground/30">⌘L</span>
         </div>
       </div>
     </div>

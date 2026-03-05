@@ -119,6 +119,7 @@ function looksLikeTypeScript(code: string): boolean {
     /\btype\s+\w+\s*=/.test(code) ||
     /\b(?:as)\s+[A-Za-z_]\w*(?:\[\])?/.test(code) ||
     /\b(?:const|let|var)\s+\w+\s*:\s*[A-Za-z_]/.test(code) ||
+    /\b(?:async\s+)?(?:function\s+\w+\s*)?\([^()]*\b\w+\s*:\s*[A-Za-z_][\w<>,\s[\]|]*\)\s*(?::\s*[A-Za-z_][\w<>,\s[\]|]*)?\s*(?:=>|\{)/.test(code) ||
     /\([^)]*:\s*(?:string|number|boolean|void|any|unknown|never|Record<|Array<|Map<|Set<)/.test(code) ||
     /\)\s*:\s*[A-Za-z_][\w<>,\s[\]|]*\s*\{/.test(code) ||
     /\w<\w+(?:\s*,\s*\w+)*>\s*\(/.test(code)

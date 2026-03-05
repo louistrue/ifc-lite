@@ -481,17 +481,17 @@ impl GpuInstancedGeometry {
 impl GpuInstancedGeometry {
     /// Set shared geometry with interleaving and coordinate conversion
     pub fn set_geometry(&mut self, positions: &[f32], normals: &[f32], indices: &[u32]) {
-        let vertex_count = positions.len() / 3;
+        // Always reset first so invalid input cannot keep stale geometry.
+        self.vertex_data.clear();
+        self.indices.clear();
 
         // Safety: ensure normals match positions length
         if normals.len() < positions.len() {
             return;
         }
 
-        // Clear and reserve
-        self.vertex_data.clear();
+        let vertex_count = positions.len() / 3;
         self.vertex_data.reserve(vertex_count * 6);
-        self.indices.clear();
         self.indices.reserve(indices.len());
 
         // Interleave with Z-up to Y-up conversion
@@ -562,18 +562,17 @@ impl GpuInstancedGeometryCollection {
         })
     }
 
-    /// Get geometry by index with zero-copy access
-    /// Returns a reference that provides pointer access
+    /// Get geometry by index with pointer access over owned buffers.
+    /// This avoids exposing references tied to collection lifetime.
     #[wasm_bindgen(js_name = getRef)]
     pub fn get_ref(&self, index: usize) -> Option<GpuInstancedGeometryRef> {
-        if index < self.geometries.len() {
-            Some(GpuInstancedGeometryRef {
-                collection_ptr: self as *const GpuInstancedGeometryCollection,
-                index,
-            })
-        } else {
-            None
-        }
+        self.geometries.get(index).map(|g| GpuInstancedGeometryRef {
+            geometry_id: g.geometry_id,
+            vertex_data: g.vertex_data.clone(),
+            indices: g.indices.clone(),
+            instance_data: g.instance_data.clone(),
+            instance_express_ids: g.instance_express_ids.clone(),
+        })
     }
 }
 
@@ -593,38 +592,32 @@ impl Default for GpuInstancedGeometryCollection {
     }
 }
 
-/// Reference to geometry in collection for zero-copy access
-/// This avoids cloning when accessing geometry data
+/// Pointer-friendly geometry view with owned backing storage.
+/// Owning buffers prevents dangling pointers after collection mutation/drop.
 #[wasm_bindgen]
 pub struct GpuInstancedGeometryRef {
-    collection_ptr: *const GpuInstancedGeometryCollection,
-    index: usize,
+    geometry_id: u64,
+    vertex_data: Vec<f32>,
+    indices: Vec<u32>,
+    instance_data: Vec<f32>,
+    instance_express_ids: Vec<u32>,
 }
 
 #[wasm_bindgen]
 impl GpuInstancedGeometryRef {
-    fn get_geometry(&self) -> Option<&GpuInstancedGeometry> {
-        unsafe {
-            let collection = &*self.collection_ptr;
-            collection.geometries.get(self.index)
-        }
-    }
-
     #[wasm_bindgen(getter, js_name = geometryId)]
     pub fn geometry_id(&self) -> u64 {
-        self.get_geometry().map(|g| g.geometry_id).unwrap_or(0)
+        self.geometry_id
     }
 
     #[wasm_bindgen(getter, js_name = vertexDataPtr)]
     pub fn vertex_data_ptr(&self) -> *const f32 {
-        self.get_geometry()
-            .map(|g| g.vertex_data.as_ptr())
-            .unwrap_or(std::ptr::null())
+        self.vertex_data.as_ptr()
     }
 
     #[wasm_bindgen(getter, js_name = vertexDataLen)]
     pub fn vertex_data_len(&self) -> usize {
-        self.get_geometry().map(|g| g.vertex_data.len()).unwrap_or(0)
+        self.vertex_data.len()
     }
 
     #[wasm_bindgen(getter, js_name = vertexDataByteLength)]
@@ -634,14 +627,12 @@ impl GpuInstancedGeometryRef {
 
     #[wasm_bindgen(getter, js_name = indicesPtr)]
     pub fn indices_ptr(&self) -> *const u32 {
-        self.get_geometry()
-            .map(|g| g.indices.as_ptr())
-            .unwrap_or(std::ptr::null())
+        self.indices.as_ptr()
     }
 
     #[wasm_bindgen(getter, js_name = indicesLen)]
     pub fn indices_len(&self) -> usize {
-        self.get_geometry().map(|g| g.indices.len()).unwrap_or(0)
+        self.indices.len()
     }
 
     #[wasm_bindgen(getter, js_name = indicesByteLength)]
@@ -651,16 +642,12 @@ impl GpuInstancedGeometryRef {
 
     #[wasm_bindgen(getter, js_name = instanceDataPtr)]
     pub fn instance_data_ptr(&self) -> *const f32 {
-        self.get_geometry()
-            .map(|g| g.instance_data.as_ptr())
-            .unwrap_or(std::ptr::null())
+        self.instance_data.as_ptr()
     }
 
     #[wasm_bindgen(getter, js_name = instanceDataLen)]
     pub fn instance_data_len(&self) -> usize {
-        self.get_geometry()
-            .map(|g| g.instance_data.len())
-            .unwrap_or(0)
+        self.instance_data.len()
     }
 
     #[wasm_bindgen(getter, js_name = instanceDataByteLength)]
@@ -670,16 +657,12 @@ impl GpuInstancedGeometryRef {
 
     #[wasm_bindgen(getter, js_name = instanceExpressIdsPtr)]
     pub fn instance_express_ids_ptr(&self) -> *const u32 {
-        self.get_geometry()
-            .map(|g| g.instance_express_ids.as_ptr())
-            .unwrap_or(std::ptr::null())
+        self.instance_express_ids.as_ptr()
     }
 
     #[wasm_bindgen(getter, js_name = instanceCount)]
     pub fn instance_count(&self) -> usize {
-        self.get_geometry()
-            .map(|g| g.instance_express_ids.len())
-            .unwrap_or(0)
+        self.instance_express_ids.len()
     }
 }
 

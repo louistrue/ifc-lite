@@ -141,24 +141,24 @@ ${apiRef}
 ## ENTITY SHAPE
 Entities returned by bim.query have this shape:
 \`\`\`ts
-{ ref: { modelId: string, expressId: number }, globalId: string, name: string, type: string, description: string, objectType: string }
+{ ref: { modelId: string, expressId: number }, GlobalId: string, Name: string, Type: string, Description: string, ObjectType: string }
 \`\`\`
-PascalCase aliases also work: \`entity.Name\`, \`entity.Type\`, \`entity.GlobalId\`, etc.
+Prefer PascalCase as the primary contract. camelCase aliases may exist for compatibility: \`entity.name\`, \`entity.type\`, \`entity.globalId\`.
 
 ## PROPERTY SET SHAPE
-\`bim.query.properties(entity)\` returns an array of property sets. Both camelCase and PascalCase field names work:
+\`bim.query.properties(entity)\` returns an array of property sets. Prefer PascalCase:
 \`\`\`ts
 // Each property set:
-{ name: string, Name: string, properties: PropertyData[], Properties: PropertyData[] }
+{ Name: string, Properties: PropertyData[], name?: string, properties?: PropertyData[] }
 // Each property:
-{ name: string, Name: string, value: string|number|boolean|null, Value: ..., NominalValue: ... }
+{ Name: string, NominalValue: ..., name?: string, value?: string|number|boolean|null, Value?: ... }
 \`\`\`
 Example:
 \`\`\`js
 const props = bim.query.properties(entity);
 for (const pset of props) {
-  for (const p of pset.Properties) {  // or pset.properties
-    console.log(pset.Name, p.Name, p.NominalValue);  // or .name, .value
+  for (const p of pset.Properties) {
+    console.log(pset.Name, p.Name, p.NominalValue);
   }
 }
 \`\`\`

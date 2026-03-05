@@ -219,7 +219,7 @@ export const ExecutableCodeBlock = memo(function ExecutableCodeBlock({
           {/* Console header */}
           <button
             onClick={() => setConsoleOpen(!consoleOpen)}
-            className="flex items-center gap-1.5 w-full px-2 py-1 bg-zinc-900 dark:bg-zinc-950 text-zinc-300 hover:bg-zinc-800 dark:hover:bg-zinc-900 transition-colors"
+            className="flex items-center gap-1.5 w-full px-2 py-1 bg-muted text-muted-foreground hover:bg-muted/80 transition-colors"
           >
             {consoleOpen ? (
               <ChevronDown className="h-3 w-3 shrink-0" />
@@ -229,16 +229,16 @@ export const ExecutableCodeBlock = memo(function ExecutableCodeBlock({
             <Terminal className="h-3 w-3 shrink-0" />
             <span className="text-[10px] font-mono uppercase tracking-wider">Console</span>
             {isRunning && (
-              <Loader2 className="h-3 w-3 animate-spin ml-1 text-blue-400" />
+              <Loader2 className="h-3 w-3 animate-spin ml-1 text-blue-500" />
             )}
             {result?.status === 'success' && (
-              <CheckCircle2 className="h-3 w-3 ml-1 text-green-400" />
+              <CheckCircle2 className="h-3 w-3 ml-1 text-emerald-500" />
             )}
             {result?.status === 'error' && (
-              <AlertCircle className="h-3 w-3 ml-1 text-red-400" />
+              <AlertCircle className="h-3 w-3 ml-1 text-destructive" />
             )}
             {result?.durationMs !== undefined && result.status !== 'running' && (
-              <span className="text-[10px] font-mono text-zinc-500 ml-auto">
+              <span className="text-[10px] font-mono text-muted-foreground/60 ml-auto">
                 {result.durationMs}ms
               </span>
             )}
@@ -246,10 +246,10 @@ export const ExecutableCodeBlock = memo(function ExecutableCodeBlock({
 
           {/* Console body */}
           {consoleOpen && (
-            <div className="bg-zinc-900 dark:bg-zinc-950 px-2 py-1.5 text-xs font-mono max-h-[200px] overflow-y-auto">
+            <div className="bg-muted px-2 py-1.5 text-xs font-mono max-h-[200px] overflow-y-auto">
               {/* Running indicator */}
               {isRunning && (!hasLogs) && (
-                <div className="flex items-center gap-1.5 text-blue-400 py-0.5">
+                <div className="flex items-center gap-1.5 text-blue-500 py-0.5">
                   <Loader2 className="h-3 w-3 animate-spin" />
                   <span>Executing script...</span>
                 </div>
@@ -261,10 +261,10 @@ export const ExecutableCodeBlock = memo(function ExecutableCodeBlock({
                   key={i}
                   className={cn(
                     'flex items-start gap-1.5 py-0.5 leading-relaxed',
-                    log.level === 'error' && 'text-red-400',
-                    log.level === 'warn' && 'text-yellow-400',
-                    log.level === 'info' && 'text-blue-400',
-                    log.level === 'log' && 'text-zinc-300',
+                    log.level === 'error' && 'text-destructive',
+                    log.level === 'warn' && 'text-amber-500',
+                    log.level === 'info' && 'text-blue-500',
+                    log.level === 'log' && 'text-foreground',
                   )}
                 >
                   <span className="shrink-0 w-3 text-center opacity-60">{levelPrefix(log.level)}</span>
@@ -276,7 +276,7 @@ export const ExecutableCodeBlock = memo(function ExecutableCodeBlock({
 
               {/* Error message */}
               {result?.status === 'error' && result.error && (
-                <div className="flex items-start gap-1.5 py-0.5 text-red-400">
+                <div className="flex items-start gap-1.5 py-0.5 text-destructive">
                   <span className="shrink-0 w-3 text-center">✕</span>
                   <span className="whitespace-pre-wrap break-all">{result.error}</span>
                 </div>
@@ -284,7 +284,7 @@ export const ExecutableCodeBlock = memo(function ExecutableCodeBlock({
 
               {/* Return value */}
               {result?.status === 'success' && result.value !== undefined && result.value !== null && (
-                <div className="flex items-start gap-1.5 py-0.5 text-emerald-400 border-t border-zinc-800 mt-1 pt-1">
+                <div className="flex items-start gap-1.5 py-0.5 text-emerald-500 border-t border-border mt-1 pt-1">
                   <span className="shrink-0 w-3 text-center opacity-60">←</span>
                   <span className="whitespace-pre-wrap break-all">
                     {typeof result.value === 'object'
@@ -296,7 +296,7 @@ export const ExecutableCodeBlock = memo(function ExecutableCodeBlock({
 
               {/* Success footer */}
               {result?.status === 'success' && (
-                <div className="flex items-center gap-1 text-green-400 border-t border-zinc-800 mt-1 pt-1">
+                <div className="flex items-center gap-1 text-emerald-500 border-t border-border mt-1 pt-1">
                   <CheckCircle2 className="h-3 w-3" />
                   <span>Done{result.durationMs !== undefined ? ` in ${result.durationMs}ms` : ''}</span>
                 </div>
@@ -308,13 +308,13 @@ export const ExecutableCodeBlock = memo(function ExecutableCodeBlock({
 
           {/* Error action buttons */}
           {result?.status === 'error' && (
-            <div className="flex items-center gap-1.5 px-2 py-1.5 bg-zinc-900 dark:bg-zinc-950 border-t border-zinc-800">
+            <div className="flex items-center gap-1.5 px-2 py-1.5 bg-muted border-t border-border">
               {onFixError && (
                 <Button
                   variant="outline"
                   size="sm"
                   onClick={handleFixError}
-                  className="gap-1 h-6 px-2 text-xs text-red-400 border-red-500/30 hover:bg-red-500/10 bg-transparent"
+                  className="gap-1 h-6 px-2 text-xs text-destructive border-destructive/30 hover:bg-destructive/10 bg-transparent"
                 >
                   <RefreshCw className="h-3 w-3" />
                   Fix this
@@ -324,7 +324,7 @@ export const ExecutableCodeBlock = memo(function ExecutableCodeBlock({
                 variant="outline"
                 size="sm"
                 onClick={handleRun}
-                className="gap-1 h-6 px-2 text-xs text-zinc-300 border-zinc-700 hover:bg-zinc-800 bg-transparent"
+                className="gap-1 h-6 px-2 text-xs bg-transparent"
               >
                 <Play className="h-3 w-3" />
                 Re-run
