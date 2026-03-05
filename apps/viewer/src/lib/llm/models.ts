@@ -101,6 +101,8 @@ function buildModel(id: string, tier: 'free' | 'pro', cost?: LLMModel['cost']): 
     name: humanizeModelSlug(modelRaw),
     provider: titleCaseProvider(providerRaw ?? 'Unknown'),
     contextWindow: 128_000,
+    supportsImages: false,
+    supportsFileAttachments: true,
     cost: tier === 'pro' ? cost : undefined,
   };
 }
@@ -114,7 +116,7 @@ const proHighCostIds = uniqueInOrder(parseCsvFromFirstDefined(['VITE_LLM_PRO_MOD
 const legacyProIds = uniqueInOrder(parseCsvFromFirstDefined(['VITE_LLM_PRO_MODELS', 'LLM_PRO_MODELS']));
 const useLegacyProList = proLowCostIds.length === 0 && proMediumCostIds.length === 0 && proHighCostIds.length === 0;
 
-export const FREE_MODELS: LLMModel[] = freeModelIds.map((id) => buildModel(id, 'free'));
+const rawFreeModels: LLMModel[] = freeModelIds.map((id) => buildModel(id, 'free'));
 
 const proCostBuckets: Array<{ ids: string[]; cost: LLMModel['cost'] }> = [
   { ids: proLowCostIds, cost: '$' },
@@ -123,7 +125,7 @@ const proCostBuckets: Array<{ ids: string[]; cost: LLMModel['cost'] }> = [
 ];
 
 const seenProModelIds = new Set<string>();
-export const PRO_MODELS: LLMModel[] = proCostBuckets.flatMap(({ ids, cost }) =>
+const rawProModels: LLMModel[] = proCostBuckets.flatMap(({ ids, cost }) =>
   ids.flatMap((id) => {
     if (seenProModelIds.has(id)) return [];
     seenProModelIds.add(id);
@@ -131,6 +133,29 @@ export const PRO_MODELS: LLMModel[] = proCostBuckets.flatMap(({ ids, cost }) =>
   }),
 );
 
+const imageCapableModelIds = new Set(
+  uniqueInOrder(parseCsvFromFirstDefined(['VITE_LLM_IMAGE_MODELS', 'LLM_IMAGE_MODELS'])),
+);
+const fileCapableModelIds = new Set(
+  uniqueInOrder(parseCsvFromFirstDefined(['VITE_LLM_FILE_ATTACHMENT_MODELS', 'LLM_FILE_ATTACHMENT_MODELS'])),
+);
+const hasImageOverrideList = imageCapableModelIds.size > 0;
+const hasFileOverrideList = fileCapableModelIds.size > 0;
+
+function applyCapabilities(model: LLMModel): LLMModel {
+  const supportsImages = hasImageOverrideList ? imageCapableModelIds.has(model.id) : model.supportsImages;
+  const supportsFileAttachments = hasFileOverrideList
+    ? fileCapableModelIds.has(model.id)
+    : model.supportsFileAttachments;
+  return {
+    ...model,
+    supportsImages,
+    supportsFileAttachments,
+  };
+}
+
+export const FREE_MODELS: LLMModel[] = rawFreeModels.map(applyCapabilities);
+export const PRO_MODELS: LLMModel[] = rawProModels.map(applyCapabilities);
 export const ALL_MODELS = [...FREE_MODELS, ...PRO_MODELS];
 
 const FALLBACK_MODEL: LLMModel = {
@@ -139,6 +164,8 @@ const FALLBACK_MODEL: LLMModel = {
   provider: 'Unknown',
   tier: 'free',
   contextWindow: 128_000,
+  supportsImages: false,
+  supportsFileAttachments: true,
   notes: 'Set VITE_LLM_FREE_MODELS and VITE_LLM_PRO_MODELS_LOW/MEDIUM/HIGH in environment.',
 };
 

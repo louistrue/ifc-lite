@@ -66,6 +66,10 @@ export interface LLMModel {
   provider: string;
   tier: ModelTier;
   contextWindow: number;
+  /** Whether this model accepts image inputs in chat content */
+  supportsImages: boolean;
+  /** Whether this model should receive uploaded file context */
+  supportsFileAttachments: boolean;
   /** Notes shown in model selector */
   notes?: string;
   /** Relative cost indicator (pro models only) */

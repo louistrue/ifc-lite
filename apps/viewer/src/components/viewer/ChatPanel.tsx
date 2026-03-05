@@ -37,6 +37,7 @@ import { buildErrorFeedbackContent } from '@/store/slices/chatSlice';
 import { ChatMessageComponent } from './chat/ChatMessage';
 import { ModelSelector } from './chat/ModelSelector';
 import { fetchUsageSnapshot, streamChat, type StreamMessage, type TextContentPart, type ImageContentPart, type UsageInfo } from '@/lib/llm/stream-client';
+import { buildStreamMessagesForModel, filterAttachmentsForModel } from '@/lib/llm/message-capabilities';
 import { buildSystemPrompt } from '@/lib/llm/system-prompt';
 import { getModelContext, parseCSV } from '@/lib/llm/context-builder';
 import { extractCodeBlocks } from '@/lib/llm/code-extractor';
@@ -123,32 +124,6 @@ function summarizeDroppedMessages(messages: ChatMessage[]): string {
     summaryParts.push(`${m.role}: ${body}`);
   }
   return summaryParts.join('\n');
-}
-
-function mapToStreamMessages(allMessages: ChatMessage[], viewportScreenshot: string | null): StreamMessage[] {
-  return allMessages.map((m, idx) => {
-    const isLastMessage = idx === allMessages.length - 1;
-    const imageAttachments = m.attachments?.filter((a) => a.isImage && a.imageBase64);
-    const hasImages = imageAttachments && imageAttachments.length > 0;
-    const hasViewportShot = isLastMessage && viewportScreenshot;
-
-    if (hasImages || hasViewportShot) {
-      const parts: Array<TextContentPart | ImageContentPart> = [];
-      if (imageAttachments) {
-        for (const img of imageAttachments) {
-          parts.push({ type: 'image_url', image_url: { url: img.imageBase64! } });
-        }
-      }
-      if (hasViewportShot) {
-        parts.push({ type: 'image_url', image_url: { url: viewportScreenshot } });
-        parts.push({ type: 'text', text: `${m.content}\n\n[Attached: current viewport screenshot showing the 3D model state]` });
-      } else {
-        parts.push({ type: 'text', text: m.content });
-      }
-      return { role: m.role as 'user' | 'assistant', content: parts };
-    }
-    return { role: m.role as 'user' | 'assistant', content: m.content };
-  });
 }
 
 interface ChatPanelProps {
@@ -303,12 +278,29 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
     const currentMessages = useViewerStore.getState().chatMessages;
     setLastFinishReason(null);
 
+    const activeModelInfo = getModelById(activeModel);
+    const supportsImages = activeModelInfo?.supportsImages ?? false;
+    const supportsFileAttachments = activeModelInfo?.supportsFileAttachments ?? true;
+    const filtered = filterAttachmentsForModel(attachments, supportsImages, supportsFileAttachments);
+    const droppedAttachmentWarnings: string[] = [];
+    if (filtered.droppedImages > 0) {
+      droppedAttachmentWarnings.push('image attachments');
+    }
+    if (filtered.droppedFiles > 0) {
+      droppedAttachmentWarnings.push('file attachments');
+    }
+    if (droppedAttachmentWarnings.length > 0) {
+      setChatError(
+        `Selected model does not support ${droppedAttachmentWarnings.join(' and ')}. Unsupported attachments were skipped.`,
+      );
+    }
+
     const userMessage: ChatMessage = {
       id: crypto.randomUUID(),
       role: 'user',
       content: text.trim(),
       createdAt: Date.now(),
-      attachments: attachments.length > 0 ? [...attachments] : undefined,
+      attachments: filtered.accepted.length > 0 ? [...filtered.accepted] : undefined,
     };
     addMessage(userMessage);
     setInputText('');
@@ -327,10 +319,9 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
     const allMessages = [...currentMessages, userMessage];
 
     const modelContext = getModelContext();
-    const fileAttachments = attachments.length > 0 ? attachments : undefined;
+    const fileAttachments = filtered.accepted.length > 0 ? filtered.accepted : undefined;
     const systemPrompt = buildSystemPrompt(modelContext, fileAttachments);
-    const selectedModel = getModelById(activeModel);
-    const contextWindow = selectedModel?.contextWindow ?? 128_000;
+    const contextWindow = activeModelInfo?.contextWindow ?? 128_000;
     const inputBudget = Math.max(
       MIN_INPUT_BUDGET,
       Math.floor(contextWindow * INPUT_BUDGET_RATIO) - OUTPUT_TOKEN_RESERVE,
@@ -338,7 +329,8 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
 
     let compactedMessages = [...allMessages];
     let droppedMessages: ChatMessage[] = [];
-    let streamMessages = mapToStreamMessages(compactedMessages, viewportScreenshot ?? null);
+    let streamBuild = buildStreamMessagesForModel(compactedMessages, viewportScreenshot ?? null, supportsImages);
+    let streamMessages = streamBuild.messages;
     let estimatedInputTokens = estimateTextTokens(systemPrompt) + estimateMessagesTokens(streamMessages);
 
     while (estimatedInputTokens > inputBudget && compactedMessages.length > 2) {
@@ -350,8 +342,15 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
         droppedMessages = [...droppedMessages, ...compactedMessages.slice(0, over)];
         compactedMessages = compactedMessages.slice(over);
       }
-      streamMessages = mapToStreamMessages(compactedMessages, viewportScreenshot ?? null);
+      streamBuild = buildStreamMessagesForModel(compactedMessages, viewportScreenshot ?? null, supportsImages);
+      streamMessages = streamBuild.messages;
       estimatedInputTokens = estimateTextTokens(systemPrompt) + estimateMessagesTokens(streamMessages);
+    }
+
+    if (streamBuild.droppedInlineImages > 0 || streamBuild.droppedViewportScreenshot) {
+      setChatError(
+        'Selected model does not support image input. Screenshot/image payload was omitted.',
+      );
     }
 
     if (droppedMessages.length > 0) {
@@ -503,9 +502,17 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
 
   // ── File upload (button + drag-drop + paste) ──
   const processFiles = useCallback(async (files: FileList | File[]) => {
+    const model = getModelById(activeModel);
+    const supportsImages = model?.supportsImages ?? false;
+    const supportsFileAttachments = model?.supportsFileAttachments ?? true;
+
     for (const file of Array.from(files)) {
       // Handle image files
       if (file.type.startsWith('image/')) {
+        if (!supportsImages) {
+          setChatError('Selected model does not support image input. Switch model to attach images.');
+          continue;
+        }
         const base64 = await fileToBase64(file);
         const attachment: FileAttachment = {
           name: file.name,
@@ -519,6 +526,10 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
       }
       // Only accept text-based files
       if (!file.name.match(/\.(csv|json|txt|tsv)$/i)) continue;
+      if (!supportsFileAttachments) {
+        setChatError('Selected model does not support file attachments. Switch model to attach files.');
+        continue;
+      }
       const text = await file.text();
       const attachment: FileAttachment = {
         name: file.name,
@@ -533,7 +544,7 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
       }
       addAttachment(attachment);
     }
-  }, [addAttachment]);
+  }, [activeModel, addAttachment, setChatError]);
 
   const handleFileUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -598,6 +609,14 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
   }, [processFiles]);
 
   const isActive = status === 'streaming' || status === 'sending';
+  const modelForUi = getModelById(activeModel);
+  const modelSupportsImages = modelForUi?.supportsImages ?? false;
+  const modelSupportsFiles = modelForUi?.supportsFileAttachments ?? true;
+  const attachmentAccept = [
+    modelSupportsFiles ? '.csv,.json,.txt,.tsv' : '',
+    modelSupportsImages ? 'image/*' : '',
+  ].filter(Boolean).join(',');
+  const canAttachInput = modelSupportsFiles || modelSupportsImages;
   const clerkEnabled = isClerkConfigured();
   const showUpgradeNudge = Boolean(error && (error.includes('Upgrade to Pro') || error.includes('daily limit')));
   const showSupportEmail = Boolean(error && error.includes('louis@ltplus.com'));
@@ -857,7 +876,7 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
           <input
             ref={fileInputRef}
             type="file"
-            accept=".csv,.json,.txt,.tsv,image/*"
+            accept={attachmentAccept}
             multiple
             onChange={handleFileUpload}
             className="hidden"
@@ -868,12 +887,17 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
                 variant="ghost"
                 size="icon-xs"
                 onClick={() => fileInputRef.current?.click()}
+                disabled={!canAttachInput}
                 className="shrink-0 mb-0.5"
               >
                 <Paperclip className="h-3.5 w-3.5" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent>Attach file or image (paste, drag &amp; drop)</TooltipContent>
+            <TooltipContent>
+              {canAttachInput
+                ? 'Attach file or image (paste, drag & drop)'
+                : 'Selected model does not support attachments'}
+            </TooltipContent>
           </Tooltip>
 
           <textarea
