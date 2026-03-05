@@ -61,6 +61,8 @@ export interface StreamOptions {
   onChunk: (text: string) => void;
   /** Called when the stream completes */
   onComplete: (fullText: string) => void;
+  /** Called with the model/provider finish reason when available */
+  onFinishReason?: (finishReason: string | null) => void;
   /** Called on error */
   onError: (error: Error) => void;
   /** Called with usage info from response headers */
@@ -145,7 +147,7 @@ export async function fetchUsageSnapshot(proxyUrl: string, authToken?: string | 
  * Parses SSE format (data: {...}\n\n).
  */
 export async function streamChat(options: StreamOptions): Promise<void> {
-  const { proxyUrl, model, messages, system, authToken, signal, onChunk, onComplete, onError, onUsageInfo } = options;
+  const { proxyUrl, model, messages, system, authToken, signal, onChunk, onComplete, onError, onUsageInfo, onFinishReason } = options;
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -246,6 +248,7 @@ export async function streamChat(options: StreamOptions): Promise<void> {
   const decoder = new TextDecoder();
   let buffer = '';
   let fullText = '';
+  let finishReason: string | null = null;
 
   try {
     while (true) {
@@ -284,6 +287,10 @@ export async function streamChat(options: StreamOptions): Promise<void> {
               fullText += content;
               onChunk(content);
             }
+            const chunkFinishReason = parsed.choices?.[0]?.finish_reason;
+            if (chunkFinishReason) {
+              finishReason = chunkFinishReason;
+            }
           } catch {
             // Skip malformed SSE lines
           }
@@ -296,5 +303,6 @@ export async function streamChat(options: StreamOptions): Promise<void> {
     return;
   }
 
+  onFinishReason?.(finishReason);
   onComplete(fullText);
 }

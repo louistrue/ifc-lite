@@ -36,13 +36,14 @@ import { useViewerStore } from '@/store';
 import { buildErrorFeedbackContent } from '@/store/slices/chatSlice';
 import { ChatMessageComponent } from './chat/ChatMessage';
 import { ModelSelector } from './chat/ModelSelector';
-import { fetchUsageSnapshot, streamChat, type TextContentPart, type ImageContentPart, type UsageInfo } from '@/lib/llm/stream-client';
+import { fetchUsageSnapshot, streamChat, type StreamMessage, type TextContentPart, type ImageContentPart, type UsageInfo } from '@/lib/llm/stream-client';
 import { buildSystemPrompt } from '@/lib/llm/system-prompt';
 import { getModelContext, parseCSV } from '@/lib/llm/context-builder';
 import { extractCodeBlocks } from '@/lib/llm/code-extractor';
 import type { ChatMessage, FileAttachment } from '@/lib/llm/types';
 import { Image as ImageIcon } from 'lucide-react';
 import { isClerkConfigured } from '@/lib/llm/clerk-auth';
+import { getModelById } from '@/lib/llm/models';
 
 // Environment variable for the proxy URL
 const PROXY_URL = import.meta.env.VITE_LLM_PROXY_URL as string || '/api/chat';
@@ -57,6 +58,13 @@ const EXAMPLE_PROMPTS = [
 const CONTINUE_PROMPT = 'Continue from exactly where your last response stopped. Do not repeat previously generated text.';
 const DEFAULT_PRO_MONTHLY_CREDIT_LIMIT = 1000;
 const USAGE_REFRESH_INTERVAL_MS = 15_000;
+const EST_CHARS_PER_TOKEN = 4;
+const IMAGE_TOKEN_COST_EST = 850;
+const INPUT_BUDGET_RATIO = 0.72;
+const OUTPUT_TOKEN_RESERVE = 9_000;
+const MIN_INPUT_BUDGET = 8_000;
+const MAX_RECENT_MESSAGES = 48;
+const SUMMARY_SNIPPET_LEN = 240;
 
 /** Convert a File to a base64 data URL */
 function fileToBase64(file: File): Promise<string> {
@@ -65,6 +73,81 @@ function fileToBase64(file: File): Promise<string> {
     reader.onload = () => resolve(reader.result as string);
     reader.onerror = reject;
     reader.readAsDataURL(file);
+  });
+}
+
+function stripContinuationOverlap(previous: string, continuation: string): string {
+  const prev = previous.trimEnd();
+  const next = continuation.trimStart();
+  if (!prev || !next) return continuation;
+
+  const maxOverlap = Math.min(prev.length, next.length, 1200);
+  const minOverlap = Math.min(48, maxOverlap);
+  for (let size = maxOverlap; size >= minOverlap; size--) {
+    const suffix = prev.slice(-size);
+    const prefix = next.slice(0, size);
+    if (suffix === prefix) {
+      return next.slice(size).trimStart();
+    }
+  }
+  return continuation;
+}
+
+function estimateTextTokens(text: string): number {
+  return Math.ceil(text.length / EST_CHARS_PER_TOKEN);
+}
+
+function estimateContentTokens(content: string | Array<TextContentPart | ImageContentPart>): number {
+  if (typeof content === 'string') return estimateTextTokens(content);
+  let tokens = 0;
+  for (const part of content) {
+    if (part.type === 'text') {
+      tokens += estimateTextTokens(part.text);
+    } else {
+      tokens += IMAGE_TOKEN_COST_EST;
+    }
+  }
+  return tokens;
+}
+
+function estimateMessagesTokens(messages: Array<{ role: string; content: string | Array<TextContentPart | ImageContentPart> }>): number {
+  return messages.reduce((sum, m) => sum + estimateContentTokens(m.content) + 8, 0);
+}
+
+function summarizeDroppedMessages(messages: ChatMessage[]): string {
+  if (messages.length === 0) return '';
+  const summaryParts: string[] = [];
+  for (const m of messages.slice(-14)) {
+    const body = m.content.replace(/\s+/g, ' ').trim().slice(0, SUMMARY_SNIPPET_LEN);
+    if (!body) continue;
+    summaryParts.push(`${m.role}: ${body}`);
+  }
+  return summaryParts.join('\n');
+}
+
+function mapToStreamMessages(allMessages: ChatMessage[], viewportScreenshot: string | null): StreamMessage[] {
+  return allMessages.map((m, idx) => {
+    const isLastMessage = idx === allMessages.length - 1;
+    const imageAttachments = m.attachments?.filter((a) => a.isImage && a.imageBase64);
+    const hasImages = imageAttachments && imageAttachments.length > 0;
+    const hasViewportShot = isLastMessage && viewportScreenshot;
+
+    if (hasImages || hasViewportShot) {
+      const parts: Array<TextContentPart | ImageContentPart> = [];
+      if (imageAttachments) {
+        for (const img of imageAttachments) {
+          parts.push({ type: 'image_url', image_url: { url: img.imageBase64! } });
+        }
+      }
+      if (hasViewportShot) {
+        parts.push({ type: 'image_url', image_url: { url: viewportScreenshot } });
+        parts.push({ type: 'text', text: `${m.content}\n\n[Attached: current viewport screenshot showing the 3D model state]` });
+      } else {
+        parts.push({ type: 'text', text: m.content });
+      }
+      return { role: m.role as 'user' | 'assistant', content: parts };
+    }
+    return { role: m.role as 'user' | 'assistant', content: m.content };
   });
 }
 
@@ -114,6 +197,7 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
   const [isDragging, setIsDragging] = useState(false);
   const [showScrollBtn, setShowScrollBtn] = useState(false);
   const [userScrolledUp, setUserScrolledUp] = useState(false);
+  const [lastFinishReason, setLastFinishReason] = useState<string | null>(null);
 
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -201,8 +285,12 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
   }, [onClose, inputText]);
 
   // ── Core send logic ──
-  const doSend = useCallback(async (text: string) => {
+  const doSend = useCallback(async (text: string, options?: { continuationBase?: string }) => {
     if (!text.trim() || status === 'streaming' || status === 'sending') return;
+
+    const continuationBase = options?.continuationBase;
+    const currentMessages = useViewerStore.getState().chatMessages;
+    setLastFinishReason(null);
 
     const userMessage: ChatMessage = {
       id: crypto.randomUUID(),
@@ -227,37 +315,57 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
       useViewerStore.getState().setChatViewportScreenshot(null);
     }
 
-    const allMessages = [...messages, userMessage];
-    const streamMessages = allMessages.map((m, idx) => {
-      const isLastMessage = idx === allMessages.length - 1;
-      // Build multimodal content array if message has image attachments
-      const imageAttachments = m.attachments?.filter((a) => a.isImage && a.imageBase64);
-      const hasImages = imageAttachments && imageAttachments.length > 0;
-      const hasViewportShot = isLastMessage && viewportScreenshot;
-
-      if (hasImages || hasViewportShot) {
-        const parts: Array<TextContentPart | ImageContentPart> = [];
-        // Add user-attached images
-        if (imageAttachments) {
-          for (const img of imageAttachments) {
-            parts.push({ type: 'image_url', image_url: { url: img.imageBase64! } });
-          }
-        }
-        // Add auto-captured viewport screenshot
-        if (hasViewportShot) {
-          parts.push({ type: 'image_url', image_url: { url: viewportScreenshot } });
-          parts.push({ type: 'text', text: m.content + '\n\n[Attached: current viewport screenshot showing the 3D model state]' });
-        } else {
-          parts.push({ type: 'text', text: m.content });
-        }
-        return { role: m.role as 'user' | 'assistant', content: parts };
-      }
-      return { role: m.role as 'user' | 'assistant', content: m.content };
-    });
+    const allMessages = [...currentMessages, userMessage];
 
     const modelContext = getModelContext();
     const fileAttachments = attachments.length > 0 ? attachments : undefined;
     const systemPrompt = buildSystemPrompt(modelContext, fileAttachments);
+    const selectedModel = getModelById(activeModel);
+    const contextWindow = selectedModel?.contextWindow ?? 128_000;
+    const inputBudget = Math.max(
+      MIN_INPUT_BUDGET,
+      Math.floor(contextWindow * INPUT_BUDGET_RATIO) - OUTPUT_TOKEN_RESERVE,
+    );
+
+    let compactedMessages = [...allMessages];
+    let droppedMessages: ChatMessage[] = [];
+    let streamMessages = mapToStreamMessages(compactedMessages, viewportScreenshot ?? null);
+    let estimatedInputTokens = estimateTextTokens(systemPrompt) + estimateMessagesTokens(streamMessages);
+
+    while (estimatedInputTokens > inputBudget && compactedMessages.length > 2) {
+      const dropCount = Math.min(4, Math.max(1, compactedMessages.length - 2));
+      droppedMessages = [...droppedMessages, ...compactedMessages.slice(0, dropCount)];
+      compactedMessages = compactedMessages.slice(dropCount);
+      if (compactedMessages.length > MAX_RECENT_MESSAGES) {
+        const over = compactedMessages.length - MAX_RECENT_MESSAGES;
+        droppedMessages = [...droppedMessages, ...compactedMessages.slice(0, over)];
+        compactedMessages = compactedMessages.slice(over);
+      }
+      streamMessages = mapToStreamMessages(compactedMessages, viewportScreenshot ?? null);
+      estimatedInputTokens = estimateTextTokens(systemPrompt) + estimateMessagesTokens(streamMessages);
+    }
+
+    if (droppedMessages.length > 0) {
+      const summary = summarizeDroppedMessages(droppedMessages);
+      if (summary) {
+        const summaryMessage = {
+          role: 'system' as const,
+          content: `Conversation summary of earlier turns (for continuity only):\n${summary}`,
+        };
+        streamMessages = [summaryMessage, ...streamMessages];
+        estimatedInputTokens = estimateTextTokens(systemPrompt) + estimateMessagesTokens(streamMessages);
+      }
+    }
+
+    if (estimatedInputTokens > inputBudget && import.meta.env.DEV) {
+      console.info('[llm-budget]', {
+        model: activeModel,
+        contextWindow,
+        inputBudget,
+        estimatedInputTokens,
+        droppedMessages: droppedMessages.length,
+      });
+    }
 
     if (attachments.length > 0) clearAttachments();
 
@@ -279,7 +387,10 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
         updateStreaming(accumulated);
       },
       onComplete: (fullText) => {
-        const messageId = finalizeAssistant(fullText);
+        const normalizedText = continuationBase
+          ? stripContinuationOverlap(continuationBase, fullText)
+          : fullText;
+        const messageId = finalizeAssistant(normalizedText || fullText);
 
         // Auto-execute if enabled
         const autoExec = useViewerStore.getState().chatAutoExecute;
@@ -298,13 +409,19 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
       onUsageInfo: (info: UsageInfo) => {
         setChatUsage(info);
       },
+      onFinishReason: (reason) => {
+        setLastFinishReason(reason);
+        if (reason === 'length') {
+          setChatError('Response reached output limit. Click Continue to resume.');
+        }
+      },
       onError: (err) => {
         setChatError(err.message);
         setChatAbortController(null);
       },
     });
   }, [
-    status, messages, activeModel, attachments, authToken,
+    status, activeModel, attachments, authToken,
     addMessage, setChatStatus, updateStreaming, finalizeAssistant,
     setChatError, setChatAbortController, clearAttachments, setChatUsage,
   ]);
@@ -316,12 +433,16 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
   const handleContinue = useCallback(() => {
     const state = useViewerStore.getState();
     const partial = state.chatStreamingContent.trim();
-    if (!partial) return;
+    const lastAssistant = [...state.chatMessages].reverse().find((m) => m.role === 'assistant');
+    const continuationBase = partial || lastAssistant?.content || '';
+    if (!continuationBase) return;
 
     // Preserve the partial completion in history, then request continuation.
-    finalizeAssistant(partial);
+    if (partial) {
+      finalizeAssistant(partial);
+    }
     setChatError(null);
-    doSend(CONTINUE_PROMPT);
+    doSend(CONTINUE_PROMPT, { continuationBase });
   }, [doSend, finalizeAssistant, setChatError]);
 
   const handleStop = useCallback(() => {
@@ -471,7 +592,9 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
   const clerkEnabled = isClerkConfigured();
   const showUpgradeNudge = Boolean(error && (error.includes('Upgrade to Pro') || error.includes('daily limit')));
   const showSupportEmail = Boolean(error && error.includes('louis@ltplus.com'));
-  const canContinue = Boolean(error && streamingContent.trim().length > 0 && !isActive);
+  const canContinue = Boolean(
+    !isActive && (streamingContent.trim().length > 0 || lastFinishReason === 'length'),
+  );
   const openUpgradePage = useCallback(() => {
     const currentPath = `${window.location.pathname}${window.location.search}`;
     const target = `/upgrade?returnTo=${encodeURIComponent(currentPath)}`;
