@@ -215,6 +215,10 @@ export function HierarchyPanel() {
       // The type entity expressId is encoded in the node id: "ifctype-{modelId}-{expressId}"
       const typeExpressId = parseInt(node.id.split('-').pop()!, 10);
 
+      // Clear multi-selection first (before setting new selection, since
+      // setSelectedEntityIds([]) resets selectedEntityId to null)
+      setSelectedEntityIds([]);
+
       if (modelId && modelId !== 'legacy') {
         const model = models.get(modelId);
         const globalId = typeExpressId + (model?.idOffset ?? 0);
@@ -229,7 +233,6 @@ export function HierarchyPanel() {
       // Isolate instances of this type
       const elements = getNodeElements(node);
       if (elements.length > 0) {
-        setSelectedEntityIds([]);
         isolateEntities(elements);
       }
 

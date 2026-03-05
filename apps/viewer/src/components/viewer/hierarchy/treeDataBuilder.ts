@@ -456,21 +456,21 @@ export function buildIfcTypeTree(
 
   // Group by type class name (e.g. "IfcWallType") → individual types
   const typeClassGroups = new Map<string, TypeEntry[]>();
-  const untypedByClass = new Map<string, Array<{ expressId: number; globalId: number; name: string; modelId: string }>>();
 
   const processDataStore = (dataStore: IfcDataStore, modelId: string, idOffset: number) => {
     if (!dataStore.relationships) return;
 
     // Find all type entities (entities with IS_TYPE flag)
-    const typeEntityMap = new Map<number, TypeEntry>();
-
     for (let i = 0; i < dataStore.entities.count; i++) {
       const flags = dataStore.entities.flags[i];
       if (!(flags & EntityFlags.IS_TYPE)) continue;
 
       const expressId = dataStore.entities.expressId[i];
-      const typeName = dataStore.entities.getName(expressId) || `#${expressId}`;
       const typeClassName = dataStore.entities.getTypeName(expressId);
+
+      // Skip relationship entities and non-product types
+      if (typeClassName.startsWith('IfcRel') || typeClassName === 'Unknown') continue;
+      const typeName = dataStore.entities.getName(expressId) || `#${expressId}`;
 
       // Get instances via DefinesByType (forward: type → occurrences)
       const instanceIds = dataStore.relationships.getRelated(expressId, RelationshipType.DefinesByType, 'forward');
@@ -491,35 +491,10 @@ export function buildIfcTypeTree(
         instances,
       };
 
-      typeEntityMap.set(expressId, entry);
-
       if (!typeClassGroups.has(typeClassName)) {
         typeClassGroups.set(typeClassName, []);
       }
       typeClassGroups.get(typeClassName)!.push(entry);
-    }
-
-    // Collect untyped entities (those with geometry but no type relationship)
-    for (let i = 0; i < dataStore.entities.count; i++) {
-      const flags = dataStore.entities.flags[i];
-      if (flags & EntityFlags.IS_TYPE) continue;
-
-      const expressId = dataStore.entities.expressId[i];
-      const globalId = expressId + idOffset;
-
-      // Only include entities with geometry
-      if (geometricIds && geometricIds.size > 0 && !geometricIds.has(globalId)) continue;
-
-      // Check if it has a type relationship
-      if (dataStore.entities.definedByType[i] >= 0) continue;
-
-      const typeName = dataStore.entities.getTypeName(expressId);
-      const entityName = dataStore.entities.getName(expressId) || `${typeName} #${expressId}`;
-
-      if (!untypedByClass.has(typeName)) {
-        untypedByClass.set(typeName, []);
-      }
-      untypedByClass.get(typeName)!.push({ expressId, globalId, name: entityName, modelId });
     }
   };
 
@@ -600,48 +575,6 @@ export function buildIfcTypeTree(
               isVisible: true,
             });
           }
-        }
-      }
-    }
-  }
-
-  // Add untyped entities at the bottom
-  const sortedUntypedClasses = Array.from(untypedByClass.keys()).sort();
-  if (sortedUntypedClasses.length > 0) {
-    for (const className of sortedUntypedClasses) {
-      const entities = untypedByClass.get(className)!;
-      const groupNodeId = `untyped-${className}`;
-      const isExpanded = expandedNodes.has(groupNodeId);
-      const groupGlobalIds = entities.map(e => e.globalId);
-
-      nodes.push({
-        id: groupNodeId,
-        expressIds: groupGlobalIds,
-        modelIds: [],
-        name: `${className} (untyped)`,
-        type: 'type-group',
-        depth: 0,
-        hasChildren: entities.length > 0,
-        isExpanded,
-        isVisible: true,
-        elementCount: entities.length,
-      });
-
-      if (isExpanded) {
-        entities.sort((a, b) => a.name.localeCompare(b.name));
-        for (const entity of entities) {
-          const suffix = isMultiModel ? ` [${models.get(entity.modelId)?.name || entity.modelId}]` : '';
-          nodes.push({
-            id: `element-${entity.modelId}-${entity.expressId}`,
-            expressIds: [entity.globalId],
-            modelIds: [entity.modelId],
-            name: entity.name + suffix,
-            type: 'element',
-            depth: 1,
-            hasChildren: false,
-            isExpanded: false,
-            isVisible: true,
-          });
         }
       }
     }
