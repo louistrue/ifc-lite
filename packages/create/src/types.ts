@@ -83,8 +83,8 @@ export interface LShapeProfile {
 /** T-shape profile (tee section, centred at origin) */
 export interface TShapeProfile {
   ProfileType: 'AREA';
-  /** Discriminator — must be 'T' for T-shape profiles */
-  Shape: 'T';
+  /** Discriminator — identifies this as an IFC T-shape profile */
+  Shape: 'IfcTShapeProfileDef';
   /** Flange width */
   FlangeWidth: number;
   /** Overall depth */
@@ -100,8 +100,8 @@ export interface TShapeProfile {
 /** U-shape profile (channel section, centred at origin) */
 export interface UShapeProfile {
   ProfileType: 'AREA';
-  /** Discriminator — must be 'U' for U-shape profiles */
-  Shape: 'U';
+  /** Discriminator — identifies this as an IFC U-shape profile */
+  Shape: 'IfcUShapeProfileDef';
   /** Overall depth */
   Depth: number;
   /** Flange width */
@@ -269,7 +269,9 @@ export interface DoorParams extends ElementAttributes {
   Height: number;
   /** Door thickness (panel depth) */
   Thickness?: number;
-  /** Operation type */
+  /** Predefined type (IFC4 IfcDoorTypeEnum) */
+  PredefinedType?: 'DOOR' | 'GATE' | 'TRAPDOOR' | 'USERDEFINED' | 'NOTDEFINED';
+  /** Operation type (IFC4 IfcDoorTypeOperationEnum) */
   OperationType?: 'SINGLE_SWING_LEFT' | 'SINGLE_SWING_RIGHT' | 'DOUBLE_DOOR_SINGLE_SWING' | 'DOUBLE_DOOR_SINGLE_SWING_OPPOSITE_LEFT' | 'DOUBLE_DOOR_SINGLE_SWING_OPPOSITE_RIGHT' | 'DOUBLE_SWING_LEFT' | 'DOUBLE_SWING_RIGHT' | 'DOUBLE_DOOR_DOUBLE_SWING' | 'SLIDING_TO_LEFT' | 'SLIDING_TO_RIGHT' | 'DOUBLE_DOOR_SLIDING' | 'FOLDING_TO_LEFT' | 'FOLDING_TO_RIGHT' | 'DOUBLE_DOOR_FOLDING' | 'REVOLVING' | 'ROLLINGUP' | 'SWING_FIXED_LEFT' | 'SWING_FIXED_RIGHT' | 'USERDEFINED' | 'NOTDEFINED';
 }
 

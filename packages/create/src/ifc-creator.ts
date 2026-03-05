@@ -69,6 +69,15 @@ function vecLen(v: Point3D): number {
   return Math.sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
 }
 
+/**
+ * IFC types that do NOT follow the IfcElement attribute layout (no Tag/PredefinedType).
+ * addElement/addAxisElement skip Tag+PredefinedType for these types.
+ */
+const NON_ELEMENT_TYPES = new Set([
+  'IFCBUILDING', 'IFCSITE', 'IFCBUILDINGSTOREY', 'IFCPROJECT',
+  'IFCSPACE', 'IFCZONE', 'IFCSYSTEM', 'IFCGROUP',
+]);
+
 /** Normalize vector — throws on zero-length (indicates geometry bug like Start === End) */
 function vecNorm(v: Point3D): Point3D {
   const len = vecLen(v);
@@ -458,9 +467,10 @@ export class IfcCreator {
     const objType = params.ObjectType ? `'${esc(params.ObjectType)}'` : '$';
     const tag = params.Tag ? `'${esc(params.Tag)}'` : '$';
     const opType = params.OperationType ?? 'SINGLE_SWING_LEFT';
+    const predType = params.PredefinedType ?? 'NOTDEFINED';
 
     this.line(doorId, 'IFCDOOR',
-      `'${globalId}',#${this.ownerHistoryId},'${esc(name)}',${desc},${objType},#${placementId},#${prodShapeId},${tag},${num(params.Height)},${num(params.Width)},.${opType}.,$`);
+      `'${globalId}',#${this.ownerHistoryId},'${esc(name)}',${desc},${objType},#${placementId},#${prodShapeId},${tag},${num(params.Height)},${num(params.Width)},.${predType}.,.${opType}.,$`);
 
     this.elementSolids.set(doorId, [solidId]);
     this.trackElement(storeyId, doorId);
@@ -1854,11 +1864,11 @@ ENDSEC;
       );
     }
     // T-shape and U-shape are structurally identical — use Shape discriminator
-    if ('Shape' in profile && (profile as { Shape: string }).Shape === 'T') {
+    if ('Shape' in profile && (profile as { Shape: string }).Shape === 'IfcTShapeProfileDef') {
       const p = profile as { FlangeWidth: number; Depth: number; WebThickness: number; FlangeThickness: number; FilletRadius?: number };
       return this.addTShapeProfile(p.FlangeWidth, p.Depth, p.WebThickness, p.FlangeThickness, p.FilletRadius);
     }
-    if ('Shape' in profile && (profile as { Shape: string }).Shape === 'U') {
+    if ('Shape' in profile && (profile as { Shape: string }).Shape === 'IfcUShapeProfileDef') {
       const p = profile as { Depth: number; FlangeWidth: number; WebThickness: number; FlangeThickness: number; FilletRadius?: number };
       return this.addUShapeProfile(p.Depth, p.FlangeWidth, p.WebThickness, p.FlangeThickness, p.FilletRadius);
     }
@@ -1935,10 +1945,18 @@ ENDSEC;
     const desc = params.Description ? `'${esc(params.Description)}'` : '$';
     const objType = params.ObjectType ? `'${esc(params.ObjectType)}'` : '$';
     const tag = params.Tag ? `'${esc(params.Tag)}'` : '$';
-    const predefinedType = params.PredefinedType ?? '.NOTDEFINED.';
+    const ifcType = params.IfcType.toUpperCase();
 
-    this.line(elementId, params.IfcType,
-      `'${globalId}',#${this.ownerHistoryId},'${esc(name)}',${desc},${objType},#${placementId},#${prodShapeId},${tag},${predefinedType}`);
+    if (NON_ELEMENT_TYPES.has(ifcType)) {
+      // Non-element types: GlobalId, OwnerHistory, Name, Description, ObjectType, ObjectPlacement, Representation
+      this.line(elementId, params.IfcType,
+        `'${globalId}',#${this.ownerHistoryId},'${esc(name)}',${desc},${objType},#${placementId},#${prodShapeId}`);
+    } else {
+      // IfcElement subtypes: ...Tag, PredefinedType
+      const predefinedType = params.PredefinedType ? `.${params.PredefinedType}.` : '.NOTDEFINED.';
+      this.line(elementId, params.IfcType,
+        `'${globalId}',#${this.ownerHistoryId},'${esc(name)}',${desc},${objType},#${placementId},#${prodShapeId},${tag},${predefinedType}`);
+    }
 
     this.elementSolids.set(elementId, [solidId]);
     this.trackElement(storeyId, elementId);
@@ -2005,10 +2023,16 @@ ENDSEC;
     const desc = params.Description ? `'${esc(params.Description)}'` : '$';
     const objType = params.ObjectType ? `'${esc(params.ObjectType)}'` : '$';
     const tag = params.Tag ? `'${esc(params.Tag)}'` : '$';
-    const predefinedType = params.PredefinedType ?? '.NOTDEFINED.';
+    const ifcType = params.IfcType.toUpperCase();
 
-    this.line(elementId, params.IfcType,
-      `'${globalId}',#${this.ownerHistoryId},'${esc(name)}',${desc},${objType},#${placementId},#${prodShapeId},${tag},${predefinedType}`);
+    if (NON_ELEMENT_TYPES.has(ifcType)) {
+      this.line(elementId, params.IfcType,
+        `'${globalId}',#${this.ownerHistoryId},'${esc(name)}',${desc},${objType},#${placementId},#${prodShapeId}`);
+    } else {
+      const predefinedType = params.PredefinedType ? `.${params.PredefinedType}.` : '.NOTDEFINED.';
+      this.line(elementId, params.IfcType,
+        `'${globalId}',#${this.ownerHistoryId},'${esc(name)}',${desc},${objType},#${placementId},#${prodShapeId},${tag},${predefinedType}`);
+    }
 
     this.elementSolids.set(elementId, [solidId]);
     this.trackElement(storeyId, elementId);

@@ -150,8 +150,32 @@ type MethodPattern = 'storey-params' | 'element-params' | 'no-args' | 'special';
 /** Methods with non-standard signatures that need hand-written wiring */
 const SPECIAL_METHODS = new Set([
   'constructor', 'toIfc', 'setColor',
-  // Private helpers that might leak through prototype in some TS configs
-  'id', 'line', 'trackElement',
+]);
+
+/**
+ * Explicit allow-list of IfcCreator methods exposed in the sandbox.
+ * Only methods in this set (or in SPECIAL_METHODS/ELEMENT_METHODS/ZERO_ARG_METHODS)
+ * are wired. This prevents accidental exposure of private/internal helpers.
+ */
+const ALLOWED_METHODS = new Set([
+  // Spatial structure
+  'addIfcBuildingStorey',
+  // Building elements
+  'addIfcWall', 'addIfcSlab', 'addIfcColumn', 'addIfcBeam',
+  'addIfcStair', 'addIfcRoof', 'addIfcDoor', 'addIfcWindow',
+  'addIfcRamp', 'addIfcRailing', 'addIfcPlate', 'addIfcMember',
+  'addIfcFooting', 'addIfcPile', 'addIfcSpace', 'addIfcCurtainWall',
+  'addIfcFurnishingElement', 'addIfcBuildingElementProxy',
+  // Specialized profiles
+  'addIfcCircularColumn', 'addIfcIShapeBeam',
+  'addIfcLShapeMember', 'addIfcTShapeMember', 'addIfcUShapeMember',
+  'addIfcHollowCircularColumn', 'addIfcRectangleHollowBeam',
+  // Generic element creation
+  'addElement', 'addAxisElement', 'createProfile',
+  // Properties and materials
+  'addIfcPropertySet', 'addIfcElementQuantity', 'addIfcMaterial',
+  // Low-level geometry
+  'getWorldPlacementId',
 ]);
 
 /** Methods that take (elementId, def) instead of (storeyId, params) */
@@ -251,7 +275,7 @@ function buildCreateMethods(): MethodSchema[] {
   // ── Auto-discover all other public methods from IfcCreator.prototype ──
   const proto = IfcCreator.prototype as unknown as Record<string, unknown>;
   const methodNames = Object.getOwnPropertyNames(proto)
-    .filter(name => typeof proto[name] === 'function' && !name.startsWith('_'))
+    .filter(name => typeof proto[name] === 'function' && ALLOWED_METHODS.has(name))
     .sort();
 
   for (const name of methodNames) {
