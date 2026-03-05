@@ -13,7 +13,7 @@
  *   LLM_API_KEY
  *   LLM_API_BASE
  *   LLM_FREE_MODELS
- *   LLM_PRO_MODELS
+ *   LLM_PRO_MODELS (or LLM_PRO_MODELS_LOW / MEDIUM / HIGH)
  *   LLM_FREE_DAILY_LIMIT
  *   LLM_PRO_MONTHLY_CREDITS
  *   LLM_COST_TO_CREDITS
@@ -44,6 +44,12 @@ function getEnvSet(key: string): Set<string> {
   return new Set(values);
 }
 
+function getOptionalEnvSet(key: string): Set<string> {
+  const val = process.env[key]?.trim();
+  if (!val) return new Set();
+  return new Set(val.split(',').map((s) => s.trim()).filter(Boolean));
+}
+
 function getEnvInt(key: string): number {
   const val = requireEnv(key);
   const n = parseInt(val, 10);
@@ -57,7 +63,13 @@ const API_BASE = requireEnv('LLM_API_BASE').replace(/\/+$/, '');
 const API_KEY = requireEnv('LLM_API_KEY');
 const APP_URL = requireEnv('APP_URL');
 const FREE_MODELS = getEnvSet('LLM_FREE_MODELS');
-const PRO_MODELS = getEnvSet('LLM_PRO_MODELS');
+const PRO_MODELS_LOW = getOptionalEnvSet('LLM_PRO_MODELS_LOW');
+const PRO_MODELS_MEDIUM = getOptionalEnvSet('LLM_PRO_MODELS_MEDIUM');
+const PRO_MODELS_HIGH = getOptionalEnvSet('LLM_PRO_MODELS_HIGH');
+const hasCostBuckets = PRO_MODELS_LOW.size > 0 || PRO_MODELS_MEDIUM.size > 0 || PRO_MODELS_HIGH.size > 0;
+const PRO_MODELS = hasCostBuckets
+  ? new Set([...PRO_MODELS_LOW, ...PRO_MODELS_MEDIUM, ...PRO_MODELS_HIGH])
+  : getEnvSet('LLM_PRO_MODELS');
 const FREE_DAILY_LIMIT = getEnvInt('LLM_FREE_DAILY_LIMIT');
 const PRO_MONTHLY_CREDITS = getEnvInt('LLM_PRO_MONTHLY_CREDITS');
 const COST_TO_CREDITS = getEnvInt('LLM_COST_TO_CREDITS');
@@ -75,6 +87,10 @@ function isPaidModel(model: string): boolean {
 
 function isAllowedModel(model: string): boolean {
   return FREE_MODELS.has(model) || PRO_MODELS.has(model);
+}
+
+function getAllowedModelList(): string[] {
+  return [...FREE_MODELS, ...PRO_MODELS];
 }
 
 function debugCredits(event: string, data: Record<string, unknown>): void {
@@ -647,7 +663,12 @@ export default async function handler(req: Request): Promise<Response> {
   }
 
   if (!isAllowedModel(body.model)) {
-    return corsResponse(400, requestOrigin, { error: 'Model not available' });
+    return corsResponse(400, requestOrigin, {
+      error: `Model not allowed: ${body.model}. Check LLM_*_MODELS env configuration.`,
+      code: 'model_not_allowed',
+      model: body.model,
+      allowedModels: getAllowedModelList(),
+    });
   }
 
   if (userTier === 'free' && isPaidModel(body.model)) {
@@ -728,17 +749,36 @@ export default async function handler(req: Request): Promise<Response> {
   });
 
   if (!upstream.ok) {
-    const _errorText = await upstream.text();
+    let providerErrorText = '';
+    let providerBody: unknown = null;
+    try {
+      providerErrorText = await upstream.text();
+      providerBody = providerErrorText ? JSON.parse(providerErrorText) : null;
+    } catch {
+      providerBody = null;
+    }
 
     if (upstream.status === 429) {
-      const limitMessage = userTier === 'pro'
-        ? 'Request rate limit reached. Please retry shortly.'
-        : 'You\'ve reached your daily limit. Upgrade to Pro for more.';
+      const limitMessage = `Provider rate limit reached for model ${body.model}. Please retry shortly or switch models.`;
       return corsResponse(429, requestOrigin, {
         error: limitMessage,
-        type: 'request_cap',
-        code: 'quota_exceeded',
+        type: 'provider_rate_limit',
+        code: 'provider_rate_limited',
         limit: FREE_DAILY_LIMIT,
+        model: body.model,
+      });
+    }
+
+    if (upstream.status === 404) {
+      const providerMessage = typeof providerBody === 'object' && providerBody !== null
+        ? (providerBody as { error?: { message?: string } }).error?.message
+        : undefined;
+      return corsResponse(502, requestOrigin, {
+        error: `Model "${body.model}" is currently unavailable from provider routing.`,
+        code: 'provider_model_not_found',
+        model: body.model,
+        providerStatus: 404,
+        providerMessage: providerMessage ?? (providerErrorText || undefined),
       });
     }
 
@@ -748,8 +788,16 @@ export default async function handler(req: Request): Promise<Response> {
       });
     }
 
+    const providerMessage = typeof providerBody === 'object' && providerBody !== null
+      ? (providerBody as { error?: { message?: string } }).error?.message
+      : undefined;
+
     return corsResponse(upstream.status, requestOrigin, {
-      error: `Request failed (${upstream.status}). Please try again.`,
+      error: `Request failed (${upstream.status}) for model ${body.model}.`,
+      code: 'provider_error',
+      model: body.model,
+      providerStatus: upstream.status,
+      providerMessage: providerMessage ?? (providerErrorText || undefined),
     });
   }
 

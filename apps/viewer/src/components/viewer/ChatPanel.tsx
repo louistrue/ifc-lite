@@ -204,6 +204,17 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dragCounterRef = useRef(0);
 
+  const resizeInput = useCallback(() => {
+    const target = inputRef.current;
+    if (!target) return;
+    target.style.height = 'auto';
+    target.style.height = `${Math.min(target.scrollHeight, 120)}px`;
+  }, []);
+
+  useEffect(() => {
+    resizeInput();
+  }, [inputText, resizeInput]);
+
   // ── Smart auto-scroll ──
   // Only auto-scroll if user hasn't scrolled up to read old messages
   useEffect(() => {
@@ -305,9 +316,7 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
     setUserScrolledUp(false);
 
     // Reset textarea height
-    if (inputRef.current) {
-      inputRef.current.style.height = 'auto';
-    }
+    resizeInput();
 
     // Check for auto-captured viewport screenshot to include
     const viewportScreenshot = useViewerStore.getState().chatViewportScreenshot;
@@ -423,7 +432,7 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
   }, [
     status, activeModel, attachments, authToken,
     addMessage, setChatStatus, updateStreaming, finalizeAssistant,
-    setChatError, setChatAbortController, clearAttachments, setChatUsage,
+    setChatError, setChatAbortController, clearAttachments, setChatUsage, resizeInput,
   ]);
 
   const handleSend = useCallback(() => {
@@ -870,18 +879,16 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
           <textarea
             ref={inputRef}
             value={inputText}
-            onChange={(e) => setInputText(e.target.value)}
+            onChange={(e) => {
+              setInputText(e.target.value);
+              resizeInput();
+            }}
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
             placeholder="Ask anything..."
             rows={1}
             className="flex-1 resize-none rounded-md border border-input bg-background text-foreground placeholder:text-muted-foreground px-3 py-1.5 text-sm min-h-[32px] max-h-[120px] focus:outline-none focus:ring-1 focus:ring-ring"
             style={{ height: 'auto', overflow: 'hidden' }}
-            onInput={(e) => {
-              const target = e.currentTarget;
-              target.style.height = 'auto';
-              target.style.height = `${Math.min(target.scrollHeight, 120)}px`;
-            }}
           />
 
           {isActive ? (

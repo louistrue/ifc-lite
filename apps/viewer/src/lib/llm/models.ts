@@ -4,183 +4,146 @@
 
 /**
  * LLM model registry.
- *
- * Free tier: zero-cost models, daily request cap.
- * Pro tier: all models with monthly credit allowance.
- *   Cost indicator: $ = low, $$ = moderate, $$$ = high credit usage per request.
+ * Model IDs are sourced from environment variables only.
+ * Pro model cost metadata comes from cost-bucket env vars:
+ * - *_PRO_MODELS_LOW => $
+ * - *_PRO_MODELS_MEDIUM => $$
+ * - *_PRO_MODELS_HIGH => $$$
  */
 
 import type { LLMModel } from './types.js';
 
-// ---------------------------------------------------------------------------
-// FREE TIER
-// ---------------------------------------------------------------------------
+function readEnv(key: string): string | undefined {
+  const importMetaEnv = (import.meta as unknown as { env?: Record<string, unknown> }).env;
+  const viteVal = importMetaEnv?.[key];
+  const nodeVal = typeof process !== 'undefined' ? process.env[key] : undefined;
+  const val = typeof viteVal === 'string' ? viteVal : nodeVal;
+  if (typeof val !== 'string') return undefined;
+  const trimmed = val.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
 
-export const FREE_MODELS: LLMModel[] = [
-  {
-    id: 'qwen/qwen3-coder:free',
-    name: 'Qwen3 Coder',
-    provider: 'Alibaba',
-    tier: 'free',
-    contextWindow: 262_000,
-    notes: 'Best free coding model',
-  },
-  {
-    id: 'mistralai/devstral-2512:free',
-    name: 'Devstral 2',
-    provider: 'Mistral',
-    tier: 'free',
-    contextWindow: 256_000,
-    notes: 'Agentic coding, 256K context',
-  },
-  {
-    id: 'deepseek/deepseek-r1:free',
-    name: 'DeepSeek R1',
-    provider: 'DeepSeek',
-    tier: 'free',
+function parseCsvEnv(key: string): string[] {
+  const raw = readEnv(key);
+  if (!raw) return [];
+  return raw
+    .split(',')
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
+function parseCsvFromFirstDefined(keys: string[]): string[] {
+  for (const key of keys) {
+    const values = parseCsvEnv(key);
+    if (values.length > 0) return values;
+  }
+  return [];
+}
+
+function uniqueInOrder(ids: string[]): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const id of ids) {
+    if (!seen.has(id)) {
+      seen.add(id);
+      out.push(id);
+    }
+  }
+  return out;
+}
+
+function titleCaseProvider(rawProvider: string): string {
+  const overrides: Record<string, string> = {
+    openai: 'OpenAI',
+    anthropic: 'Anthropic',
+    google: 'Google',
+    meta: 'Meta',
+    'meta-llama': 'Meta',
+    xai: 'xAI',
+    'x-ai': 'xAI',
+    mistralai: 'Mistral',
+    qwen: 'Alibaba',
+    deepseek: 'DeepSeek',
+    minimax: 'MiniMax',
+    'z-ai': 'Zhipu',
+  };
+
+  const normalized = rawProvider.toLowerCase();
+  if (overrides[normalized]) return overrides[normalized];
+  return rawProvider
+    .split(/[-_]/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
+function humanizeModelSlug(slug: string): string {
+  const withoutTier = slug.split(':')[0] ?? slug;
+  return withoutTier
+    .replace(/[._-]+/g, ' ')
+    .split(' ')
+    .filter(Boolean)
+    .map((word) => {
+      if (/^[0-9.]+$/.test(word)) return word;
+      const upper = word.toUpperCase();
+      if (upper === 'GPT' || upper === 'OSS' || upper === 'R1') return upper;
+      if (word.length <= 2) return upper;
+      return word.charAt(0).toUpperCase() + word.slice(1);
+    })
+    .join(' ');
+}
+
+function buildModel(id: string, tier: 'free' | 'pro', cost?: LLMModel['cost']): LLMModel {
+  const [providerRaw, modelRaw = id] = id.split('/');
+  return {
+    id,
+    tier,
+    name: humanizeModelSlug(modelRaw),
+    provider: titleCaseProvider(providerRaw ?? 'Unknown'),
     contextWindow: 128_000,
-    notes: 'Reasoning-heavy tasks',
-  },
-  {
-    id: 'meta-llama/llama-3.3-70b-instruct:free',
-    name: 'Llama 3.3 70B',
-    provider: 'Meta',
-    tier: 'free',
-    contextWindow: 128_000,
-    notes: 'GPT-4 level general purpose',
-  },
-  {
-    id: 'openai/gpt-oss-120b:free',
-    name: 'GPT-OSS 120B',
-    provider: 'OpenAI',
-    tier: 'free',
-    contextWindow: 131_000,
-    notes: 'Open-weight MoE, tool use',
-  },
+    cost: tier === 'pro' ? cost : undefined,
+  };
+}
+
+const freeModelIds = uniqueInOrder(parseCsvFromFirstDefined(['VITE_LLM_FREE_MODELS', 'LLM_FREE_MODELS']));
+const proLowCostIds = uniqueInOrder(parseCsvFromFirstDefined(['VITE_LLM_PRO_MODELS_LOW', 'LLM_PRO_MODELS_LOW']));
+const proMediumCostIds = uniqueInOrder(parseCsvFromFirstDefined(['VITE_LLM_PRO_MODELS_MEDIUM', 'LLM_PRO_MODELS_MEDIUM']));
+const proHighCostIds = uniqueInOrder(parseCsvFromFirstDefined(['VITE_LLM_PRO_MODELS_HIGH', 'LLM_PRO_MODELS_HIGH']));
+
+// Backward-compatible fallback for older env shape with one pro list.
+const legacyProIds = uniqueInOrder(parseCsvFromFirstDefined(['VITE_LLM_PRO_MODELS', 'LLM_PRO_MODELS']));
+const useLegacyProList = proLowCostIds.length === 0 && proMediumCostIds.length === 0 && proHighCostIds.length === 0;
+
+export const FREE_MODELS: LLMModel[] = freeModelIds.map((id) => buildModel(id, 'free'));
+
+const proCostBuckets: Array<{ ids: string[]; cost: LLMModel['cost'] }> = [
+  { ids: proLowCostIds, cost: '$' },
+  { ids: useLegacyProList ? legacyProIds : proMediumCostIds, cost: '$$' },
+  { ids: proHighCostIds, cost: '$$$' },
 ];
 
-// ---------------------------------------------------------------------------
-// PRO TIER — monthly credit allowance
-// ---------------------------------------------------------------------------
-
-export const PRO_MODELS: LLMModel[] = [
-  // $ — low credit usage
-  {
-    id: 'qwen/qwen3-coder',
-    name: 'Qwen3 Coder',
-    provider: 'Alibaba',
-    tier: 'pro',
-    contextWindow: 262_000,
-    cost: '$',
-    notes: 'Higher throughput than free',
-  },
-  {
-    id: 'google/gemini-3-flash-preview',
-    name: 'Gemini 3 Flash',
-    provider: 'Google',
-    tier: 'pro',
-    contextWindow: 1_000_000,
-    cost: '$',
-    notes: '1M context, near-Pro quality',
-  },
-  {
-    id: 'minimax/minimax-m2.1',
-    name: 'MiniMax M2.1',
-    provider: 'MiniMax',
-    tier: 'pro',
-    contextWindow: 197_000,
-    cost: '$',
-    notes: 'Great for agent loops',
-  },
-  {
-    id: 'z-ai/glm-4.7',
-    name: 'GLM 4.7',
-    provider: 'Zhipu',
-    tier: 'pro',
-    contextWindow: 128_000,
-    cost: '$',
-    notes: 'Strong agentic + front-end',
-  },
-  // $$ — moderate credit usage
-  {
-    id: 'x-ai/grok-code-fast-1',
-    name: 'Grok Code Fast 1',
-    provider: 'xAI',
-    tier: 'pro',
-    contextWindow: 2_000_000,
-    cost: '$$',
-    notes: '#1 coding leaderboard, 2M ctx',
-  },
-  {
-    id: 'anthropic/claude-sonnet-4.5',
-    name: 'Claude Sonnet 4.5',
-    provider: 'Anthropic',
-    tier: 'pro',
-    contextWindow: 200_000,
-    cost: '$$',
-    notes: '#2 coding, best agentic Sonnet',
-  },
-  {
-    id: 'anthropic/claude-sonnet-4.6',
-    name: 'Claude Sonnet 4.6',
-    provider: 'Anthropic',
-    tier: 'pro',
-    contextWindow: 200_000,
-    cost: '$$',
-    notes: 'Latest Sonnet',
-  },
-  {
-    id: 'openai/gpt-5.2',
-    name: 'GPT-5.2',
-    provider: 'OpenAI',
-    tier: 'pro',
-    contextWindow: 400_000,
-    cost: '$$',
-    notes: 'Adaptive reasoning, 400K ctx',
-  },
-  {
-    id: 'x-ai/grok-4.1-fast',
-    name: 'Grok 4.1 Fast',
-    provider: 'xAI',
-    tier: 'pro',
-    contextWindow: 2_000_000,
-    cost: '$$',
-    notes: 'Best tool-calling, 2M context',
-  },
-  // $$$ — high credit usage
-  {
-    id: 'google/gemini-3-pro-preview',
-    name: 'Gemini 3 Pro',
-    provider: 'Google',
-    tier: 'pro',
-    contextWindow: 1_000_000,
-    cost: '$$$',
-    notes: '80.6% SWE-bench, 1M ctx',
-  },
-  {
-    id: 'google/gemini-3.1-pro-preview',
-    name: 'Gemini 3.1 Pro',
-    provider: 'Google',
-    tier: 'pro',
-    contextWindow: 1_000_000,
-    cost: '$$$',
-    notes: 'Newest Google flagship',
-  },
-  {
-    id: 'anthropic/claude-opus-4.5',
-    name: 'Claude Opus 4.5',
-    provider: 'Anthropic',
-    tier: 'pro',
-    contextWindow: 200_000,
-    cost: '$$$',
-    notes: 'Top real-world coding',
-  },
-];
+const seenProModelIds = new Set<string>();
+export const PRO_MODELS: LLMModel[] = proCostBuckets.flatMap(({ ids, cost }) =>
+  ids.flatMap((id) => {
+    if (seenProModelIds.has(id)) return [];
+    seenProModelIds.add(id);
+    return [buildModel(id, 'pro', cost)];
+  }),
+);
 
 export const ALL_MODELS = [...FREE_MODELS, ...PRO_MODELS];
 
-export const DEFAULT_FREE_MODEL = FREE_MODELS[0];
-export const DEFAULT_PRO_MODEL = PRO_MODELS[0];
+const FALLBACK_MODEL: LLMModel = {
+  id: 'llm-model-missing',
+  name: 'No model configured',
+  provider: 'Unknown',
+  tier: 'free',
+  contextWindow: 128_000,
+  notes: 'Set VITE_LLM_FREE_MODELS and VITE_LLM_PRO_MODELS_LOW/MEDIUM/HIGH in environment.',
+};
+
+export const DEFAULT_FREE_MODEL = FREE_MODELS[0] ?? PRO_MODELS[0] ?? FALLBACK_MODEL;
+export const DEFAULT_PRO_MODEL = PRO_MODELS[0] ?? DEFAULT_FREE_MODEL;
 
 export function getModelById(id: string): LLMModel | undefined {
   return ALL_MODELS.find((m) => m.id === id);

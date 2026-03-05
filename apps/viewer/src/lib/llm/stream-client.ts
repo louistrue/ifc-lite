@@ -201,7 +201,16 @@ export async function streamChat(options: StreamOptions): Promise<void> {
   if (!response.ok) {
     let errorDetail = `HTTP ${response.status}`;
     try {
-      const errorBody = await response.json();
+      const errorBody = await response.json() as {
+        error?: string;
+        code?: string;
+        providerMessage?: string;
+        model?: string;
+        type?: string;
+        upgrade?: boolean;
+        contactEmail?: string;
+        resetAt?: number;
+      };
       errorDetail = errorBody.error || errorDetail;
 
       if (response.status === 403 && errorBody.upgrade) {
@@ -221,6 +230,16 @@ export async function streamChat(options: StreamOptions): Promise<void> {
           errorDetail = errorBody.error || 'Daily limit reached. Upgrade to Pro for more.';
         } else {
           errorDetail = errorBody.error || 'Limit reached. Please try again later.';
+        }
+      }
+
+      if (response.status === 502 && errorBody.code === 'provider_model_not_found') {
+        const providerMessage = errorBody.providerMessage?.trim();
+        const modelLabel = errorBody.model ? ` ${errorBody.model}` : '';
+        if (providerMessage) {
+          errorDetail = `Provider routing unavailable for${modelLabel}. ${providerMessage}`;
+        } else {
+          errorDetail = `Provider routing unavailable for${modelLabel}. Try again shortly or switch model.`;
         }
       }
     } catch {
