@@ -32,6 +32,7 @@ import { generateIfcFromGraph } from './ifcGenerator';
 import nodeLibraryData from './nodeLibrary.json';
 import { useIfc } from '@/hooks/useIfc';
 import { toast } from '@/components/ui/toast';
+import type { BuildingAxes, StoreyDiscipline } from '@/store/slices/bubbleGraphSlice';
 
 // ─── Types ────────────────────────────────────────────────────────────────
 
@@ -194,7 +195,7 @@ function PropertiesPanel({
     'has_column', 'column_type', 'has_beam', 'beam_type',
     'wall_type', 'slab_type', 'material',
     'bottomElevation', 'topElevation', 'axesX', 'axesY', 'width', 'height', 'depth',
-    'sill_height', 'wall_offset',
+    'sill_height', 'wall_offset', 'discipline',
   ]);
 
   return (
@@ -267,6 +268,29 @@ function PropertiesPanel({
           >
             Duplicate Storey
           </button>
+        </div>
+      )}
+
+      {/* Discipline */}
+      {node.type === 'storey' && (
+        <div className="border-b border-border p-3 space-y-2">
+          <div className="font-semibold text-xs uppercase tracking-wider text-muted-foreground">Discipline</div>
+          <div className="grid grid-cols-3 gap-1">
+            {(['architectural', 'structural', 'mep'] as StoreyDiscipline[]).map((d) => (
+              <button
+                key={d}
+                className={cn(
+                  'text-[11px] px-1.5 py-1 rounded border transition-colors capitalize',
+                  (node.properties.discipline ?? 'architectural') === d
+                    ? 'bg-primary/20 border-primary/50 text-primary'
+                    : 'border-border hover:bg-accent text-muted-foreground',
+                )}
+                onClick={() => onUpdateProp('discipline', d)}
+              >
+                {d === 'architectural' ? 'Arch.' : d === 'structural' ? 'Struct.' : 'MEP'}
+              </button>
+            ))}
+          </div>
         </div>
       )}
 
@@ -475,44 +499,96 @@ function PropertiesPanel({
   );
 }
 
-// ─── AxesConfigDialog ─────────────────────────────────────────────────────
+// ─── BuildingAxesDialog ───────────────────────────────────────────────────
 
-interface AxesConfigDialogProps {
+interface BuildingAxesDialogProps {
+  initial: BuildingAxes;
   onClose: () => void;
-  onGenerate: (cfg: {
-    name: string;
-    bottomElev: number;
-    topElev: number;
-    xValues: number[];
-    yValues: number[];
-  }) => void;
+  onSave: (axes: BuildingAxes) => void;
 }
 
-function AxesConfigDialog({ onClose, onGenerate }: AxesConfigDialogProps) {
-  const [name, setName] = useState('');
-  const [bottomElev, setBottomElev] = useState('0');
-  const [topElev, setTopElev] = useState('3000');
-  const [axesX, setAxesX] = useState('0, 6000, 12000, 18000');
-  const [axesY, setAxesY] = useState('0, 5000, 10000, 15000');
+function BuildingAxesDialog({ initial, onClose, onSave }: BuildingAxesDialogProps) {
+  const [axesX, setAxesX] = useState(initial.xValues.join(', ') || '0, 6000, 12000, 18000');
+  const [axesY, setAxesY] = useState(initial.yValues.join(', ') || '0, 5000, 10000, 15000');
 
-  const handleGenerate = () => {
-    if (!name.trim()) { alert('Enter a unique storey name'); return; }
+  const handleSave = () => {
     const xs = axesX.split(',').map((v) => parseFloat(v.trim())).filter((v) => !isNaN(v));
     const ys = axesY.split(',').map((v) => parseFloat(v.trim())).filter((v) => !isNaN(v));
     if (!xs.length || !ys.length) { alert('Enter valid X/Y axis values'); return; }
-    const bot = parseFloat(bottomElev);
-    const top = parseFloat(topElev);
-    if (isNaN(bot) || isNaN(top)) { alert('Enter valid elevations'); return; }
-    onGenerate({ name: name.trim(), bottomElev: bot, topElev: top, xValues: xs, yValues: ys });
+    onSave({ xValues: [...new Set(xs)].sort((a, b) => a - b), yValues: [...new Set(ys)].sort((a, b) => a - b) });
   };
 
   return (
     <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50">
       <div className="bg-background border border-border rounded-lg shadow-2xl w-96 p-5 space-y-4">
         <div className="flex items-center justify-between">
-          <h3 className="font-semibold">New Storey — Axes Grid</h3>
+          <h3 className="font-semibold">Building Axes</h3>
           <button className="text-muted-foreground hover:text-foreground" onClick={onClose}>✕</button>
         </div>
+        <p className="text-xs text-muted-foreground">Global axis grid — applies to all storeys. Changes rebuild the grid on each storey.</p>
+        <div className="space-y-3 text-sm">
+          <div>
+            <label className="text-muted-foreground block mb-1">X Axes positions (mm, comma-separated)</label>
+            <input className="bg-muted border border-border rounded px-2 py-1.5 w-full" value={axesX} onChange={(e) => setAxesX(e.target.value)} placeholder="0, 6000, 12000" />
+          </div>
+          <div>
+            <label className="text-muted-foreground block mb-1">Y Axes positions (mm, comma-separated)</label>
+            <input className="bg-muted border border-border rounded px-2 py-1.5 w-full" value={axesY} onChange={(e) => setAxesY(e.target.value)} placeholder="0, 5000, 10000" />
+          </div>
+        </div>
+        <div className="flex justify-end gap-2">
+          <Button variant="ghost" size="sm" onClick={onClose}>Cancel</Button>
+          <Button size="sm" onClick={handleSave}>Save Axes</Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── NewStoreyDialog ──────────────────────────────────────────────────────
+
+interface NewStoreyDialogProps {
+  buildingAxes: BuildingAxes;
+  existingNames: string[];
+  onClose: () => void;
+  onCreate: (cfg: {
+    name: string;
+    bottomElev: number;
+    topElev: number;
+    discipline: StoreyDiscipline;
+  }) => void;
+}
+
+function NewStoreyDialog({ buildingAxes, existingNames, onClose, onCreate }: NewStoreyDialogProps) {
+  const [name, setName] = useState('');
+  const [bottomElev, setBottomElev] = useState('0');
+  const [topElev, setTopElev] = useState('3000');
+  const [discipline, setDiscipline] = useState<StoreyDiscipline>('architectural');
+
+  const hasAxes = buildingAxes.xValues.length > 0 && buildingAxes.yValues.length > 0;
+
+  const handleCreate = () => {
+    if (!name.trim()) { alert('Enter a unique storey name'); return; }
+    if (existingNames.includes(name.trim())) { alert('A storey with this name already exists.'); return; }
+    if (!hasAxes) { alert('Define Building Axes first before adding a storey.'); return; }
+    const bot = parseFloat(bottomElev);
+    const top = parseFloat(topElev);
+    if (isNaN(bot) || isNaN(top)) { alert('Enter valid elevations'); return; }
+    onCreate({ name: name.trim(), bottomElev: bot, topElev: top, discipline });
+  };
+
+  return (
+    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50">
+      <div className="bg-background border border-border rounded-lg shadow-2xl w-96 p-5 space-y-4">
+        <div className="flex items-center justify-between">
+          <h3 className="font-semibold">New Storey</h3>
+          <button className="text-muted-foreground hover:text-foreground" onClick={onClose}>✕</button>
+        </div>
+        {!hasAxes && (
+          <div className="text-xs text-amber-500 bg-amber-500/10 border border-amber-500/30 rounded p-2">
+            ⚠ No Building Axes defined yet. Click "Building Axes" in the toolbar first.
+          </div>
+        )}
         <div className="space-y-3 text-sm">
           <div>
             <label className="text-muted-foreground block mb-1">Storey Name</label>
@@ -529,17 +605,31 @@ function AxesConfigDialog({ onClose, onGenerate }: AxesConfigDialogProps) {
             </div>
           </div>
           <div>
-            <label className="text-muted-foreground block mb-1">X Axes positions (mm, comma-separated)</label>
-            <input className="bg-muted border border-border rounded px-2 py-1.5 w-full" value={axesX} onChange={(e) => setAxesX(e.target.value)} />
+            <label className="text-muted-foreground block mb-1">Discipline</label>
+            <div className="grid grid-cols-3 gap-1">
+              {(['architectural', 'structural', 'mep'] as StoreyDiscipline[]).map((d) => (
+                <button
+                  key={d}
+                  className={cn(
+                    'text-xs px-2 py-1.5 rounded border transition-colors capitalize',
+                    discipline === d
+                      ? 'bg-primary/20 border-primary/50 text-primary'
+                      : 'border-border hover:bg-muted text-muted-foreground',
+                  )}
+                  onClick={() => setDiscipline(d)}
+                >
+                  {d === 'architectural' ? 'Arch.' : d === 'structural' ? 'Struct.' : 'MEP'}
+                </button>
+              ))}
+            </div>
           </div>
-          <div>
-            <label className="text-muted-foreground block mb-1">Y Axes positions (mm, comma-separated)</label>
-            <input className="bg-muted border border-border rounded px-2 py-1.5 w-full" value={axesY} onChange={(e) => setAxesY(e.target.value)} />
+          <div className="text-xs text-muted-foreground">
+            Axes grid: {buildingAxes.xValues.length} × {buildingAxes.yValues.length} nodes
           </div>
         </div>
         <div className="flex justify-end gap-2">
           <Button variant="ghost" size="sm" onClick={onClose}>Cancel</Button>
-          <Button size="sm" onClick={handleGenerate}>Generate Grid</Button>
+          <Button size="sm" onClick={handleCreate} disabled={!hasAxes}>Create Storey</Button>
         </div>
       </div>
     </div>
@@ -551,11 +641,23 @@ function AxesConfigDialog({ onClose, onGenerate }: AxesConfigDialogProps) {
 interface BubbleGraphCanvasProps {
   nodes: BubbleGraphNode[];
   edges: BubbleGraphEdge[];
+  /** The storey node to display (null = overview of all storeys) */
+  activeStoreyId: string | null;
   setNodes: React.Dispatch<React.SetStateAction<BubbleGraphNode[]>>;
   setEdges: React.Dispatch<React.SetStateAction<BubbleGraphEdge[]>>;
 }
 
-function BubbleGraphCanvas({ nodes, edges, setNodes, setEdges }: BubbleGraphCanvasProps) {
+function BubbleGraphCanvas({ nodes, edges, activeStoreyId, setNodes, setEdges }: BubbleGraphCanvasProps) {
+  // Nodes visible in the current view: all children of active storey (or all nodes for overview)
+  const visibleNodes = useMemo(() => {
+    if (!activeStoreyId) return nodes;
+    return nodes.filter((n) => n.id === activeStoreyId || n.parentId === activeStoreyId);
+  }, [nodes, activeStoreyId]);
+
+  const visibleEdges = useMemo(() => {
+    const ids = new Set(visibleNodes.map((n) => n.id));
+    return edges.filter((e) => ids.has(e.from) && ids.has(e.to));
+  }, [edges, visibleNodes]);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -572,7 +674,6 @@ function BubbleGraphCanvas({ nodes, edges, setNodes, setEdges }: BubbleGraphCanv
   const [selectedNodeType, setSelectedNodeType] = useState('ax');
   const [continuousMode, setContinuousMode] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [showAxesDialog, setShowAxesDialog] = useState(false);
   const [edgeType, setEdgeType] = useState<EdgePlacementType>('simple');
   const [isPropsDocked, setIsPropsDocked] = useState(true);
   const [floatPos, setFloatPos] = useState({ x: 120, y: 80 });
@@ -583,6 +684,9 @@ function BubbleGraphCanvas({ nodes, edges, setNodes, setEdges }: BubbleGraphCanv
   const setBubbleGraph = useViewerStore((s) => s.setBubbleGraph);
   const { loadFile } = useIfc();
   const [projectName, setProjectName] = useState('My Building');
+
+  // Read theme for canvas background
+  const theme = useViewerStore((s) => s.theme);
 
   const handleGenerateIfc = useCallback(async () => {
     try {
@@ -602,6 +706,12 @@ function BubbleGraphCanvas({ nodes, edges, setNodes, setEdges }: BubbleGraphCanv
   // Sync storeys → views
   useStoreyViewSync(nodes);
 
+  // Canvas background: dark = tokyo-night (#16161e), light = #f4f4f5
+  const canvasBg = theme === 'dark' ? '#16161e' : '#f4f4f5';
+  const canvasGrid = theme === 'dark' ? '#1f2335' : '#e4e4e7';
+  const canvasText = theme === 'dark' ? '#a9b1d6' : '#3f3f46';
+  const canvasEdge = theme === 'dark' ? '#3b4261' : '#a1a1aa';
+
   // ── Draw ──────────────────────────────────────────────────────────────
 
   const draw = useCallback(() => {
@@ -610,7 +720,24 @@ function BubbleGraphCanvas({ nodes, edges, setNodes, setEdges }: BubbleGraphCanv
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = canvasBg;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Subtle grid dots
+    const gridSpacing = 50 * zoom;
+    if (gridSpacing > 8) {
+      const ox = ((pan.x % gridSpacing) + gridSpacing) % gridSpacing;
+      const oy = ((pan.y % gridSpacing) + gridSpacing) % gridSpacing;
+      ctx.fillStyle = canvasGrid;
+      for (let gx = ox; gx < canvas.width; gx += gridSpacing) {
+        for (let gy = oy; gy < canvas.height; gy += gridSpacing) {
+          ctx.beginPath();
+          ctx.arc(gx, gy, 1, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+    }
+
     ctx.save();
     ctx.translate(pan.x, pan.y);
     ctx.scale(zoom, zoom);
@@ -619,7 +746,7 @@ function BubbleGraphCanvas({ nodes, edges, setNodes, setEdges }: BubbleGraphCanv
     ctx.scale(1, -1);
 
     // Storey frames
-    nodes.filter((n) => n.type === 'storey').forEach((s) => {
+    visibleNodes.filter((n) => n.type === 'storey').forEach((s) => {
       const w = (s.properties.width as number || 0) * MM_TO_PX;
       const h = (s.properties.height as number || 0) * MM_TO_PX;
       const fx = s.x * MM_TO_PX - w / 2;
@@ -633,35 +760,43 @@ function BubbleGraphCanvas({ nodes, edges, setNodes, setEdges }: BubbleGraphCanv
       ctx.strokeRect(fx, fy, w, h);
       ctx.setLineDash([]);
 
+      const disciplineColor =
+        s.properties.discipline === 'structural' ? '#f7768e' :
+        s.properties.discipline === 'mep' ? '#e0af68' : '#7c87de';
+
       ctx.save();
       ctx.translate(fx + 8, fy + h - 8);
       ctx.scale(1, -1);
-      ctx.fillStyle = '#6c5ce7';
+      ctx.fillStyle = disciplineColor;
       ctx.font = 'bold 13px system-ui,sans-serif';
       ctx.textBaseline = 'top';
       ctx.fillText(`▦ ${s.name}`, 0, 0);
-      ctx.fillStyle = '#888';
+      ctx.fillStyle = canvasText;
       ctx.font = '10px system-ui,sans-serif';
       ctx.fillText(`↓${s.properties.bottomElevation}↑${s.properties.topElevation} mm`, 0, 16);
+      if (s.properties.discipline) {
+        ctx.fillStyle = disciplineColor;
+        ctx.fillText(String(s.properties.discipline).toUpperCase(), 0, 28);
+      }
       ctx.restore();
     });
 
     // Edges
-    edges.forEach((e) => {
-      const sn = nodes.find((n) => n.id === e.from);
-      const tn = nodes.find((n) => n.id === e.to);
+    visibleEdges.forEach((e) => {
+      const sn = visibleNodes.find((n) => n.id === e.from);
+      const tn = visibleNodes.find((n) => n.id === e.to);
       if (!sn || !tn) return;
       ctx.beginPath();
       ctx.moveTo(sn.x * MM_TO_PX, sn.y * MM_TO_PX);
       ctx.lineTo(tn.x * MM_TO_PX, tn.y * MM_TO_PX);
-      ctx.strokeStyle = selectedEdge === e.id ? '#e94560' : '#3a3a5a';
+      ctx.strokeStyle = selectedEdge === e.id ? '#e94560' : canvasEdge;
       ctx.lineWidth = selectedEdge === e.id ? 3 : 2;
       ctx.stroke();
     });
 
     // Edge preview
     if (mode === 'addEdge' && edgeStart) {
-      const startN = nodes.find((n) => n.id === edgeStart);
+      const startN = visibleNodes.find((n) => n.id === edgeStart);
       if (startN && canvas) {
         ctx.beginPath();
         ctx.moveTo(startN.x * MM_TO_PX, startN.y * MM_TO_PX);
@@ -677,7 +812,7 @@ function BubbleGraphCanvas({ nodes, edges, setNodes, setEdges }: BubbleGraphCanv
     }
 
     // Non-storey nodes
-    nodes.filter((n) => n.type !== 'storey').forEach((n) => {
+    visibleNodes.filter((n) => n.type !== 'storey').forEach((n) => {
       const nx = n.x * MM_TO_PX;
       const ny = n.y * MM_TO_PX;
 
@@ -706,7 +841,7 @@ function BubbleGraphCanvas({ nodes, edges, setNodes, setEdges }: BubbleGraphCanv
       ctx.save();
       ctx.translate(nx, ny - 28);
       ctx.scale(1, -1);
-      ctx.fillStyle = '#dde';
+      ctx.fillStyle = canvasText;
       ctx.font = '11px system-ui,sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
@@ -715,7 +850,7 @@ function BubbleGraphCanvas({ nodes, edges, setNodes, setEdges }: BubbleGraphCanv
     });
 
     ctx.restore();
-  }, [nodes, edges, selectedNode, selectedEdge, pan, zoom, mode, edgeStart, lastMousePos]);
+  }, [visibleNodes, visibleEdges, selectedNode, selectedEdge, pan, zoom, mode, edgeStart, lastMousePos, canvasBg, canvasGrid, canvasText, canvasEdge, theme]);
 
   // Resize canvas
   useEffect(() => {
@@ -753,13 +888,15 @@ function BubbleGraphCanvas({ nodes, edges, setNodes, setEdges }: BubbleGraphCanv
     const cx = (sx - pan.x) / zoom;
     const cy = (canvas.height - (sy - pan.y)) / zoom;
 
-    const regular = nodes.find((n) => {
+    // storey nodes are not hit-testable for movement (they are locked in canvas)
+    const regular = visibleNodes.find((n) => {
       if (n.type === 'storey') return false;
       return Math.hypot(n.x * MM_TO_PX - cx, n.y * MM_TO_PX - cy) < 20;
     });
     if (regular) return regular;
 
-    return nodes.find((n) => {
+    // Still allow selecting storey frame by clicking inside it
+    return visibleNodes.find((n) => {
       if (n.type !== 'storey') return false;
       const w = (n.properties.width as number || 0) * MM_TO_PX;
       const h = (n.properties.height as number || 0) * MM_TO_PX;
@@ -767,20 +904,20 @@ function BubbleGraphCanvas({ nodes, edges, setNodes, setEdges }: BubbleGraphCanv
       const fy = n.y * MM_TO_PX - h / 2;
       return cx >= fx && cx <= fx + w && cy >= fy && cy <= fy + h;
     });
-  }, [nodes, pan, zoom]);
+  }, [visibleNodes, pan, zoom]);
 
   const getEdgeAt = useCallback((sx: number, sy: number): BubbleGraphEdge | undefined => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const cx = (sx - pan.x) / zoom;
     const cy = (canvas.height - (sy - pan.y)) / zoom;
-    return edges.find((e) => {
-      const sn = nodes.find((n) => n.id === e.from);
-      const tn = nodes.find((n) => n.id === e.to);
+    return visibleEdges.find((e) => {
+      const sn = visibleNodes.find((n) => n.id === e.from);
+      const tn = visibleNodes.find((n) => n.id === e.to);
       if (!sn || !tn) return false;
       return pointToLineDist(cx, cy, sn.x * MM_TO_PX, sn.y * MM_TO_PX, tn.x * MM_TO_PX, tn.y * MM_TO_PX) < 10;
     });
-  }, [nodes, edges, pan, zoom]);
+  }, [visibleNodes, visibleEdges, pan, zoom]);
 
   // ── Mouse handlers ────────────────────────────────────────────────────
 
@@ -856,7 +993,8 @@ function BubbleGraphCanvas({ nodes, edges, setNodes, setEdges }: BubbleGraphCanv
     const hitNode = getNodeAt(sx, sy);
     if (hitNode) {
       setSelectedNode(hitNode.id); setSelectedEdge(null);
-      if (!hitNode.locked || hitNode.type === 'storey') {
+      // Storey nodes are immovable in canvas — they are always locked
+      if (!hitNode.locked && hitNode.type !== 'storey') {
         setDragging({
           nodeId: hitNode.id,
           ox: sx - hitNode.x * MM_TO_PX * zoom - pan.x,
@@ -883,20 +1021,10 @@ function BubbleGraphCanvas({ nodes, edges, setNodes, setEdges }: BubbleGraphCanv
 
     if (dragging) {
       const draggedNode = nodes.find((n) => n.id === dragging.nodeId);
-      if (!draggedNode) return;
+      if (!draggedNode || draggedNode.type === 'storey' || draggedNode.locked) return;
       const nx = (sx - pan.x - dragging.ox) / zoom / MM_TO_PX;
       const ny = (canvas.height - (sy - pan.y - dragging.oy)) / zoom / MM_TO_PX;
-
-      if (draggedNode.type === 'storey') {
-        const dx = nx - draggedNode.x, dy = ny - draggedNode.y;
-        setNodes((prev) => prev.map((n) => {
-          if (n.id === dragging.nodeId) return { ...n, x: nx, y: ny };
-          if (n.parentId === dragging.nodeId) return { ...n, x: n.x + dx, y: n.y + dy };
-          return n;
-        }));
-      } else if (!draggedNode.locked) {
-        setNodes((prev) => prev.map((n) => n.id === dragging.nodeId ? { ...n, x: nx, y: ny } : n));
-      }
+      setNodes((prev) => prev.map((n) => n.id === dragging.nodeId ? { ...n, x: nx, y: ny } : n));
     }
   }, [pan, panStart, zoom, isPanning, dragging, nodes, setNodes]);
 
@@ -923,13 +1051,13 @@ function BubbleGraphCanvas({ nodes, edges, setNodes, setEdges }: BubbleGraphCanv
   // ── Actions ───────────────────────────────────────────────────────────
 
   const selectedNodeData = useMemo(
-    () => nodes.find((n) => n.id === selectedNode) ?? null,
-    [nodes, selectedNode],
+    () => visibleNodes.find((n) => n.id === selectedNode) ?? null,
+    [visibleNodes, selectedNode],
   );
 
   const deleteSelected = useCallback(() => {
     if (selectedNode) {
-      const n = nodes.find((x) => x.id === selectedNode);
+      const n = visibleNodes.find((x) => x.id === selectedNode);
       if (!n) return;
       if (n.type === 'storey') {
         const childIds = nodes.filter((c) => c.parentId === n.id).map((c) => c.id);
@@ -949,7 +1077,7 @@ function BubbleGraphCanvas({ nodes, edges, setNodes, setEdges }: BubbleGraphCanv
 
   const copyNode = useCallback(() => {
     if (!selectedNode) return;
-    const n = nodes.find((x) => x.id === selectedNode);
+    const n = visibleNodes.find((x) => x.id === selectedNode);
     if (!n || n.type === 'storey' || n.locked) return;
     const copy: BubbleGraphNode = { ...n, id: `node_${uid()}`, name: `${n.name}_copy`, x: n.x + 500, y: n.y + 500, properties: { ...n.properties } };
     setNodes((prev) => [...prev, copy]);
@@ -958,9 +1086,9 @@ function BubbleGraphCanvas({ nodes, edges, setNodes, setEdges }: BubbleGraphCanv
 
   const insertNodeOnEdge = useCallback(() => {
     if (!selectedEdge) return;
-    const edge = edges.find((e) => e.id === selectedEdge);
+    const edge = visibleEdges.find((e) => e.id === selectedEdge);
     if (!edge) return;
-    const sn = nodes.find((n) => n.id === edge.from), tn = nodes.find((n) => n.id === edge.to);
+    const sn = visibleNodes.find((n) => n.id === edge.from), tn = visibleNodes.find((n) => n.id === edge.to);
     if (!sn || !tn) return;
     const nt = getNodeTypeData(selectedNodeType);
     const nid = `node_${uid()}`;
@@ -982,22 +1110,16 @@ function BubbleGraphCanvas({ nodes, edges, setNodes, setEdges }: BubbleGraphCanv
   const duplicateStorey = useCallback((storeyId: string) => {
     const storey = nodes.find((n) => n.id === storeyId);
     if (!storey || storey.type !== 'storey') return;
-    const newName = prompt('Name for duplicated storey:', `${storey.name} Copy`);
-    if (!newName?.trim()) return;
-    if (nodes.some((n) => n.type === 'storey' && n.name === newName.trim())) {
-      alert('A storey with this name already exists.');
-      return;
-    }
     const newStoreyId = `storey_${uid()}`;
     const children = nodes.filter((n) => n.parentId === storeyId);
     const idMap = new Map([[storeyId, newStoreyId]]);
     const newNodes: BubbleGraphNode[] = [
-      { ...storey, id: newStoreyId, name: newName.trim(), x: storey.x + 5000, y: storey.y + 5000 },
+      { ...storey, id: newStoreyId, name: `${storey.name} (copy)`, x: storey.x + 1000, y: storey.y - 2000, locked: true },
     ];
     children.forEach((c) => {
       const nid = `${c.type}_${newStoreyId}_${uid()}`;
       idMap.set(c.id, nid);
-      newNodes.push({ ...c, id: nid, parentId: newStoreyId, x: c.x + 5000, y: c.y + 5000 });
+      newNodes.push({ ...c, id: nid, parentId: newStoreyId, x: c.x + 1000, y: c.y - 2000 });
     });
     const childSet = new Set(children.map((c) => c.id));
     const newEdges = edges
@@ -1006,46 +1128,6 @@ function BubbleGraphCanvas({ nodes, edges, setNodes, setEdges }: BubbleGraphCanv
     setNodes((prev) => [...prev, ...newNodes]);
     setEdges((prev) => [...prev, ...newEdges]);
   }, [nodes, edges, setNodes, setEdges]);
-
-  const generateAxesGrid = useCallback((cfg: {
-    name: string; bottomElev: number; topElev: number; xValues: number[]; yValues: number[];
-  }) => {
-    const { name, bottomElev, topElev, xValues: rawX, yValues: rawY } = cfg;
-    if (nodes.some((n) => n.type === 'storey' && n.name === name)) {
-      alert('A storey with this name already exists.');
-      return;
-    }
-    const xs = [...new Set(rawX)].sort((a, b) => a - b);
-    const ys = [...new Set(rawY)].sort((a, b) => a - b);
-    const maxX = xs[xs.length - 1] ?? 0;
-    const maxY = ys[ys.length - 1] ?? 0;
-    const cx = 8000, cy = 6000;
-    const storeyId = `storey_${uid()}`;
-    const axDef = getNodeTypeData('ax');
-    const newNodes: BubbleGraphNode[] = [{
-      id: storeyId, type: 'storey', name, x: cx, y: cy, z: 0,
-      properties: { bottomElevation: bottomElev, topElevation: topElev, axesX: xs, axesY: ys, width: maxX, height: maxY },
-      locked: false,
-    }];
-    let idx = 0;
-    for (let i = 0; i < ys.length; i++) {
-      for (let j = 0; j < xs.length; j++) {
-        newNodes.push({
-          id: `ax_${storeyId}_${idx++}`,
-          type: 'ax',
-          name: `${j + 1}-${String.fromCharCode(65 + i)}`,
-          x: cx + (xs[j] - maxX / 2),
-          y: cy + (ys[i] - maxY / 2),
-          z: 0,
-          properties: { ...(axDef?.defaultProperties ?? {}), gridX: j, gridY: i },
-          locked: true,
-          parentId: storeyId,
-        });
-      }
-    }
-    setNodes((prev) => [...prev, ...newNodes]);
-    setShowAxesDialog(false);
-  }, [nodes, setNodes]);
 
   // ── GraphML ───────────────────────────────────────────────────────────
 
@@ -1163,17 +1245,15 @@ function BubbleGraphCanvas({ nodes, edges, setNodes, setEdges }: BubbleGraphCanv
     <div className={panelClass}>
       {/* ── Toolbar ── */}
       <div className="flex items-center gap-1 px-2 py-1.5 border-b border-border bg-muted/30 flex-shrink-0 flex-wrap">
-        <button className="text-xs px-2 py-1 rounded hover:bg-accent" onClick={exportGraphML}>⬆ Export GraphML</button>
-        <button className="text-xs px-2 py-1 rounded hover:bg-accent" onClick={() => fileInputRef.current?.click()}>⬇ Import GraphML</button>
-        <div className="w-px h-4 bg-border mx-1" />
-        <button className="text-xs px-2 py-1 rounded hover:bg-accent" onClick={() => setShowAxesDialog(true)}>⊞ New Storey</button>
+        <button className="text-xs px-2 py-1 rounded hover:bg-accent" onClick={exportGraphML}>⬆ GraphML</button>
+        <button className="text-xs px-2 py-1 rounded hover:bg-accent" onClick={() => fileInputRef.current?.click()}>⬇ GraphML</button>
         <div className="w-px h-4 bg-border mx-1" />
         <input
           className="text-xs bg-background border border-border rounded px-2 py-0.5 w-32"
           value={projectName}
           onChange={(e) => setProjectName(e.target.value)}
           placeholder="Project name"
-          title="IFC project name for generation"
+          title="IFC project name"
         />
         <button
           className="text-xs px-2 py-1.5 rounded bg-primary text-primary-foreground hover:bg-primary/90 font-medium"
@@ -1281,7 +1361,7 @@ function BubbleGraphCanvas({ nodes, edges, setNodes, setEdges }: BubbleGraphCanv
         </aside>
 
         {/* ── Canvas ── */}
-        <section className="flex-1 relative overflow-hidden bg-[#0d0d1a]">
+        <section className="flex-1 relative overflow-hidden" style={{ background: canvasBg }}>
           <canvas
             ref={canvasRef}
             className="block w-full h-full"
@@ -1337,13 +1417,6 @@ function BubbleGraphCanvas({ nodes, edges, setNodes, setEdges }: BubbleGraphCanv
         </div>
       )}
 
-      {/* ── Axes Config Dialog ── */}
-      {showAxesDialog && (
-        <AxesConfigDialog
-          onClose={() => setShowAxesDialog(false)}
-          onGenerate={generateAxesGrid}
-        />
-      )}
     </div>
   );
 }
@@ -1355,12 +1428,32 @@ interface BubbleGraphPanelProps {
   onClose: () => void;
 }
 
+// ─── Discipline badge helpers ───────────────────────────────────────────
+
+const DISC_LABEL: Record<StoreyDiscipline, string> = {
+  architectural: 'A',
+  structural: 'S',
+  mep: 'M',
+};
+const DISC_CLS: Record<StoreyDiscipline, string> = {
+  architectural: 'bg-blue-500/20 text-blue-400 border-blue-500/30',
+  structural: 'bg-orange-500/20 text-orange-400 border-orange-500/30',
+  mep: 'bg-green-500/20 text-green-400 border-green-500/30',
+};
+
 export function BubbleGraphPanel({ visible, onClose }: BubbleGraphPanelProps) {
   const storedNodes = useViewerStore((s) => s.bubbleGraphNodes);
   const storedEdges = useViewerStore((s) => s.bubbleGraphEdges);
+  const buildingAxes = useViewerStore((s) => s.buildingAxes);
+  const setBuildingAxes = useViewerStore((s) => s.setBuildingAxes);
+  const activeStoreyId = useViewerStore((s) => s.activeStoreyId);
+  const setActiveStoreyId = useViewerStore((s) => s.setActiveStoreyId);
 
   const [nodes, setNodes] = useState<BubbleGraphNode[]>(storedNodes);
   const [edges, setEdges] = useState<BubbleGraphEdge[]>(storedEdges);
+
+  const [showAxesDialog, setShowAxesDialog] = useState(false);
+  const [showNewStoreyDialog, setShowNewStoreyDialog] = useState(false);
 
   // Sync from store only on first mount (don't override local edits)
   const didInit = useRef(false);
@@ -1373,31 +1466,225 @@ export function BubbleGraphPanel({ visible, onClose }: BubbleGraphPanelProps) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const storeyNodes = useMemo(
+    () => nodes.filter((n) => n.type === 'storey'),
+    [nodes],
+  );
+
+  /** Duplicate a storey: deep-copy the storey + all its children with new IDs */
+  const duplicateStorey = useCallback((storeyId: string) => {
+    const source = nodes.find((n) => n.id === storeyId);
+    if (!source) return;
+    const newStoreyId = `storey_${uid()}`;
+    const idMap = new Map<string, string>();
+    idMap.set(storeyId, newStoreyId);
+    const children = nodes.filter((n) => n.parentId === storeyId);
+    children.forEach((c) => idMap.set(c.id, `${c.type}_${uid()}`));
+
+    const newStorey: BubbleGraphNode = {
+      ...source,
+      id: newStoreyId,
+      name: `${source.name} (copy)`,
+      x: source.x + 1000,
+      y: source.y - 2000,
+      locked: true,
+    };
+    const newChildren = children.map((c) => ({
+      ...c,
+      id: idMap.get(c.id)!,
+      parentId: newStoreyId,
+      x: c.x + 1000,
+      y: c.y - 2000,
+    }));
+
+    const newEdges = edges
+      .filter((e) => idMap.has(e.from) && idMap.has(e.to))
+      .map((e) => ({ ...e, id: `edge_${uid()}`, from: idMap.get(e.from)!, to: idMap.get(e.to)! }));
+
+    setNodes((prev) => [...prev, newStorey, ...newChildren]);
+    setEdges((prev) => [...prev, ...newEdges]);
+    setActiveStoreyId(newStoreyId);
+  }, [nodes, edges, setActiveStoreyId]);
+
+  /** Delete a full storey + its children */
+  const deleteStorey = useCallback((storeyId: string) => {
+    setNodes((prev) => prev.filter((n) => n.id !== storeyId && n.parentId !== storeyId));
+    setEdges((prev) => {
+      const toRemove = new Set(nodes.filter((n) => n.id === storeyId || n.parentId === storeyId).map((n) => n.id));
+      return prev.filter((e) => !toRemove.has(e.from) && !toRemove.has(e.to));
+    });
+    if (activeStoreyId === storeyId) setActiveStoreyId(null);
+  }, [nodes, activeStoreyId, setActiveStoreyId]);
+
+  /** Create a new storey from current buildingAxes */
+  const handleCreateStorey = useCallback((cfg: {
+    name: string; bottomElev: number; topElev: number; discipline: StoreyDiscipline;
+  }) => {
+    const { name, bottomElev, topElev, discipline } = cfg;
+    const xs = buildingAxes.xValues;
+    const ys = buildingAxes.yValues;
+    const maxX = xs[xs.length - 1] ?? 0;
+    const maxY = ys[ys.length - 1] ?? 0;
+    const numStoreys = storeyNodes.length;
+    const cx = 8000 + numStoreys * 500;
+    const cy = 6000;
+    const storeyId = `storey_${uid()}`;
+    const axDef = getNodeTypeData('ax');
+    const newNodes: BubbleGraphNode[] = [{
+      id: storeyId, type: 'storey', name, x: cx, y: cy, z: 0,
+      properties: { bottomElevation: bottomElev, topElevation: topElev, axesX: xs, axesY: ys, width: maxX, height: maxY, discipline },
+      locked: true,
+    }];
+    let idx = 0;
+    for (let i = 0; i < ys.length; i++) {
+      for (let j = 0; j < xs.length; j++) {
+        newNodes.push({
+          id: `ax_${storeyId}_${idx++}`,
+          type: 'ax',
+          name: `${j + 1}-${String.fromCharCode(65 + i)}`,
+          x: cx + (xs[j] - maxX / 2),
+          y: cy + (ys[i] - maxY / 2),
+          z: 0,
+          properties: { ...(axDef?.defaultProperties ?? {}), gridX: j, gridY: i },
+          locked: true,
+          parentId: storeyId,
+        });
+      }
+    }
+    setNodes((prev) => [...prev, ...newNodes]);
+    setShowNewStoreyDialog(false);
+    setActiveStoreyId(storeyId);
+  }, [buildingAxes, storeyNodes.length, setActiveStoreyId]);
+
   if (!visible) return null;
 
   return (
     <div className="fixed inset-0 z-[100] flex items-start justify-center bg-black/60 p-4">
       <div className="bg-background border border-border rounded-xl shadow-2xl w-full max-w-7xl h-[90vh] flex flex-col overflow-hidden">
-        {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-border flex-shrink-0">
-          <div className="flex items-center gap-2">
-            <span className="text-base font-semibold">BubbleGraph</span>
-            <span className="text-xs text-muted-foreground">— structural relational building graph</span>
+        {/* ── Header ── */}
+        <div className="flex items-center justify-between px-4 py-2.5 border-b border-border flex-shrink-0 bg-muted/20">
+          <div className="flex items-center gap-3">
+            <span className="text-sm font-semibold">BubbleGraph</span>
+            <span className="text-xs text-muted-foreground">Building configuration graph</span>
           </div>
-          <Button variant="ghost" size="icon-sm" onClick={onClose}>
-            <X className="h-4 w-4" />
-          </Button>
+          <div className="flex items-center gap-2">
+            {/* Building Axes button */}
+            <button
+              className="text-xs px-2.5 py-1 rounded border border-border hover:bg-accent flex items-center gap-1.5"
+              onClick={() => setShowAxesDialog(true)}
+              title="Define global building axis grid"
+            >
+              <span>📐</span> Building Axes
+              {buildingAxes.xValues.length > 0 && (
+                <span className="text-muted-foreground">
+                  ({buildingAxes.xValues.length}×{buildingAxes.yValues.length})
+                </span>
+              )}
+            </button>
+            {/* New Storey button */}
+            <button
+              className="text-xs px-2.5 py-1 rounded border border-primary/40 bg-primary/10 hover:bg-primary/20 text-primary flex items-center gap-1"
+              onClick={() => setShowNewStoreyDialog(true)}
+              title="Add a new storey"
+            >
+              ⊞ New Storey
+            </button>
+            <Button variant="ghost" size="icon-sm" onClick={onClose}>
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
         </div>
-        {/* Canvas */}
-        <div className="flex-1 min-h-0">
-          <BubbleGraphCanvas
-            nodes={nodes}
-            edges={edges}
-            setNodes={setNodes}
-            setEdges={setEdges}
-          />
+
+        {/* ── Body ── */}
+        <div className="flex flex-1 min-h-0">
+          {/* ── Storey Explorer ── */}
+          <aside className="w-44 border-r border-border flex flex-col overflow-y-auto bg-muted/10 flex-shrink-0">
+            <div className="px-3 py-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground border-b border-border">
+              Storeys
+            </div>
+            {/* All-storeys overview */}
+            <button
+              className={cn(
+                'flex items-center gap-2 px-3 py-2 text-xs hover:bg-accent text-left',
+                !activeStoreyId && 'bg-primary/10 text-primary font-semibold',
+              )}
+              onClick={() => setActiveStoreyId(null)}
+            >
+              <span className="text-muted-foreground">⊞</span> All storeys
+            </button>
+            <div className="h-px bg-border mx-2 my-1" />
+            {storeyNodes.length === 0 && (
+              <div className="px-3 py-3 text-xs text-muted-foreground italic">
+                No storeys yet.<br />Set axes, then add a storey.
+              </div>
+            )}
+            {storeyNodes.map((s) => {
+              const disc = (s.properties.discipline as StoreyDiscipline) ?? 'architectural';
+              const isActive = activeStoreyId === s.id;
+              return (
+                <div
+                  key={s.id}
+                  className={cn(
+                    'group flex items-center gap-1 px-2 py-1.5 cursor-pointer hover:bg-accent text-xs',
+                    isActive && 'bg-primary/10',
+                  )}
+                  onClick={() => setActiveStoreyId(s.id)}
+                >
+                  <span className={cn('text-[10px] font-bold px-1 py-0.5 rounded border', DISC_CLS[disc])}>
+                    {DISC_LABEL[disc]}
+                  </span>
+                  <span className={cn('flex-1 truncate', isActive && 'text-primary font-medium')}>{s.name}</span>
+                  <button
+                    className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-foreground p-0.5"
+                    onClick={(e) => { e.stopPropagation(); duplicateStorey(s.id); }}
+                    title="Duplicate storey"
+                  >
+                    ⧉
+                  </button>
+                  <button
+                    className="opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-500 p-0.5"
+                    onClick={(e) => { e.stopPropagation(); deleteStorey(s.id); }}
+                    title="Delete storey"
+                  >
+                    ✕
+                  </button>
+                </div>
+              );
+            })}
+          </aside>
+
+          {/* ── Canvas ── */}
+          <div className="flex-1 min-h-0 min-w-0">
+            <BubbleGraphCanvas
+              nodes={nodes}
+              edges={edges}
+              activeStoreyId={activeStoreyId}
+
+              setNodes={setNodes}
+              setEdges={setEdges}
+            />
+          </div>
         </div>
       </div>
+
+      {/* ── Building Axes Dialog ── */}
+      {showAxesDialog && (
+        <BuildingAxesDialog
+          initial={buildingAxes}
+          onClose={() => setShowAxesDialog(false)}
+          onSave={(axes) => { setBuildingAxes(axes); setShowAxesDialog(false); }}
+        />
+      )}
+
+      {/* ── New Storey Dialog ── */}
+      {showNewStoreyDialog && (
+        <NewStoreyDialog
+          buildingAxes={buildingAxes}
+          existingNames={storeyNodes.map((s) => s.name)}
+          onClose={() => setShowNewStoreyDialog(false)}
+          onCreate={handleCreateStorey}
+        />
+      )}
     </div>
   );
 }

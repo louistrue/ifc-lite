@@ -30,6 +30,14 @@ export interface BubbleGraphEdge {
   to: string;
 }
 
+/** Global building axis grid — single source of truth for ALL storeys */
+export interface BuildingAxes {
+  xValues: number[];  // mm
+  yValues: number[];  // mm
+}
+
+export type StoreyDiscipline = 'architectural' | 'structural' | 'mep';
+
 // ─── Slice interface ──────────────────────────────────────────────────────
 
 export interface BubbleGraphSlice {
@@ -37,9 +45,16 @@ export interface BubbleGraphSlice {
   bubbleGraphEdges: BubbleGraphEdge[];
   bubbleGraphPanelVisible: boolean;
 
+  /** Global axis grid shared by all storeys */
+  buildingAxes: BuildingAxes;
+  /** Currently active storey tab (null = show all) */
+  activeStoreyId: string | null;
+
   setBubbleGraph: (nodes: BubbleGraphNode[], edges: BubbleGraphEdge[]) => void;
   setBubbleGraphPanelVisible: (visible: boolean) => void;
   toggleBubbleGraphPanel: () => void;
+  setBuildingAxes: (axes: BuildingAxes) => void;
+  setActiveStoreyId: (id: string | null) => void;
 }
 
 // ─── Creator ──────────────────────────────────────────────────────────────
@@ -48,11 +63,13 @@ export const createBubbleGraphSlice: StateCreator<BubbleGraphSlice, [], [], Bubb
   bubbleGraphNodes: [],
   bubbleGraphEdges: [],
   bubbleGraphPanelVisible: false,
+  buildingAxes: { xValues: [], yValues: [] },
+  activeStoreyId: null,
 
   setBubbleGraph: (nodes, edges) => set({ bubbleGraphNodes: nodes, bubbleGraphEdges: edges }),
-
   setBubbleGraphPanelVisible: (visible) => set({ bubbleGraphPanelVisible: visible }),
-
   toggleBubbleGraphPanel: () =>
     set((s) => ({ bubbleGraphPanelVisible: !s.bubbleGraphPanelVisible })),
+  setBuildingAxes: (axes) => set({ buildingAxes: axes }),
+  setActiveStoreyId: (id) => set({ activeStoreyId: id }),
 });

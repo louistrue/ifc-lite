@@ -81,7 +81,7 @@ export type { NodeEditorSlice } from './slices/nodeEditorSlice.js';
 export type { ViewsSlice, ViewDefinition, ViewType, ViewCameraState } from './slices/viewsSlice.js';
 export { newViewId } from './slices/viewsSlice.js';
 export type { DrawRectSlice } from './slices/drawRectSlice.js';
-export type { BubbleGraphSlice, BubbleGraphNode, BubbleGraphEdge } from './slices/bubbleGraphSlice.js';
+export type { BubbleGraphSlice, BubbleGraphNode, BubbleGraphEdge, BuildingAxes, StoreyDiscipline } from './slices/bubbleGraphSlice.js';
 
 // Combined store type
 export type ViewerState = LoadingSlice &
