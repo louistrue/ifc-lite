@@ -24,6 +24,7 @@ import { isSpatialContainer } from './types';
 const TYPE_ICONS: Record<string, React.ElementType> = {
   'unified-storey': Layers,
   'model-header': FileBox,
+  'ifc-type': Building2,
   IfcProject: FolderKanban,
   IfcSite: MapPin,
   IfcBuilding: Building2,

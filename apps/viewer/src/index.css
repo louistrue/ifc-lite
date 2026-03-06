@@ -271,6 +271,29 @@ body {
   background-color: var(--hierarchy-hover-bg) !important;
 }
 
+/* Panel container query for compact tabs */
+.panel-container {
+  container-type: inline-size;
+}
+
+/* By default show text, hide icons */
+.panel-compact-icon {
+  display: none;
+}
+.panel-compact-text {
+  display: inline;
+}
+
+/* When panel is narrow, show icons and hide text */
+@container (max-width: 200px) {
+  .panel-compact-icon {
+    display: inline;
+  }
+  .panel-compact-text {
+    display: none;
+  }
+}
+
 /* Tab triggers */
 .tab-trigger {
   background-color: transparent !important;
