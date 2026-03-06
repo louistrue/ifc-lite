@@ -56,7 +56,7 @@ export function HierarchyPanel() {
   // Resizable panel split (percentage for storeys section, 0.5 = 50%)
   const [splitRatio, setSplitRatio] = useState(0.5);
   const [isDragging, setIsDragging] = useState(false);
-  const containerRef = useRef<HTMLDivElement | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   // Check if we have multiple models loaded
   const isMultiModel = models.size > 1;
@@ -80,18 +80,6 @@ export function HierarchyPanel() {
   const modelsRef = useRef<HTMLDivElement>(null);
   const parentRef = useRef<HTMLDivElement>(null); // Legacy single-model mode
 
-  // Compact mode for grouping tabs — show icons only when panel is too narrow for text
-  const panelRef = useRef<HTMLDivElement | null>(null);
-  const [compactTabs, setCompactTabs] = useState(false);
-  useEffect(() => {
-    const el = panelRef.current;
-    if (!el) return;
-    const ro = new ResizeObserver(() => {
-      setCompactTabs(el.getBoundingClientRect().width < 200);
-    });
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
 
   // Virtualizers for both sections
   const storeysVirtualizer = useVirtualizer({
@@ -452,7 +440,8 @@ export function HierarchyPanel() {
         onClick={() => setGroupingMode('spatial')}
         title="Spatial"
       >
-        {compactTabs ? <Building2 className="h-3 w-3 shrink-0" /> : 'Spatial'}
+        <Building2 className="h-3 w-3 shrink-0 panel-compact-icon" />
+        <span className="panel-compact-text">Spatial</span>
       </Button>
       <Button
         variant={groupingMode === 'type' ? 'default' : 'outline'}
@@ -461,7 +450,8 @@ export function HierarchyPanel() {
         onClick={() => setGroupingMode('type')}
         title="Class"
       >
-        {compactTabs ? <Layers className="h-3 w-3 shrink-0" /> : 'Class'}
+        <Layers className="h-3 w-3 shrink-0 panel-compact-icon" />
+        <span className="panel-compact-text">Class</span>
       </Button>
       <Button
         variant={groupingMode === 'ifc-type' ? 'default' : 'outline'}
@@ -470,7 +460,8 @@ export function HierarchyPanel() {
         onClick={() => setGroupingMode('ifc-type')}
         title="Type"
       >
-        {compactTabs ? <FileBox className="h-3 w-3 shrink-0" /> : 'Type'}
+        <FileBox className="h-3 w-3 shrink-0 panel-compact-icon" />
+        <span className="panel-compact-text">Type</span>
       </Button>
     </div>
   );
@@ -478,7 +469,7 @@ export function HierarchyPanel() {
   // In type/ifc-type grouping mode, always use flat tree layout (even for multi-model)
   if (isMultiModel && groupingMode === 'spatial') {
     return (
-      <div ref={(el) => { containerRef.current = el; panelRef.current = el; }} className="h-full flex flex-col border-r-2 border-zinc-200 dark:border-zinc-800 bg-white dark:bg-black">
+      <div ref={containerRef} className="h-full flex flex-col border-r-2 border-zinc-200 dark:border-zinc-800 bg-white dark:bg-black">
         {/* Search Header */}
         <div className="p-3 border-b-2 border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-black">
           <Input
@@ -574,7 +565,7 @@ export function HierarchyPanel() {
 
   // Single model layout
   return (
-    <div ref={panelRef} className="h-full flex flex-col border-r-2 border-zinc-200 dark:border-zinc-800 bg-white dark:bg-black">
+    <div className="h-full flex flex-col border-r-2 border-zinc-200 dark:border-zinc-800 bg-white dark:bg-black">
       {/* Header */}
       <div className="p-3 border-b-2 border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-black">
         <Input

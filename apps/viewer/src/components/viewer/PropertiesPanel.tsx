@@ -950,21 +950,27 @@ export function PropertiesPanel() {
         <TabsList className="tabs-list w-full justify-start rounded-none h-9 p-0 shrink-0 flex" style={{ backgroundColor: 'var(--tabs-bg)', borderBottom: '1px solid var(--tabs-border)' }}>
           <TabsTrigger
             value="properties"
+            title="Properties"
             className="tab-trigger flex-1 min-w-0 rounded-none border-b-2 border-transparent data-[state=active]:border-primary uppercase text-[11px] tracking-wide h-full px-2"
           >
-            Properties
+            <FileText className="h-3 w-3 shrink-0 panel-compact-icon" />
+            <span className="panel-compact-text">Properties</span>
           </TabsTrigger>
           <TabsTrigger
             value="quantities"
+            title="Quantities"
             className="tab-trigger flex-1 min-w-0 rounded-none border-b-2 border-transparent data-[state=active]:border-primary uppercase text-[11px] tracking-wide h-full px-2"
           >
-            Quantities
+            <Calculator className="h-3 w-3 shrink-0 panel-compact-icon" />
+            <span className="panel-compact-text">Quantities</span>
           </TabsTrigger>
           <TabsTrigger
             value="bsdd"
+            title="bSDD"
             className="tab-trigger flex-1 min-w-0 rounded-none border-b-2 border-transparent data-[state=active]:border-primary uppercase text-[11px] tracking-wide h-full px-2"
           >
-            bSDD
+            <Tag className="h-3 w-3 shrink-0 panel-compact-icon" />
+            <span className="panel-compact-text">bSDD</span>
           </TabsTrigger>
         </TabsList>
 
