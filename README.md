@@ -4,31 +4,39 @@ Headless IFC processing toolkit built on [ifc-lite](https://github.com/louistrue
 
 ## Features
 
-### GLB Export (`glb`)
+### GLB Export
 Converts IFC to GLB 2.0 with each node named by its IFC GlobalId.
 
 ```bash
 cargo build --release
-./target/release/ifc-lite-headless glb model.ifc -o model.glb
+./target/release/ifc-lite-headless input.ifc output.glb [options]
 ```
 
-- `node.name` = IFC GlobalId (e.g., `0kENwEoa5AkQagyavDrmx3`)
-- `node.extras.ifcType` = IFC type (e.g., `IfcWall`)
+- IfcConvert-compatible CLI (see `--help`)
+- `node.name` = IFC GlobalId (default), Name, StepId, or Type
 - PBR materials with IFC style colors
-- Parallel geometry processing
+- Parallel geometry processing via rayon
 
 ## Benchmark vs IfcConvert 0.8.4
 
 ```bash
-python3 docker/benchmark.py
+python3 docker/benchmark.py > docker/benchmark_results.csv
 ```
 
-| File | ifc-lite-headless | IfcConvert 0.8.4 | Speedup |
-|------|-------------------|------------------|---------|
-| ARK hus A (12.6MB) | 0.49s | 20.48s | ~42x |
-| File (1) (265KB) | 0.22s | 0.80s | ~4x |
+Outputs CSV with anonymized file IDs, entity complexity counts, timing, and GLB sizes. Both tools run natively with full CPU.
 
-*IfcConvert running under Rosetta (amd64 on ARM Mac). Native amd64 gap would be smaller.*
+**30 files tested (0.3 MB - 652 MB), 43x average speedup:**
+
+| Size range | Files | Avg speedup |
+|------------|-------|-------------|
+| < 1 MB     | 8     | 13x         |
+| 1 - 20 MB  | 11    | 63x         |
+| 20 - 70 MB | 7     | 39x         |
+| 300+ MB    | 4     | 35x         |
+
+IfcConvert binary: macOS ARM64 native (`ifcconvert-0.8.4-macosm164`).
+
+See [`docker/benchmark_results.csv`](docker/benchmark_results.csv) for full results with entity counts.
 
 ## License
 
