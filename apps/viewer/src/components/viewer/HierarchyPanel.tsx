@@ -80,6 +80,19 @@ export function HierarchyPanel() {
   const modelsRef = useRef<HTMLDivElement>(null);
   const parentRef = useRef<HTMLDivElement>(null); // Legacy single-model mode
 
+  // Compact mode for grouping tabs — show icons only when panel is too narrow for text
+  const toggleRef = useRef<HTMLDivElement>(null);
+  const [compactTabs, setCompactTabs] = useState(false);
+  useEffect(() => {
+    const el = toggleRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(([entry]) => {
+      setCompactTabs(entry.contentRect.width < 180);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
   // Virtualizers for both sections
   const storeysVirtualizer = useVirtualizer({
     count: storeysNodes.length,
@@ -431,33 +444,33 @@ export function HierarchyPanel() {
   // Multi-model layout with resizable split
   // Grouping mode toggle component (shared by both layouts)
   const groupingToggle = (
-    <div className="flex gap-1 mt-2">
+    <div ref={toggleRef} className="flex gap-1 mt-2">
       <Button
         variant={groupingMode === 'spatial' ? 'default' : 'outline'}
         size="sm"
         className="h-6 text-[10px] flex-1 min-w-0 rounded-none uppercase tracking-wider"
         onClick={() => setGroupingMode('spatial')}
+        title="Spatial"
       >
-        <Building2 className="h-3 w-3 mr-1 shrink-0" />
-        <span className="truncate">Spatial</span>
+        {compactTabs ? <Building2 className="h-3 w-3 shrink-0" /> : 'Spatial'}
       </Button>
       <Button
         variant={groupingMode === 'type' ? 'default' : 'outline'}
         size="sm"
         className="h-6 text-[10px] flex-1 min-w-0 rounded-none uppercase tracking-wider"
         onClick={() => setGroupingMode('type')}
+        title="Class"
       >
-        <Layers className="h-3 w-3 mr-1 shrink-0" />
-        <span className="truncate">By Class</span>
+        {compactTabs ? <Layers className="h-3 w-3 shrink-0" /> : 'Class'}
       </Button>
       <Button
         variant={groupingMode === 'ifc-type' ? 'default' : 'outline'}
         size="sm"
         className="h-6 text-[10px] flex-1 min-w-0 rounded-none uppercase tracking-wider"
         onClick={() => setGroupingMode('ifc-type')}
+        title="Type"
       >
-        <FileBox className="h-3 w-3 mr-1 shrink-0" />
-        <span className="truncate">By Type</span>
+        {compactTabs ? <FileBox className="h-3 w-3 shrink-0" /> : 'Type'}
       </Button>
     </div>
   );
