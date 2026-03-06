@@ -16,7 +16,7 @@ use std::f64::consts::PI;
 const MAX_CURVE_DEPTH: u32 = 50;
 
 /// Minimum segments for any circle approximation
-const MIN_CIRCLE_SEGMENTS: usize = 8;
+const MIN_CIRCLE_SEGMENTS: usize = 6;
 
 /// Maximum segments for any circle approximation
 const MAX_CIRCLE_SEGMENTS: usize = 64;
