@@ -135,6 +135,7 @@ export interface PaletteItem {
   label: string;
   icon: LucideIcon | string;
   iconColor: string;
+  category?: string;
 }
 
 // ─── Registry ─────────────────────────────────────────────────────────────
@@ -207,6 +208,7 @@ class NodeRegistryClass {
       label:     d.label,
       icon:      d.icon,
       iconColor: d.iconColor ?? 'text-muted-foreground',
+      category:  d.category,
     }));
   }
 

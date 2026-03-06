@@ -25,6 +25,7 @@ import { ScriptPanel } from './ScriptPanel';
 import { CommandPalette } from './CommandPalette';
 import { EditorPanel } from './EditorPanel';
 import { NodeEditorPanel } from './NodeEditorPanel';
+import { ViewsPanel } from './ViewsPanel';
 
 const BOTTOM_PANEL_MIN_HEIGHT = 120;
 const BOTTOM_PANEL_DEFAULT_HEIGHT = 300;
@@ -74,6 +75,8 @@ export function ViewerLayout() {
   const setEditorPanelVisible = useViewerStore((s) => s.setEditorPanelVisible);
   const nodeEditorPanelVisible = useViewerStore((s) => s.nodeEditorPanelVisible);
   const setNodeEditorPanelVisible = useViewerStore((s) => s.setNodeEditorPanelVisible);
+  const viewsPanelVisible = useViewerStore((s) => s.viewsPanelVisible);
+  const setViewsPanelVisible = useViewerStore((s) => s.setViewsPanelVisible);
 
   // Panel refs for programmatic collapse/expand (command palette, keyboard shortcuts)
   const leftPanelRef = useRef<PanelImperativeHandle>(null);
@@ -230,7 +233,9 @@ export function ViewerLayout() {
                   }}
                 >
                   <div className="h-full w-full overflow-hidden">
-                    {lensPanelVisible ? (
+                    {viewsPanelVisible ? (
+                      <ViewsPanel onClose={() => setViewsPanelVisible(false)} />
+                    ) : lensPanelVisible ? (
                       <LensPanel onClose={() => setLensPanelVisible(false)} />
                     ) : editorPanelVisible ? (
                       <EditorPanel onClose={() => setEditorPanelVisible(false)} />

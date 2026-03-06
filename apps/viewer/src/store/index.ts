@@ -33,6 +33,7 @@ import { createLensSlice, type LensSlice } from './slices/lensSlice.js';
 import { createScriptSlice, type ScriptSlice } from './slices/scriptSlice.js';
 import { createEditorSlice, type EditorSlice } from './slices/editorSlice.js';
 import { createNodeEditorSlice, type NodeEditorSlice } from './slices/nodeEditorSlice.js';
+import { createViewsSlice, type ViewsSlice } from './slices/viewsSlice.js';
 import { invalidateVisibleBasketCache } from './basketVisibleSet.js';
 
 // Import constants for reset function
@@ -75,6 +76,8 @@ export type { LensSlice, Lens, LensRule, LensCriteria } from './slices/lensSlice
 export type { ScriptSlice } from './slices/scriptSlice.js';
 export type { EditorSlice } from './slices/editorSlice.js';
 export type { NodeEditorSlice } from './slices/nodeEditorSlice.js';
+export type { ViewsSlice, ViewDefinition, ViewType, ViewCameraState } from './slices/viewsSlice.js';
+export { newViewId } from './slices/viewsSlice.js';
 
 // Combined store type
 export type ViewerState = LoadingSlice &
@@ -97,7 +100,8 @@ export type ViewerState = LoadingSlice &
   LensSlice &
   ScriptSlice &
   EditorSlice &
-  NodeEditorSlice & {
+  NodeEditorSlice &
+  ViewsSlice & {
     resetViewerState: () => void;
   };
 
@@ -127,6 +131,7 @@ export const useViewerStore = create<ViewerState>()((...args) => ({
   ...createScriptSlice(...args),
   ...createEditorSlice(...args),
   ...createNodeEditorSlice(...args),
+  ...createViewsSlice(...args),
 
   // Reset all viewer state when loading new file
   // Note: Does NOT clear models - use clearAllModels() for that

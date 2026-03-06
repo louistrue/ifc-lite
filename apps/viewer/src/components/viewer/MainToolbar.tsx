@@ -202,6 +202,9 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
   const nodeEditorPanelVisible = useViewerStore((state) => state.nodeEditorPanelVisible);
   const toggleNodeEditorPanel = useViewerStore((state) => state.toggleNodeEditorPanel);
   const setNodeEditorPanelVisible = useViewerStore((state) => state.setNodeEditorPanelVisible);
+  const viewsPanelVisible = useViewerStore((state) => state.viewsPanelVisible);
+  const toggleViewsPanel = useViewerStore((state) => state.toggleViewsPanel);
+  const setViewsPanelVisible = useViewerStore((state) => state.setViewsPanelVisible);
 
   // Check which type geometries exist across ALL loaded models (federation-aware).
   // PERF: Use meshes.length as dep proxy instead of full geometryResult, and
@@ -901,6 +904,31 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
           </Button>
         </TooltipTrigger>
         <TooltipContent>Node Graph Editor</TooltipContent>
+      </Tooltip>
+
+      {/* Views Panel */}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant={viewsPanelVisible ? 'default' : 'ghost'}
+            size="icon-sm"
+            onClick={(e) => {
+              (e.currentTarget as HTMLButtonElement).blur();
+              if (!viewsPanelVisible) {
+                setEditorPanelVisible(false);
+                setBcfPanelVisible(false);
+                setIdsPanelVisible(false);
+                setLensPanelVisible(false);
+                setRightPanelCollapsed(false);
+              }
+              setViewsPanelVisible(!viewsPanelVisible);
+            }}
+            className={cn(viewsPanelVisible && 'bg-primary text-primary-foreground')}
+          >
+            <LayoutTemplate className="h-4 w-4" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>Views</TooltipContent>
       </Tooltip>
 
       <Separator orientation="vertical" className="h-6 mx-1" />

@@ -39,6 +39,8 @@ export interface UseTouchControlsParams {
   geometryRef: MutableRefObject<MeshData[] | null>;
   handlePickForSelection: (pickResult: PickResult | null) => void;
   getPickOptions: () => { isStreaming: boolean; hiddenIds: Set<number>; isolatedIds: Set<number> | null };
+  /** When true, orbit (3D rotation) is suppressed — used for 2D views. */
+  rotationLockedRef: MutableRefObject<boolean>;
 }
 
 export function useTouchControls(params: UseTouchControlsParams): void {
@@ -58,6 +60,7 @@ export function useTouchControls(params: UseTouchControlsParams): void {
     geometryRef,
     handlePickForSelection,
     getPickOptions,
+    rotationLockedRef,
   } = params;
 
   useEffect(() => {
@@ -139,7 +142,7 @@ export function useTouchControls(params: UseTouchControlsParams): void {
           touchState.didMove = true;
         }
 
-        camera.orbit(dx, dy, false);
+        if (!rotationLockedRef.current) camera.orbit(dx, dy, false);
         touchState.lastCenter = {
           x: touchState.touches[0].clientX,
           y: touchState.touches[0].clientY,

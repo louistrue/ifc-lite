@@ -4,7 +4,7 @@
 
 import '@xyflow/react/dist/style.css';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ReactFlow,
   ReactFlowProvider,
@@ -25,6 +25,11 @@ import {
   AlertCircle,
   Loader2,
   GripHorizontal,
+  Maximize2,
+  Minimize2,
+  Search,
+  ChevronDown,
+  ChevronRight,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -59,7 +64,7 @@ interface NodeEditorPanelInnerProps {
 function NodeEditorPanelInner({ visible, onClose }: NodeEditorPanelInnerProps) {
   const [nodes, setNodes, onNodesChange] = useNodesState(INITIAL_NODES);
   const [edges, setEdges, onEdgesChange] = useEdgesState(INITIAL_EDGES);
-  const [autoCompile, setAutoCompile] = useState(true);
+  const [autoCompile, setAutoCompile] = useState(false);
   const [status, setStatus] = useState<CompileStatus>('idle');
   const [statusMsg, setStatusMsg] = useState('');
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -68,10 +73,14 @@ function NodeEditorPanelInner({ visible, onClose }: NodeEditorPanelInnerProps) {
   // ── Floating window position & size ─────────────────────────────────────
   const [pos, setPos]   = useState({ x: 80, y: 80 });
   const [size, setSize] = useState({ w: 960, h: 580 });
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [paletteSearch, setPaletteSearch] = useState('');
+  const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(new Set());
   const dragRef   = useRef<{ mx: number; my: number; px: number; py: number } | null>(null);
   const resizeRef = useRef<{ mx: number; my: number; w: number; h: number } | null>(null);
 
   const onHeaderMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (isFullscreen) return;
     if ((e.target as HTMLElement).closest('button')) return;
     e.preventDefault();
     dragRef.current = { mx: e.clientX, my: e.clientY, px: pos.x, py: pos.y };
@@ -202,6 +211,34 @@ function NodeEditorPanelInner({ visible, onClose }: NodeEditorPanelInnerProps) {
     ]);
   }, [setNodes]);
 
+  // ── Palette groups ────────────────────────────────────────────────────────
+  const CATEGORY_ORDER = ['Input', 'Structure', 'Elements', 'Modifiers', 'Advanced'];
+
+  const paletteGroups = useMemo(() => {
+    const q = paletteSearch.trim().toLowerCase();
+    const items = q
+      ? PALETTE_ITEMS.filter(i => i.label.toLowerCase().includes(q))
+      : PALETTE_ITEMS;
+    const groups = new Map<string, typeof items>();
+    for (const item of items) {
+      const cat = item.category ?? 'Other';
+      if (!groups.has(cat)) groups.set(cat, []);
+      groups.get(cat)!.push(item);
+    }
+    return [...groups.entries()].sort(([a], [b]) => {
+      const ai = CATEGORY_ORDER.indexOf(a);
+      const bi = CATEGORY_ORDER.indexOf(b);
+      return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
+    });
+  }, [paletteSearch]);
+
+  const toggleCategory = (cat: string) =>
+    setCollapsedCategories(prev => {
+      const next = new Set(prev);
+      next.has(cat) ? next.delete(cat) : next.add(cat);
+      return next;
+    });
+
   // ── Status icon ─────────────────────────────────────────────────────────
   const StatusIcon = status === 'compiling' ? Loader2
     : status === 'ok'      ? CheckCircle2
@@ -215,10 +252,11 @@ function NodeEditorPanelInner({ visible, onClose }: NodeEditorPanelInnerProps) {
   return (
     <div
       className={cn(
-        'absolute z-50 flex flex-col bg-background border rounded-lg shadow-2xl overflow-hidden',
+        'flex flex-col bg-background border shadow-2xl overflow-hidden',
+        isFullscreen ? 'fixed inset-0 z-[9999] rounded-none' : 'absolute z-50 rounded-lg',
         !visible && 'hidden',
       )}
-      style={{ left: pos.x, top: pos.y, width: size.w, height: size.h }}
+      style={isFullscreen ? undefined : { left: pos.x, top: pos.y, width: size.w, height: size.h }}
     >
       {/* Header / drag handle */}
       <div
@@ -259,6 +297,16 @@ function NodeEditorPanelInner({ visible, onClose }: NodeEditorPanelInnerProps) {
           <TooltipContent>{autoCompile ? 'Auto-compile on (click to disable)' : 'Auto-compile off (click to enable)'}</TooltipContent>
         </Tooltip>
 
+        {/* Fullscreen toggle */}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button variant="ghost" size="icon-sm" onClick={() => setIsFullscreen((v) => !v)}>
+              {isFullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>{isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}</TooltipContent>
+        </Tooltip>
+
         {/* Manual compile */}
         <Tooltip>
           <TooltipTrigger asChild>
@@ -287,27 +335,54 @@ function NodeEditorPanelInner({ visible, onClose }: NodeEditorPanelInnerProps) {
       {/* ── Body: sidebar + canvas ── */}
       <div className="flex flex-1 min-h-0">
         {/* Left palette */}
-        <div className="w-36 shrink-0 border-r bg-background overflow-y-auto flex flex-col gap-0.5 p-2">
-          <p className="text-[10px] uppercase tracking-widest text-muted-foreground px-1 pb-1 select-none">
-            Add node
-          </p>
-          {PALETTE_ITEMS.map((item) => {
-            const isEmoji = typeof item.icon === 'string';
-            const IconEl  = isEmoji ? null : item.icon as React.ElementType;
-            return (
-              <button
-                key={item.type}
-                onClick={() => addNode(item.type)}
-                className="flex items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-accent transition-colors text-left"
-              >
-                {isEmoji
-                  ? <span className="text-base leading-none">{item.icon as string}</span>
-                  : IconEl && <IconEl className={cn('h-4 w-4 shrink-0', item.iconColor)} />
-                }
-                <span>{item.label}</span>
-              </button>
-            );
-          })}
+        <div className="w-44 shrink-0 border-r bg-background overflow-y-auto flex flex-col">
+          {/* Search */}
+          <div className="relative px-2 py-2 border-b">
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground pointer-events-none" />
+            <input
+              value={paletteSearch}
+              onChange={e => setPaletteSearch(e.target.value)}
+              placeholder="Search nodes…"
+              className="w-full rounded border bg-muted/30 pl-6 pr-2 py-1 text-xs outline-none focus:ring-1 focus:ring-ring"
+            />
+          </div>
+          {/* Category groups */}
+          <div className="flex flex-col gap-0 p-1">
+            {paletteGroups.map(([cat, items]) => {
+              const isCollapsed = collapsedCategories.has(cat);
+              return (
+                <div key={cat}>
+                  <button
+                    onClick={() => toggleCategory(cat)}
+                    className="flex w-full items-center gap-1 px-1 py-1 text-[10px] uppercase tracking-widest text-muted-foreground hover:text-foreground select-none transition-colors"
+                  >
+                    {isCollapsed
+                      ? <ChevronRight className="h-3 w-3 shrink-0" />
+                      : <ChevronDown className="h-3 w-3 shrink-0" />
+                    }
+                    {cat}
+                  </button>
+                  {!isCollapsed && items.map(item => {
+                    const isEmoji = typeof item.icon === 'string';
+                    const IconEl  = isEmoji ? null : item.icon as React.ElementType;
+                    return (
+                      <button
+                        key={item.type}
+                        onClick={() => addNode(item.type)}
+                        className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-xs hover:bg-accent transition-colors text-left"
+                      >
+                        {isEmoji
+                          ? <span className="text-sm leading-none">{item.icon as string}</span>
+                          : IconEl && <IconEl className={cn('h-3.5 w-3.5 shrink-0', item.iconColor)} />
+                        }
+                        <span className="truncate">{item.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              );
+            })}
+          </div>
         </div>
 
         {/* ReactFlow canvas */}
@@ -334,7 +409,7 @@ function NodeEditorPanelInner({ visible, onClose }: NodeEditorPanelInnerProps) {
       </div>
 
       {/* Resize grip — bottom-right corner */}
-      <div
+      {!isFullscreen && <div
         className="absolute bottom-0 right-0 w-4 h-4 cursor-nwse-resize z-10"
         onMouseDown={onResizeMouseDown}
         title="Resize"
@@ -342,7 +417,7 @@ function NodeEditorPanelInner({ visible, onClose }: NodeEditorPanelInnerProps) {
         <svg viewBox="0 0 16 16" className="w-full h-full text-muted-foreground/40" fill="currentColor">
           <path d="M14 10l-4 4h4v-4zm0-4l-8 8h2l6-6V6zm0-4L6 10h2L14 4V2z" />
         </svg>
-      </div>
+      </div>}
     </div>
   );
 }

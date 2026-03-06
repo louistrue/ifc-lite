@@ -326,6 +326,15 @@ export function Viewport({ geometry, geometryVersion, coordinateInfo, computedIs
   const selectedEntityIdsRef = useRef<Set<number> | undefined>(selectedEntityIds);
   const selectedModelIndexRef = useRef<number | undefined>(selectedModelIndex);
   const activeToolRef = useRef<string>(activeTool);
+
+  // Lock rotation when a 2D view is active (floor plan, section, elevation)
+  const activeViewId = useViewerStore((s) => s.activeViewId);
+  const views = useViewerStore((s) => s.views);
+  const rotationLockedRef = useRef<boolean>(false);
+  useEffect(() => {
+    const view = activeViewId ? views.get(activeViewId) : null;
+    rotationLockedRef.current = view != null;
+  }, [activeViewId, views]);
   const pendingMeasurePointRef = useRef<MeasurePoint | null>(pendingMeasurePoint);
   const activeMeasurementRef = useRef(activeMeasurement);
   const snapEnabledRef = useRef(snapEnabled);
@@ -725,6 +734,7 @@ export function Viewport({ geometry, geometryVersion, coordinateInfo, computedIs
     RENDER_THROTTLE_MS_SMALL,
     RENDER_THROTTLE_MS_LARGE,
     RENDER_THROTTLE_MS_HUGE,
+    rotationLockedRef,
   });
 
   useTouchControls({
@@ -743,6 +753,7 @@ export function Viewport({ geometry, geometryVersion, coordinateInfo, computedIs
     geometryRef,
     handlePickForSelection: (pickResult) => handlePickForSelectionRef.current(pickResult),
     getPickOptions,
+    rotationLockedRef,
   });
 
   useKeyboardControls({

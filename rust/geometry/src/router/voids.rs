@@ -438,19 +438,12 @@ impl GeometryRouter {
                 Vec::new()
             };
 
-        // STEP 5: Collect opening info (bounds for rectangular, full mesh for non-rectangular)
-        // For rectangular openings, get individual bounds per representation item to handle
-        // disconnected geometry (e.g., two separate window openings in one IfcOpeningElement)
-        enum OpeningType {
-            /// Rectangular opening with AABB clipping
-            /// Fields: (min_bounds, max_bounds, extrusion_direction, is_diagonal)
-            Rectangular(Point3<f64>, Point3<f64>, Option<Vector3<f64>>, bool),
-            /// Non-rectangular opening (circular, arched, or floor openings with rotated footprint)
-            /// Uses full CSG subtraction with actual mesh geometry
-            NonRectangular(Mesh),
-        }
-
-        let mut openings: Vec<OpeningType> = Vec::new();
+        // STEP 5: Collect opening meshes (one per opening element).
+        // All openings go through CSG (boolean difference) which correctly produces
+        // all interior faces (jambs, sill, head) without manual reveal-quad generation.
+        // AABB clipping is kept only as a fallback when CSG fails or produces degenerate
+        // results, and for simple axis-aligned openings when CSG exceeds the safety limit.
+        let mut opening_meshes: Vec<Mesh> = Vec::new();
         for &opening_id in opening_ids.iter() {
             let opening_entity = match decoder.decode_by_id(opening_id) {
                 Ok(e) => e,
@@ -462,67 +455,19 @@ impl GeometryRouter {
                 _ => continue,
             };
 
-            let vertex_count = opening_mesh.positions.len() / 3;
-
-            if vertex_count > 100 {
-                // Non-rectangular (circular, arched, etc.) - use full CSG
-                openings.push(OpeningType::NonRectangular(opening_mesh));
-            } else {
-                // Rectangular - get individual bounds with extrusion direction for each representation item
-                // This handles disconnected geometry (multiple boxes with gaps between them)
-                let item_bounds_with_dir = self.get_opening_item_bounds_with_direction(&opening_entity, decoder)
-                    .unwrap_or_default();
-
-                if !item_bounds_with_dir.is_empty() {
-                    // Check if this is a floor/slab opening (vertical Z-extrusion)
-                    // Floor openings may have rotated XY footprints that AABB clipping can't handle correctly.
-                    // Example: A rectangular opening in a diagonal slab - the opening's rectangle in XY
-                    // is rotated relative to the world axes, so AABB clipping creates a diamond-shaped cutout.
-                    let is_floor_opening = item_bounds_with_dir.iter().any(|(_, _, dir)| {
-                        dir.map(|d| d.z.abs() > 0.95).unwrap_or(false)
-                    });
-
-                    // For floor openings, use CSG with actual mesh geometry to handle rotated footprints
-                    if is_floor_opening && vertex_count > 0 {
-                        openings.push(OpeningType::NonRectangular(opening_mesh.clone()));
-                    } else {
-                        // Use AABB clipping for wall openings (X/Y extrusion)
-                        // Mark diagonal ones so we skip internal face generation (which causes artifacts)
-                        for (min_pt, max_pt, extrusion_dir) in item_bounds_with_dir {
-                            // Check if extrusion direction is diagonal (not axis-aligned)
-                            let is_diagonal = extrusion_dir.map(|dir| {
-                                const AXIS_THRESHOLD: f64 = 0.95;
-                                let abs_x = dir.x.abs();
-                                let abs_y = dir.y.abs();
-                                let abs_z = dir.z.abs();
-                                // Diagonal if no single component dominates (>95% of magnitude)
-                                !(abs_x > AXIS_THRESHOLD || abs_y > AXIS_THRESHOLD || abs_z > AXIS_THRESHOLD)
-                            }).unwrap_or(false);
-
-                            openings.push(OpeningType::Rectangular(min_pt, max_pt, extrusion_dir, is_diagonal));
-                        }
-                    }
-                } else {
-                    // Fallback to combined mesh bounds when individual bounds unavailable
-                    let (open_min, open_max) = opening_mesh.bounds();
-                    let min_f64 = Point3::new(open_min.x as f64, open_min.y as f64, open_min.z as f64);
-                    let max_f64 = Point3::new(open_max.x as f64, open_max.y as f64, open_max.z as f64);
-
-                    openings.push(OpeningType::Rectangular(min_f64, max_f64, None, false));
-                }
-            }
+            opening_meshes.push(opening_mesh);
         }
 
-        if openings.is_empty() {
+        if opening_meshes.is_empty() {
             return self.process_element(element, decoder);
         }
 
-        // STEP 6: Cut openings using appropriate method
+        // STEP 6: Cut openings using CSG boolean difference.
         use crate::csg::ClippingProcessor;
         let clipper = ClippingProcessor::new();
         let mut result = wall_mesh;
 
-        // Get wall bounds for clamping opening faces (from result before cutting)
+        // Get wall bounds (needed for AABB fallback path).
         let (wall_min_f32, wall_max_f32) = result.bounds();
         let wall_min = Point3::new(
             wall_min_f32.x as f64,
@@ -535,76 +480,73 @@ impl GeometryRouter {
             wall_max_f32.z as f64,
         );
 
-        // Validate wall mesh ONCE before CSG operations (not per-iteration)
-        // This avoids O(n) validation on every loop iteration
+        // Validate wall mesh ONCE before CSG operations.
         let wall_valid = !result.is_empty()
             && result.positions.iter().all(|&v| v.is_finite())
             && result.triangle_count() >= 4;
 
         if !wall_valid {
-            // Wall mesh is invalid, return as-is
             return Ok(result);
         }
 
-        // Track CSG operations to prevent excessive complexity
+        // Safety limit: cap total CSG operations to prevent runaway processing on large models.
         let mut csg_operation_count = 0;
-        const MAX_CSG_OPERATIONS: usize = 10; // Limit to prevent runaway CSG
+        const MAX_CSG_OPERATIONS: usize = 15;
 
-        for opening in openings.iter() {
-            match opening {
-                OpeningType::Rectangular(open_min, open_max, extrusion_dir, is_diagonal) => {
-                    // Use AABB clipping for all rectangular openings
-                    let (final_min, final_max) = if let Some(dir) = extrusion_dir {
-                        // Extend along the actual extrusion direction to penetrate multi-layer walls
-                        self.extend_opening_along_direction(*open_min, *open_max, wall_min, wall_max, *dir)
-                    } else {
-                        // Fallback: use opening bounds as-is (no direction available)
-                        (*open_min, *open_max)
-                    };
+        for (i, opening_mesh) in opening_meshes.iter().enumerate() {
+            // Validate opening mesh.
+            let opening_valid = !opening_mesh.is_empty()
+                && opening_mesh.positions.iter().all(|&v| v.is_finite())
+                && opening_mesh.positions.len() >= 9;
 
-                    if *is_diagonal {
-                        // For diagonal openings, use AABB clipping WITHOUT internal faces
-                        // Internal faces for diagonal openings cause rotation artifacts
-                        result = self.cut_rectangular_opening_no_faces(&result, final_min, final_max);
-                    } else {
-                        // For axis-aligned openings, use AABB clipping WITH reveal faces
-                        // (jambs, sill, head — internal cap faces on the wall thickness).
-                        result = self.cut_rectangular_opening(&result, final_min, final_max, wall_min, wall_max);
-                    }
+            if !opening_valid {
+                continue;
+            }
+
+            if csg_operation_count >= MAX_CSG_OPERATIONS {
+                // Over limit: attempt cheap AABB fallback for any remaining openings.
+                let (open_min_f32, open_max_f32) = opening_mesh.bounds();
+                let open_min = Point3::new(open_min_f32.x as f64, open_min_f32.y as f64, open_min_f32.z as f64);
+                let open_max = Point3::new(open_max_f32.x as f64, open_max_f32.y as f64, open_max_f32.z as f64);
+                result = self.cut_rectangular_opening_no_faces(&result, open_min, open_max);
+                continue;
+            }
+
+            // Primary path: CSG boolean difference.
+            // CSG produces all faces (including jambs, sill, head) correctly.
+            let csg_ok = match clipper.subtract_mesh(&result, opening_mesh) {
+                Ok(csg_result) if !csg_result.is_empty() && csg_result.triangle_count() >= 4 => {
+                    result = csg_result;
+                    true
                 }
-                OpeningType::NonRectangular(opening_mesh) => {
-                    // Safety: limit total CSG operations to prevent crashes on complex geometry
-                    if csg_operation_count >= MAX_CSG_OPERATIONS {
-                        // Skip remaining CSG operations
-                        continue;
-                    }
+                _ => false,
+            };
+            csg_operation_count += 1;
 
-                    // Validate opening mesh before CSG (only once per opening)
-                    let opening_valid = !opening_mesh.is_empty()
-                        && opening_mesh.positions.iter().all(|&v| v.is_finite())
-                        && opening_mesh.positions.len() >= 9; // At least 3 vertices
+            if !csg_ok {
+                // CSG failed or produced degenerate geometry — fall back to AABB clipping.
+                // Try to get the extrusion direction for better reveal face generation.
+                let opening_id = opening_ids.get(i).copied();
+                let extrusion_dir = opening_id
+                    .and_then(|id| decoder.decode_by_id(id).ok())
+                    .and_then(|ent| {
+                        self.get_opening_item_bounds_with_direction(&ent, decoder)
+                            .ok()
+                            .and_then(|v| v.into_iter().next())
+                            .and_then(|(_, _, dir)| dir)
+                    });
 
-                    if !opening_valid {
-                        // Skip invalid opening
-                        continue;
-                    }
+                let (open_min_f32, open_max_f32) = opening_mesh.bounds();
+                let open_min = Point3::new(open_min_f32.x as f64, open_min_f32.y as f64, open_min_f32.z as f64);
+                let open_max = Point3::new(open_max_f32.x as f64, open_max_f32.y as f64, open_max_f32.z as f64);
 
-                    // Use full CSG subtraction for non-rectangular shapes
-                    // Note: mesh_to_csgrs validates and filters invalid triangles internally
-                    match clipper.subtract_mesh(&result, opening_mesh) {
-                        Ok(csg_result) => {
-                            // Validate result is not degenerate
-                            if !csg_result.is_empty() && csg_result.triangle_count() >= 4 {
-                                result = csg_result;
-                            }
-                            // If result is degenerate, keep previous result
-                        }
-                        Err(_) => {
-                            // Keep original result if CSG fails
-                        }
-                    }
-                    csg_operation_count += 1;
-                }
+                let (final_min, final_max) = if let Some(dir) = extrusion_dir {
+                    self.extend_opening_along_direction(open_min, open_max, wall_min, wall_max, dir)
+                } else {
+                    (open_min, open_max)
+                };
+
+                result = self.cut_rectangular_opening(&result, final_min, final_max, wall_min, wall_max, extrusion_dir);
             }
         }
 
@@ -736,6 +678,9 @@ impl GeometryRouter {
     ///
     /// `wall_min`/`wall_max` are the original wall mesh bounds BEFORE any cutting and
     /// are used to determine the wall thickness direction and to clamp the reveal faces.
+    /// `extrusion_dir` is the world-space direction the opening extrudes through the wall;
+    /// when provided it is used to determine the thickness axis robustly instead of
+    /// relying on the AABB spanning heuristic.
     pub(super) fn cut_rectangular_opening(
         &self,
         mesh: &Mesh,
@@ -743,18 +688,20 @@ impl GeometryRouter {
         open_max: Point3<f64>,
         wall_min: Point3<f64>,
         wall_max: Point3<f64>,
+        extrusion_dir: Option<Vector3<f64>>,
     ) -> Mesh {
         let mut result = self.cut_rectangular_opening_no_faces(mesh, open_min, open_max);
-        self.generate_opening_reveal_faces(&mut result, open_min, open_max, wall_min, wall_max);
+        self.generate_opening_reveal_faces(&mut result, open_min, open_max, wall_min, wall_max, extrusion_dir);
         result
     }
 
     /// Generate the four reveal (jamb/sill/head) faces around a rectangular opening.
     ///
-    /// Determines which axis is the "through" axis (wall thickness direction) by finding
-    /// the axis along which the opening fully spans the wall.  Then emits two quads on
-    /// each of the other two axes at `open_min[axis]` and `open_max[axis]`, clamped to
-    /// the actual wall bounds so faces never extend outside the wall geometry.
+    /// Determines which axis is the "through" axis (wall thickness direction) either
+    /// directly from `extrusion_dir` (most reliable) or by finding the axis along which
+    /// the opening fully spans the wall.  Then emits two quads on each of the other two
+    /// axes at `open_min[axis]` and `open_max[axis]`, clamped to the actual wall bounds
+    /// so faces never extend outside the wall geometry.
     fn generate_opening_reveal_faces(
         &self,
         result: &mut Mesh,
@@ -762,6 +709,7 @@ impl GeometryRouter {
         open_max: Point3<f64>,
         wall_min: Point3<f64>,
         wall_max: Point3<f64>,
+        extrusion_dir: Option<Vector3<f64>>,
     ) {
         const EPSILON: f64 = 1e-4;
 
@@ -770,12 +718,27 @@ impl GeometryRouter {
         let wall_lo = [wall_min.x, wall_min.y, wall_min.z];
         let wall_hi = [wall_max.x, wall_max.y, wall_max.z];
 
-        // Find the axis along which the opening fully spans the wall (thickness direction).
-        let through_axis = match (0..3usize).find(|&a| {
-            open_lo[a] <= wall_lo[a] + EPSILON && open_hi[a] >= wall_hi[a] - EPSILON
-        }) {
-            Some(a) => a,
-            None => return, // Cannot determine thickness direction; skip reveal faces.
+        // Find the axis along which the opening passes through the wall (thickness direction).
+        // Prefer the extrusion direction (authoritative from IFC) over the AABB heuristic,
+        // which can fail when the opening is not extended far enough along the thickness axis.
+        let through_axis = if let Some(dir) = extrusion_dir {
+            // Use the dominant world axis of the extrusion direction.
+            let abs = [dir.x.abs(), dir.y.abs(), dir.z.abs()];
+            if abs[0] >= abs[1] && abs[0] >= abs[2] {
+                0
+            } else if abs[1] >= abs[0] && abs[1] >= abs[2] {
+                1
+            } else {
+                2
+            }
+        } else {
+            // Fallback: find the axis along which the opening fully spans the wall bounds.
+            match (0..3usize).find(|&a| {
+                open_lo[a] <= wall_lo[a] + EPSILON && open_hi[a] >= wall_hi[a] - EPSILON
+            }) {
+                Some(a) => a,
+                None => return, // Cannot determine thickness direction; skip reveal faces.
+            }
         };
 
         // Wall thickness bounds along the through axis.

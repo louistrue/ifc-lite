@@ -85,6 +85,9 @@ export interface UseMouseControlsParams {
     canvasHeight: number;
   } | null>;
 
+  /** When true, orbit (3D rotation) is suppressed — used for 2D views (floor plans, sections, elevations). */
+  rotationLockedRef: MutableRefObject<boolean>;
+
   // Callbacks
   handlePickForSelection: (pickResult: PickResult | null) => void;
   setHoverState: (state: { entityId: number; screenX: number; screenY: number }) => void;
@@ -200,6 +203,7 @@ export function useMouseControls(params: UseMouseControlsParams): void {
     lastClickTimeRef,
     lastClickPosRef,
     lastCameraStateRef,
+    rotationLockedRef,
     handlePickForSelection,
     setHoverState,
     clearHover,
@@ -689,12 +693,12 @@ export function useMouseControls(params: UseMouseControlsParams): void {
           camera.pan(dx, -dy, false);
         } else if (tool === 'walk') {
           // Walk mode: left/right rotates, up/down moves forward/backward
-          camera.orbit(dx * 0.5, 0, false); // Only horizontal rotation
+          if (!rotationLockedRef.current) camera.orbit(dx * 0.5, 0, false);
           if (Math.abs(dy) > 2) {
             camera.zoom(dy * 2, false); // Forward/backward movement
           }
         } else {
-          camera.orbit(dx, dy, false);
+          if (!rotationLockedRef.current) camera.orbit(dx, dy, false);
         }
 
         mouseState.lastX = e.clientX;
