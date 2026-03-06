@@ -206,7 +206,7 @@ function methodDoc(name: string): string {
   if (name === 'createProfile') return 'Create a profile from a ProfileDef union. Returns profile ID.';
   if (name === 'getWorldPlacementId') return 'Get the world placement ID for use with addLocalPlacement.';
   if (name.startsWith('addIfc')) {
-    const entity = name.slice(6); // remove 'addIfc'
+    const entity = name.slice(3); // remove 'add', keep 'IfcWall' etc.
     return `Add ${entity}. Returns expressId.`;
   }
   if (name.startsWith('add')) {

@@ -98,7 +98,15 @@ export class ListNamespace {
    */
   async execute(provider: unknown, definition: ListDefinition, modelId?: string): Promise<unknown> {
     const mod = await loadLists();
-    return (mod.executeList as AnyFn)(definition, provider, modelId ?? 'default');
+    // Convert SDK's string type names to IfcTypeEnum values expected by the library
+    const dataName = '@ifc-lite/data';
+    const data = await import(/* webpackIgnore: true */ dataName) as Record<string, unknown>;
+    const convert = data.IfcTypeEnumFromString as (s: string) => number;
+    const libraryDef = {
+      ...definition,
+      entityTypes: (definition.types ?? []).map(t => convert(t)),
+    };
+    return (mod.executeList as AnyFn)(libraryDef, provider, modelId ?? 'default');
   }
 
   // --------------------------------------------------------------------------
@@ -111,7 +119,12 @@ export class ListNamespace {
    */
   async discoverColumns(provider: unknown, entityTypes?: string[]): Promise<unknown> {
     const mod = await loadLists();
-    return (mod.discoverColumns as AnyFn)(provider, entityTypes ?? []);
+    // Convert string type names to IfcTypeEnum values expected by the library
+    const dataName = '@ifc-lite/data';
+    const data = await import(/* webpackIgnore: true */ dataName) as Record<string, unknown>;
+    const convert = data.IfcTypeEnumFromString as (s: string) => number;
+    const enumTypes = (entityTypes ?? []).map(t => convert(t));
+    return (mod.discoverColumns as AnyFn)(provider, enumTypes);
   }
 
   // --------------------------------------------------------------------------

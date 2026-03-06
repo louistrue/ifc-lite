@@ -595,8 +595,9 @@ export interface GenericElementParams extends ElementAttributes {
   ExtrusionDirection?: Point3D;
 
   /**
-   * Optional predefined type suffix. Added as the last STEP argument.
-   * E.g. '.RIGIDSEGMENT.' or '.NOTDEFINED.'
+   * Optional predefined type token (without surrounding dots).
+   * The serializer wraps it as `.TOKEN.` in the STEP output.
+   * E.g. 'RIGIDSEGMENT', 'NOTDEFINED'
    */
   PredefinedType?: string;
 }
@@ -623,6 +624,6 @@ export interface AxisElementParams extends ElementAttributes {
   End: Point3D;
   /** Cross-section profile (extruded along the axis) */
   Profile: ProfileDef;
-  /** Optional predefined type suffix, e.g. '.RIGIDSEGMENT.' */
+  /** Optional predefined type token without dots, e.g. 'RIGIDSEGMENT'. Serializer wraps as .TOKEN. */
   PredefinedType?: string;
 }

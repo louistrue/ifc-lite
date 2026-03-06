@@ -59,8 +59,8 @@ export interface ScriptResult {
   logs: Array<{ level: 'log' | 'warn' | 'error' | 'info'; args: unknown[] }>;
   /** Execution time in ms */
   durationMs: number;
-  /** Whether the script timed out */
-  timedOut: boolean;
+  /** Whether the script timed out (present only when timeout occurred) */
+  timedOut?: boolean;
 }
 
 // ============================================================================
