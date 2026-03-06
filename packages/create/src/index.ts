@@ -30,8 +30,20 @@ export type {
   Placement3D,
   RectangleProfile,
   ArbitraryProfile,
+  CircleProfile,
+  CircleHollowProfile,
+  IShapeProfile,
+  LShapeProfile,
+  TShapeProfile,
+  UShapeProfile,
+  CShapeProfile,
+  RectangleHollowProfile,
   ProfileDef,
   RectangularOpening,
+
+  // Generic element creation (low-level API)
+  GenericElementParams,
+  AxisElementParams,
 
   // Element parameters
   ElementAttributes,
@@ -41,6 +53,18 @@ export type {
   BeamParams,
   StairParams,
   RoofParams,
+  DoorParams,
+  WindowParams,
+  RampParams,
+  RailingParams,
+  PlateParams,
+  MemberParams,
+  FootingParams,
+  PileParams,
+  SpaceParams,
+  CurtainWallParams,
+  FurnishingParams,
+  ProxyParams,
 
   // Properties & quantities
   PropertyType,

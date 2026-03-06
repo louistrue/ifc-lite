@@ -20,7 +20,12 @@
 
 import type {
   Point3D, Point2D, Placement3D, RectangularOpening,
+  ElementAttributes, ProfileDef,
+  GenericElementParams, AxisElementParams,
   WallParams, SlabParams, ColumnParams, BeamParams, StairParams, RoofParams,
+  DoorParams, WindowParams, RampParams, RailingParams,
+  PlateParams, MemberParams, FootingParams, PileParams,
+  SpaceParams, CurtainWallParams, FurnishingParams, ProxyParams,
   ProjectParams, SiteParams, BuildingParams, StoreyParams,
   PropertySetDef, PropertyDef, QuantitySetDef, QuantityDef,
   MaterialDef, MaterialLayerDef,
@@ -63,6 +68,15 @@ function num(v: number): string {
 function vecLen(v: Point3D): number {
   return Math.sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
 }
+
+/**
+ * IFC types that do NOT follow the IfcElement attribute layout (no Tag/PredefinedType).
+ * addElement/addAxisElement skip Tag+PredefinedType for these types.
+ */
+const NON_ELEMENT_TYPES = new Set([
+  'IFCBUILDING', 'IFCSITE', 'IFCBUILDINGSTOREY', 'IFCPROJECT',
+  'IFCSPACE', 'IFCZONE', 'IFCSYSTEM', 'IFCGROUP',
+]);
 
 /** Normalize vector — throws on zero-length (indicates geometry bug like Start === End) */
 function vecNorm(v: Point3D): Point3D {
@@ -443,6 +457,773 @@ export class IfcCreator {
     this.trackElement(storeyId, roofId);
     this.entities.push({ expressId: roofId, type: 'IfcRoof', Name: name });
     return roofId;
+  }
+
+  /**
+   * Create a door element. Width × Height × Thickness panel.
+   */
+  addIfcDoor(storeyId: number, params: DoorParams): number {
+    const placementId = this.addLocalPlacement(this.worldPlacementId, {
+      Location: params.Position,
+    });
+
+    const thickness = params.Thickness ?? 0.05;
+    const profileId = this.addRectangleProfile(params.Width, thickness);
+    const solidId = this.addExtrudedAreaSolid(profileId, params.Height);
+    const shapeId = this.addShapeRepresentation('Body', [solidId]);
+    const prodShapeId = this.addProductDefinitionShape([shapeId]);
+
+    const doorId = this.id();
+    const globalId = newGlobalId();
+    const name = params.Name ?? 'Door';
+    const desc = params.Description ? `'${esc(params.Description)}'` : '$';
+    const objType = params.ObjectType ? `'${esc(params.ObjectType)}'` : '$';
+    const tag = params.Tag ? `'${esc(params.Tag)}'` : '$';
+    const opType = params.OperationType ?? 'SINGLE_SWING_LEFT';
+    const predType = params.PredefinedType ?? 'NOTDEFINED';
+
+    this.line(doorId, 'IFCDOOR',
+      `'${globalId}',#${this.ownerHistoryId},'${esc(name)}',${desc},${objType},#${placementId},#${prodShapeId},${tag},${num(params.Height)},${num(params.Width)},.${predType}.,.${opType}.,$`);
+
+    this.elementSolids.set(doorId, [solidId]);
+    this.trackElement(storeyId, doorId);
+    this.entities.push({ expressId: doorId, type: 'IfcDoor', Name: name });
+    return doorId;
+  }
+
+  /**
+   * Create a window element. Width × Height × Thickness frame.
+   */
+  addIfcWindow(storeyId: number, params: WindowParams): number {
+    const placementId = this.addLocalPlacement(this.worldPlacementId, {
+      Location: params.Position,
+    });
+
+    const thickness = params.Thickness ?? 0.05;
+    const profileId = this.addRectangleProfile(params.Width, thickness);
+    const solidId = this.addExtrudedAreaSolid(profileId, params.Height);
+    const shapeId = this.addShapeRepresentation('Body', [solidId]);
+    const prodShapeId = this.addProductDefinitionShape([shapeId]);
+
+    const windowId = this.id();
+    const globalId = newGlobalId();
+    const name = params.Name ?? 'Window';
+    const desc = params.Description ? `'${esc(params.Description)}'` : '$';
+    const objType = params.ObjectType ? `'${esc(params.ObjectType)}'` : '$';
+    const tag = params.Tag ? `'${esc(params.Tag)}'` : '$';
+    const partType = params.PartitioningType ?? 'SINGLE_PANEL';
+
+    this.line(windowId, 'IFCWINDOW',
+      `'${globalId}',#${this.ownerHistoryId},'${esc(name)}',${desc},${objType},#${placementId},#${prodShapeId},${tag},${num(params.Height)},${num(params.Width)},.NOTDEFINED.,.${partType}.,$`);
+
+    this.elementSolids.set(windowId, [solidId]);
+    this.trackElement(storeyId, windowId);
+    this.entities.push({ expressId: windowId, type: 'IfcWindow', Name: name });
+    return windowId;
+  }
+
+  /**
+   * Create a ramp. Position is the low end.
+   * Width along +Y, Length along +X, Rise optionally inclines the ramp.
+   */
+  addIfcRamp(storeyId: number, params: RampParams): number {
+    const rise = params.Rise ?? 0;
+    let axis: Point3D = [0, 0, 1];
+    let refDir: Point3D = [1, 0, 0];
+    if (rise > 0) {
+      const slopeAngle = Math.atan2(rise, params.Length);
+      axis = [Math.sin(slopeAngle), 0, Math.cos(slopeAngle)];
+      refDir = [Math.cos(slopeAngle), 0, -Math.sin(slopeAngle)];
+    }
+
+    const placementId = this.addLocalPlacement(this.worldPlacementId, {
+      Location: params.Position,
+      Axis: axis,
+      RefDirection: refDir,
+    });
+
+    const profileId = this.addRectangleProfile(
+      params.Length, params.Width,
+      [params.Length / 2, params.Width / 2],
+    );
+    const solidId = this.addExtrudedAreaSolid(profileId, params.Thickness);
+    const shapeId = this.addShapeRepresentation('Body', [solidId]);
+    const prodShapeId = this.addProductDefinitionShape([shapeId]);
+
+    const rampId = this.id();
+    const globalId = newGlobalId();
+    const name = params.Name ?? 'Ramp';
+    const desc = params.Description ? `'${esc(params.Description)}'` : '$';
+    const objType = params.ObjectType ? `'${esc(params.ObjectType)}'` : '$';
+    const tag = params.Tag ? `'${esc(params.Tag)}'` : '$';
+
+    this.line(rampId, 'IFCRAMP',
+      `'${globalId}',#${this.ownerHistoryId},'${esc(name)}',${desc},${objType},#${placementId},#${prodShapeId},${tag},.STRAIGHT_RUN_RAMP.`);
+
+    this.elementSolids.set(rampId, [solidId]);
+    this.trackElement(storeyId, rampId);
+    this.entities.push({ expressId: rampId, type: 'IfcRamp', Name: name });
+    return rampId;
+  }
+
+  /**
+   * Create a railing from Start to End with given Height.
+   */
+  addIfcRailing(storeyId: number, params: RailingParams): number {
+    const dx = params.End[0] - params.Start[0];
+    const dy = params.End[1] - params.Start[1];
+    const dz = params.End[2] - params.Start[2];
+    const railLen = Math.sqrt(dx * dx + dy * dy + dz * dz);
+    const dir: Point3D = vecNorm([dx, dy, dz]);
+
+    // Use identity orientation so posts can extrude vertically along world Z
+    const placementId = this.addLocalPlacement(this.worldPlacementId, {
+      Location: params.Start,
+    });
+
+    const railWidth = params.Width ?? 0.05;
+
+    // Rail solid — extrude along the rail direction (dir) at rail Height
+    const railProfileId = this.addRectangleProfile(railWidth, railWidth);
+    const railOriginId = this.addCartesianPoint([0, 0, params.Height]);
+    const railAxisId = this.addDirection(dir);
+    const railRefId = this.addDirection(this.computeRefDirection(dir));
+    const railAxis2Id = this.addAxis2Placement3D(railOriginId, railAxisId, railRefId);
+    const railSolidId = this.id();
+    this.line(railSolidId, 'IFCEXTRUDEDAREASOLID',
+      `#${railProfileId},#${railAxis2Id},#${this.dirZ},${num(railLen)}`);
+
+    const solids: number[] = [railSolidId];
+
+    // Vertical posts at start and end
+    const postProfile = this.addRectangleProfile(railWidth, railWidth);
+
+    // Start post — at origin, extrude up
+    const startPostOriginId = this.addCartesianPoint([0, 0, 0]);
+    const startPostAxis2Id = this.addAxis2Placement3D(startPostOriginId);
+    const startPostId = this.id();
+    this.line(startPostId, 'IFCEXTRUDEDAREASOLID',
+      `#${postProfile},#${startPostAxis2Id},#${this.dirZ},${num(params.Height)}`);
+    solids.push(startPostId);
+
+    // End post — at the end of the rail, extrude up
+    const endPostOriginId = this.addCartesianPoint([
+      dx, dy, dz,
+    ]);
+    const endPostAxis2Id = this.addAxis2Placement3D(endPostOriginId);
+    const endPostProfile = this.addRectangleProfile(railWidth, railWidth);
+    const endPostId = this.id();
+    this.line(endPostId, 'IFCEXTRUDEDAREASOLID',
+      `#${endPostProfile},#${endPostAxis2Id},#${this.dirZ},${num(params.Height)}`);
+    solids.push(endPostId);
+
+    const shapeId = this.addShapeRepresentation('Body', solids);
+    const prodShapeId = this.addProductDefinitionShape([shapeId]);
+
+    const railingId = this.id();
+    const globalId = newGlobalId();
+    const name = params.Name ?? 'Railing';
+    const desc = params.Description ? `'${esc(params.Description)}'` : '$';
+    const objType = params.ObjectType ? `'${esc(params.ObjectType)}'` : '$';
+    const tag = params.Tag ? `'${esc(params.Tag)}'` : '$';
+
+    this.line(railingId, 'IFCRAILING',
+      `'${globalId}',#${this.ownerHistoryId},'${esc(name)}',${desc},${objType},#${placementId},#${prodShapeId},${tag},.HANDRAIL.`);
+
+    this.elementSolids.set(railingId, solids);
+    this.trackElement(storeyId, railingId);
+    this.entities.push({ expressId: railingId, type: 'IfcRailing', Name: name });
+    return railingId;
+  }
+
+  /**
+   * Create a plate (thin flat element, e.g. steel plate).
+   */
+  addIfcPlate(storeyId: number, params: PlateParams): number {
+    const placementId = this.addLocalPlacement(this.worldPlacementId, {
+      Location: params.Position,
+    });
+
+    let profileId: number;
+    if (params.Profile && params.Profile.length >= 3) {
+      profileId = this.addArbitraryProfile(params.Profile);
+    } else {
+      profileId = this.addRectangleProfile(params.Width, params.Depth, [params.Width / 2, params.Depth / 2]);
+    }
+
+    const solidId = this.addExtrudedAreaSolid(profileId, params.Thickness);
+    const shapeId = this.addShapeRepresentation('Body', [solidId]);
+    const prodShapeId = this.addProductDefinitionShape([shapeId]);
+
+    const plateId = this.id();
+    const globalId = newGlobalId();
+    const name = params.Name ?? 'Plate';
+    const desc = params.Description ? `'${esc(params.Description)}'` : '$';
+    const objType = params.ObjectType ? `'${esc(params.ObjectType)}'` : '$';
+    const tag = params.Tag ? `'${esc(params.Tag)}'` : '$';
+
+    this.line(plateId, 'IFCPLATE',
+      `'${globalId}',#${this.ownerHistoryId},'${esc(name)}',${desc},${objType},#${placementId},#${prodShapeId},${tag},.NOTDEFINED.`);
+
+    this.elementSolids.set(plateId, [solidId]);
+    this.trackElement(storeyId, plateId);
+    this.entities.push({ expressId: plateId, type: 'IfcPlate', Name: name });
+    return plateId;
+  }
+
+  /**
+   * Create a structural member (brace, strut, etc.) from Start to End.
+   */
+  addIfcMember(storeyId: number, params: MemberParams): number {
+    const dx = params.End[0] - params.Start[0];
+    const dy = params.End[1] - params.Start[1];
+    const dz = params.End[2] - params.Start[2];
+    const memberLen = Math.sqrt(dx * dx + dy * dy + dz * dz);
+    const dir: Point3D = vecNorm([dx, dy, dz]);
+
+    const placementId = this.addLocalPlacement(this.worldPlacementId, {
+      Location: params.Start,
+      Axis: dir,
+      RefDirection: this.computeRefDirection(dir),
+    });
+
+    const profileId = this.addRectangleProfile(params.Width, params.Height);
+    const solidId = this.addExtrudedAreaSolid(profileId, memberLen);
+    const shapeId = this.addShapeRepresentation('Body', [solidId]);
+    const prodShapeId = this.addProductDefinitionShape([shapeId]);
+
+    const memberId = this.id();
+    const globalId = newGlobalId();
+    const name = params.Name ?? 'Member';
+    const desc = params.Description ? `'${esc(params.Description)}'` : '$';
+    const objType = params.ObjectType ? `'${esc(params.ObjectType)}'` : '$';
+    const tag = params.Tag ? `'${esc(params.Tag)}'` : '$';
+
+    this.line(memberId, 'IFCMEMBER',
+      `'${globalId}',#${this.ownerHistoryId},'${esc(name)}',${desc},${objType},#${placementId},#${prodShapeId},${tag},.NOTDEFINED.`);
+
+    this.elementSolids.set(memberId, [solidId]);
+    this.trackElement(storeyId, memberId);
+    this.entities.push({ expressId: memberId, type: 'IfcMember', Name: name });
+    return memberId;
+  }
+
+  /**
+   * Create a footing (foundation). Position is top centre, Height extends downward.
+   */
+  addIfcFooting(storeyId: number, params: FootingParams): number {
+    // Offset placement downward so extrusion starts at bottom
+    const placementId = this.addLocalPlacement(this.worldPlacementId, {
+      Location: [params.Position[0], params.Position[1], params.Position[2] - params.Height],
+    });
+
+    const profileId = this.addRectangleProfile(params.Width, params.Depth);
+    const solidId = this.addExtrudedAreaSolid(profileId, params.Height);
+    const shapeId = this.addShapeRepresentation('Body', [solidId]);
+    const prodShapeId = this.addProductDefinitionShape([shapeId]);
+
+    const footingId = this.id();
+    const globalId = newGlobalId();
+    const name = params.Name ?? 'Footing';
+    const desc = params.Description ? `'${esc(params.Description)}'` : '$';
+    const objType = params.ObjectType ? `'${esc(params.ObjectType)}'` : '$';
+    const tag = params.Tag ? `'${esc(params.Tag)}'` : '$';
+    const predefined = params.PredefinedType ?? 'PAD_FOOTING';
+
+    this.line(footingId, 'IFCFOOTING',
+      `'${globalId}',#${this.ownerHistoryId},'${esc(name)}',${desc},${objType},#${placementId},#${prodShapeId},${tag},.${predefined}.`);
+
+    this.elementSolids.set(footingId, [solidId]);
+    this.trackElement(storeyId, footingId);
+    this.entities.push({ expressId: footingId, type: 'IfcFooting', Name: name });
+    return footingId;
+  }
+
+  /**
+   * Create a pile (deep foundation). Position is top, Length extends downward.
+   * Uses circular cross-section by default, rectangular if IsRectangular is set.
+   */
+  addIfcPile(storeyId: number, params: PileParams): number {
+    const placementId = this.addLocalPlacement(this.worldPlacementId, {
+      Location: [params.Position[0], params.Position[1], params.Position[2] - params.Length],
+    });
+
+    let profileId: number;
+    if (params.IsRectangular) {
+      const depth = params.RectangularDepth ?? params.Diameter;
+      profileId = this.addRectangleProfile(params.Diameter, depth);
+    } else {
+      profileId = this.addCircleProfile(params.Diameter / 2);
+    }
+
+    const solidId = this.addExtrudedAreaSolid(profileId, params.Length);
+    const shapeId = this.addShapeRepresentation('Body', [solidId]);
+    const prodShapeId = this.addProductDefinitionShape([shapeId]);
+
+    const pileId = this.id();
+    const globalId = newGlobalId();
+    const name = params.Name ?? 'Pile';
+    const desc = params.Description ? `'${esc(params.Description)}'` : '$';
+    const objType = params.ObjectType ? `'${esc(params.ObjectType)}'` : '$';
+    const tag = params.Tag ? `'${esc(params.Tag)}'` : '$';
+
+    this.line(pileId, 'IFCPILE',
+      `'${globalId}',#${this.ownerHistoryId},'${esc(name)}',${desc},${objType},#${placementId},#${prodShapeId},${tag},.DRIVEN.,$`);
+
+    this.elementSolids.set(pileId, [solidId]);
+    this.trackElement(storeyId, pileId);
+    this.entities.push({ expressId: pileId, type: 'IfcPile', Name: name });
+    return pileId;
+  }
+
+  /**
+   * Create a space (room volume).
+   */
+  addIfcSpace(storeyId: number, params: SpaceParams): number {
+    const placementId = this.addLocalPlacement(this.worldPlacementId, {
+      Location: params.Position,
+    });
+
+    let profileId: number;
+    if (params.Profile && params.Profile.length >= 3) {
+      profileId = this.addArbitraryProfile(params.Profile);
+    } else {
+      profileId = this.addRectangleProfile(params.Width, params.Depth, [params.Width / 2, params.Depth / 2]);
+    }
+
+    const solidId = this.addExtrudedAreaSolid(profileId, params.Height);
+    const shapeId = this.addShapeRepresentation('Body', [solidId]);
+    const prodShapeId = this.addProductDefinitionShape([shapeId]);
+
+    const spaceId = this.id();
+    const globalId = newGlobalId();
+    const name = params.Name ?? 'Space';
+    const desc = params.Description ? `'${esc(params.Description)}'` : '$';
+    const objType = params.ObjectType ? `'${esc(params.ObjectType)}'` : '$';
+    const tag = params.Tag ? `'${esc(params.Tag)}'` : '$';
+    const longName = params.LongName ? `'${esc(params.LongName)}'` : '$';
+
+    this.line(spaceId, 'IFCSPACE',
+      `'${globalId}',#${this.ownerHistoryId},'${esc(name)}',${desc},${objType},#${placementId},#${prodShapeId},${longName},.ELEMENT.,.INTERNAL.,$`);
+
+    this.elementSolids.set(spaceId, [solidId]);
+    this.trackElement(storeyId, spaceId);
+    this.entities.push({ expressId: spaceId, type: 'IfcSpace', Name: name });
+    return spaceId;
+  }
+
+  /**
+   * Create a curtain wall. Thin panel from Start to End, extruded by Height.
+   */
+  addIfcCurtainWall(storeyId: number, params: CurtainWallParams): number {
+    const dx = params.End[0] - params.Start[0];
+    const dy = params.End[1] - params.Start[1];
+    const dz = params.End[2] - params.Start[2];
+    const wallLen = Math.sqrt(dx * dx + dy * dy + dz * dz);
+    const dir: Point3D = vecNorm([dx, dy, dz]);
+    const thickness = params.Thickness ?? 0.05;
+
+    const placementId = this.addLocalPlacement(this.worldPlacementId, {
+      Location: params.Start,
+      RefDirection: dir,
+    });
+
+    const profileId = this.addRectangleProfile(wallLen, thickness, [wallLen / 2, 0]);
+    const solidId = this.addExtrudedAreaSolid(profileId, params.Height);
+    const shapeId = this.addShapeRepresentation('Body', [solidId]);
+    const prodShapeId = this.addProductDefinitionShape([shapeId]);
+
+    const cwId = this.id();
+    const globalId = newGlobalId();
+    const name = params.Name ?? 'Curtain Wall';
+    const desc = params.Description ? `'${esc(params.Description)}'` : '$';
+    const objType = params.ObjectType ? `'${esc(params.ObjectType)}'` : '$';
+    const tag = params.Tag ? `'${esc(params.Tag)}'` : '$';
+
+    this.line(cwId, 'IFCCURTAINWALL',
+      `'${globalId}',#${this.ownerHistoryId},'${esc(name)}',${desc},${objType},#${placementId},#${prodShapeId},${tag},.NOTDEFINED.`);
+
+    this.elementSolids.set(cwId, [solidId]);
+    this.trackElement(storeyId, cwId);
+    this.entities.push({ expressId: cwId, type: 'IfcCurtainWall', Name: name });
+    return cwId;
+  }
+
+  /**
+   * Create a furnishing element (furniture/equipment bounding box).
+   */
+  addIfcFurnishingElement(storeyId: number, params: FurnishingParams): number {
+    const direction = params.Direction ?? 0;
+    const placementId = this.addLocalPlacement(this.worldPlacementId, {
+      Location: params.Position,
+      RefDirection: direction !== 0 ? [Math.cos(direction), Math.sin(direction), 0] : undefined,
+    });
+
+    const profileId = this.addRectangleProfile(params.Width, params.Depth, [params.Width / 2, params.Depth / 2]);
+    const solidId = this.addExtrudedAreaSolid(profileId, params.Height);
+    const shapeId = this.addShapeRepresentation('Body', [solidId]);
+    const prodShapeId = this.addProductDefinitionShape([shapeId]);
+
+    const furnId = this.id();
+    const globalId = newGlobalId();
+    const name = params.Name ?? 'Furnishing';
+    const desc = params.Description ? `'${esc(params.Description)}'` : '$';
+    const objType = params.ObjectType ? `'${esc(params.ObjectType)}'` : '$';
+    const tag = params.Tag ? `'${esc(params.Tag)}'` : '$';
+
+    this.line(furnId, 'IFCFURNISHINGELEMENT',
+      `'${globalId}',#${this.ownerHistoryId},'${esc(name)}',${desc},${objType},#${placementId},#${prodShapeId},${tag}`);
+
+    this.elementSolids.set(furnId, [solidId]);
+    this.trackElement(storeyId, furnId);
+    this.entities.push({ expressId: furnId, type: 'IfcFurnishingElement', Name: name });
+    return furnId;
+  }
+
+  /**
+   * Create a proxy element (generic element for custom/unclassified objects).
+   */
+  addIfcBuildingElementProxy(storeyId: number, params: ProxyParams): number {
+    const placementId = this.addLocalPlacement(this.worldPlacementId, {
+      Location: params.Position,
+    });
+
+    let profileId: number;
+    if (params.Profile && params.Profile.length >= 3) {
+      profileId = this.addArbitraryProfile(params.Profile);
+    } else {
+      profileId = this.addRectangleProfile(params.Width, params.Depth, [params.Width / 2, params.Depth / 2]);
+    }
+
+    const solidId = this.addExtrudedAreaSolid(profileId, params.Height);
+    const shapeId = this.addShapeRepresentation('Body', [solidId]);
+    const prodShapeId = this.addProductDefinitionShape([shapeId]);
+
+    const proxyId = this.id();
+    const globalId = newGlobalId();
+    const name = params.Name ?? 'Proxy';
+    const desc = params.Description ? `'${esc(params.Description)}'` : '$';
+    const objType = params.ObjectType ?? params.ProxyType ?? '';
+    const objTypeStr = objType ? `'${esc(objType)}'` : '$';
+    const tag = params.Tag ? `'${esc(params.Tag)}'` : '$';
+
+    this.line(proxyId, 'IFCBUILDINGELEMENTPROXY',
+      `'${globalId}',#${this.ownerHistoryId},'${esc(name)}',${desc},${objTypeStr},#${placementId},#${prodShapeId},${tag},.NOTDEFINED.`);
+
+    this.elementSolids.set(proxyId, [solidId]);
+    this.trackElement(storeyId, proxyId);
+    this.entities.push({ expressId: proxyId, type: 'IfcBuildingElementProxy', Name: name });
+    return proxyId;
+  }
+
+  // ============================================================================
+  // Public API — Advanced Geometry (Circle, I-Shape, L-Shape, T-Shape, U-Shape, C-Shape profiles)
+  // ============================================================================
+
+  /**
+   * Create a column with circular cross-section.
+   */
+  addIfcCircularColumn(storeyId: number, params: {
+    Position: Point3D;
+    Radius: number;
+    Height: number;
+  } & ElementAttributes): number {
+    const placementId = this.addLocalPlacement(this.worldPlacementId, {
+      Location: params.Position,
+    });
+
+    const profileId = this.addCircleProfile(params.Radius);
+    const solidId = this.addExtrudedAreaSolid(profileId, params.Height);
+    const shapeId = this.addShapeRepresentation('Body', [solidId]);
+    const prodShapeId = this.addProductDefinitionShape([shapeId]);
+
+    const colId = this.id();
+    const globalId = newGlobalId();
+    const name = params.Name ?? 'Column';
+    const desc = params.Description ? `'${esc(params.Description)}'` : '$';
+    const objType = params.ObjectType ? `'${esc(params.ObjectType)}'` : '$';
+    const tag = params.Tag ? `'${esc(params.Tag)}'` : '$';
+
+    this.line(colId, 'IFCCOLUMN',
+      `'${globalId}',#${this.ownerHistoryId},'${esc(name)}',${desc},${objType},#${placementId},#${prodShapeId},${tag},.COLUMN.`);
+
+    this.elementSolids.set(colId, [solidId]);
+    this.trackElement(storeyId, colId);
+    this.entities.push({ expressId: colId, type: 'IfcColumn', Name: name });
+    return colId;
+  }
+
+  /**
+   * Create a beam with I-shape (wide-flange/H-shape) cross-section.
+   */
+  addIfcIShapeBeam(storeyId: number, params: {
+    Start: Point3D;
+    End: Point3D;
+    OverallWidth: number;
+    OverallDepth: number;
+    WebThickness: number;
+    FlangeThickness: number;
+    FilletRadius?: number;
+  } & ElementAttributes): number {
+    const dx = params.End[0] - params.Start[0];
+    const dy = params.End[1] - params.Start[1];
+    const dz = params.End[2] - params.Start[2];
+    const beamLen = Math.sqrt(dx * dx + dy * dy + dz * dz);
+    const dir: Point3D = vecNorm([dx, dy, dz]);
+
+    const placementId = this.addLocalPlacement(this.worldPlacementId, {
+      Location: params.Start,
+      Axis: dir,
+      RefDirection: this.computeRefDirection(dir),
+    });
+
+    const profileId = this.addIShapeProfile(
+      params.OverallWidth, params.OverallDepth,
+      params.WebThickness, params.FlangeThickness,
+      params.FilletRadius,
+    );
+    const solidId = this.addExtrudedAreaSolid(profileId, beamLen);
+    const shapeId = this.addShapeRepresentation('Body', [solidId]);
+    const prodShapeId = this.addProductDefinitionShape([shapeId]);
+
+    const beamId = this.id();
+    const globalId = newGlobalId();
+    const name = params.Name ?? 'Beam';
+    const desc = params.Description ? `'${esc(params.Description)}'` : '$';
+    const objType = params.ObjectType ? `'${esc(params.ObjectType)}'` : '$';
+    const tag = params.Tag ? `'${esc(params.Tag)}'` : '$';
+
+    this.line(beamId, 'IFCBEAM',
+      `'${globalId}',#${this.ownerHistoryId},'${esc(name)}',${desc},${objType},#${placementId},#${prodShapeId},${tag},.BEAM.`);
+
+    this.elementSolids.set(beamId, [solidId]);
+    this.trackElement(storeyId, beamId);
+    this.entities.push({ expressId: beamId, type: 'IfcBeam', Name: name });
+    return beamId;
+  }
+
+  /**
+   * Create a member with L-shape (angle) cross-section.
+   */
+  addIfcLShapeMember(storeyId: number, params: {
+    Start: Point3D;
+    End: Point3D;
+    Depth: number;
+    Width: number;
+    Thickness: number;
+    FilletRadius?: number;
+  } & ElementAttributes): number {
+    const dx = params.End[0] - params.Start[0];
+    const dy = params.End[1] - params.Start[1];
+    const dz = params.End[2] - params.Start[2];
+    const memberLen = Math.sqrt(dx * dx + dy * dy + dz * dz);
+    const dir: Point3D = vecNorm([dx, dy, dz]);
+
+    const placementId = this.addLocalPlacement(this.worldPlacementId, {
+      Location: params.Start,
+      Axis: dir,
+      RefDirection: this.computeRefDirection(dir),
+    });
+
+    const profileId = this.addLShapeProfile(params.Depth, params.Width, params.Thickness, params.FilletRadius);
+    const solidId = this.addExtrudedAreaSolid(profileId, memberLen);
+    const shapeId = this.addShapeRepresentation('Body', [solidId]);
+    const prodShapeId = this.addProductDefinitionShape([shapeId]);
+
+    const memberId = this.id();
+    const globalId = newGlobalId();
+    const name = params.Name ?? 'Member';
+    const desc = params.Description ? `'${esc(params.Description)}'` : '$';
+    const objType = params.ObjectType ? `'${esc(params.ObjectType)}'` : '$';
+    const tag = params.Tag ? `'${esc(params.Tag)}'` : '$';
+
+    this.line(memberId, 'IFCMEMBER',
+      `'${globalId}',#${this.ownerHistoryId},'${esc(name)}',${desc},${objType},#${placementId},#${prodShapeId},${tag},.NOTDEFINED.`);
+
+    this.elementSolids.set(memberId, [solidId]);
+    this.trackElement(storeyId, memberId);
+    this.entities.push({ expressId: memberId, type: 'IfcMember', Name: name });
+    return memberId;
+  }
+
+  /**
+   * Create a member with T-shape cross-section.
+   */
+  addIfcTShapeMember(storeyId: number, params: {
+    Start: Point3D;
+    End: Point3D;
+    FlangeWidth: number;
+    Depth: number;
+    WebThickness: number;
+    FlangeThickness: number;
+    FilletRadius?: number;
+  } & ElementAttributes): number {
+    const dx = params.End[0] - params.Start[0];
+    const dy = params.End[1] - params.Start[1];
+    const dz = params.End[2] - params.Start[2];
+    const memberLen = Math.sqrt(dx * dx + dy * dy + dz * dz);
+    const dir: Point3D = vecNorm([dx, dy, dz]);
+
+    const placementId = this.addLocalPlacement(this.worldPlacementId, {
+      Location: params.Start,
+      Axis: dir,
+      RefDirection: this.computeRefDirection(dir),
+    });
+
+    const profileId = this.addTShapeProfile(
+      params.FlangeWidth, params.Depth,
+      params.WebThickness, params.FlangeThickness,
+      params.FilletRadius,
+    );
+    const solidId = this.addExtrudedAreaSolid(profileId, memberLen);
+    const shapeId = this.addShapeRepresentation('Body', [solidId]);
+    const prodShapeId = this.addProductDefinitionShape([shapeId]);
+
+    const memberId = this.id();
+    const globalId = newGlobalId();
+    const name = params.Name ?? 'Member';
+    const desc = params.Description ? `'${esc(params.Description)}'` : '$';
+    const objType = params.ObjectType ? `'${esc(params.ObjectType)}'` : '$';
+    const tag = params.Tag ? `'${esc(params.Tag)}'` : '$';
+
+    this.line(memberId, 'IFCMEMBER',
+      `'${globalId}',#${this.ownerHistoryId},'${esc(name)}',${desc},${objType},#${placementId},#${prodShapeId},${tag},.NOTDEFINED.`);
+
+    this.elementSolids.set(memberId, [solidId]);
+    this.trackElement(storeyId, memberId);
+    this.entities.push({ expressId: memberId, type: 'IfcMember', Name: name });
+    return memberId;
+  }
+
+  /**
+   * Create a member with U-shape (channel) cross-section.
+   */
+  addIfcUShapeMember(storeyId: number, params: {
+    Start: Point3D;
+    End: Point3D;
+    Depth: number;
+    FlangeWidth: number;
+    WebThickness: number;
+    FlangeThickness: number;
+    FilletRadius?: number;
+  } & ElementAttributes): number {
+    const dx = params.End[0] - params.Start[0];
+    const dy = params.End[1] - params.Start[1];
+    const dz = params.End[2] - params.Start[2];
+    const memberLen = Math.sqrt(dx * dx + dy * dy + dz * dz);
+    const dir: Point3D = vecNorm([dx, dy, dz]);
+
+    const placementId = this.addLocalPlacement(this.worldPlacementId, {
+      Location: params.Start,
+      Axis: dir,
+      RefDirection: this.computeRefDirection(dir),
+    });
+
+    const profileId = this.addUShapeProfile(
+      params.Depth, params.FlangeWidth,
+      params.WebThickness, params.FlangeThickness,
+      params.FilletRadius,
+    );
+    const solidId = this.addExtrudedAreaSolid(profileId, memberLen);
+    const shapeId = this.addShapeRepresentation('Body', [solidId]);
+    const prodShapeId = this.addProductDefinitionShape([shapeId]);
+
+    const memberId = this.id();
+    const globalId = newGlobalId();
+    const name = params.Name ?? 'Member';
+    const desc = params.Description ? `'${esc(params.Description)}'` : '$';
+    const objType = params.ObjectType ? `'${esc(params.ObjectType)}'` : '$';
+    const tag = params.Tag ? `'${esc(params.Tag)}'` : '$';
+
+    this.line(memberId, 'IFCMEMBER',
+      `'${globalId}',#${this.ownerHistoryId},'${esc(name)}',${desc},${objType},#${placementId},#${prodShapeId},${tag},.NOTDEFINED.`);
+
+    this.elementSolids.set(memberId, [solidId]);
+    this.trackElement(storeyId, memberId);
+    this.entities.push({ expressId: memberId, type: 'IfcMember', Name: name });
+    return memberId;
+  }
+
+  /**
+   * Create a column or pile with hollow circular cross-section.
+   */
+  addIfcHollowCircularColumn(storeyId: number, params: {
+    Position: Point3D;
+    Radius: number;
+    WallThickness: number;
+    Height: number;
+  } & ElementAttributes): number {
+    const placementId = this.addLocalPlacement(this.worldPlacementId, {
+      Location: params.Position,
+    });
+
+    const profileId = this.addCircleHollowProfile(params.Radius, params.WallThickness);
+    const solidId = this.addExtrudedAreaSolid(profileId, params.Height);
+    const shapeId = this.addShapeRepresentation('Body', [solidId]);
+    const prodShapeId = this.addProductDefinitionShape([shapeId]);
+
+    const colId = this.id();
+    const globalId = newGlobalId();
+    const name = params.Name ?? 'Column';
+    const desc = params.Description ? `'${esc(params.Description)}'` : '$';
+    const objType = params.ObjectType ? `'${esc(params.ObjectType)}'` : '$';
+    const tag = params.Tag ? `'${esc(params.Tag)}'` : '$';
+
+    this.line(colId, 'IFCCOLUMN',
+      `'${globalId}',#${this.ownerHistoryId},'${esc(name)}',${desc},${objType},#${placementId},#${prodShapeId},${tag},.COLUMN.`);
+
+    this.elementSolids.set(colId, [solidId]);
+    this.trackElement(storeyId, colId);
+    this.entities.push({ expressId: colId, type: 'IfcColumn', Name: name });
+    return colId;
+  }
+
+  /**
+   * Create a beam/column with hollow rectangular (tube) cross-section.
+   */
+  addIfcRectangleHollowBeam(storeyId: number, params: {
+    Start: Point3D;
+    End: Point3D;
+    XDim: number;
+    YDim: number;
+    WallThickness: number;
+    InnerFilletRadius?: number;
+    OuterFilletRadius?: number;
+  } & ElementAttributes): number {
+    const dx = params.End[0] - params.Start[0];
+    const dy = params.End[1] - params.Start[1];
+    const dz = params.End[2] - params.Start[2];
+    const beamLen = Math.sqrt(dx * dx + dy * dy + dz * dz);
+    const dir: Point3D = vecNorm([dx, dy, dz]);
+
+    const placementId = this.addLocalPlacement(this.worldPlacementId, {
+      Location: params.Start,
+      Axis: dir,
+      RefDirection: this.computeRefDirection(dir),
+    });
+
+    const profileId = this.addRectangleHollowProfile(
+      params.XDim, params.YDim, params.WallThickness,
+      params.InnerFilletRadius, params.OuterFilletRadius,
+    );
+    const solidId = this.addExtrudedAreaSolid(profileId, beamLen);
+    const shapeId = this.addShapeRepresentation('Body', [solidId]);
+    const prodShapeId = this.addProductDefinitionShape([shapeId]);
+
+    const beamId = this.id();
+    const globalId = newGlobalId();
+    const name = params.Name ?? 'Beam';
+    const desc = params.Description ? `'${esc(params.Description)}'` : '$';
+    const objType = params.ObjectType ? `'${esc(params.ObjectType)}'` : '$';
+    const tag = params.Tag ? `'${esc(params.Tag)}'` : '$';
+
+    this.line(beamId, 'IFCBEAM',
+      `'${globalId}',#${this.ownerHistoryId},'${esc(name)}',${desc},${objType},#${placementId},#${prodShapeId},${tag},.BEAM.`);
+
+    this.elementSolids.set(beamId, [solidId]);
+    this.trackElement(storeyId, beamId);
+    this.entities.push({ expressId: beamId, type: 'IfcBeam', Name: name });
+    return beamId;
   }
 
   // ============================================================================
@@ -832,7 +1613,12 @@ ENDSEC;
     return id;
   }
 
-  private addLocalPlacement(relativeTo: number, placement: Placement3D): number {
+  /**
+   * Create a local placement relative to the world coordinate system.
+   * @param relativeTo - Parent placement ID (use getWorldPlacementId() for world origin)
+   * @param placement - Location and optional axis/ref directions
+   */
+  addLocalPlacement(relativeTo: number, placement: Placement3D): number {
     const originId = this.addCartesianPoint(placement.Location);
     let axisId: number | undefined;
     let refDirId: number | undefined;
@@ -857,7 +1643,7 @@ ENDSEC;
    * @param yDim Height of rectangle
    * @param center Optional 2D offset for the profile centre. Default [0,0] = centred at origin.
    */
-  private addRectangleProfile(xDim: number, yDim: number, center?: Point2D): number {
+  addRectangleProfile(xDim: number, yDim: number, center?: Point2D): number {
     const cx = center?.[0] ?? 0;
     const cy = center?.[1] ?? 0;
     const profileOriginId = this.addCartesianPoint2D([cx, cy]);
@@ -869,7 +1655,129 @@ ENDSEC;
     return id;
   }
 
-  private addArbitraryProfile(points: Point2D[]): number {
+  /** Create a circle profile. */
+  addCircleProfile(radius: number): number {
+    const profileOriginId = this.addCartesianPoint2D([0, 0]);
+    const profileAxis2dId = this.id();
+    this.line(profileAxis2dId, 'IFCAXIS2PLACEMENT2D', `#${profileOriginId},$`);
+
+    const id = this.id();
+    this.line(id, 'IFCCIRCLEPROFILEDEF', `.AREA.,$,#${profileAxis2dId},${num(radius)}`);
+    return id;
+  }
+
+  /** Create a hollow circle profile (pipe section). */
+  addCircleHollowProfile(radius: number, wallThickness: number): number {
+    const profileOriginId = this.addCartesianPoint2D([0, 0]);
+    const profileAxis2dId = this.id();
+    this.line(profileAxis2dId, 'IFCAXIS2PLACEMENT2D', `#${profileOriginId},$`);
+
+    const id = this.id();
+    this.line(id, 'IFCCIRCLEHOLLOWPROFILEDEF', `.AREA.,$,#${profileAxis2dId},${num(radius)},${num(wallThickness)}`);
+    return id;
+  }
+
+  /** Create an I-shape (wide-flange / H-beam) profile. */
+  addIShapeProfile(
+    overallWidth: number, overallDepth: number,
+    webThickness: number, flangeThickness: number,
+    filletRadius?: number,
+  ): number {
+    const profileOriginId = this.addCartesianPoint2D([0, 0]);
+    const profileAxis2dId = this.id();
+    this.line(profileAxis2dId, 'IFCAXIS2PLACEMENT2D', `#${profileOriginId},$`);
+
+    const id = this.id();
+    const fillet = filletRadius !== undefined ? num(filletRadius) : '$';
+    this.line(id, 'IFCISHAPEPROFILEDEF',
+      `.AREA.,$,#${profileAxis2dId},${num(overallWidth)},${num(overallDepth)},${num(webThickness)},${num(flangeThickness)},${fillet},$,$`);
+    return id;
+  }
+
+  /** Create an L-shape (angle section) profile. */
+  addLShapeProfile(
+    depth: number, width: number, thickness: number,
+    filletRadius?: number,
+  ): number {
+    const profileOriginId = this.addCartesianPoint2D([0, 0]);
+    const profileAxis2dId = this.id();
+    this.line(profileAxis2dId, 'IFCAXIS2PLACEMENT2D', `#${profileOriginId},$`);
+
+    const id = this.id();
+    const fillet = filletRadius !== undefined ? num(filletRadius) : '$';
+    this.line(id, 'IFCLSHAPEPROFILEDEF',
+      `.AREA.,$,#${profileAxis2dId},${num(depth)},${num(width)},${num(thickness)},${fillet},$,$`);
+    return id;
+  }
+
+  /** Create a T-shape (tee section) profile. */
+  addTShapeProfile(
+    flangeWidth: number, depth: number,
+    webThickness: number, flangeThickness: number,
+    filletRadius?: number,
+  ): number {
+    const profileOriginId = this.addCartesianPoint2D([0, 0]);
+    const profileAxis2dId = this.id();
+    this.line(profileAxis2dId, 'IFCAXIS2PLACEMENT2D', `#${profileOriginId},$`);
+
+    const id = this.id();
+    const fillet = filletRadius !== undefined ? num(filletRadius) : '$';
+    this.line(id, 'IFCTSHAPEPROFILEDEF',
+      `.AREA.,$,#${profileAxis2dId},${num(depth)},${num(flangeWidth)},${num(webThickness)},${num(flangeThickness)},${fillet},$,$,$,$`);
+    return id;
+  }
+
+  /** Create a U-shape (channel section) profile. */
+  addUShapeProfile(
+    depth: number, flangeWidth: number,
+    webThickness: number, flangeThickness: number,
+    filletRadius?: number,
+  ): number {
+    const profileOriginId = this.addCartesianPoint2D([0, 0]);
+    const profileAxis2dId = this.id();
+    this.line(profileAxis2dId, 'IFCAXIS2PLACEMENT2D', `#${profileOriginId},$`);
+
+    const id = this.id();
+    const fillet = filletRadius !== undefined ? num(filletRadius) : '$';
+    this.line(id, 'IFCUSHAPEPROFILEDEF',
+      `.AREA.,$,#${profileAxis2dId},${num(depth)},${num(flangeWidth)},${num(webThickness)},${num(flangeThickness)},${fillet},$`);
+    return id;
+  }
+
+  /** Create a C-shape (cold-formed channel) profile. */
+  addCShapeProfile(
+    depth: number, width: number,
+    wallThickness: number, girth: number,
+  ): number {
+    const profileOriginId = this.addCartesianPoint2D([0, 0]);
+    const profileAxis2dId = this.id();
+    this.line(profileAxis2dId, 'IFCAXIS2PLACEMENT2D', `#${profileOriginId},$`);
+
+    const id = this.id();
+    this.line(id, 'IFCCSHAPEPROFILEDEF',
+      `.AREA.,$,#${profileAxis2dId},${num(depth)},${num(width)},${num(wallThickness)},${num(girth)},$`);
+    return id;
+  }
+
+  /** Create a hollow rectangle (tube section) profile. */
+  addRectangleHollowProfile(
+    xDim: number, yDim: number, wallThickness: number,
+    innerFilletRadius?: number, outerFilletRadius?: number,
+  ): number {
+    const profileOriginId = this.addCartesianPoint2D([0, 0]);
+    const profileAxis2dId = this.id();
+    this.line(profileAxis2dId, 'IFCAXIS2PLACEMENT2D', `#${profileOriginId},$`);
+
+    const id = this.id();
+    const inner = innerFilletRadius !== undefined ? num(innerFilletRadius) : '$';
+    const outer = outerFilletRadius !== undefined ? num(outerFilletRadius) : '$';
+    this.line(id, 'IFCRECTANGLEHOLLOWPROFILEDEF',
+      `.AREA.,$,#${profileAxis2dId},${num(xDim)},${num(yDim)},${num(wallThickness)},${inner},${outer}`);
+    return id;
+  }
+
+  /** Create an arbitrary closed profile from a polyline. Points are auto-closed. */
+  addArbitraryProfile(points: Point2D[]): number {
     const pointIds = points.map(p => this.addCartesianPoint2D(p));
     if (points.length > 0) {
       pointIds.push(pointIds[0]); // close the polyline
@@ -883,7 +1791,13 @@ ENDSEC;
     return id;
   }
 
-  private addExtrudedAreaSolid(profileId: number, depth: number, extrusionDir?: number): number {
+  /**
+   * Create an extruded area solid from a profile.
+   * @param profileId - ID returned by any addXxxProfile() method
+   * @param depth - Extrusion depth
+   * @param extrusionDir - Optional direction ID (default: Z-up)
+   */
+  addExtrudedAreaSolid(profileId: number, depth: number, extrusionDir?: number): number {
     const originId = this.addCartesianPoint([0, 0, 0]);
     const axis2Id = this.addAxis2Placement3D(originId);
 
@@ -894,7 +1808,12 @@ ENDSEC;
     return id;
   }
 
-  private addShapeRepresentation(repType: string, itemIds: number[]): number {
+  /**
+   * Create a shape representation from solid IDs.
+   * @param repType - 'Body' or 'Axis'
+   * @param itemIds - Array of solid IDs (from addExtrudedAreaSolid, etc.)
+   */
+  addShapeRepresentation(repType: string, itemIds: number[]): number {
     const contextRef = repType === 'Axis' ? this.subContextAxis : this.subContextBody;
     const refs = itemIds.map(id => `#${id}`).join(',');
     const repId = this.id();
@@ -905,11 +1824,234 @@ ENDSEC;
     return repId;
   }
 
-  private addProductDefinitionShape(repIds: number[]): number {
+  /** Wrap shape representations into a product definition shape. */
+  addProductDefinitionShape(repIds: number[]): number {
     const refs = repIds.map(id => `#${id}`).join(',');
     const id = this.id();
     this.line(id, 'IFCPRODUCTDEFINITIONSHAPE', `$,$,(${refs})`);
     return id;
+  }
+
+  // ============================================================================
+  // Public API — Low-level helpers
+  // ============================================================================
+
+  /** Get the world placement ID (use as relativeTo for addLocalPlacement). */
+  getWorldPlacementId(): number {
+    return this.worldPlacementId;
+  }
+
+  /** Create a direction entity. Returns the direction ID. */
+  addDirection3D(d: Point3D): number {
+    return this.addDirection(d);
+  }
+
+  /**
+   * Create a profile from a ProfileDef union type.
+   * This is the high-level entry point for profile creation — it dispatches
+   * to the appropriate addXxxProfile() method based on the shape.
+   *
+   * ```ts
+   * const profileId = creator.createProfile({
+   *   ProfileType: 'AREA',
+   *   Radius: 0.15,
+   * }); // Creates a circle profile
+   * ```
+   */
+  createProfile(profile: ProfileDef): number {
+    if ('OuterCurve' in profile) {
+      return this.addArbitraryProfile(profile.OuterCurve);
+    }
+    if ('Radius' in profile && 'WallThickness' in profile) {
+      return this.addCircleHollowProfile(profile.Radius, profile.WallThickness);
+    }
+    if ('Radius' in profile) {
+      return this.addCircleProfile(profile.Radius);
+    }
+    if ('OverallWidth' in profile && 'WebThickness' in profile) {
+      // IShapeProfile
+      return this.addIShapeProfile(
+        profile.OverallWidth, profile.OverallDepth,
+        profile.WebThickness, profile.FlangeThickness,
+        profile.FilletRadius,
+      );
+    }
+    // T-shape and U-shape are structurally identical — use Shape discriminator
+    if ('Shape' in profile && (profile as { Shape: string }).Shape === 'IfcTShapeProfileDef') {
+      const p = profile as { FlangeWidth: number; Depth: number; WebThickness: number; FlangeThickness: number; FilletRadius?: number };
+      return this.addTShapeProfile(p.FlangeWidth, p.Depth, p.WebThickness, p.FlangeThickness, p.FilletRadius);
+    }
+    if ('Shape' in profile && (profile as { Shape: string }).Shape === 'IfcUShapeProfileDef') {
+      const p = profile as { Depth: number; FlangeWidth: number; WebThickness: number; FlangeThickness: number; FilletRadius?: number };
+      return this.addUShapeProfile(p.Depth, p.FlangeWidth, p.WebThickness, p.FlangeThickness, p.FilletRadius);
+    }
+    if ('Girth' in profile) {
+      // CShapeProfile
+      const p = profile as { Depth: number; Width: number; WallThickness: number; Girth: number };
+      return this.addCShapeProfile(p.Depth, p.Width, p.WallThickness, p.Girth);
+    }
+    if ('XDim' in profile && 'YDim' in profile && 'WallThickness' in profile) {
+      // RectangleHollowProfile
+      const p = profile as { XDim: number; YDim: number; WallThickness: number; InnerFilletRadius?: number; OuterFilletRadius?: number };
+      return this.addRectangleHollowProfile(p.XDim, p.YDim, p.WallThickness, p.InnerFilletRadius, p.OuterFilletRadius);
+    }
+    if ('XDim' in profile && 'YDim' in profile) {
+      // RectangleProfile
+      return this.addRectangleProfile(profile.XDim, profile.YDim);
+    }
+    if ('Depth' in profile && 'Width' in profile && 'Thickness' in profile) {
+      // LShapeProfile
+      const p = profile as { Depth: number; Width: number; Thickness: number; FilletRadius?: number };
+      return this.addLShapeProfile(p.Depth, p.Width, p.Thickness, p.FilletRadius);
+    }
+    throw new Error('Unrecognized profile shape — ensure ProfileType is "AREA" and required fields are set');
+  }
+
+  // ============================================================================
+  // Public API — Generic element creation
+  // ============================================================================
+
+  /**
+   * Create ANY IFC element type with an extruded profile at a placement.
+   *
+   * This is the low-level foundation that all high-level methods (addIfcWall,
+   * addIfcBeam, etc.) are built on. Use it when you need an IFC type that
+   * doesn't have a dedicated method, or when you need full control.
+   *
+   * ```ts
+   * // Pipe segment with circular profile
+   * creator.addElement(storeyId, {
+   *   IfcType: 'IFCFLOWSEGMENT',
+   *   Placement: { Location: [0, 0, 3] },
+   *   Profile: { ProfileType: 'AREA', Radius: 0.05 },
+   *   Depth: 5,
+   *   PredefinedType: '.RIGIDSEGMENT.',
+   *   Name: 'Pipe-001',
+   * });
+   *
+   * // Distribution element with L-profile
+   * creator.addElement(storeyId, {
+   *   IfcType: 'IFCDISTRIBUTIONELEMENT',
+   *   Placement: { Location: [2, 0, 0], Axis: [0, 0, 1], RefDirection: [1, 0, 0] },
+   *   Profile: { ProfileType: 'AREA', Depth: 0.1, Width: 0.1, Thickness: 0.01 },
+   *   Depth: 3,
+   * });
+   * ```
+   */
+  addElement(storeyId: number, params: GenericElementParams): number {
+    const placementId = this.addLocalPlacement(this.worldPlacementId, params.Placement);
+    const profileId = this.createProfile(params.Profile);
+
+    // Handle custom extrusion direction
+    let extrusionDirId: number | undefined;
+    if (params.ExtrusionDirection) {
+      extrusionDirId = this.addDirection(params.ExtrusionDirection);
+    }
+
+    const solidId = this.addExtrudedAreaSolid(profileId, params.Depth, extrusionDirId);
+    const shapeId = this.addShapeRepresentation('Body', [solidId]);
+    const prodShapeId = this.addProductDefinitionShape([shapeId]);
+
+    const elementId = this.id();
+    const globalId = newGlobalId();
+    const name = params.Name ?? params.IfcType;
+    const desc = params.Description ? `'${esc(params.Description)}'` : '$';
+    const objType = params.ObjectType ? `'${esc(params.ObjectType)}'` : '$';
+    const tag = params.Tag ? `'${esc(params.Tag)}'` : '$';
+    const ifcType = params.IfcType.toUpperCase();
+
+    if (NON_ELEMENT_TYPES.has(ifcType)) {
+      // Non-element types: GlobalId, OwnerHistory, Name, Description, ObjectType, ObjectPlacement, Representation
+      this.line(elementId, params.IfcType,
+        `'${globalId}',#${this.ownerHistoryId},'${esc(name)}',${desc},${objType},#${placementId},#${prodShapeId}`);
+    } else {
+      // IfcElement subtypes: ...Tag, PredefinedType
+      const predefinedType = params.PredefinedType ? `.${params.PredefinedType}.` : '.NOTDEFINED.';
+      this.line(elementId, params.IfcType,
+        `'${globalId}',#${this.ownerHistoryId},'${esc(name)}',${desc},${objType},#${placementId},#${prodShapeId},${tag},${predefinedType}`);
+    }
+
+    this.elementSolids.set(elementId, [solidId]);
+    this.trackElement(storeyId, elementId);
+    this.entities.push({ expressId: elementId, type: params.IfcType, Name: name });
+
+    return elementId;
+  }
+
+  /**
+   * Create ANY IFC element type extruded along an axis (Start → End).
+   *
+   * The profile is placed at Start and extruded along the direction to End.
+   * The extrusion length equals the distance between Start and End.
+   *
+   * ```ts
+   * // Pipe segment along an axis
+   * creator.addAxisElement(storeyId, {
+   *   IfcType: 'IFCPIPESEGMENT',
+   *   Start: [0, 0, 3],
+   *   End: [5, 0, 3],
+   *   Profile: { ProfileType: 'AREA', Radius: 0.05 },
+   *   Name: 'Pipe-001',
+   * });
+   *
+   * // Cable tray with rectangle profile
+   * creator.addAxisElement(storeyId, {
+   *   IfcType: 'IFCCABLETRAYSEGMENT',
+   *   Start: [0, 0, 2.5],
+   *   End: [10, 0, 2.5],
+   *   Profile: { ProfileType: 'AREA', XDim: 0.3, YDim: 0.1 },
+   * });
+   * ```
+   */
+  addAxisElement(storeyId: number, params: AxisElementParams): number {
+    const dx = params.End[0] - params.Start[0];
+    const dy = params.End[1] - params.Start[1];
+    const dz = params.End[2] - params.Start[2];
+    const length = Math.sqrt(dx * dx + dy * dy + dz * dz);
+    const dir: Point3D = vecNorm([dx, dy, dz]);
+
+    // Compute a perpendicular vector for the profile plane
+    const up: Point3D = [0, 0, 1];
+    let perp: Point3D = vecCross(dir, up);
+    if (vecLen(perp) < 1e-6) {
+      // dir is parallel to Z, use X as reference
+      perp = vecCross(dir, [1, 0, 0]);
+    }
+    perp = vecNorm(perp);
+
+    const placementId = this.addLocalPlacement(this.worldPlacementId, {
+      Location: params.Start,
+      Axis: dir,           // local Z = along axis (extrusion direction)
+      RefDirection: perp,  // local X = perpendicular to axis
+    });
+
+    const profileId = this.createProfile(params.Profile);
+    const solidId = this.addExtrudedAreaSolid(profileId, length);
+    const shapeId = this.addShapeRepresentation('Body', [solidId]);
+    const prodShapeId = this.addProductDefinitionShape([shapeId]);
+
+    const elementId = this.id();
+    const globalId = newGlobalId();
+    const name = params.Name ?? params.IfcType;
+    const desc = params.Description ? `'${esc(params.Description)}'` : '$';
+    const objType = params.ObjectType ? `'${esc(params.ObjectType)}'` : '$';
+    const tag = params.Tag ? `'${esc(params.Tag)}'` : '$';
+    const ifcType = params.IfcType.toUpperCase();
+
+    if (NON_ELEMENT_TYPES.has(ifcType)) {
+      this.line(elementId, params.IfcType,
+        `'${globalId}',#${this.ownerHistoryId},'${esc(name)}',${desc},${objType},#${placementId},#${prodShapeId}`);
+    } else {
+      const predefinedType = params.PredefinedType ? `.${params.PredefinedType}.` : '.NOTDEFINED.';
+      this.line(elementId, params.IfcType,
+        `'${globalId}',#${this.ownerHistoryId},'${esc(name)}',${desc},${objType},#${placementId},#${prodShapeId},${tag},${predefinedType}`);
+    }
+
+    this.elementSolids.set(elementId, [solidId]);
+    this.trackElement(storeyId, elementId);
+    this.entities.push({ expressId: elementId, type: params.IfcType, Name: name });
+
+    return elementId;
   }
 
   // ============================================================================

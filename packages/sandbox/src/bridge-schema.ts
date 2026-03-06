@@ -132,6 +132,226 @@ function toRef(raw: unknown): EntityRef | null {
 }
 
 // ============================================================================
+// Auto-discovery for bim.create (IfcCreator methods)
+// ============================================================================
+
+/**
+ * Classify IfcCreator methods by their signature pattern so we can
+ * auto-generate the correct bridge wiring.
+ *
+ * Patterns (all prepend a `handle` arg for the creator registry):
+ *   'storey-params'  — (storeyId: number, params: object) → number
+ *   'element-params' — (elementId: number, params: object) → number | void
+ *   'no-args'        — () → value  (e.g. getWorldPlacementId)
+ *   'special'        — handled individually (project, toIfc, setColor)
+ */
+type MethodPattern = 'storey-params' | 'element-params' | 'no-args' | 'special';
+
+/** Methods with non-standard signatures that need hand-written wiring */
+const SPECIAL_METHODS = new Set([
+  'constructor', 'toIfc', 'setColor',
+]);
+
+/**
+ * Explicit allow-list of IfcCreator methods exposed in the sandbox.
+ * Only methods in this set (or in SPECIAL_METHODS/ELEMENT_METHODS/ZERO_ARG_METHODS)
+ * are wired. This prevents accidental exposure of private/internal helpers.
+ */
+const ALLOWED_METHODS = new Set([
+  // Spatial structure
+  'addIfcBuildingStorey',
+  // Building elements
+  'addIfcWall', 'addIfcSlab', 'addIfcColumn', 'addIfcBeam',
+  'addIfcStair', 'addIfcRoof', 'addIfcDoor', 'addIfcWindow',
+  'addIfcRamp', 'addIfcRailing', 'addIfcPlate', 'addIfcMember',
+  'addIfcFooting', 'addIfcPile', 'addIfcSpace', 'addIfcCurtainWall',
+  'addIfcFurnishingElement', 'addIfcBuildingElementProxy',
+  // Specialized profiles
+  'addIfcCircularColumn', 'addIfcIShapeBeam',
+  'addIfcLShapeMember', 'addIfcTShapeMember', 'addIfcUShapeMember',
+  'addIfcHollowCircularColumn', 'addIfcRectangleHollowBeam',
+  // Generic element creation
+  'addElement', 'addAxisElement', 'createProfile',
+  // Properties and materials
+  'addIfcPropertySet', 'addIfcElementQuantity', 'addIfcMaterial',
+  // Low-level geometry
+  'getWorldPlacementId',
+]);
+
+/** Methods that take (elementId, def) instead of (storeyId, params) */
+const ELEMENT_METHODS = new Set([
+  'addIfcPropertySet', 'addIfcElementQuantity', 'addIfcMaterial',
+]);
+
+/** Methods with zero args (just need the handle) */
+const ZERO_ARG_METHODS = new Set([
+  'getWorldPlacementId',
+]);
+
+function classifyMethod(name: string, _fn: Function): MethodPattern {
+  if (SPECIAL_METHODS.has(name)) return 'special';
+  if (ZERO_ARG_METHODS.has(name)) return 'no-args';
+  if (ELEMENT_METHODS.has(name)) return 'element-params';
+  return 'storey-params';
+}
+
+/** Humanize a method name for the doc string */
+function methodDoc(name: string): string {
+  // addIfcWall → 'Add an IfcWall'
+  // addElement → 'Add a generic element'
+  // createProfile → 'Create a profile from a ProfileDef'
+  if (name === 'addIfcBuildingStorey') return 'Add a building storey. Returns storey expressId.';
+  if (name === 'addElement') return 'Create ANY IFC type with a profile at a placement. Returns expressId.';
+  if (name === 'addAxisElement') return 'Create ANY IFC type extruded along a Start→End axis. Returns expressId.';
+  if (name === 'createProfile') return 'Create a profile from a ProfileDef union. Returns profile ID.';
+  if (name === 'getWorldPlacementId') return 'Get the world placement ID for use with addLocalPlacement.';
+  if (name.startsWith('addIfc')) {
+    const entity = name.slice(3); // remove 'add', keep 'IfcWall' etc.
+    return `Add ${entity}. Returns expressId.`;
+  }
+  if (name.startsWith('add')) {
+    const what = name.slice(3);
+    return `Add ${what}. Returns ID.`;
+  }
+  return `Call ${name} on the creator.`;
+}
+
+/**
+ * Build all bim.create method schemas by discovering public methods
+ * on IfcCreator.prototype. New methods are automatically exposed.
+ */
+function buildCreateMethods(): MethodSchema[] {
+  const methods: MethodSchema[] = [];
+
+  // ── Special: project (creates IfcCreator, returns handle) ──
+  methods.push({
+    name: 'project',
+    doc: 'Create a new IFC project. Returns a creator handle (number).',
+    args: ['dump'],
+    paramNames: ['params'],
+    tsParamTypes: ['{ Name?: string; Description?: string; Schema?: string; LengthUnit?: string; Author?: string; Organization?: string }'],
+    tsReturn: 'number',
+    call: (_sdk, args) => {
+      const params = (args[0] ?? {}) as Record<string, unknown>;
+      const creator = new IfcCreator(params as any);
+      return creatorRegistry.register(creator);
+    },
+    returns: 'value',
+  });
+
+  // ── Special: toIfc (finalizes + cleans up handle) ──
+  methods.push({
+    name: 'toIfc',
+    doc: 'Generate the IFC STEP file content. Returns { content, entities, stats }.',
+    args: ['number'],
+    paramNames: ['handle'],
+    tsReturn: '{ content: string; entities: Array<{ expressId: number; type: string; Name?: string }>; stats: { entityCount: number; fileSize: number } }',
+    call: (_sdk, args) => {
+      const handle = args[0] as number;
+      try {
+        const creator = creatorRegistry.get(handle);
+        return creator.toIfc();
+      } finally {
+        creatorRegistry.remove(handle);
+      }
+    },
+    returns: 'value',
+  });
+
+  // ── Special: setColor (unique signature: handle, elementId, name, rgb) ──
+  methods.push({
+    name: 'setColor',
+    doc: 'Assign a named colour to an element. Call before toIfc().',
+    args: ['number', 'number', 'string', 'dump'],
+    paramNames: ['handle', 'elementId', 'name', 'rgb'],
+    tsReturn: 'void',
+    call: (_sdk, args) => {
+      const creator = creatorRegistry.get(args[0] as number);
+      creator.setColor(args[1] as number, args[2] as string, args[3] as [number, number, number]);
+    },
+    returns: 'void',
+  });
+
+  // ── Auto-discover all other public methods from IfcCreator.prototype ──
+  const proto = IfcCreator.prototype as unknown as Record<string, unknown>;
+  const methodNames = Object.getOwnPropertyNames(proto)
+    .filter(name => typeof proto[name] === 'function' && ALLOWED_METHODS.has(name))
+    .sort();
+
+  for (const name of methodNames) {
+    const pattern = classifyMethod(name, proto[name] as Function);
+    if (pattern === 'special') continue; // already handled above
+
+    switch (pattern) {
+      case 'storey-params':
+        // addIfcBuildingStorey takes (params) — 1 arg after handle
+        if (name === 'addIfcBuildingStorey') {
+          methods.push({
+            name,
+            doc: methodDoc(name),
+            args: ['number', 'dump'],
+            paramNames: ['handle', 'params'],
+            tsReturn: 'number',
+            call: (_sdk, args) => {
+              const creator = creatorRegistry.get(args[0] as number);
+              return (creator as any)[name](args[1]);
+            },
+            returns: 'value',
+          });
+        } else {
+          // Standard: (storeyId, params) — 2 args after handle
+          methods.push({
+            name,
+            doc: methodDoc(name),
+            args: ['number', 'number', 'dump'],
+            paramNames: ['handle', 'storeyId', 'params'],
+            tsReturn: 'number',
+            call: (_sdk, args) => {
+              const creator = creatorRegistry.get(args[0] as number);
+              return (creator as any)[name](args[1], args[2]);
+            },
+            returns: 'value',
+          });
+        }
+        break;
+
+      case 'element-params':
+        // (elementId, def) — 2 args after handle, may return number or void
+        methods.push({
+          name,
+          doc: methodDoc(name),
+          args: ['number', 'number', 'dump'],
+          paramNames: ['handle', 'elementId', 'params'],
+          tsReturn: name === 'addIfcMaterial' ? 'void' : 'number',
+          call: (_sdk, args) => {
+            const creator = creatorRegistry.get(args[0] as number);
+            return (creator as any)[name](args[1], args[2]);
+          },
+          returns: name === 'addIfcMaterial' ? 'void' : 'value',
+        });
+        break;
+
+      case 'no-args':
+        methods.push({
+          name,
+          doc: methodDoc(name),
+          args: ['number'],
+          paramNames: ['handle'],
+          tsReturn: 'number',
+          call: (_sdk, args) => {
+            const creator = creatorRegistry.get(args[0] as number);
+            return (creator as any)[name]();
+          },
+          returns: 'value',
+        });
+        break;
+    }
+  }
+
+  return methods;
+}
+
+// ============================================================================
 // Schema Definitions
 // ============================================================================
 
@@ -464,187 +684,16 @@ export const NAMESPACE_SCHEMAS: NamespaceSchema[] = [
   },
 
   // ── bim.create ─────────────────────────────────────────────
+  //
+  // Auto-discovered from IfcCreator.prototype at module load.
+  // Adding a new public method to IfcCreator automatically exposes it
+  // in the sandbox — no manual bridge wiring needed.
+  //
   {
     name: 'create',
     doc: 'IFC creation from scratch',
     permission: 'export',  // reuses export permission — creation produces files
-    methods: [
-      {
-        name: 'project',
-        doc: 'Create a new IFC project. Returns a creator handle (number).',
-        args: ['dump'],
-        paramNames: ['params'],
-        tsParamTypes: ['{ Name?: string; Description?: string; Schema?: string; LengthUnit?: string; Author?: string; Organization?: string }'],
-        tsReturn: 'number',
-        call: (_sdk, args) => {
-          const params = (args[0] ?? {}) as Record<string, unknown>;
-          const creator = new IfcCreator(params as any);
-          return creatorRegistry.register(creator);
-        },
-        returns: 'value',
-      },
-      {
-        name: 'addIfcBuildingStorey',
-        doc: 'Add a building storey. Returns storey expressId.',
-        args: ['number', 'dump'],
-        paramNames: ['handle', 'params'],
-        tsParamTypes: [undefined, '{ Name?: string; Description?: string; Elevation: number }'],
-        tsReturn: 'number',
-        call: (_sdk, args) => {
-          const creator = creatorRegistry.get(args[0] as number);
-          return creator.addIfcBuildingStorey(args[1] as any);
-        },
-        returns: 'value',
-      },
-      {
-        name: 'addIfcWall',
-        doc: 'Add a wall to a storey. Returns wall expressId.',
-        args: ['number', 'number', 'dump'],
-        paramNames: ['handle', 'storeyId', 'params'],
-        tsParamTypes: [undefined, undefined, '{ Start: [number,number,number]; End: [number,number,number]; Thickness: number; Height: number; Name?: string; Openings?: Array<{ Width: number; Height: number; Position: [number,number,number]; Name?: string }> }'],
-        tsReturn: 'number',
-        call: (_sdk, args) => {
-          const creator = creatorRegistry.get(args[0] as number);
-          return creator.addIfcWall(args[1] as number, args[2] as any);
-        },
-        returns: 'value',
-      },
-      {
-        name: 'addIfcSlab',
-        doc: 'Add a slab to a storey. Returns slab expressId.',
-        args: ['number', 'number', 'dump'],
-        paramNames: ['handle', 'storeyId', 'params'],
-        tsParamTypes: [undefined, undefined, '{ Position: [number,number,number]; Thickness: number; Width?: number; Depth?: number; Profile?: [number,number][]; Name?: string; Openings?: Array<{ Width: number; Height: number; Position: [number,number,number]; Name?: string }> }'],
-        tsReturn: 'number',
-        call: (_sdk, args) => {
-          const creator = creatorRegistry.get(args[0] as number);
-          return creator.addIfcSlab(args[1] as number, args[2] as any);
-        },
-        returns: 'value',
-      },
-      {
-        name: 'addIfcColumn',
-        doc: 'Add a column to a storey. Returns column expressId.',
-        args: ['number', 'number', 'dump'],
-        paramNames: ['handle', 'storeyId', 'params'],
-        tsParamTypes: [undefined, undefined, '{ Position: [number,number,number]; Width: number; Depth: number; Height: number; Name?: string }'],
-        tsReturn: 'number',
-        call: (_sdk, args) => {
-          const creator = creatorRegistry.get(args[0] as number);
-          return creator.addIfcColumn(args[1] as number, args[2] as any);
-        },
-        returns: 'value',
-      },
-      {
-        name: 'addIfcBeam',
-        doc: 'Add a beam to a storey. Returns beam expressId.',
-        args: ['number', 'number', 'dump'],
-        paramNames: ['handle', 'storeyId', 'params'],
-        tsParamTypes: [undefined, undefined, '{ Start: [number,number,number]; End: [number,number,number]; Width: number; Height: number; Name?: string }'],
-        tsReturn: 'number',
-        call: (_sdk, args) => {
-          const creator = creatorRegistry.get(args[0] as number);
-          return creator.addIfcBeam(args[1] as number, args[2] as any);
-        },
-        returns: 'value',
-      },
-      {
-        name: 'addIfcStair',
-        doc: 'Add a stair to a storey. Returns stair expressId.',
-        args: ['number', 'number', 'dump'],
-        paramNames: ['handle', 'storeyId', 'params'],
-        tsParamTypes: [undefined, undefined, '{ Position: [number,number,number]; NumberOfRisers: number; RiserHeight: number; TreadLength: number; Width: number; Direction?: number; Name?: string }'],
-        tsReturn: 'number',
-        call: (_sdk, args) => {
-          const creator = creatorRegistry.get(args[0] as number);
-          return creator.addIfcStair(args[1] as number, args[2] as any);
-        },
-        returns: 'value',
-      },
-      {
-        name: 'addIfcRoof',
-        doc: 'Add a roof to a storey. Returns roof expressId.',
-        args: ['number', 'number', 'dump'],
-        paramNames: ['handle', 'storeyId', 'params'],
-        tsParamTypes: [undefined, undefined, '{ Position: [number,number,number]; Width: number; Depth: number; Thickness: number; Slope?: number; Name?: string }'],
-        tsReturn: 'number',
-        call: (_sdk, args) => {
-          const creator = creatorRegistry.get(args[0] as number);
-          return creator.addIfcRoof(args[1] as number, args[2] as any);
-        },
-        returns: 'value',
-      },
-      {
-        name: 'setColor',
-        doc: 'Assign a named colour to an element. Call before toIfc().',
-        args: ['number', 'number', 'string', 'dump'],
-        paramNames: ['handle', 'elementId', 'name', 'rgb'],
-        tsParamTypes: [undefined, undefined, undefined, '[number, number, number]'],
-        tsReturn: 'void',
-        call: (_sdk, args) => {
-          const creator = creatorRegistry.get(args[0] as number);
-          creator.setColor(args[1] as number, args[2] as string, args[3] as [number, number, number]);
-        },
-        returns: 'void',
-      },
-      {
-        name: 'addIfcMaterial',
-        doc: 'Assign an IFC material (simple or layered) to an element.',
-        args: ['number', 'number', 'dump'],
-        paramNames: ['handle', 'elementId', 'material'],
-        tsParamTypes: [undefined, undefined, '{ Name: string; Category?: string; Layers?: Array<{ Name: string; Thickness: number; Category?: string; IsVentilated?: boolean }> }'],
-        tsReturn: 'void',
-        call: (_sdk, args) => {
-          const creator = creatorRegistry.get(args[0] as number);
-          creator.addIfcMaterial(args[1] as number, args[2] as any);
-        },
-        returns: 'void',
-      },
-      {
-        name: 'addIfcPropertySet',
-        doc: 'Attach a property set to an element. Returns pset expressId.',
-        args: ['number', 'number', 'dump'],
-        paramNames: ['handle', 'elementId', 'pset'],
-        tsParamTypes: [undefined, undefined, '{ Name: string; Properties: Array<{ Name: string; NominalValue: string | number | boolean; Type?: string }> }'],
-        tsReturn: 'number',
-        call: (_sdk, args) => {
-          const creator = creatorRegistry.get(args[0] as number);
-          return creator.addIfcPropertySet(args[1] as number, args[2] as any);
-        },
-        returns: 'value',
-      },
-      {
-        name: 'addIfcElementQuantity',
-        doc: 'Attach element quantities to an element. Returns qset expressId.',
-        args: ['number', 'number', 'dump'],
-        paramNames: ['handle', 'elementId', 'qset'],
-        tsParamTypes: [undefined, undefined, "{ Name: string; Quantities: Array<{ Name: string; Value: number; Kind: 'IfcQuantityLength' | 'IfcQuantityArea' | 'IfcQuantityVolume' | 'IfcQuantityCount' | 'IfcQuantityWeight' }> }"],
-        tsReturn: 'number',
-        call: (_sdk, args) => {
-          const creator = creatorRegistry.get(args[0] as number);
-          return creator.addIfcElementQuantity(args[1] as number, args[2] as any);
-        },
-        returns: 'value',
-      },
-      {
-        name: 'toIfc',
-        doc: 'Generate the IFC STEP file content. Returns { content, entities, stats }.',
-        args: ['number'],
-        paramNames: ['handle'],
-        tsReturn: '{ content: string; entities: Array<{ expressId: number; type: string; Name?: string }>; stats: { entityCount: number; fileSize: number } }',
-        call: (_sdk, args) => {
-          const handle = args[0] as number;
-          try {
-            const creator = creatorRegistry.get(handle);
-            return creator.toIfc();
-          } finally {
-            // Always clean up the creator, even if toIfc() throws
-            creatorRegistry.remove(handle);
-          }
-        },
-        returns: 'value',
-      },
-    ],
+    methods: buildCreateMethods(),
   },
 
   // ── bim.export ─────────────────────────────────────────────

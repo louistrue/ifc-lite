@@ -26,6 +26,8 @@ import { ListNamespace } from './namespaces/list.js';
 import { SpatialNamespace } from './namespaces/spatial.js';
 import { EventsNamespace } from './namespaces/events.js';
 import { CreateNamespace } from './namespaces/create.js';
+import { BsddNamespace } from './namespaces/bsdd.js';
+import { SandboxNamespace } from './namespaces/sandbox.js';
 import { RemoteBackend } from './transport/remote-backend.js';
 
 export class BimContext {
@@ -41,6 +43,8 @@ export class BimContext {
   readonly spatial: SpatialNamespace;
   readonly events: EventsNamespace;
   readonly create: CreateNamespace;
+  readonly bsdd: BsddNamespace;
+  readonly sandbox: SandboxNamespace;
 
   private _queryNamespace: QueryNamespace;
   private _backend: BimBackend;
@@ -68,6 +72,8 @@ export class BimContext {
     this.spatial = new SpatialNamespace(this._backend);
     this.events = new EventsNamespace(this._backend);
     this.create = new CreateNamespace(this._backend);
+    this.bsdd = new BsddNamespace();
+    this.sandbox = new SandboxNamespace(this);
     // Cache the bound function so every access returns the same reference
     this._boundOn = this.events.on.bind(this.events);
   }

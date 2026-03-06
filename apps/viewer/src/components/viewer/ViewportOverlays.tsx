@@ -16,7 +16,7 @@ import { goHomeFromStore } from '@/store/homeView';
 import { useIfc } from '@/hooks/useIfc';
 import { cn } from '@/lib/utils';
 import { ViewCube, type ViewCubeRef } from './ViewCube';
-import { AxisHelper } from './AxisHelper';
+import { AxisHelper, type AxisHelperRef } from './AxisHelper';
 
 export function ViewportOverlays() {
   const selectedStoreys = useViewerStore((s) => s.selectedStoreys);
@@ -31,6 +31,7 @@ export function ViewportOverlays() {
   // Use refs for rotation to avoid re-renders - ViewCube updates itself directly
   const cameraRotationRef = useRef({ azimuth: 45, elevation: 25 });
   const viewCubeRef = useRef<ViewCubeRef | null>(null);
+  const axisHelperRef = useRef<AxisHelperRef | null>(null);
 
   // Local state for scale - updated via callback, no global re-renders
   const [scale, setScale] = useState(10);
@@ -41,11 +42,10 @@ export function ViewportOverlays() {
     const handleRotationChange = (rotation: { azimuth: number; elevation: number }) => {
       cameraRotationRef.current = rotation;
       // Update ViewCube directly via ref (no React re-render)
-      if (viewCubeRef.current) {
-        const viewCubeRotationX = -rotation.elevation;
-        const viewCubeRotationY = -rotation.azimuth;
-        viewCubeRef.current.updateRotation(viewCubeRotationX, viewCubeRotationY);
-      }
+      const viewCubeRotationX = -rotation.elevation;
+      const viewCubeRotationY = -rotation.azimuth;
+      viewCubeRef.current?.updateRotation(viewCubeRotationX, viewCubeRotationY);
+      axisHelperRef.current?.updateRotation(viewCubeRotationX, viewCubeRotationY);
     };
     setOnCameraRotationChange(handleRotationChange);
     return () => setOnCameraRotationChange(null);
@@ -193,6 +193,7 @@ export function ViewportOverlays() {
       {/* Axis Helper (bottom-left, above scale bar) - IFC Z-up convention */}
       <div className="absolute bottom-16 left-4">
         <AxisHelper
+          ref={axisHelperRef}
           rotationX={initialRotationX}
           rotationY={initialRotationY}
         />
