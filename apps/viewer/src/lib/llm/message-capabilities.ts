@@ -56,11 +56,16 @@ export function buildStreamMessagesForModel(
 
   const messages = allMessages.map((message, idx) => {
     const isLastMessage = idx === allMessages.length - 1;
-    const imageAttachments = message.attachments?.filter((a) => a.isImage && a.imageBase64) ?? [];
+    // Only include binary image payloads for the most recent message.
+    // Older turns keep text-only content to avoid unbounded request growth.
+    const imageAttachments = isLastMessage
+      ? (message.attachments?.filter((a) => a.isImage && a.imageBase64) ?? [])
+      : [];
     const hasViewportShot = isLastMessage && Boolean(viewportScreenshot);
 
     if (!supportsImages) {
-      droppedInlineImages += imageAttachments.length;
+      const originalImageCount = message.attachments?.filter((a) => a.isImage && a.imageBase64).length ?? 0;
+      droppedInlineImages += originalImageCount;
       droppedViewportScreenshot = droppedViewportScreenshot || hasViewportShot;
       return { role: message.role as 'user' | 'assistant', content: message.content };
     }

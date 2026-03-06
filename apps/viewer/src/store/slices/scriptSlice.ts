@@ -10,6 +10,8 @@
 import type { StateCreator } from 'zustand';
 import type { SavedScript } from '../../lib/scripts/persistence.js';
 import { loadSavedScripts, saveScripts, validateScriptName, canCreateScript, isScriptWithinSizeLimit } from '../../lib/scripts/persistence.js';
+import type { ScriptEditOperation, ScriptEditorSelection } from '../../lib/llm/types.js';
+import { applyScriptEditOperations } from '../../lib/llm/script-edit-ops.js';
 
 export type ScriptExecutionState = 'idle' | 'running' | 'error' | 'success';
 const SCRIPT_PANEL_VISIBLE_STORAGE_KEY = 'ifc-lite-script-panel-visible';
@@ -26,6 +28,22 @@ export interface ScriptResult {
   durationMs: number;
 }
 
+export interface ScriptEditorApplyAdapter {
+  apply: (nextContent: string, selection: ScriptEditorSelection) => void;
+  undo: () => void;
+  redo: () => void;
+}
+
+export interface ScriptApplyResult {
+  ok: boolean;
+  error?: string;
+  appliedOpIds: string[];
+}
+
+export interface ScriptApplyOptions {
+  acceptedBaseRevision?: number;
+}
+
 export interface ScriptSlice {
   // State
   savedScripts: SavedScript[];
@@ -37,6 +55,12 @@ export interface ScriptSlice {
   scriptLastError: string | null;
   scriptPanelVisible: boolean;
   scriptDeleteConfirmId: string | null;
+  scriptEditorRevision: number;
+  scriptEditorSelection: ScriptEditorSelection;
+  scriptAppliedOpIds: Set<string>;
+  scriptEditorApplyAdapter: ScriptEditorApplyAdapter | null;
+  scriptCanUndo: boolean;
+  scriptCanRedo: boolean;
 
   // Actions
   createScript: (name: string, code?: string) => string;
@@ -51,6 +75,13 @@ export interface ScriptSlice {
   setScriptPanelVisible: (visible: boolean) => void;
   toggleScriptPanel: () => void;
   setScriptDeleteConfirmId: (id: string | null) => void;
+  setScriptCursorContext: (selection: ScriptEditorSelection) => void;
+  registerScriptEditorApplyAdapter: (adapter: ScriptEditorApplyAdapter | null) => void;
+  applyScriptEditOps: (ops: ScriptEditOperation[], options?: ScriptApplyOptions) => ScriptApplyResult;
+  replaceScriptContentFallback: (content: string) => void;
+  setScriptHistoryState: (canUndo: boolean, canRedo: boolean) => void;
+  undoScriptEditor: () => void;
+  redoScriptEditor: () => void;
 }
 
 const DEFAULT_CODE = `// Write your BIM script here
@@ -91,6 +122,12 @@ export const createScriptSlice: StateCreator<ScriptSlice, [], [], ScriptSlice> =
   scriptLastError: null,
   scriptPanelVisible: loadStoredScriptPanelVisible(),
   scriptDeleteConfirmId: null,
+  scriptEditorRevision: 0,
+  scriptEditorSelection: { from: 0, to: 0 },
+  scriptAppliedOpIds: new Set(),
+  scriptEditorApplyAdapter: null,
+  scriptCanUndo: false,
+  scriptCanRedo: false,
 
   // Actions
   createScript: (name, code) => {
@@ -122,6 +159,9 @@ export const createScriptSlice: StateCreator<ScriptSlice, [], [], ScriptSlice> =
       activeScriptId: id,
       scriptEditorContent: script.code,
       scriptEditorDirty: false,
+      scriptEditorRevision: get().scriptEditorRevision + 1,
+      scriptEditorSelection: { from: script.code.length, to: script.code.length },
+      scriptAppliedOpIds: new Set(),
     });
     const result = saveScripts(updated);
     if (!result.ok) {
@@ -155,6 +195,9 @@ export const createScriptSlice: StateCreator<ScriptSlice, [], [], ScriptSlice> =
       scriptEditorContent,
       scriptEditorDirty: false,
       scriptDeleteConfirmId: null,
+      scriptEditorRevision: get().scriptEditorRevision + 1,
+      scriptEditorSelection: { from: scriptEditorContent.length, to: scriptEditorContent.length },
+      scriptAppliedOpIds: new Set(),
     });
     saveScripts(updated);
   },
@@ -186,6 +229,9 @@ export const createScriptSlice: StateCreator<ScriptSlice, [], [], ScriptSlice> =
           scriptLastResult: null,
           scriptLastError: null,
           scriptExecutionState: 'idle',
+          scriptEditorRevision: get().scriptEditorRevision + 1,
+          scriptEditorSelection: { from: script.code.length, to: script.code.length },
+          scriptAppliedOpIds: new Set(),
         });
         return;
       }
@@ -197,11 +243,20 @@ export const createScriptSlice: StateCreator<ScriptSlice, [], [], ScriptSlice> =
       scriptLastResult: null,
       scriptLastError: null,
       scriptExecutionState: 'idle',
+      scriptEditorRevision: get().scriptEditorRevision + 1,
+      scriptEditorSelection: { from: DEFAULT_CODE.length, to: DEFAULT_CODE.length },
+      scriptAppliedOpIds: new Set(),
     });
   },
 
   setScriptEditorContent: (scriptEditorContent) => {
-    set({ scriptEditorContent, scriptEditorDirty: true });
+    set({
+      scriptEditorContent,
+      scriptEditorDirty: true,
+      scriptEditorRevision: get().scriptEditorRevision + 1,
+      scriptEditorSelection: { from: scriptEditorContent.length, to: scriptEditorContent.length },
+      scriptAppliedOpIds: new Set(),
+    });
   },
 
   setScriptExecutionState: (scriptExecutionState) => set({ scriptExecutionState }),
@@ -231,4 +286,58 @@ export const createScriptSlice: StateCreator<ScriptSlice, [], [], ScriptSlice> =
   },
 
   setScriptDeleteConfirmId: (scriptDeleteConfirmId) => set({ scriptDeleteConfirmId }),
+
+  setScriptCursorContext: (scriptEditorSelection) => set({ scriptEditorSelection }),
+
+  registerScriptEditorApplyAdapter: (scriptEditorApplyAdapter) => set({ scriptEditorApplyAdapter }),
+
+  applyScriptEditOps: (ops, options) => {
+    const state = get();
+    const result = applyScriptEditOperations({
+      content: state.scriptEditorContent,
+      selection: state.scriptEditorSelection,
+      revision: state.scriptEditorRevision,
+      operations: ops,
+      acceptedBaseRevision: options?.acceptedBaseRevision,
+    });
+
+    if (!result.ok) {
+      return { ok: false, error: result.error, appliedOpIds: [] };
+    }
+
+    const appliedSet = new Set(state.scriptAppliedOpIds);
+    result.appliedOpIds.forEach((id) => appliedSet.add(id));
+    state.scriptEditorApplyAdapter?.apply(result.content, result.selection);
+    set({
+      scriptEditorContent: result.content,
+      scriptEditorSelection: result.selection,
+      scriptEditorRevision: result.revision,
+      scriptEditorDirty: true,
+      scriptAppliedOpIds: appliedSet,
+    });
+    return { ok: true, appliedOpIds: result.appliedOpIds };
+  },
+
+  replaceScriptContentFallback: (scriptEditorContent) => {
+    const nextRevision = get().scriptEditorRevision + 1;
+    const selection = { from: scriptEditorContent.length, to: scriptEditorContent.length };
+    get().scriptEditorApplyAdapter?.apply(scriptEditorContent, selection);
+    set({
+      scriptEditorContent,
+      scriptEditorDirty: true,
+      scriptEditorRevision: nextRevision,
+      scriptEditorSelection: selection,
+      scriptAppliedOpIds: new Set(),
+    });
+  },
+
+  setScriptHistoryState: (scriptCanUndo, scriptCanRedo) => set({ scriptCanUndo, scriptCanRedo }),
+
+  undoScriptEditor: () => {
+    get().scriptEditorApplyAdapter?.undo();
+  },
+
+  redoScriptEditor: () => {
+    get().scriptEditorApplyAdapter?.redo();
+  },
 });

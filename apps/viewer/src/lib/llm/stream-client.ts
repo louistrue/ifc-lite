@@ -242,6 +242,10 @@ export async function streamChat(options: StreamOptions): Promise<void> {
           errorDetail = `Provider routing unavailable for${modelLabel}. Try again shortly or switch model.`;
         }
       }
+
+      if (errorBody.code === 'provider_error' && errorBody.providerMessage) {
+        errorDetail = `${errorBody.error ?? `Request failed (${response.status})`}\nProvider: ${errorBody.providerMessage}`;
+      }
     } catch {
       // ignore parse failure
     }

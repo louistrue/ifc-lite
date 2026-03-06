@@ -63,6 +63,28 @@ function levelPrefix(level: string): string {
   }
 }
 
+function captureCompressedCanvasImage(canvas: HTMLCanvasElement): string {
+  const maxSide = 1400;
+  const srcW = canvas.width || canvas.clientWidth || 0;
+  const srcH = canvas.height || canvas.clientHeight || 0;
+  if (srcW <= 0 || srcH <= 0) {
+    return canvas.toDataURL('image/jpeg', 0.72);
+  }
+
+  const scale = Math.min(1, maxSide / Math.max(srcW, srcH));
+  const outW = Math.max(1, Math.round(srcW * scale));
+  const outH = Math.max(1, Math.round(srcH * scale));
+  const out = document.createElement('canvas');
+  out.width = outW;
+  out.height = outH;
+  const ctx = out.getContext('2d');
+  if (!ctx) {
+    return canvas.toDataURL('image/jpeg', 0.72);
+  }
+  ctx.drawImage(canvas, 0, 0, outW, outH);
+  return out.toDataURL('image/jpeg', 0.72);
+}
+
 export const ExecutableCodeBlock = memo(function ExecutableCodeBlock({
   block,
   messageId,
@@ -96,7 +118,7 @@ export const ExecutableCodeBlock = memo(function ExecutableCodeBlock({
             try {
               const canvas = document.querySelector('canvas');
               if (canvas) {
-                const dataUrl = canvas.toDataURL('image/png');
+                const dataUrl = captureCompressedCanvasImage(canvas as HTMLCanvasElement);
                 useViewerStore.getState().setChatViewportScreenshot(dataUrl);
               }
             } catch { /* screenshot capture failed — non-critical */ }
@@ -145,9 +167,24 @@ export const ExecutableCodeBlock = memo(function ExecutableCodeBlock({
     setTimeout(() => setCopied(false), 2000);
   }, [block.code]);
 
-  const handleSendToEditor = useCallback(() => {
-    useViewerStore.getState().setScriptEditorContent(block.code);
-    useViewerStore.getState().setScriptPanelVisible(true);
+  const handleApplyToEditor = useCallback(() => {
+    const state = useViewerStore.getState();
+    const applyResult = state.applyScriptEditOps([{
+      opId: crypto.randomUUID(),
+      type: 'replaceSelection',
+      baseRevision: state.scriptEditorRevision,
+      text: block.code,
+    }]);
+    if (!applyResult.ok) {
+      state.replaceScriptContentFallback(block.code);
+    }
+    state.setScriptPanelVisible(true);
+  }, [block.code]);
+
+  const handleReplaceAllInEditor = useCallback(() => {
+    const state = useViewerStore.getState();
+    state.replaceScriptContentFallback(block.code);
+    state.setScriptPanelVisible(true);
   }, [block.code]);
 
   const handleFixError = useCallback(() => {
@@ -181,11 +218,19 @@ export const ExecutableCodeBlock = memo(function ExecutableCodeBlock({
         </Tooltip>
         <Tooltip>
           <TooltipTrigger asChild>
-            <Button variant="ghost" size="icon-xs" onClick={handleSendToEditor}>
+            <Button variant="ghost" size="icon-xs" onClick={handleApplyToEditor}>
               <FileCode2 className="h-3 w-3" />
             </Button>
           </TooltipTrigger>
-          <TooltipContent>Open in Script Editor</TooltipContent>
+          <TooltipContent>Apply to selection</TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button variant="ghost" size="icon-xs" onClick={handleReplaceAllInEditor}>
+              All
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Replace entire script</TooltipContent>
         </Tooltip>
         <Tooltip>
           <TooltipTrigger asChild>

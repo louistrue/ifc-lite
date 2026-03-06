@@ -27,6 +27,8 @@ import {
   Bot,
   PanelRightClose,
   PanelRightOpen,
+  Undo2,
+  Redo2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -53,6 +55,7 @@ import { SCRIPT_TEMPLATES } from '@/lib/scripts/templates';
 import { CodeEditor } from './CodeEditor';
 import { ChatPanel } from './ChatPanel';
 import type { LogEntry } from '@/store/slices/scriptSlice';
+import { buildErrorFeedbackContent } from '@/store/slices/chatSlice';
 
 interface ScriptPanelProps {
   onClose?: () => void;
@@ -74,6 +77,14 @@ function useScriptState() {
   const setActiveScriptId = useViewerStore((s) => s.setActiveScriptId);
   const deleteConfirmId = useViewerStore((s) => s.scriptDeleteConfirmId);
   const setDeleteConfirmId = useViewerStore((s) => s.setScriptDeleteConfirmId);
+  const setScriptCursorContext = useViewerStore((s) => s.setScriptCursorContext);
+  const registerScriptEditorApplyAdapter = useViewerStore((s) => s.registerScriptEditorApplyAdapter);
+  const scriptCanUndo = useViewerStore((s) => s.scriptCanUndo);
+  const scriptCanRedo = useViewerStore((s) => s.scriptCanRedo);
+  const setScriptHistoryState = useViewerStore((s) => s.setScriptHistoryState);
+  const undoScriptEditor = useViewerStore((s) => s.undoScriptEditor);
+  const redoScriptEditor = useViewerStore((s) => s.redoScriptEditor);
+  const queueChatPrompt = useViewerStore((s) => s.queueChatPrompt);
 
   return {
     editorContent,
@@ -90,6 +101,14 @@ function useScriptState() {
     setActiveScriptId,
     deleteConfirmId,
     setDeleteConfirmId,
+    setScriptCursorContext,
+    registerScriptEditorApplyAdapter,
+    scriptCanUndo,
+    scriptCanRedo,
+    setScriptHistoryState,
+    undoScriptEditor,
+    redoScriptEditor,
+    queueChatPrompt,
   };
 }
 
@@ -109,6 +128,14 @@ export function ScriptPanel({ onClose }: ScriptPanelProps) {
     setActiveScriptId,
     deleteConfirmId,
     setDeleteConfirmId,
+    setScriptCursorContext,
+    registerScriptEditorApplyAdapter,
+    scriptCanUndo,
+    scriptCanRedo,
+    setScriptHistoryState,
+    undoScriptEditor,
+    redoScriptEditor,
+    queueChatPrompt,
   } = useScriptState();
 
   const { execute, reset } = useSandbox();
@@ -188,6 +215,12 @@ export function ScriptPanel({ onClose }: ScriptPanelProps) {
       deleteScript(deleteConfirmId);
     }
   }, [deleteConfirmId, deleteScript]);
+
+  const handleFixWithLlm = useCallback(() => {
+    if (!lastError) return;
+    setChatPanelVisible(true);
+    queueChatPrompt(buildErrorFeedbackContent(editorContent, lastError));
+  }, [editorContent, lastError, queueChatPrompt, setChatPanelVisible]);
 
   const toggleChat = useCallback(() => {
     setChatPanelVisible(!chatPanelVisible);
@@ -288,6 +321,34 @@ export function ScriptPanel({ onClose }: ScriptPanelProps) {
             <TooltipContent>Save (Ctrl+S)</TooltipContent>
           </Tooltip>
 
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                onClick={undoScriptEditor}
+                disabled={!scriptCanUndo}
+              >
+                <Undo2 className="h-3.5 w-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Undo (Ctrl+Z)</TooltipContent>
+          </Tooltip>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                onClick={redoScriptEditor}
+                disabled={!scriptCanRedo}
+              >
+                <Redo2 className="h-3.5 w-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Redo (Ctrl+Shift+Z)</TooltipContent>
+          </Tooltip>
+
           {/* New script dropdown with templates */}
           <DropdownMenu>
             <Tooltip>
@@ -348,6 +409,9 @@ export function ScriptPanel({ onClose }: ScriptPanelProps) {
           <CodeEditor
             value={editorContent}
             onChange={setEditorContent}
+            onSelectionChange={setScriptCursorContext}
+            onHistoryChange={setScriptHistoryState}
+            registerApplyAdapter={registerScriptEditorApplyAdapter}
             onRun={handleRun}
             onSave={handleSave}
             className="h-full"
@@ -377,7 +441,19 @@ export function ScriptPanel({ onClose }: ScriptPanelProps) {
                 {lastError && (
                   <div className="flex items-start gap-1.5 text-destructive">
                     <AlertCircle className="h-3 w-3 mt-0.5 shrink-0" />
-                    <span className="whitespace-pre-wrap break-all">{lastError}</span>
+                    <div className="min-w-0">
+                      <span className="whitespace-pre-wrap break-all">{lastError}</span>
+                      <div className="mt-1">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-6 px-2 text-xs border-destructive/40 text-destructive bg-transparent hover:bg-destructive/10"
+                          onClick={handleFixWithLlm}
+                        >
+                          Fix with LLM
+                        </Button>
+                      </div>
+                    </div>
                   </div>
                 )}
 

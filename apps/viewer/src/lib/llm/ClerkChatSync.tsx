@@ -11,18 +11,22 @@ import { useViewerStore } from '@/store';
  * Keeps chat UX decoupled from auth/billing details.
  */
 export function ClerkChatSync() {
-  const { isLoaded, isSignedIn, getToken, has } = useAuth();
+  const { isLoaded, isSignedIn, userId, getToken, has } = useAuth();
   const setChatAuthToken = useViewerStore((s) => s.setChatAuthToken);
   const setChatHasPro = useViewerStore((s) => s.setChatHasPro);
+  const setChatStorageUserId = useViewerStore((s) => s.setChatStorageUserId);
 
   useEffect(() => {
     if (!isLoaded) return;
 
     if (!isSignedIn) {
+      setChatStorageUserId(null);
       setChatAuthToken(null);
       setChatHasPro(false);
       return;
     }
+
+    setChatStorageUserId(userId ?? null);
 
     let cancelled = false;
 
@@ -52,7 +56,7 @@ export function ClerkChatSync() {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [getToken, has, isLoaded, isSignedIn, setChatAuthToken, setChatHasPro]);
+  }, [getToken, has, isLoaded, isSignedIn, setChatAuthToken, setChatHasPro, setChatStorageUserId, userId]);
 
   return null;
 }

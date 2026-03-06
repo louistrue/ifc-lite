@@ -18,6 +18,10 @@ const AUTO_EXEC_STORAGE_KEY = 'ifc-lite-chat-auto-execute';
 const PANEL_VISIBLE_STORAGE_KEY = 'ifc-lite-chat-panel-visible';
 const MAX_MESSAGES = 200;
 
+function getModelStorageKey(userId: string | null): string {
+  return userId ? `${MODEL_STORAGE_KEY}:${userId}` : MODEL_STORAGE_KEY;
+}
+
 export interface ChatSlice {
   // State
   chatPanelVisible: boolean;
@@ -29,6 +33,7 @@ export interface ChatSlice {
   chatError: string | null;
   chatAbortController: AbortController | null;
   chatAttachments: FileAttachment[];
+  chatPendingPrompt: string | null;
   /** Auto-captured viewport screenshot (base64 data URL) to include with next LLM message */
   chatViewportScreenshot: string | null;
   /** Clerk JWT for authenticated API calls (null for anonymous/free tier) */
@@ -37,6 +42,8 @@ export interface ChatSlice {
   chatHasPro: boolean;
   /** Usage info from the server: credits (pro) or request count (free) */
   chatUsage: ChatUsage | null;
+  /** User ID used to scope persisted model preference (null for anonymous). */
+  chatStorageUserId: string | null;
 
   // Actions
   setChatPanelVisible: (visible: boolean) => void;
@@ -56,6 +63,8 @@ export interface ChatSlice {
   removeChatAttachment: (name: string) => void;
   clearChatAttachments: () => void;
   clearChatMessages: () => void;
+  queueChatPrompt: (prompt: string) => void;
+  consumeChatPendingPrompt: () => void;
   /** Send an error from a failed code block back to the chat as a user message for retry. */
   sendErrorFeedback: (code: string, error: string) => void;
   /** Store a viewport screenshot to include with the next LLM message */
@@ -66,6 +75,8 @@ export interface ChatSlice {
   setChatHasPro: (hasPro: boolean) => void;
   /** Update usage info from server response headers */
   setChatUsage: (usage: ChatUsage | null) => void;
+  /** Set user ID for per-user model persistence and restore that user's last model. */
+  setChatStorageUserId: (userId: string | null) => void;
 }
 
 export interface ChatUsage {
@@ -82,11 +93,22 @@ export function buildErrorFeedbackContent(code: string, error: string): string {
   return `The script failed with this error:\n\n\`\`\`\n${error}\n\`\`\`\n\nHere is the code that failed:\n\n\`\`\`js\n${code}\n\`\`\`\n\nPlease fix the issue and provide a corrected version.`;
 }
 
-function loadStoredModel(): string {
+function loadStoredModel(userId: string | null, fallback?: string): string {
   try {
-    return localStorage.getItem(MODEL_STORAGE_KEY) ?? DEFAULT_FREE_MODEL.id;
+    const perUserKey = getModelStorageKey(userId);
+    const fromUserKey = localStorage.getItem(perUserKey);
+    if (fromUserKey) return fromUserKey;
+    // Backward compatibility: migrate previous global key into user-specific key on first read.
+    if (userId) {
+      const legacy = localStorage.getItem(MODEL_STORAGE_KEY);
+      if (legacy) {
+        localStorage.setItem(perUserKey, legacy);
+        return legacy;
+      }
+    }
+    return fallback ?? DEFAULT_FREE_MODEL.id;
   } catch {
-    return DEFAULT_FREE_MODEL.id;
+    return fallback ?? DEFAULT_FREE_MODEL.id;
   }
 }
 
@@ -154,15 +176,17 @@ export const createChatSlice: StateCreator<ChatSlice, [], [], ChatSlice> = (set,
   chatMessages: loadStoredMessages(),
   chatStatus: 'idle',
   chatStreamingContent: '',
-  chatActiveModel: loadStoredModel(),
+  chatActiveModel: loadStoredModel(null),
   chatAutoExecute: loadStoredAutoExecute(),
   chatError: null,
   chatAbortController: null,
   chatAttachments: [],
+  chatPendingPrompt: null,
   chatViewportScreenshot: null,
   chatAuthToken: null,
   chatHasPro: false,
   chatUsage: null,
+  chatStorageUserId: null,
 
   // Actions
   setChatPanelVisible: (chatPanelVisible) => {
@@ -218,7 +242,10 @@ export const createChatSlice: StateCreator<ChatSlice, [], [], ChatSlice> = (set,
   setChatStreamingContent: (chatStreamingContent) => set({ chatStreamingContent }),
 
   setChatActiveModel: (chatActiveModel) => {
-    try { localStorage.setItem(MODEL_STORAGE_KEY, chatActiveModel); } catch { /* ignore */ }
+    try {
+      const key = getModelStorageKey(get().chatStorageUserId);
+      localStorage.setItem(key, chatActiveModel);
+    } catch { /* ignore */ }
     set({ chatActiveModel });
   },
 
@@ -253,9 +280,19 @@ export const createChatSlice: StateCreator<ChatSlice, [], [], ChatSlice> = (set,
   clearChatAttachments: () => set({ chatAttachments: [] }),
 
   clearChatMessages: () => {
-    set({ chatMessages: [], chatStreamingContent: '', chatError: null });
+    set({
+      chatMessages: [],
+      chatStreamingContent: '',
+      chatError: null,
+      chatPendingPrompt: null,
+      chatViewportScreenshot: null,
+    });
     try { localStorage.removeItem(MESSAGES_STORAGE_KEY); } catch { /* ignore */ }
   },
+
+  queueChatPrompt: (chatPendingPrompt) => set({ chatPendingPrompt }),
+
+  consumeChatPendingPrompt: () => set({ chatPendingPrompt: null }),
 
   setChatViewportScreenshot: (chatViewportScreenshot) => set({ chatViewportScreenshot }),
 
@@ -264,6 +301,15 @@ export const createChatSlice: StateCreator<ChatSlice, [], [], ChatSlice> = (set,
   setChatHasPro: (chatHasPro) => set({ chatHasPro }),
 
   setChatUsage: (chatUsage) => set({ chatUsage }),
+
+  setChatStorageUserId: (chatStorageUserId) => {
+    const currentModel = get().chatActiveModel;
+    const restoredModel = loadStoredModel(chatStorageUserId, currentModel);
+    set({
+      chatStorageUserId,
+      chatActiveModel: restoredModel,
+    });
+  },
 
   sendErrorFeedback: (code, error) => {
     const feedbackMessage: ChatMessage = {

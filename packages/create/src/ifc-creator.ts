@@ -22,8 +22,8 @@ import type {
   Point3D, Point2D, Placement3D, RectangularOpening,
   ElementAttributes, ProfileDef,
   GenericElementParams, AxisElementParams,
-  WallParams, SlabParams, ColumnParams, BeamParams, StairParams, RoofParams,
-  DoorParams, WindowParams, RampParams, RailingParams,
+  WallParams, SlabParams, ColumnParams, BeamParams, StairParams, RoofParams, GableRoofParams,
+  WallDoorParams, WallWindowParams, DoorParams, WindowParams, RampParams, RailingParams,
   PlateParams, MemberParams, FootingParams, PileParams,
   SpaceParams, CurtainWallParams, FurnishingParams, ProxyParams,
   ProjectParams, SiteParams, BuildingParams, StoreyParams,
@@ -137,6 +137,12 @@ export class IfcCreator {
   private storeyElements: Map<number, number[]> = new Map();
   /** Storey expressId → its IfcLocalPlacement id (at [0,0,elevation]) */
   private storeyPlacements: Map<number, number> = new Map();
+  /** Element expressId → containing storey expressId */
+  private elementStoreys: Map<number, number> = new Map();
+  /** Wall expressId → wall local placement */
+  private wallPlacements: Map<number, number> = new Map();
+  /** Wall expressId → wall thickness */
+  private wallThicknesses: Map<number, number> = new Map();
 
   private projectParams: ProjectParams;
 
@@ -224,6 +230,8 @@ export class IfcCreator {
 
     this.elementSolids.set(wallId, [solidId]);
     this.trackElement(storeyId, wallId);
+    this.wallPlacements.set(wallId, placementId);
+    this.wallThicknesses.set(wallId, params.Thickness);
     this.entities.push({ expressId: wallId, type: 'IfcWall', Name: name });
 
     // Add openings
@@ -414,12 +422,15 @@ export class IfcCreator {
   }
 
   /**
-   * Create a roof. Position is the minimum corner.
-   * Width along +X, Depth along +Y, Thickness extruded upward.
-   * Optional Slope rotates the extrusion around the Y axis.
+   * Create a flat or mono-pitch roof slab. Position is the minimum corner.
+   * Width along +X, Depth along +Y, Thickness extruded normal to the slab.
+   * Optional Slope is in radians and creates a single slope along +X.
    */
   addIfcRoof(storeyId: number, params: RoofParams): number {
     const slope = params.Slope ?? 0;
+    if (slope < 0 || slope >= Math.PI / 2) {
+      throw new Error('addIfcRoof: Slope must be in radians between 0 and π/2 (e.g. Math.PI / 12 for 15°)');
+    }
 
     let axis: Point3D = [0, 0, 1];
     let refDir: Point3D = [1, 0, 0];
@@ -457,6 +468,173 @@ export class IfcCreator {
     this.trackElement(storeyId, roofId);
     this.entities.push({ expressId: roofId, type: 'IfcRoof', Name: name });
     return roofId;
+  }
+
+  /**
+   * Create a standard dual-pitch gable roof from a rectangular footprint.
+   * The ridge runs along the longer footprint dimension to keep the roof height reasonable.
+   */
+  addIfcGableRoof(storeyId: number, params: GableRoofParams): number {
+    if (params.Width <= 0) throw new Error('addIfcGableRoof: Width must be > 0');
+    if (params.Depth <= 0) throw new Error('addIfcGableRoof: Depth must be > 0');
+    if (params.Thickness <= 0) throw new Error('addIfcGableRoof: Thickness must be > 0');
+    if (params.Slope <= 0 || params.Slope >= Math.PI / 2) {
+      throw new Error('addIfcGableRoof: Slope must be in radians between 0 and π/2 (e.g. Math.PI / 12 for 15°)');
+    }
+
+    const overhang = params.Overhang ?? 0;
+    if (overhang < 0) throw new Error('addIfcGableRoof: Overhang must be >= 0');
+
+    const placementId = this.addLocalPlacement(this.getStoreyPlacement(storeyId), {
+      Location: params.Position,
+    });
+
+    const cosSlope = Math.cos(params.Slope);
+    const sinSlope = Math.sin(params.Slope);
+    const ridgeAlongX = params.Width >= params.Depth;
+    const span = ridgeAlongX ? params.Depth : params.Width;
+    const ridgeLength = (ridgeAlongX ? params.Width : params.Depth) + (overhang * 2);
+    const run = (span / 2) + overhang;
+    const rise = run * Math.tan(params.Slope);
+    const slopedRun = run / cosSlope;
+
+    const createRoofPlane = (
+      center: Point3D,
+      runDir: Point3D,
+      ridgeDir: Point3D,
+    ): number => {
+      const originId = this.addCartesianPoint(center);
+      const axisId = this.addDirection(vecNorm(vecCross(runDir, ridgeDir)));
+      const refDirId = this.addDirection(runDir);
+      const axis2Id = this.addAxis2Placement3D(originId, axisId, refDirId);
+      const profileId = this.addRectangleProfile(slopedRun, ridgeLength);
+      return this.addExtrudedAreaSolid(profileId, params.Thickness, undefined, axis2Id);
+    };
+
+    const solids = ridgeAlongX
+      ? [
+          createRoofPlane(
+            [params.Width / 2, (params.Depth / 4) - (overhang / 2), rise / 2],
+            [0, -cosSlope, -sinSlope],
+            [1, 0, 0],
+          ),
+          createRoofPlane(
+            [params.Width / 2, ((params.Depth * 3) / 4) + (overhang / 2), rise / 2],
+            [0, cosSlope, -sinSlope],
+            [-1, 0, 0],
+          ),
+        ]
+      : [
+          createRoofPlane(
+            [(params.Width / 4) - (overhang / 2), params.Depth / 2, rise / 2],
+            [-cosSlope, 0, -sinSlope],
+            [0, -1, 0],
+          ),
+          createRoofPlane(
+            [((params.Width * 3) / 4) + (overhang / 2), params.Depth / 2, rise / 2],
+            [cosSlope, 0, -sinSlope],
+            [0, 1, 0],
+          ),
+        ];
+
+    const shapeId = this.addShapeRepresentation('Body', solids);
+    const prodShapeId = this.addProductDefinitionShape([shapeId]);
+
+    const roofId = this.id();
+    const globalId = newGlobalId();
+    const name = params.Name ?? 'Gable Roof';
+    const desc = params.Description ? `'${esc(params.Description)}'` : '$';
+    const objType = params.ObjectType ? `'${esc(params.ObjectType)}'` : '$';
+    const tag = params.Tag ? `'${esc(params.Tag)}'` : '$';
+
+    this.line(roofId, 'IFCROOF',
+      `'${globalId}',#${this.ownerHistoryId},'${esc(name)}',${desc},${objType},#${placementId},#${prodShapeId},${tag},.GABLE_ROOF.`);
+
+    this.elementSolids.set(roofId, solids);
+    this.trackElement(storeyId, roofId);
+    this.entities.push({ expressId: roofId, type: 'IfcRoof', Name: name });
+    return roofId;
+  }
+
+  /**
+   * Create a door hosted in a wall opening and aligned to the host wall.
+   * Position is wall-local: [distance_along_wall, 0, base_height].
+   */
+  addIfcWallDoor(wallId: number, params: WallDoorParams): number {
+    const { storeyId, placementId, wallThickness } = this.getHostedWallInfo(wallId);
+    const thickness = params.Thickness ?? wallThickness;
+    if (thickness <= 0) throw new Error('addIfcWallDoor: Thickness must be > 0');
+
+    const openingId = this.addWallOpening(wallId, placementId, {
+      Name: params.Name ? `${params.Name} Opening` : 'Door Opening',
+      Width: params.Width,
+      Height: params.Height,
+      Position: params.Position,
+    }, wallThickness);
+
+    const doorPlacementId = this.addHostedWallFillPlacement(placementId, params.Position, wallThickness);
+    const profileId = this.addRectangleProfile(params.Width, params.Height, [0, params.Height / 2]);
+    const solidId = this.addExtrudedAreaSolid(profileId, thickness);
+    const shapeId = this.addShapeRepresentation('Body', [solidId]);
+    const prodShapeId = this.addProductDefinitionShape([shapeId]);
+
+    const doorId = this.id();
+    const globalId = newGlobalId();
+    const name = params.Name ?? 'Door';
+    const desc = params.Description ? `'${esc(params.Description)}'` : '$';
+    const objType = params.ObjectType ? `'${esc(params.ObjectType)}'` : '$';
+    const tag = params.Tag ? `'${esc(params.Tag)}'` : '$';
+    const opType = params.OperationType ?? 'SINGLE_SWING_LEFT';
+    const predType = params.PredefinedType ?? 'NOTDEFINED';
+
+    this.line(doorId, 'IFCDOOR',
+      `'${globalId}',#${this.ownerHistoryId},'${esc(name)}',${desc},${objType},#${doorPlacementId},#${prodShapeId},${tag},${num(params.Height)},${num(params.Width)},.${predType}.,.${opType}.,$`);
+
+    this.addIfcRelFillsElement(openingId, doorId);
+    this.elementSolids.set(doorId, [solidId]);
+    this.trackElement(storeyId, doorId);
+    this.entities.push({ expressId: doorId, type: 'IfcDoor', Name: name });
+    return doorId;
+  }
+
+  /**
+   * Create a window hosted in a wall opening and aligned to the host wall.
+   * Position is wall-local: [distance_along_wall, 0, sill_height].
+   */
+  addIfcWallWindow(wallId: number, params: WallWindowParams): number {
+    const { storeyId, placementId, wallThickness } = this.getHostedWallInfo(wallId);
+    const thickness = params.Thickness ?? wallThickness;
+    if (thickness <= 0) throw new Error('addIfcWallWindow: Thickness must be > 0');
+
+    const openingId = this.addWallOpening(wallId, placementId, {
+      Name: params.Name ? `${params.Name} Opening` : 'Window Opening',
+      Width: params.Width,
+      Height: params.Height,
+      Position: params.Position,
+    }, wallThickness);
+
+    const windowPlacementId = this.addHostedWallFillPlacement(placementId, params.Position, wallThickness);
+    const profileId = this.addRectangleProfile(params.Width, params.Height, [0, params.Height / 2]);
+    const solidId = this.addExtrudedAreaSolid(profileId, thickness);
+    const shapeId = this.addShapeRepresentation('Body', [solidId]);
+    const prodShapeId = this.addProductDefinitionShape([shapeId]);
+
+    const windowId = this.id();
+    const globalId = newGlobalId();
+    const name = params.Name ?? 'Window';
+    const desc = params.Description ? `'${esc(params.Description)}'` : '$';
+    const objType = params.ObjectType ? `'${esc(params.ObjectType)}'` : '$';
+    const tag = params.Tag ? `'${esc(params.Tag)}'` : '$';
+    const partType = params.PartitioningType ?? 'SINGLE_PANEL';
+
+    this.line(windowId, 'IFCWINDOW',
+      `'${globalId}',#${this.ownerHistoryId},'${esc(name)}',${desc},${objType},#${windowPlacementId},#${prodShapeId},${tag},${num(params.Height)},${num(params.Width)},.NOTDEFINED.,.${partType}.,$`);
+
+    this.addIfcRelFillsElement(openingId, windowId);
+    this.elementSolids.set(windowId, [solidId]);
+    this.trackElement(storeyId, windowId);
+    this.entities.push({ expressId: windowId, type: 'IfcWindow', Name: name });
+    return windowId;
   }
 
   /**
@@ -1796,10 +1974,13 @@ ENDSEC;
    * @param profileId - ID returned by any addXxxProfile() method
    * @param depth - Extrusion depth
    * @param extrusionDir - Optional direction ID (default: Z-up)
+   * @param positionId - Optional local solid placement (default: origin, world axes)
    */
-  addExtrudedAreaSolid(profileId: number, depth: number, extrusionDir?: number): number {
-    const originId = this.addCartesianPoint([0, 0, 0]);
-    const axis2Id = this.addAxis2Placement3D(originId);
+  addExtrudedAreaSolid(profileId: number, depth: number, extrusionDir?: number, positionId?: number): number {
+    const axis2Id = positionId ?? (() => {
+      const originId = this.addCartesianPoint([0, 0, 0]);
+      return this.addAxis2Placement3D(originId);
+    })();
 
     const dirRef = extrusionDir ?? this.dirZ;
     const id = this.id();
@@ -2212,6 +2393,13 @@ ENDSEC;
       `'${globalId}',#${this.ownerHistoryId},$,$,(${refs}),#${storeyId}`);
   }
 
+  private addIfcRelFillsElement(openingId: number, fillingId: number): void {
+    const relId = this.id();
+    const globalId = newGlobalId();
+    this.line(relId, 'IFCRELFILLSELEMENT',
+      `'${globalId}',#${this.ownerHistoryId},$,$,#${openingId},#${fillingId}`);
+  }
+
   // ============================================================================
   // Internal — Utilities
   // ============================================================================
@@ -2224,12 +2412,38 @@ ENDSEC;
     this.lines.push(stepLine(id, type, args));
   }
 
+  private getHostedWallInfo(wallId: number): { storeyId: number; placementId: number; wallThickness: number } {
+    const storeyId = this.elementStoreys.get(wallId);
+    const placementId = this.wallPlacements.get(wallId);
+    const wallThickness = this.wallThicknesses.get(wallId);
+    if (storeyId === undefined || placementId === undefined || wallThickness === undefined) {
+      throw new Error(`Unknown wallId #${wallId} — call addIfcWall() first`);
+    }
+    return { storeyId, placementId, wallThickness };
+  }
+
+  private addHostedWallFillPlacement(hostPlacementId: number, position: Point3D, wallThickness: number): number {
+    const originId = this.addCartesianPoint([
+      position[0],
+      wallThickness / 2,
+      position[2],
+    ]);
+    const axisId = this.addDirection([0, -1, 0]);
+    const refDirId = this.addDirection([1, 0, 0]);
+    const axis2Id = this.addAxis2Placement3D(originId, axisId, refDirId);
+
+    const placementId = this.id();
+    this.line(placementId, 'IFCLOCALPLACEMENT', `#${hostPlacementId},#${axis2Id}`);
+    return placementId;
+  }
+
   private trackElement(storeyId: number, elementId: number): void {
     const elements = this.storeyElements.get(storeyId);
     if (!elements) {
       throw new Error(`Unknown storeyId #${storeyId} — call addIfcBuildingStorey() first`);
     }
     elements.push(elementId);
+    this.elementStoreys.set(elementId, storeyId);
   }
 
   /** Compute a stable RefDirection perpendicular to a given Axis */

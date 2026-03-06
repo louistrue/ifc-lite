@@ -15,8 +15,14 @@ function createMockBackend() {
   const query = {
     entities: vi.fn(() => []),
     entityData: vi.fn(() => null),
+    attributes: vi.fn(() => []),
     properties: vi.fn(() => []),
     quantities: vi.fn(() => []),
+    classifications: vi.fn(() => []),
+    materials: vi.fn(() => null),
+    typeProperties: vi.fn(() => null),
+    documents: vi.fn(() => []),
+    relationships: vi.fn(() => ({ voids: [], fills: [], groups: [], connections: [] })),
     related: vi.fn(() => []),
   };
   const selection = {
@@ -179,6 +185,104 @@ describe('QueryBuilder', () => {
 
     expect(refs).toHaveLength(1);
     expect(refs[0]).toEqual({ modelId: 'model-1', expressId: 1 });
+  });
+});
+
+describe('QueryNamespace helpers', () => {
+  it('attributes() returns named IFC attributes', () => {
+    const { backend, query } = createMockBackend();
+    query.attributes.mockReturnValue([
+      { name: 'PredefinedType', value: 'STANDARD' },
+    ]);
+
+    const bim = createBimContext({ backend });
+    const attrs = bim.attributes({ modelId: 'model-1', expressId: 1 });
+
+    expect(attrs).toEqual([{ name: 'PredefinedType', value: 'STANDARD' }]);
+  });
+
+  it('property() returns a single property value', () => {
+    const { backend, query } = createMockBackend();
+    query.properties.mockReturnValue([
+      {
+        name: 'Pset_WallCommon',
+        properties: [{ name: 'IsExternal', type: 0, value: true }],
+      },
+    ]);
+
+    const bim = createBimContext({ backend });
+    const value = bim.property({ modelId: 'model-1', expressId: 1 }, 'Pset_WallCommon', 'IsExternal');
+
+    expect(value).toBe(true);
+  });
+
+  it('materials() returns structured material data', () => {
+    const { backend, query } = createMockBackend();
+    query.materials.mockReturnValue({
+      type: 'Material',
+      name: 'Concrete',
+      description: 'Structural concrete',
+    });
+
+    const bim = createBimContext({ backend });
+    const material = bim.materials({ modelId: 'model-1', expressId: 1 });
+
+    expect(material?.name).toBe('Concrete');
+    expect(material?.type).toBe('Material');
+  });
+
+  it('classifications() returns classification references', () => {
+    const { backend, query } = createMockBackend();
+    query.classifications.mockReturnValue([
+      { system: 'Uniclass', identification: 'EF_25', name: 'Walls' },
+    ]);
+
+    const bim = createBimContext({ backend });
+    const classifications = bim.classifications({ modelId: 'model-1', expressId: 1 });
+
+    expect(classifications).toHaveLength(1);
+    expect(classifications[0].system).toBe('Uniclass');
+  });
+
+  it('path() walks from project to entity', () => {
+    const { backend, query } = createMockBackend();
+    query.entityData.mockImplementation((ref) => {
+      if (ref.expressId === 4) return { ref, globalId: '4', name: 'Wall 1', type: 'IfcWall', description: '', objectType: '' };
+      if (ref.expressId === 3) return { ref, globalId: '3', name: 'Level 1', type: 'IfcBuildingStorey', description: '', objectType: '' };
+      if (ref.expressId === 2) return { ref, globalId: '2', name: 'Building', type: 'IfcBuilding', description: '', objectType: '' };
+      if (ref.expressId === 1) return { ref, globalId: '1', name: 'Project', type: 'IfcProject', description: '', objectType: '' };
+      return null;
+    });
+    query.related.mockImplementation((ref, relType, direction) => {
+      if (relType === 'IfcRelContainedInSpatialStructure' && direction === 'inverse' && ref.expressId === 4) {
+        return [{ modelId: 'model-1', expressId: 3 }];
+      }
+      if (relType === 'IfcRelAggregates' && direction === 'inverse' && ref.expressId === 3) {
+        return [{ modelId: 'model-1', expressId: 2 }];
+      }
+      if (relType === 'IfcRelAggregates' && direction === 'inverse' && ref.expressId === 2) {
+        return [{ modelId: 'model-1', expressId: 1 }];
+      }
+      return [];
+    });
+
+    const bim = createBimContext({ backend });
+    const path = bim.path({ modelId: 'model-1', expressId: 4 });
+
+    expect(path.map((entity) => entity.type)).toEqual(['IfcProject', 'IfcBuilding', 'IfcBuildingStorey', 'IfcWall']);
+  });
+
+  it('storeys() returns building storeys', () => {
+    const { backend, query } = createMockBackend();
+    query.entities.mockReturnValue([
+      { ref: { modelId: 'model-1', expressId: 3 }, globalId: '3', name: 'Level 1', type: 'IfcBuildingStorey', description: '', objectType: '' },
+    ]);
+
+    const bim = createBimContext({ backend });
+    const storeys = bim.storeys();
+
+    expect(storeys).toHaveLength(1);
+    expect(storeys[0].type).toBe('IfcBuildingStorey');
   });
 });
 

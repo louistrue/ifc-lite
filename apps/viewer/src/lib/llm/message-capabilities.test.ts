@@ -72,3 +72,58 @@ test('buildStreamMessagesForModel keeps image payload parts when supported', () 
   const parts = result.messages[0].content as Array<{ type: string }>;
   assert.equal(parts[0].type, 'image_url');
 });
+
+test('buildStreamMessagesForModel keeps historical turns text-only', () => {
+  const messages: ChatMessage[] = [
+    {
+      id: 'm0',
+      role: 'user',
+      content: 'Earlier image',
+      createdAt: Date.now() - 1000,
+      attachments: [makeImageAttachment('old.png')],
+    },
+    {
+      id: 'm1',
+      role: 'user',
+      content: 'Latest image',
+      createdAt: Date.now(),
+      attachments: [makeImageAttachment('new.png')],
+    },
+  ];
+
+  const result = buildStreamMessagesForModel(messages, null, true);
+  assert.equal(typeof result.messages[0].content, 'string');
+  assert.equal(result.messages[0].content, 'Earlier image');
+  assert.ok(Array.isArray(result.messages[1].content));
+  const latestParts = result.messages[1].content as Array<{ type: string }>;
+  assert.equal(latestParts[0].type, 'image_url');
+});
+
+test('buildStreamMessagesForModel attaches viewport screenshot only to latest turn', () => {
+  const messages: ChatMessage[] = [
+    {
+      id: 'm0',
+      role: 'user',
+      content: 'Earlier question',
+      createdAt: Date.now() - 1000,
+    },
+    {
+      id: 'm1',
+      role: 'user',
+      content: 'Current question',
+      createdAt: Date.now(),
+    },
+  ];
+
+  const result = buildStreamMessagesForModel(messages, 'data:image/jpeg;base64,current', true);
+
+  // Earlier turn remains plain text.
+  assert.equal(typeof result.messages[0].content, 'string');
+  assert.equal(result.messages[0].content, 'Earlier question');
+
+  // Latest turn gets exactly one screenshot image part.
+  assert.ok(Array.isArray(result.messages[1].content));
+  const parts = result.messages[1].content as Array<{ type: string }>;
+  const imageParts = parts.filter((p) => p.type === 'image_url');
+  assert.equal(imageParts.length, 1);
+});

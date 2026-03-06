@@ -162,7 +162,7 @@ const ALLOWED_METHODS = new Set([
   'addIfcBuildingStorey',
   // Building elements
   'addIfcWall', 'addIfcSlab', 'addIfcColumn', 'addIfcBeam',
-  'addIfcStair', 'addIfcRoof', 'addIfcDoor', 'addIfcWindow',
+  'addIfcStair', 'addIfcRoof', 'addIfcGableRoof', 'addIfcWallDoor', 'addIfcWallWindow', 'addIfcDoor', 'addIfcWindow',
   'addIfcRamp', 'addIfcRailing', 'addIfcPlate', 'addIfcMember',
   'addIfcFooting', 'addIfcPile', 'addIfcSpace', 'addIfcCurtainWall',
   'addIfcFurnishingElement', 'addIfcBuildingElementProxy',
@@ -201,6 +201,9 @@ function methodDoc(name: string): string {
   // addElement → 'Add a generic element'
   // createProfile → 'Create a profile from a ProfileDef'
   if (name === 'addIfcBuildingStorey') return 'Add a building storey. Returns storey expressId.';
+  if (name === 'addIfcGableRoof') return 'Add a dual-pitch gable roof. `Slope` is in radians. Returns roof expressId.';
+  if (name === 'addIfcWallDoor') return 'Add a door hosted in a wall opening. Position is wall-local [alongWall, 0, baseHeight]. Returns door expressId.';
+  if (name === 'addIfcWallWindow') return 'Add a window hosted in a wall opening. Position is wall-local [alongWall, 0, sillHeight]. Returns window expressId.';
   if (name === 'addElement') return 'Create ANY IFC type with a profile at a placement. Returns expressId.';
   if (name === 'addAxisElement') return 'Create ANY IFC type extruded along a Start→End axis. Returns expressId.';
   if (name === 'createProfile') return 'Create a profile from a ProfileDef union. Returns profile ID.';
@@ -321,7 +324,7 @@ function buildCreateMethods(): MethodSchema[] {
           name,
           doc: methodDoc(name),
           args: ['number', 'number', 'dump'],
-          paramNames: ['handle', 'elementId', 'params'],
+          paramNames: ['handle', name === 'addIfcWallDoor' || name === 'addIfcWallWindow' ? 'wallId' : 'elementId', 'params'],
           tsReturn: name === 'addIfcMaterial' ? 'void' : 'number',
           call: (_sdk, args) => {
             const creator = creatorRegistry.get(args[0] as number);
@@ -442,6 +445,20 @@ export const NAMESPACE_SCHEMAS: NamespaceSchema[] = [
         returns: 'value',
       },
       {
+        name: 'attributes',
+        doc: 'Get all named string/enum attributes for an entity',
+        args: ['dump'],
+        paramNames: ['entity'],
+        tsParamTypes: ['BimEntity'],
+        tsReturn: 'BimAttribute[]',
+        call: (sdk, args) => {
+          const ref = toRef(args[0]);
+          if (!ref) return [];
+          return sdk.attributes(ref);
+        },
+        returns: 'value',
+      },
+      {
         name: 'properties',
         doc: 'Get all IfcPropertySet data for an entity',
         args: ['dump'],
@@ -493,6 +510,228 @@ export const NAMESPACE_SCHEMAS: NamespaceSchema[] = [
               type: q.type, Type: q.type,
             })),
           }));
+        },
+        returns: 'value',
+      },
+      {
+        name: 'property',
+        doc: 'Get a single property value from an entity',
+        args: ['dump', 'string', 'string'],
+        paramNames: ['entity', 'psetName', 'propName'],
+        tsParamTypes: ['BimEntity'],
+        tsReturn: 'string | number | boolean | null',
+        call: (sdk, args) => {
+          const ref = toRef(args[0]);
+          if (!ref) return null;
+          return sdk.property(ref, args[1] as string, args[2] as string);
+        },
+        returns: 'value',
+      },
+      {
+        name: 'classifications',
+        doc: 'Get classification references for an entity',
+        args: ['dump'],
+        paramNames: ['entity'],
+        tsParamTypes: ['BimEntity'],
+        tsReturn: 'BimClassification[]',
+        call: (sdk, args) => {
+          const ref = toRef(args[0]);
+          if (!ref) return [];
+          return sdk.classifications(ref);
+        },
+        returns: 'value',
+      },
+      {
+        name: 'materials',
+        doc: 'Get material assignment for an entity',
+        args: ['dump'],
+        paramNames: ['entity'],
+        tsParamTypes: ['BimEntity'],
+        tsReturn: 'BimMaterial | null',
+        call: (sdk, args) => {
+          const ref = toRef(args[0]);
+          if (!ref) return null;
+          return sdk.materials(ref);
+        },
+        returns: 'value',
+      },
+      {
+        name: 'typeProperties',
+        doc: 'Get type-level property sets for an entity',
+        args: ['dump'],
+        paramNames: ['entity'],
+        tsParamTypes: ['BimEntity'],
+        tsReturn: 'BimTypeProperties | null',
+        call: (sdk, args) => {
+          const ref = toRef(args[0]);
+          if (!ref) return null;
+          return sdk.typeProperties(ref);
+        },
+        returns: 'value',
+      },
+      {
+        name: 'documents',
+        doc: 'Get linked document references for an entity',
+        args: ['dump'],
+        paramNames: ['entity'],
+        tsParamTypes: ['BimEntity'],
+        tsReturn: 'BimDocument[]',
+        call: (sdk, args) => {
+          const ref = toRef(args[0]);
+          if (!ref) return [];
+          return sdk.documents(ref);
+        },
+        returns: 'value',
+      },
+      {
+        name: 'relationships',
+        doc: 'Get structural relationship summary for an entity',
+        args: ['dump'],
+        paramNames: ['entity'],
+        tsParamTypes: ['BimEntity'],
+        tsReturn: 'BimRelationships',
+        call: (sdk, args) => {
+          const ref = toRef(args[0]);
+          if (!ref) return { voids: [], fills: [], groups: [], connections: [] };
+          return sdk.relationships(ref);
+        },
+        returns: 'value',
+      },
+      {
+        name: 'quantity',
+        doc: 'Get a single quantity value from an entity',
+        args: ['dump', 'string', 'string'],
+        paramNames: ['entity', 'qsetName', 'quantityName'],
+        tsParamTypes: ['BimEntity'],
+        tsReturn: 'number | null',
+        call: (sdk, args) => {
+          const ref = toRef(args[0]);
+          if (!ref) return null;
+          return sdk.quantity(ref, args[1] as string, args[2] as string);
+        },
+        returns: 'value',
+      },
+      {
+        name: 'related',
+        doc: 'Get related entities by IFC relationship type',
+        args: ['dump', 'string', 'string'],
+        paramNames: ['entity', 'relType', 'direction'],
+        tsParamTypes: ['BimEntity', undefined, "'forward' | 'inverse'"],
+        tsReturn: 'BimEntity[]',
+        call: (sdk, args) => {
+          const ref = toRef(args[0]);
+          if (!ref) return [];
+          return sdk.related(ref, args[1] as string, args[2] as 'forward' | 'inverse').map(withAliases);
+        },
+        returns: 'value',
+      },
+      {
+        name: 'containedIn',
+        doc: 'Get the spatial container of an entity',
+        args: ['dump'],
+        paramNames: ['entity'],
+        tsParamTypes: ['BimEntity'],
+        tsReturn: 'BimEntity | null',
+        call: (sdk, args) => {
+          const ref = toRef(args[0]);
+          if (!ref) return null;
+          const entity = sdk.containedIn(ref);
+          return entity ? withAliases(entity) : null;
+        },
+        returns: 'value',
+      },
+      {
+        name: 'contains',
+        doc: 'Get entities contained in a spatial container',
+        args: ['dump'],
+        paramNames: ['entity'],
+        tsParamTypes: ['BimEntity'],
+        tsReturn: 'BimEntity[]',
+        call: (sdk, args) => {
+          const ref = toRef(args[0]);
+          if (!ref) return [];
+          return sdk.contains(ref).map(withAliases);
+        },
+        returns: 'value',
+      },
+      {
+        name: 'decomposedBy',
+        doc: 'Get the parent aggregate of an entity',
+        args: ['dump'],
+        paramNames: ['entity'],
+        tsParamTypes: ['BimEntity'],
+        tsReturn: 'BimEntity | null',
+        call: (sdk, args) => {
+          const ref = toRef(args[0]);
+          if (!ref) return null;
+          const entity = sdk.decomposedBy(ref);
+          return entity ? withAliases(entity) : null;
+        },
+        returns: 'value',
+      },
+      {
+        name: 'decomposes',
+        doc: 'Get aggregated children of an entity',
+        args: ['dump'],
+        paramNames: ['entity'],
+        tsParamTypes: ['BimEntity'],
+        tsReturn: 'BimEntity[]',
+        call: (sdk, args) => {
+          const ref = toRef(args[0]);
+          if (!ref) return [];
+          return sdk.decomposes(ref).map(withAliases);
+        },
+        returns: 'value',
+      },
+      {
+        name: 'storey',
+        doc: 'Get the containing building storey of an entity',
+        args: ['dump'],
+        paramNames: ['entity'],
+        tsParamTypes: ['BimEntity'],
+        tsReturn: 'BimEntity | null',
+        call: (sdk, args) => {
+          const ref = toRef(args[0]);
+          if (!ref) return null;
+          const entity = sdk.storey(ref);
+          return entity ? withAliases(entity) : null;
+        },
+        returns: 'value',
+      },
+      {
+        name: 'path',
+        doc: 'Get the spatial/aggregation path from project to entity',
+        args: ['dump'],
+        paramNames: ['entity'],
+        tsParamTypes: ['BimEntity'],
+        tsReturn: 'BimEntity[]',
+        call: (sdk, args) => {
+          const ref = toRef(args[0]);
+          if (!ref) return [];
+          return sdk.path(ref).map(withAliases);
+        },
+        returns: 'value',
+      },
+      {
+        name: 'storeys',
+        doc: 'List all building storeys',
+        args: [],
+        tsReturn: 'BimEntity[]',
+        call: (sdk) => {
+          return sdk.storeys().map(withAliases);
+        },
+        returns: 'value',
+      },
+      {
+        name: 'selection',
+        doc: 'Get the current viewer selection as entities',
+        args: [],
+        tsReturn: 'BimEntity[]',
+        call: (sdk) => {
+          return sdk.viewer.getSelection()
+            .map((ref) => sdk.entity(ref))
+            .filter((entity): entity is EntityData => Boolean(entity))
+            .map(withAliases);
         },
         returns: 'value',
       },

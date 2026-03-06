@@ -12,7 +12,7 @@
  *   bim.viewer.colorize(refs, '#ff0000')
  */
 
-import type { BimBackend, BimContextOptions, Transport, EntityData, EntityRef, PropertySetData, QuantitySetData } from './types.js';
+import type { BimBackend, BimContextOptions, Transport, EntityData, EntityRef, EntityAttributeData, PropertySetData, QuantitySetData, ClassificationData, MaterialData, TypePropertiesData, DocumentData, EntityRelationshipsData } from './types.js';
 import { ModelNamespace } from './namespaces/model.js';
 import { QueryNamespace, QueryBuilder } from './namespaces/query.js';
 import { ViewerNamespace } from './namespaces/viewer.js';
@@ -96,6 +96,13 @@ export class BimContext {
   }
 
   /**
+   * Get all named string/enum attributes for an entity.
+   */
+  attributes(ref: EntityRef): EntityAttributeData[] {
+    return this._queryNamespace.attributes(ref);
+  }
+
+  /**
    * Get all property sets for an entity.
    */
   properties(ref: EntityRef): PropertySetData[] {
@@ -107,6 +114,81 @@ export class BimContext {
    */
   quantities(ref: EntityRef): QuantitySetData[] {
     return this._queryNamespace.quantities(ref);
+  }
+
+  /** Get all classifications for an entity. */
+  classifications(ref: EntityRef): ClassificationData[] {
+    return this._queryNamespace.classifications(ref);
+  }
+
+  /** Get material assignment for an entity. */
+  materials(ref: EntityRef): MaterialData | null {
+    return this._queryNamespace.materials(ref);
+  }
+
+  /** Get type-level property sets for an entity. */
+  typeProperties(ref: EntityRef): TypePropertiesData | null {
+    return this._queryNamespace.typeProperties(ref);
+  }
+
+  /** Get linked documents for an entity. */
+  documents(ref: EntityRef): DocumentData[] {
+    return this._queryNamespace.documents(ref);
+  }
+
+  /** Get structural relationship summary for an entity. */
+  relationships(ref: EntityRef): EntityRelationshipsData {
+    return this._queryNamespace.relationships(ref);
+  }
+
+  /** Get a single property value for an entity. */
+  property(ref: EntityRef, psetName: string, propName: string): string | number | boolean | null {
+    return this._queryNamespace.property(ref, psetName, propName);
+  }
+
+  /** Get a single quantity value for an entity. */
+  quantity(ref: EntityRef, qsetName: string, quantityName: string): number | null {
+    return this._queryNamespace.quantity(ref, qsetName, quantityName);
+  }
+
+  /** Get related entities by IFC relationship type. */
+  related(ref: EntityRef, relType: string, direction: 'forward' | 'inverse'): EntityData[] {
+    return this._queryNamespace.related(ref, relType, direction);
+  }
+
+  /** Get the spatial container of an entity. */
+  containedIn(ref: EntityRef): EntityData | null {
+    return this._queryNamespace.containedIn(ref);
+  }
+
+  /** Get entities contained in a spatial container. */
+  contains(ref: EntityRef): EntityData[] {
+    return this._queryNamespace.contains(ref);
+  }
+
+  /** Get the parent aggregate of an entity. */
+  decomposedBy(ref: EntityRef): EntityData | null {
+    return this._queryNamespace.decomposedBy(ref);
+  }
+
+  /** Get aggregated children of an entity. */
+  decomposes(ref: EntityRef): EntityData[] {
+    return this._queryNamespace.decomposes(ref);
+  }
+
+  /** Get the containing building storey of an entity. */
+  storey(ref: EntityRef): EntityData | null {
+    return this._queryNamespace.storey(ref);
+  }
+
+  /** Get the spatial/aggregation path from project to entity. */
+  path(ref: EntityRef): EntityData[] {
+    return this._queryNamespace.path(ref);
+  }
+
+  /** Get all storeys across the current model scope. */
+  storeys(): EntityData[] {
+    return this._queryNamespace.storeys();
   }
 
   /**

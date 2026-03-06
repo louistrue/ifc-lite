@@ -39,6 +39,51 @@ export interface CodeExecResult {
   durationMs?: number;
 }
 
+export interface ScriptEditorSelection {
+  from: number;
+  to: number;
+}
+
+interface ScriptEditBase {
+  opId: string;
+  baseRevision: number;
+}
+
+export interface ScriptEditInsertOp extends ScriptEditBase {
+  type: 'insert';
+  at: number;
+  text: string;
+}
+
+export interface ScriptEditReplaceRangeOp extends ScriptEditBase {
+  type: 'replaceRange';
+  from: number;
+  to: number;
+  text: string;
+}
+
+export interface ScriptEditReplaceSelectionOp extends ScriptEditBase {
+  type: 'replaceSelection';
+  text: string;
+}
+
+export interface ScriptEditAppendOp extends ScriptEditBase {
+  type: 'append';
+  text: string;
+}
+
+export interface ScriptEditReplaceAllOp extends ScriptEditBase {
+  type: 'replaceAll';
+  text: string;
+}
+
+export type ScriptEditOperation =
+  | ScriptEditInsertOp
+  | ScriptEditReplaceRangeOp
+  | ScriptEditReplaceSelectionOp
+  | ScriptEditAppendOp
+  | ScriptEditReplaceAllOp;
+
 export interface FileAttachment {
   name: string;
   type: string;

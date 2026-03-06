@@ -74,6 +74,54 @@ describe('IfcCreator', () => {
     expect(result.content).toContain("'Window'");
   });
 
+  it('creates a wall-hosted window aligned to the wall opening', () => {
+    const creator = new IfcCreator();
+    const storey = creator.addIfcBuildingStorey({ Name: 'GF', Elevation: 0 });
+    const wallId = creator.addIfcWall(storey, {
+      Name: 'Window Wall',
+      Start: [0, 0, 0],
+      End: [5, 0, 0],
+      Thickness: 0.2,
+      Height: 3,
+    });
+    creator.addIfcWallWindow(wallId, {
+      Name: 'Hosted Window',
+      Position: [2.5, 0, 1.0],
+      Width: 1.2,
+      Height: 1.2,
+    });
+    const result = creator.toIfc();
+
+    expect(result.content).toContain('IFCWINDOW');
+    expect(result.content).toContain("'Hosted Window'");
+    expect(result.content).toContain('IFCRELFILLSELEMENT');
+    expect(result.content).toContain('IFCOPENINGELEMENT');
+  });
+
+  it('creates a wall-hosted door aligned to the wall opening', () => {
+    const creator = new IfcCreator();
+    const storey = creator.addIfcBuildingStorey({ Name: 'GF', Elevation: 0 });
+    const wallId = creator.addIfcWall(storey, {
+      Name: 'Door Wall',
+      Start: [0, 0, 0],
+      End: [5, 0, 0],
+      Thickness: 0.2,
+      Height: 3,
+    });
+    creator.addIfcWallDoor(wallId, {
+      Name: 'Hosted Door',
+      Position: [1.0, 0, 0],
+      Width: 0.9,
+      Height: 2.1,
+    });
+    const result = creator.toIfc();
+
+    expect(result.content).toContain('IFCDOOR');
+    expect(result.content).toContain("'Hosted Door'");
+    expect(result.content).toContain('IFCRELFILLSELEMENT');
+    expect(result.content).toContain('IFCOPENINGELEMENT');
+  });
+
   it('creates a slab', () => {
     const creator = new IfcCreator();
     const storey = creator.addIfcBuildingStorey({ Name: 'GF', Elevation: 0 });
@@ -189,6 +237,39 @@ describe('IfcCreator', () => {
 
     expect(result.content).toContain('IFCROOF');
     expect(result.content).toContain("'Pitched Roof'");
+  });
+
+  it('creates a gable roof with two roof planes', () => {
+    const creator = new IfcCreator();
+    const storey = creator.addIfcBuildingStorey({ Name: 'GF', Elevation: 0 });
+    creator.addIfcGableRoof(storey, {
+      Name: 'House Roof',
+      Position: [0, 0, 3],
+      Width: 10,
+      Depth: 8,
+      Thickness: 0.2,
+      Slope: Math.PI / 12,
+      Overhang: 0.3,
+    });
+    const result = creator.toIfc();
+
+    expect(result.content).toContain('IFCROOF');
+    expect(result.content).toContain('.GABLE_ROOF.');
+    expect(result.content).toContain("'House Roof'");
+    expect((result.content.match(/IFCEXTRUDEDAREASOLID/g) || []).length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('rejects roof slopes that look like degrees', () => {
+    const creator = new IfcCreator();
+    const storey = creator.addIfcBuildingStorey({ Name: 'GF', Elevation: 0 });
+
+    expect(() => creator.addIfcRoof(storey, {
+      Position: [0, 0, 3],
+      Width: 10,
+      Depth: 8,
+      Thickness: 0.2,
+      Slope: 15,
+    })).toThrow(/radians/);
   });
 
   it('attaches property sets', () => {

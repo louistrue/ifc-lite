@@ -10,6 +10,9 @@
 
 import { useViewerStore } from '@/store';
 import type { ModelContext } from './system-prompt.js';
+import { IfcTypeEnum, type SpatialNode, type SpatialHierarchy } from '@ifc-lite/data';
+import { extractPropertiesOnDemand, extractQuantitiesOnDemand, extractMaterialsOnDemand, extractClassificationsOnDemand } from '@ifc-lite/parser';
+import { resolveEntityRef } from '@/store/resolveEntityRef';
 
 let cachedTypeCountsFingerprint = '';
 let cachedTypeCounts: Record<string, number> = {};
@@ -57,6 +60,88 @@ function computeTypeCounts(state: ReturnType<typeof useViewerStore.getState>): R
   return typeCounts;
 }
 
+function collectStoreys(
+  hierarchy: SpatialHierarchy | undefined,
+  modelName?: string,
+): NonNullable<ModelContext['storeys']> {
+  if (!hierarchy?.project) return [];
+
+  const result: NonNullable<ModelContext['storeys']> = [];
+  const visit = (node: SpatialNode) => {
+    if (node.type === IfcTypeEnum.IfcBuildingStorey) {
+      result.push({
+        modelName,
+        name: node.name || 'Storey',
+        elevation: node.elevation ?? hierarchy.storeyElevations.get(node.expressId) ?? 0,
+        height: hierarchy.storeyHeights.get(node.expressId),
+        elementCount: hierarchy.byStorey.get(node.expressId)?.length ?? node.elements.length,
+      });
+    }
+    for (const child of node.children) visit(child);
+  };
+
+  visit(hierarchy.project);
+  result.sort((a, b) => a.elevation - b.elevation);
+  return result;
+}
+
+function getStoreForModel(
+  state: ReturnType<typeof useViewerStore.getState>,
+  modelId: string,
+): { store: NonNullable<typeof state.ifcDataStore> | null; modelName?: string } {
+  if (modelId === 'legacy') {
+    return { store: state.ifcDataStore, modelName: 'Model' };
+  }
+  const model = state.models.get(modelId);
+  return { store: model?.ifcDataStore ?? null, modelName: model?.name ?? modelId };
+}
+
+function collectSelectedEntities(state: ReturnType<typeof useViewerStore.getState>): NonNullable<ModelContext['selectedEntities']> {
+  const refs = state.selectedEntities.length > 0
+    ? state.selectedEntities
+    : state.selectedEntity
+      ? [state.selectedEntity]
+      : state.selectedEntityIds.size > 0
+        ? Array.from(state.selectedEntityIds).slice(0, 5).map((id) => resolveEntityRef(id))
+        : [];
+
+  return refs.slice(0, 5).flatMap((ref) => {
+    const { store, modelName } = getStoreForModel(state, ref.modelId);
+    if (!store) return [];
+
+    const type = store.entities.getTypeName(ref.expressId) || 'Unknown';
+    const name = store.entities.getName(ref.expressId) || `${type} #${ref.expressId}`;
+    const storeyId = store.spatialHierarchy?.elementToStorey.get(ref.expressId);
+    const storeyName = storeyId !== undefined ? (store.entities.getName(storeyId) || `Storey #${storeyId}`) : undefined;
+    const storeyElevation = storeyId !== undefined ? store.spatialHierarchy?.storeyElevations.get(storeyId) : undefined;
+
+    const rawPsets = extractPropertiesOnDemand(store, ref.expressId) as Array<{ name?: string; Name?: string }> | undefined;
+    const rawQsets = extractQuantitiesOnDemand(store, ref.expressId) as Array<{ name?: string; Name?: string }> | undefined;
+    const rawMaterial = extractMaterialsOnDemand(store, ref.expressId);
+    const rawClassifications = extractClassificationsOnDemand(store, ref.expressId);
+    const propertySets = (rawPsets ?? []).map((pset) => pset.name ?? pset.Name).filter((value): value is string => Boolean(value)).slice(0, 6);
+    const quantitySets = (rawQsets ?? []).map((qset) => qset.name ?? qset.Name).filter((value): value is string => Boolean(value)).slice(0, 6);
+    const materialName = rawMaterial?.name ?? rawMaterial?.materials?.[0];
+    const classifications = rawClassifications
+      .map((classification) => classification.identification ?? classification.name ?? classification.system)
+      .filter((value): value is string => Boolean(value))
+      .slice(0, 4);
+
+    return [{
+      modelName,
+      name,
+      type,
+      globalId: store.entities.getGlobalId?.(ref.expressId),
+      storeyName,
+      storeyElevation,
+      propertySets,
+      quantitySets,
+      materialName,
+      classifications,
+    }];
+  });
+}
+
 /**
  * Snapshot the current model context from the Zustand store.
  * Called before each LLM request to provide up-to-date context.
@@ -65,6 +150,7 @@ export function getModelContext(): ModelContext {
   const state = useViewerStore.getState();
 
   const models: ModelContext['models'] = [];
+  const storeys: NonNullable<ModelContext['storeys']> = [];
   const fingerprint = buildFingerprint(state);
 
   // Federated models
@@ -75,6 +161,7 @@ export function getModelContext(): ModelContext {
         name: model.name ?? 'Unknown',
         entityCount,
       });
+      storeys.push(...collectStoreys(model.ifcDataStore?.spatialHierarchy, model.name ?? 'Unknown'));
     }
   }
 
@@ -85,6 +172,7 @@ export function getModelContext(): ModelContext {
       name: 'Model',
       entityCount: store.entities.count,
     });
+    storeys.push(...collectStoreys(store.spatialHierarchy, 'Model'));
   }
 
   if (fingerprint !== cachedTypeCountsFingerprint) {
@@ -93,11 +181,18 @@ export function getModelContext(): ModelContext {
   }
 
   // Selection count
-  const selectedCount = state.selectedEntityIds.size > 0
-    ? state.selectedEntityIds.size
-    : state.selectedEntityId !== null ? 1 : 0;
+  const selectedCount = state.selectedEntities.length > 0
+    ? state.selectedEntities.length
+    : state.selectedEntitiesSet.size > 0
+      ? state.selectedEntitiesSet.size
+      : state.selectedEntity
+        ? 1
+        : state.selectedEntityIds.size > 0
+          ? state.selectedEntityIds.size
+          : state.selectedEntityId !== null ? 1 : 0;
+  const selectedEntities = collectSelectedEntities(state);
 
-  return { models, typeCounts: cachedTypeCounts, selectedCount };
+  return { models, typeCounts: cachedTypeCounts, selectedCount, storeys, selectedEntities };
 }
 
 /**

@@ -41,16 +41,18 @@ import { buildStreamMessagesForModel, filterAttachmentsForModel } from '@/lib/ll
 import { buildSystemPrompt } from '@/lib/llm/system-prompt';
 import { getModelContext, parseCSV } from '@/lib/llm/context-builder';
 import { extractCodeBlocks } from '@/lib/llm/code-extractor';
+import { extractScriptEditOps, filterUnappliedScriptOps } from '@/lib/llm/script-edit-ops';
 import type { ChatMessage, FileAttachment } from '@/lib/llm/types';
 import { Image as ImageIcon } from 'lucide-react';
 import { isClerkConfigured } from '@/lib/llm/clerk-auth';
 import { getModelById } from '@/lib/llm/models';
+import { useSandbox } from '@/hooks/useSandbox';
 
 // Environment variable for the proxy URL
 const PROXY_URL = import.meta.env.VITE_LLM_PROXY_URL as string || '/api/chat';
 
 const EXAMPLE_PROMPTS = [
-  'Create a 3-story house with walls, slabs, and a roof',
+  'Create a 3-story house with walls, slabs, and a gable roof',
   'Color all IfcWalls by their fire rating',
   'Export a quantity takeoff as CSV',
   'Create a skyscraper with 4x4 column grid, 30x40m, concrete shaft',
@@ -66,6 +68,7 @@ const OUTPUT_TOKEN_RESERVE = 9_000;
 const MIN_INPUT_BUDGET = 8_000;
 const MAX_RECENT_MESSAGES = 48;
 const SUMMARY_SNIPPET_LEN = 240;
+const MAX_INLINE_IMAGE_DATA_URL_CHARS = 1_200_000;
 
 /** Convert a File to a base64 data URL */
 function fileToBase64(file: File): Promise<string> {
@@ -74,6 +77,37 @@ function fileToBase64(file: File): Promise<string> {
     reader.onload = () => resolve(reader.result as string);
     reader.onerror = reject;
     reader.readAsDataURL(file);
+  });
+}
+
+async function imageFileToCompressedBase64(file: File): Promise<string> {
+  const raw = await fileToBase64(file);
+  return compressDataUrlImage(raw);
+}
+
+function compressDataUrlImage(dataUrl: string): Promise<string> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const maxSide = 1400;
+      const srcW = img.naturalWidth || img.width;
+      const srcH = img.naturalHeight || img.height;
+      const scale = Math.min(1, maxSide / Math.max(srcW, srcH));
+      const outW = Math.max(1, Math.round(srcW * scale));
+      const outH = Math.max(1, Math.round(srcH * scale));
+      const canvas = document.createElement('canvas');
+      canvas.width = outW;
+      canvas.height = outH;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        resolve(dataUrl);
+        return;
+      }
+      ctx.drawImage(img, 0, 0, outW, outH);
+      resolve(canvas.toDataURL('image/jpeg', 0.72));
+    };
+    img.onerror = () => resolve(dataUrl);
+    img.src = dataUrl;
   });
 }
 
@@ -149,10 +183,16 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
   const removeAttachment = useViewerStore((s) => s.removeChatAttachment);
   const clearAttachments = useViewerStore((s) => s.clearChatAttachments);
   const clearMessages = useViewerStore((s) => s.clearChatMessages);
+  const pendingPrompt = useViewerStore((s) => s.chatPendingPrompt);
+  const consumePendingPrompt = useViewerStore((s) => s.consumeChatPendingPrompt);
   const authToken = useViewerStore((s) => s.chatAuthToken);
   const hasPro = useViewerStore((s) => s.chatHasPro);
   const usage = useViewerStore((s) => s.chatUsage);
   const setChatUsage = useViewerStore((s) => s.setChatUsage);
+  const scriptEditorContent = useViewerStore((s) => s.scriptEditorContent);
+  const scriptEditorRevision = useViewerStore((s) => s.scriptEditorRevision);
+  const scriptEditorSelection = useViewerStore((s) => s.scriptEditorSelection);
+  const { execute } = useSandbox();
   const displayUsage: UsageInfo | null = usage ?? (hasPro
     ? {
       type: 'credits',
@@ -178,6 +218,7 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dragCounterRef = useRef(0);
+  const lastAutoPreflightFixKeyRef = useRef<string | null>(null);
 
   const resizeInput = useCallback(() => {
     const target = inputRef.current;
@@ -311,16 +352,30 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
     resizeInput();
 
     // Check for auto-captured viewport screenshot to include
-    const viewportScreenshot = useViewerStore.getState().chatViewportScreenshot;
-    if (viewportScreenshot) {
+    const pendingViewportScreenshot = useViewerStore.getState().chatViewportScreenshot;
+    if (pendingViewportScreenshot) {
       useViewerStore.getState().setChatViewportScreenshot(null);
+    }
+    let viewportScreenshot: string | null = null;
+    if (pendingViewportScreenshot && supportsImages) {
+      // Normalize legacy/uncompressed screenshots before attaching.
+      const normalized = await compressDataUrlImage(pendingViewportScreenshot);
+      if (normalized.length <= MAX_INLINE_IMAGE_DATA_URL_CHARS) {
+        viewportScreenshot = normalized;
+      } else {
+        setChatError('Auto-captured screenshot was too large and was skipped.');
+      }
     }
 
     const allMessages = [...currentMessages, userMessage];
 
     const modelContext = getModelContext();
     const fileAttachments = filtered.accepted.length > 0 ? filtered.accepted : undefined;
-    const systemPrompt = buildSystemPrompt(modelContext, fileAttachments);
+    const systemPrompt = buildSystemPrompt(modelContext, fileAttachments, {
+      content: scriptEditorContent,
+      revision: scriptEditorRevision,
+      selection: scriptEditorSelection,
+    });
     const contextWindow = activeModelInfo?.contextWindow ?? 128_000;
     const inputBudget = Math.max(
       MIN_INPUT_BUDGET,
@@ -329,7 +384,7 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
 
     let compactedMessages = [...allMessages];
     let droppedMessages: ChatMessage[] = [];
-    let streamBuild = buildStreamMessagesForModel(compactedMessages, viewportScreenshot ?? null, supportsImages);
+    let streamBuild = buildStreamMessagesForModel(compactedMessages, viewportScreenshot, supportsImages);
     let streamMessages = streamBuild.messages;
     let estimatedInputTokens = estimateTextTokens(systemPrompt) + estimateMessagesTokens(streamMessages);
 
@@ -342,7 +397,7 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
         droppedMessages = [...droppedMessages, ...compactedMessages.slice(0, over)];
         compactedMessages = compactedMessages.slice(over);
       }
-      streamBuild = buildStreamMessagesForModel(compactedMessages, viewportScreenshot ?? null, supportsImages);
+      streamBuild = buildStreamMessagesForModel(compactedMessages, viewportScreenshot, supportsImages);
       streamMessages = streamBuild.messages;
       estimatedInputTokens = estimateTextTokens(systemPrompt) + estimateMessagesTokens(streamMessages);
     }
@@ -381,6 +436,13 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
     setChatAbortController(abortController);
 
     let accumulated = '';
+    const responseBaseRevision = useViewerStore.getState().scriptEditorRevision;
+    const responseEditState = {
+      appliedOpIds: new Set<string>(),
+      appliedAny: false,
+      applyFailed: false,
+      fallbackApplied: false,
+    };
 
     await streamChat({
       proxyUrl: PROXY_URL,
@@ -391,6 +453,26 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
       signal: abortController.signal,
       onChunk: (chunk) => {
         accumulated += chunk;
+        if (!responseEditState.applyFailed) {
+          const parsed = extractScriptEditOps(accumulated);
+          if (parsed.parseErrors.length > 0) {
+            setChatError(parsed.parseErrors[0]);
+          }
+          const freshOps = filterUnappliedScriptOps(parsed.operations, responseEditState.appliedOpIds);
+          if (freshOps.length > 0) {
+            const applyResult = useViewerStore.getState().applyScriptEditOps(freshOps, {
+              acceptedBaseRevision: responseBaseRevision,
+            });
+            if (applyResult.ok) {
+              applyResult.appliedOpIds.forEach((id) => responseEditState.appliedOpIds.add(id));
+              responseEditState.appliedAny = true;
+              useViewerStore.getState().setScriptPanelVisible(true);
+            } else {
+              responseEditState.applyFailed = true;
+              setChatError(`Incremental edit apply failed: ${applyResult.error ?? 'unknown error'}`);
+            }
+          }
+        }
         setChatStatus('streaming');
         updateStreaming(accumulated);
       },
@@ -400,17 +482,72 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
           : fullText;
         const messageId = finalizeAssistant(normalizedText || fullText);
 
-        // Auto-execute if enabled
-        const autoExec = useViewerStore.getState().chatAutoExecute;
-        if (autoExec) {
+        if (!responseEditState.applyFailed) {
+          const parsed = extractScriptEditOps(fullText);
+          if (parsed.parseErrors.length > 0) {
+            setChatError(parsed.parseErrors[0]);
+          }
+          const freshOps = filterUnappliedScriptOps(parsed.operations, responseEditState.appliedOpIds);
+          if (freshOps.length > 0) {
+            const applyResult = useViewerStore.getState().applyScriptEditOps(freshOps, {
+              acceptedBaseRevision: responseBaseRevision,
+            });
+            if (applyResult.ok) {
+              applyResult.appliedOpIds.forEach((id) => responseEditState.appliedOpIds.add(id));
+              responseEditState.appliedAny = true;
+              useViewerStore.getState().setScriptPanelVisible(true);
+            } else {
+              responseEditState.applyFailed = true;
+              setChatError(`Incremental edit apply failed: ${applyResult.error ?? 'unknown error'}`);
+            }
+          }
+        }
+
+        if (!responseEditState.appliedAny) {
           const blocks = extractCodeBlocks(fullText);
           if (blocks.length > 0) {
             const lastBlock = blocks[blocks.length - 1];
-            useViewerStore.getState().setCodeExecResult(
-              messageId,
-              lastBlock.index,
-              { status: 'running' },
-            );
+            useViewerStore.getState().replaceScriptContentFallback(lastBlock.code);
+            useViewerStore.getState().setScriptPanelVisible(true);
+            responseEditState.fallbackApplied = true;
+          }
+        }
+
+        // Auto-execute if enabled
+        const autoExec = useViewerStore.getState().chatAutoExecute;
+        if (autoExec) {
+          if (responseEditState.appliedAny || responseEditState.fallbackApplied) {
+            const currentCode = useViewerStore.getState().scriptEditorContent;
+            if (currentCode.trim()) {
+              void (async () => {
+                const result = await execute(currentCode);
+                if (!result) {
+                  const { scriptLastError, chatStatus } = useViewerStore.getState();
+                  if (
+                    scriptLastError &&
+                    scriptLastError.startsWith('Preflight validation failed:') &&
+                    chatStatus !== 'sending' &&
+                    chatStatus !== 'streaming'
+                  ) {
+                    const key = `${scriptLastError}\n---\n${currentCode}`;
+                    if (lastAutoPreflightFixKeyRef.current !== key) {
+                      lastAutoPreflightFixKeyRef.current = key;
+                      void doSend(buildErrorFeedbackContent(currentCode, scriptLastError));
+                    }
+                  }
+                }
+              })();
+            }
+          } else {
+            const blocks = extractCodeBlocks(fullText);
+            if (blocks.length > 0) {
+              const lastBlock = blocks[blocks.length - 1];
+              useViewerStore.getState().setCodeExecResult(
+                messageId,
+                lastBlock.index,
+                { status: 'running' },
+              );
+            }
           }
         }
       },
@@ -432,11 +569,20 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
     status, activeModel, attachments, authToken,
     addMessage, setChatStatus, updateStreaming, finalizeAssistant,
     setChatError, setChatAbortController, clearAttachments, setChatUsage, resizeInput,
+    scriptEditorContent, scriptEditorRevision, scriptEditorSelection, execute,
   ]);
 
   const handleSend = useCallback(() => {
     doSend(inputText);
   }, [inputText, doSend]);
+
+  // Allow other panels (e.g. ScriptPanel errors) to trigger a chat repair turn.
+  useEffect(() => {
+    if (!pendingPrompt) return;
+    if (status === 'sending' || status === 'streaming') return;
+    consumePendingPrompt();
+    void doSend(pendingPrompt);
+  }, [pendingPrompt, status, consumePendingPrompt, doSend]);
 
   const handleContinue = useCallback(() => {
     const state = useViewerStore.getState();
@@ -513,11 +659,11 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
           setChatError('Selected model does not support image input. Switch model to attach images.');
           continue;
         }
-        const base64 = await fileToBase64(file);
+        const base64 = await imageFileToCompressedBase64(file);
         const attachment: FileAttachment = {
           name: file.name,
-          type: file.type,
-          size: file.size,
+          type: 'image/jpeg',
+          size: Math.round((base64.length * 3) / 4),
           imageBase64: base64,
           isImage: true,
         };

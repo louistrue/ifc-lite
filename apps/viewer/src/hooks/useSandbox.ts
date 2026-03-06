@@ -28,6 +28,23 @@ function isScriptError(err: unknown): err is { message: string; logs: Array<{ le
   );
 }
 
+function augmentScriptErrorMessage(message: string): string {
+  const lower = message.toLowerCase();
+  if (lower.includes(`can't access property "location", placement is undefined`)) {
+    return `${message}\nLikely cause: a generic \`bim.create.addElement(...)\` payload is using \`Position\` or missing \`Placement.Location\`. Use \`Placement: { Location: [x, y, z] }\` and \`Depth\`.`;
+  }
+  if (lower.includes(`can't access property "tostring", v is undefined`)) {
+    return `${message}\nLikely cause: a required numeric geometry field is missing or undefined (commonly \`Elevation\`, \`Width\`, \`Depth\`, \`Height\`, or \`Thickness\`). Re-check the exact required keys for the create method you called.`;
+  }
+  if (lower.includes(`'position' is not defined`) || lower.includes(`"position" is not defined`)) {
+    return `${message}\nLikely cause: the script contains a malformed BIM object literal or transpilation fallback corrupted a plain JS key like \`Position: [...]\`. Re-send the exact object with explicit key-value pairs.`;
+  }
+  if (lower.includes('rotated') && lower.includes('window') && lower.includes('wall')) {
+    return `${message}\nLikely cause: a standalone \`bim.create.addIfcWindow(...)\` was used where a wall-hosted insert was needed. Use \`bim.create.addIfcWallWindow(...)\` or wall \`Openings\` for wall-aligned placement.`;
+  }
+  return message;
+}
+
 /**
  * Hook that provides a sandbox execution interface.
  *
@@ -74,7 +91,7 @@ export function useSandbox(config?: SandboxConfig) {
       });
       return result;
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = augmentScriptErrorMessage(err instanceof Error ? err.message : String(err));
 
       // If the error is a ScriptError with captured logs, preserve them.
       // Important: setError must run AFTER setResult, because setResult clears

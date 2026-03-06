@@ -5,8 +5,14 @@
 import type {
   EntityRef,
   EntityData,
+  EntityAttributeData,
   PropertySetData,
   QuantitySetData,
+  ClassificationData,
+  MaterialData,
+  TypePropertiesData,
+  DocumentData,
+  EntityRelationshipsData,
   QueryDescriptor,
   QueryBackendMethods,
 } from '@ifc-lite/sdk';
@@ -14,6 +20,14 @@ import type { StoreApi } from './types.js';
 import { EntityNode } from '@ifc-lite/query';
 import { RelationshipType, IfcTypeEnum, IfcTypeEnumFromString } from '@ifc-lite/data';
 import { getModelForRef, getAllModelEntries } from './model-compat.js';
+import {
+  extractAllEntityAttributes,
+  extractClassificationsOnDemand,
+  extractMaterialsOnDemand,
+  extractTypePropertiesOnDemand,
+  extractDocumentsOnDemand,
+  extractRelationshipsOnDemand,
+} from '@ifc-lite/parser';
 
 /** Map IFC relationship entity names to internal RelationshipType enum.
  * Keys use proper IFC schema names (e.g. IfcRelAggregates, not "Aggregates"). */
@@ -120,6 +134,13 @@ export function createQueryAdapter(store: StoreApi): QueryBackendMethods {
     }));
   }
 
+  function getAttributes(ref: EntityRef): EntityAttributeData[] {
+    const state = store.getState();
+    const model = getModelForRef(state, ref.modelId);
+    if (!model?.ifcDataStore) return [];
+    return extractAllEntityAttributes(model.ifcDataStore, ref.expressId);
+  }
+
   function getQuantities(ref: EntityRef): QuantitySetData[] {
     const state = store.getState();
     const model = getModelForRef(state, ref.modelId);
@@ -134,6 +155,43 @@ export function createQueryAdapter(store: StoreApi): QueryBackendMethods {
         value: q.value,
       })),
     }));
+  }
+
+  function getClassifications(ref: EntityRef): ClassificationData[] {
+    const state = store.getState();
+    const model = getModelForRef(state, ref.modelId);
+    if (!model?.ifcDataStore) return [];
+    return extractClassificationsOnDemand(model.ifcDataStore, ref.expressId);
+  }
+
+  function getMaterials(ref: EntityRef): MaterialData | null {
+    const state = store.getState();
+    const model = getModelForRef(state, ref.modelId);
+    if (!model?.ifcDataStore) return null;
+    return extractMaterialsOnDemand(model.ifcDataStore, ref.expressId);
+  }
+
+  function getTypeProperties(ref: EntityRef): TypePropertiesData | null {
+    const state = store.getState();
+    const model = getModelForRef(state, ref.modelId);
+    if (!model?.ifcDataStore) return null;
+    return extractTypePropertiesOnDemand(model.ifcDataStore, ref.expressId);
+  }
+
+  function getDocuments(ref: EntityRef): DocumentData[] {
+    const state = store.getState();
+    const model = getModelForRef(state, ref.modelId);
+    if (!model?.ifcDataStore) return [];
+    return extractDocumentsOnDemand(model.ifcDataStore, ref.expressId);
+  }
+
+  function getRelationships(ref: EntityRef): EntityRelationshipsData {
+    const state = store.getState();
+    const model = getModelForRef(state, ref.modelId);
+    if (!model?.ifcDataStore) {
+      return { voids: [], fills: [], groups: [], connections: [] };
+    }
+    return extractRelationshipsOnDemand(model.ifcDataStore, ref.expressId);
   }
 
   function queryEntities(descriptor: QueryDescriptor): EntityData[] {
@@ -226,8 +284,14 @@ export function createQueryAdapter(store: StoreApi): QueryBackendMethods {
   return {
     entities: queryEntities,
     entityData: getEntityData,
+    attributes: getAttributes,
     properties: getProperties,
     quantities: getQuantities,
+    classifications: getClassifications,
+    materials: getMaterials,
+    typeProperties: getTypeProperties,
+    documents: getDocuments,
+    relationships: getRelationships,
     related(ref: EntityRef, relType: string, direction: 'forward' | 'inverse') {
       const state = store.getState();
       const model = getModelForRef(state, ref.modelId);

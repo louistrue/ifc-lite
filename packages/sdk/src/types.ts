@@ -89,6 +89,75 @@ export interface QuantityData {
   value: number;
 }
 
+export interface EntityAttributeData {
+  name: string;
+  value: string;
+}
+
+export interface ClassificationData {
+  system?: string;
+  identification?: string;
+  name?: string;
+  location?: string;
+  description?: string;
+  path?: string[];
+}
+
+export interface MaterialLayerData {
+  materialName?: string;
+  thickness?: number;
+  isVentilated?: boolean;
+  name?: string;
+  category?: string;
+}
+
+export interface MaterialProfileData {
+  materialName?: string;
+  name?: string;
+  category?: string;
+}
+
+export interface MaterialConstituentData {
+  materialName?: string;
+  name?: string;
+  fraction?: number;
+  category?: string;
+}
+
+export interface MaterialData {
+  type: 'Material' | 'MaterialLayerSet' | 'MaterialProfileSet' | 'MaterialConstituentSet' | 'MaterialList';
+  name?: string;
+  description?: string;
+  layers?: MaterialLayerData[];
+  profiles?: MaterialProfileData[];
+  constituents?: MaterialConstituentData[];
+  materials?: string[];
+}
+
+export interface TypePropertiesData {
+  typeName: string;
+  typeId: number;
+  properties: PropertySetData[];
+}
+
+export interface DocumentData {
+  name?: string;
+  description?: string;
+  location?: string;
+  identification?: string;
+  purpose?: string;
+  intendedUse?: string;
+  revision?: string;
+  confidentiality?: string;
+}
+
+export interface EntityRelationshipsData {
+  voids: Array<{ id: number; name?: string; type: string }>;
+  fills: Array<{ id: number; name?: string; type: string }>;
+  groups: Array<{ id: number; name?: string }>;
+  connections: Array<{ id: number; name?: string; type: string }>;
+}
+
 // ============================================================================
 // Query Types
 // ============================================================================
@@ -226,8 +295,14 @@ export interface ModelBackendMethods {
 export interface QueryBackendMethods {
   entities(descriptor: QueryDescriptor): EntityData[];
   entityData(ref: EntityRef): EntityData | null;
+  attributes(ref: EntityRef): EntityAttributeData[];
   properties(ref: EntityRef): PropertySetData[];
   quantities(ref: EntityRef): QuantitySetData[];
+  classifications(ref: EntityRef): ClassificationData[];
+  materials(ref: EntityRef): MaterialData | null;
+  typeProperties(ref: EntityRef): TypePropertiesData | null;
+  documents(ref: EntityRef): DocumentData[];
+  relationships(ref: EntityRef): EntityRelationshipsData;
   related(ref: EntityRef, relType: string, direction: 'forward' | 'inverse'): EntityRef[];
 }
 

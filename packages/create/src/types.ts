@@ -259,9 +259,55 @@ export interface RoofParams extends ElementAttributes {
   Slope?: number;
 }
 
-/** Door: placed in a wall opening */
+/** Gable roof: dual-pitch roof generated from a rectangular footprint */
+export interface GableRoofParams extends ElementAttributes {
+  /** Placement origin at the footprint minimum corner */
+  Position: Point3D;
+  /** Footprint width along X */
+  Width: number;
+  /** Footprint depth along Y */
+  Depth: number;
+  /** Roof thickness measured normal to each roof plane */
+  Thickness: number;
+  /** Roof pitch angle in radians */
+  Slope: number;
+  /** Optional symmetric overhang applied to all eaves/rakes */
+  Overhang?: number;
+}
+
+/** Wall-hosted door: aligned to a host wall and its opening */
+export interface WallDoorParams extends ElementAttributes {
+  /** Position relative to wall local axes: [alongWall, 0, baseHeight] */
+  Position: Point3D;
+  /** Door width along wall axis */
+  Width: number;
+  /** Door height upward from base */
+  Height: number;
+  /** Door thickness through wall. Defaults to host wall thickness. */
+  Thickness?: number;
+  /** Predefined type (IFC4 IfcDoorTypeEnum) */
+  PredefinedType?: 'DOOR' | 'GATE' | 'TRAPDOOR' | 'USERDEFINED' | 'NOTDEFINED';
+  /** Operation type (IFC4 IfcDoorTypeOperationEnum) */
+  OperationType?: 'SINGLE_SWING_LEFT' | 'SINGLE_SWING_RIGHT' | 'DOUBLE_DOOR_SINGLE_SWING' | 'DOUBLE_DOOR_SINGLE_SWING_OPPOSITE_LEFT' | 'DOUBLE_DOOR_SINGLE_SWING_OPPOSITE_RIGHT' | 'DOUBLE_SWING_LEFT' | 'DOUBLE_SWING_RIGHT' | 'DOUBLE_DOOR_DOUBLE_SWING' | 'SLIDING_TO_LEFT' | 'SLIDING_TO_RIGHT' | 'DOUBLE_DOOR_SLIDING' | 'FOLDING_TO_LEFT' | 'FOLDING_TO_RIGHT' | 'DOUBLE_DOOR_FOLDING' | 'REVOLVING' | 'ROLLINGUP' | 'SWING_FIXED_LEFT' | 'SWING_FIXED_RIGHT' | 'USERDEFINED' | 'NOTDEFINED';
+}
+
+/** Wall-hosted window: aligned to a host wall and its opening */
+export interface WallWindowParams extends ElementAttributes {
+  /** Position relative to wall local axes: [alongWall, 0, sillHeight] */
+  Position: Point3D;
+  /** Window width along wall axis */
+  Width: number;
+  /** Window height upward from sill */
+  Height: number;
+  /** Window thickness through wall. Defaults to host wall thickness. */
+  Thickness?: number;
+  /** Partitioning type */
+  PartitioningType?: 'SINGLE_PANEL' | 'DOUBLE_PANEL_HORIZONTAL' | 'DOUBLE_PANEL_VERTICAL' | 'TRIPLE_PANEL_HORIZONTAL' | 'NOTDEFINED';
+}
+
+/** Door: standalone world-aligned element */
 export interface DoorParams extends ElementAttributes {
-  /** Door position (in wall local space or world) */
+  /** Door position in world coordinates */
   Position: Point3D;
   /** Door width */
   Width: number;
@@ -275,9 +321,9 @@ export interface DoorParams extends ElementAttributes {
   OperationType?: 'SINGLE_SWING_LEFT' | 'SINGLE_SWING_RIGHT' | 'DOUBLE_DOOR_SINGLE_SWING' | 'DOUBLE_DOOR_SINGLE_SWING_OPPOSITE_LEFT' | 'DOUBLE_DOOR_SINGLE_SWING_OPPOSITE_RIGHT' | 'DOUBLE_SWING_LEFT' | 'DOUBLE_SWING_RIGHT' | 'DOUBLE_DOOR_DOUBLE_SWING' | 'SLIDING_TO_LEFT' | 'SLIDING_TO_RIGHT' | 'DOUBLE_DOOR_SLIDING' | 'FOLDING_TO_LEFT' | 'FOLDING_TO_RIGHT' | 'DOUBLE_DOOR_FOLDING' | 'REVOLVING' | 'ROLLINGUP' | 'SWING_FIXED_LEFT' | 'SWING_FIXED_RIGHT' | 'USERDEFINED' | 'NOTDEFINED';
 }
 
-/** Window: placed in a wall opening */
+/** Window: standalone world-aligned element */
 export interface WindowParams extends ElementAttributes {
-  /** Window position */
+  /** Window position in world coordinates */
   Position: Point3D;
   /** Window width */
   Width: number;

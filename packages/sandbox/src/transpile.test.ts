@@ -152,6 +152,44 @@ const slab = bim.create.addIfcSlab(h, s0, {
     expect(result).toMatch(/Depth\s*:\s*8/);
     expect(result).toMatch(/Thickness\s*:\s*0\.3/);
   });
+
+  it('preserves nested Placement object literals for addElement', () => {
+    const code = `
+const proxy = bim.create.addElement(h, s0, {
+  IfcType: "IFCBUILDINGELEMENTPROXY",
+  Placement: {
+    Location: [0, 0, 3],
+    Axis: [0, 0, 1],
+    RefDirection: [1, 0, 0]
+  },
+  Profile: { ProfileType: "AREA", XDim: 1, YDim: 1 },
+  Depth: 5
+});
+`;
+    const result = naiveTypeStrip(code);
+    expect(result).toMatch(/Placement\s*:\s*\{/);
+    expect(result).toMatch(/Location\s*:\s*\[0,\s*0,\s*3\]/);
+    expect(result).toMatch(/ProfileType\s*:\s*"AREA"/);
+    expect(result).toMatch(/Depth\s*:\s*5/);
+  });
+
+  it('preserves roof geometry keys in plain JavaScript', () => {
+    const code = `
+const roof = bim.create.addIfcRoof(h, s0, {
+  Position: [0, 0, 3],
+  Width: 10,
+  Depth: 8,
+  Thickness: 0.2,
+  Slope: 0.35
+});
+`;
+    const result = naiveTypeStrip(code);
+    expect(result).toMatch(/Position\s*:\s*\[0,\s*0,\s*3\]/);
+    expect(result).toMatch(/Width\s*:\s*10/);
+    expect(result).toMatch(/Depth\s*:\s*8/);
+    expect(result).toMatch(/Thickness\s*:\s*0\.2/);
+    expect(result).toMatch(/Slope\s*:\s*0\.35/);
+  });
 });
 
 describe('transpile observability', () => {
