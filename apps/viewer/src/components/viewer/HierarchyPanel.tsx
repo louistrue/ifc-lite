@@ -431,28 +431,34 @@ export function HierarchyPanel() {
   // Multi-model layout with resizable split
   // Grouping mode toggle component (shared by both layouts)
   const groupingToggle = (
-    <div className="flex w-full mt-2 h-8 shrink-0" style={{ backgroundColor: 'var(--tabs-bg)', borderBottom: '1px solid var(--tabs-border)' }}>
-      <button
-        className={`tab-trigger flex-1 min-w-0 flex items-center justify-center gap-1 rounded-none border-b-2 uppercase text-[10px] tracking-wider px-1 truncate ${groupingMode === 'spatial' ? 'border-primary font-bold' : 'border-transparent'}`}
+    <div className="flex gap-1 mt-2">
+      <Button
+        variant={groupingMode === 'spatial' ? 'default' : 'outline'}
+        size="sm"
+        className="h-6 text-[10px] flex-1 min-w-0 rounded-none uppercase tracking-wider"
         onClick={() => setGroupingMode('spatial')}
       >
-        <Building2 className="h-3 w-3 shrink-0" />
+        <Building2 className="h-3 w-3 mr-1 shrink-0" />
         <span className="truncate">Spatial</span>
-      </button>
-      <button
-        className={`tab-trigger flex-1 min-w-0 flex items-center justify-center gap-1 rounded-none border-b-2 uppercase text-[10px] tracking-wider px-1 truncate ${groupingMode === 'type' ? 'border-primary font-bold' : 'border-transparent'}`}
+      </Button>
+      <Button
+        variant={groupingMode === 'type' ? 'default' : 'outline'}
+        size="sm"
+        className="h-6 text-[10px] flex-1 min-w-0 rounded-none uppercase tracking-wider"
         onClick={() => setGroupingMode('type')}
       >
-        <Layers className="h-3 w-3 shrink-0" />
+        <Layers className="h-3 w-3 mr-1 shrink-0" />
         <span className="truncate">By Class</span>
-      </button>
-      <button
-        className={`tab-trigger flex-1 min-w-0 flex items-center justify-center gap-1 rounded-none border-b-2 uppercase text-[10px] tracking-wider px-1 truncate ${groupingMode === 'ifc-type' ? 'border-primary font-bold' : 'border-transparent'}`}
+      </Button>
+      <Button
+        variant={groupingMode === 'ifc-type' ? 'default' : 'outline'}
+        size="sm"
+        className="h-6 text-[10px] flex-1 min-w-0 rounded-none uppercase tracking-wider"
         onClick={() => setGroupingMode('ifc-type')}
       >
-        <FileBox className="h-3 w-3 shrink-0" />
+        <FileBox className="h-3 w-3 mr-1 shrink-0" />
         <span className="truncate">By Type</span>
-      </button>
+      </Button>
     </div>
   );
 
