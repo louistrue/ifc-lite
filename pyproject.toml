@@ -1,0 +1,8 @@
+[project]
+name = "ifc-lite-benchmark"
+version = "0.1.0"
+description = "Benchmark tooling for ifc-lite-headless"
+requires-python = ">=3.11"
+dependencies = [
+    "ifcopenshell>=0.8.4.post1",
+]

@@ -11,5 +11,9 @@ Cargo.lock
 # Output directory
 .out/
 
+# Python venv
+.venv/
+
 # Editor/tool local config
 .claude/settings.local.json
+docker/__pycache__/
