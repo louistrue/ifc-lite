@@ -13,6 +13,15 @@ pub struct MeshData {
     pub express_id: u32,
     /// IFC type name (e.g., "IfcWall").
     pub ifc_type: String,
+    /// IFC GlobalId (Root attribute #0) when available.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub global_id: Option<String>,
+    /// IFC Name (Root/Object attribute #2) when available.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    /// IFC presentation layer assignment name when available.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub presentation_layer: Option<String>,
     /// Vertex positions (x, y, z triplets).
     pub positions: Vec<f32>,
     /// Vertex normals (x, y, z triplets).
@@ -21,6 +30,12 @@ pub struct MeshData {
     pub indices: Vec<u32>,
     /// RGBA color [r, g, b, a] in 0-1 range.
     pub color: [f32; 4],
+    /// Optional material/style name resolved from per-item IFC styling.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub material_name: Option<String>,
+    /// Optional source geometry item id for submesh outputs.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub geometry_item_id: Option<u32>,
 }
 
 impl MeshData {
@@ -36,11 +51,40 @@ impl MeshData {
         Self {
             express_id,
             ifc_type,
+            global_id: None,
+            name: None,
+            presentation_layer: None,
             positions,
             normals,
             indices,
             color,
+            material_name: None,
+            geometry_item_id: None,
         }
+    }
+
+    /// Set element-level IFC metadata.
+    pub fn with_element_metadata(
+        mut self,
+        global_id: Option<String>,
+        name: Option<String>,
+        presentation_layer: Option<String>,
+    ) -> Self {
+        self.global_id = global_id;
+        self.name = name;
+        self.presentation_layer = presentation_layer;
+        self
+    }
+
+    /// Set material name and source geometry item id metadata.
+    pub fn with_style_metadata(
+        mut self,
+        material_name: Option<String>,
+        geometry_item_id: Option<u32>,
+    ) -> Self {
+        self.material_name = material_name;
+        self.geometry_item_id = geometry_item_id;
+        self
     }
 
     /// Get the number of vertices.

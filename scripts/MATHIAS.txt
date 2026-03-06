@@ -16,8 +16,44 @@ cd C:\Users\mass\GitHub\Linkajou\ifc-lite
 cargo build -p ifc-lite-server --release
 
 
-# Build alt
-cd C:\Users\mass\GitHub\ifc-lite\apps\server
+# Build alt + copy to linkajou
+cd C:\Users\mass\GitHub\Linkajou\ifc-lite\apps\server
 $env:MAX_FILE_SIZE_MB="2048"   # or your value
-cargo build --release
+cargo build --release -p ifc-lite-server 
+cargo build --release -p ifc-lite-ffi
+cp target/release/ifc_lite_ffi.dll ../LINK_EP.LINK_RH/tools/ifc-lite/
+cp target/release/ifc-lite-server.exe ../LINK_EP.LINK_RH/tools/ifc-lite/
+
+#evt kør server
 cargo run --release
+
+
+
+# Build + ship
+cd C:\Users\mass\GitHub\Linkajou\ifc-lite
+
+# 1. In ifc-lite repo — build the FFI DLL
+cargo build --release -p ifc-lite-ffi
+# → target/release/ifc_lite_ffi.dll
+
+# 2. Copy to Linkajou tools folder
+cp target/release/ifc_lite_ffi.dll ../LINK_EP.LINK_RH/tools/ifc-lite/
+
+# 3. (Optional) Build server with firewall fix
+cargo build --release -p ifc-lite-server
+cp target/release/ifc-lite-server.exe ../LINK_EP.LINK_RH/tools/ifc-lite/
+
+#Then build Linkajou in Visual Studio — the DLL gets copied to bin\Debug\tools\ifc-lite\ automatically.
+
+
+
+### new
+ I did not build (per your WSL rule).
+  Run in Windows PowerShell:
+
+cd Linkajou\ifc-lite
+cargo build --release -p ifc-lite-ffi
+cargo build --release -p ifc-lite-server
+
+Copy-Item .\target\release\ifc_lite_ffi.dll ..\LINK_EP.LINK_RH\tools\ifc-lite\ -Force
+Copy-Item .\target\release\ifc-lite-server.exe ..\LINK_EP.LINK_RH\tools\ifc-lite\ -Force

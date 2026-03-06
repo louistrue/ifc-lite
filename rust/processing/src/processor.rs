@@ -28,6 +28,15 @@ struct EntityJob {
     ifc_type: IfcType,
     start: usize,
     end: usize,
+    global_id: Option<String>,
+    name: Option<String>,
+    presentation_layer: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+struct GeometryStyleInfo {
+    color: [f32; 4],
+    material_name: Option<String>,
 }
 
 /// Extract entity references from a list attribute.
@@ -41,12 +50,23 @@ fn get_refs_from_list(entity: &DecodedEntity, index: usize) -> Option<Vec<u32>> 
     }
 }
 
+fn normalize_optional_string(raw: Option<&str>) -> Option<String> {
+    let value = raw?.trim();
+    if value.is_empty() || value == "$" {
+        return None;
+    }
+    Some(value.to_string())
+}
+
 /// Process IFC content with parallel geometry extraction.
 pub fn process_geometry(content: &str) -> ProcessingResult {
     let total_start = std::time::Instant::now();
     let parse_start = std::time::Instant::now();
 
-    tracing::info!(content_size = content.len(), "Starting IFC geometry processing");
+    tracing::info!(
+        content_size = content.len(),
+        "Starting IFC geometry processing"
+    );
 
     // Build entity index (fast - single pass)
     let entity_index = Arc::new(build_entity_index(content));
@@ -54,7 +74,15 @@ pub fn process_geometry(content: &str) -> ProcessingResult {
     tracing::debug!("Built entity index");
 
     // OPTIMIZATION: Build style indices in a single pass (previously two separate scans)
-    let style_index = Arc::new(build_style_indices(content, &mut decoder));
+    let geometry_style_index = Arc::new(build_geometry_style_indices(content, &mut decoder));
+    let style_index = Arc::new(build_style_indices(
+        content,
+        &mut decoder,
+        geometry_style_index.as_ref(),
+    ));
+    let presentation_layer_by_assigned_id =
+        build_presentation_layer_lookup_by_assigned_representation(content, &mut decoder);
+    let mut presentation_layer_cache_by_repr: FxHashMap<u32, Option<String>> = FxHashMap::default();
 
     // Collect geometry entities and build void index
     let mut scanner = EntityScanner::new(content);
@@ -79,12 +107,27 @@ pub fn process_geometry(content: &str) -> ProcessingResult {
 
         if ifc_lite_core::has_geometry_by_name(type_name) {
             if let Ok(entity) = decoder.decode_at(start, end) {
+                let global_id = normalize_optional_string(entity.get_string(0));
+                let name = normalize_optional_string(entity.get_string(2));
+                let presentation_layer =
+                    entity.get_ref(6).and_then(|product_definition_shape_id| {
+                        resolve_presentation_layer_for_product_definition_shape(
+                            product_definition_shape_id,
+                            &presentation_layer_by_assigned_id,
+                            &mut presentation_layer_cache_by_repr,
+                            &mut decoder,
+                        )
+                    });
+
                 entity_jobs.push(EntityJob {
                     id,
                     type_name: type_name.to_string(),
                     ifc_type: entity.ifc_type,
                     start,
                     end,
+                    global_id,
+                    name,
+                    presentation_layer,
                 });
             }
         }
@@ -126,7 +169,10 @@ pub fn process_geometry(content: &str) -> ProcessingResult {
     }
 
     let parse_time = parse_start.elapsed();
-    tracing::info!(parse_time_ms = parse_time.as_millis(), "Parse phase complete, starting geometry extraction");
+    tracing::info!(
+        parse_time_ms = parse_time.as_millis(),
+        "Parse phase complete, starting geometry extraction"
+    );
 
     // PARALLEL GEOMETRY PROCESSING
     let geometry_start = std::time::Instant::now();
@@ -138,46 +184,122 @@ pub fn process_geometry(content: &str) -> ProcessingResult {
 
     let meshes: Vec<MeshData> = entity_jobs
         .into_par_iter()
-        .filter_map(|job| {
+        .flat_map_iter(|job| {
             let mut local_decoder =
                 EntityDecoder::with_arc_index(&content_arc, entity_index_arc.clone());
 
-            if let Ok(entity) = local_decoder.decode_at(job.start, job.end) {
-                // Check if entity has representation
-                let has_representation = entity.get(6).is_some_and(|a| !a.is_null());
-                if !has_representation {
-                    return None;
-                }
+            let entity = match local_decoder.decode_at(job.start, job.end) {
+                Ok(entity) => entity,
+                Err(_) => return Vec::new(),
+            };
 
-                let local_router = GeometryRouter::with_scale_and_rtc(unit_scale, rtc_offset);
+            let has_representation = entity.get(6).is_some_and(|a| !a.is_null());
+            if !has_representation {
+                return Vec::new();
+            }
 
-                if let Ok(mut mesh) = local_router.process_element_with_voids(
-                    &entity,
-                    &mut local_decoder,
-                    void_index_arc.as_ref(),
-                ) {
-                    if !mesh.is_empty() {
-                        if mesh.normals.is_empty() {
-                            calculate_normals(&mut mesh);
-                        }
+            let local_router = GeometryRouter::with_scale_and_rtc(unit_scale, rtc_offset);
+            let global_id = job.global_id.clone();
+            let name = job.name.clone();
+            let presentation_layer = job.presentation_layer.clone();
 
-                        let color = style_index
+            // Preserve subparts for openings so frame/glass can be emitted as distinct meshes.
+            if is_opening_with_subparts(&job.ifc_type) {
+                if let Ok(sub_meshes) =
+                    local_router.process_element_with_submeshes(&entity, &mut local_decoder)
+                {
+                    if !sub_meshes.is_empty() {
+                        let mut out: Vec<MeshData> = Vec::with_capacity(sub_meshes.len());
+                        let element_color = style_index
                             .get(&job.id)
                             .copied()
                             .unwrap_or_else(|| get_default_color(&job.ifc_type));
 
-                        return Some(MeshData::new(
-                            job.id,
-                            job.ifc_type.name().to_string(),
-                            mesh.positions,
-                            mesh.normals,
-                            mesh.indices,
-                            color,
-                        ));
+                        for sub in sub_meshes.sub_meshes {
+                            let mut sub_mesh = sub.mesh;
+                            if sub_mesh.is_empty() {
+                                continue;
+                            }
+
+                            if sub_mesh.normals.is_empty() {
+                                calculate_normals(&mut sub_mesh);
+                            }
+
+                            let style = geometry_style_index.get(&sub.geometry_id);
+                            let color = style.map(|s| s.color).unwrap_or(element_color);
+                            let material_name = style
+                                .and_then(|s| s.material_name.as_ref())
+                                .map(ToString::to_string);
+                            let material_name = material_name.or_else(|| {
+                                infer_opening_subpart_material_name(
+                                    &job.ifc_type,
+                                    color,
+                                    sub.geometry_id,
+                                )
+                            });
+
+                            out.push(
+                                MeshData::new(
+                                    job.id,
+                                    job.ifc_type.name().to_string(),
+                                    sub_mesh.positions,
+                                    sub_mesh.normals,
+                                    sub_mesh.indices,
+                                    color,
+                                )
+                                .with_element_metadata(
+                                    global_id.clone(),
+                                    name.clone(),
+                                    presentation_layer.clone(),
+                                )
+                                .with_style_metadata(material_name, Some(sub.geometry_id)),
+                            );
+                        }
+
+                        if !out.is_empty() {
+                            return out;
+                        }
                     }
                 }
             }
-            None
+
+            let mut mesh_candidate = local_router
+                .process_element_with_voids(&entity, &mut local_decoder, void_index_arc.as_ref())
+                .ok();
+            let needs_fallback = match mesh_candidate.as_ref() {
+                Some(mesh) => mesh.is_empty(),
+                None => true,
+            };
+            if needs_fallback {
+                mesh_candidate = local_router
+                    .process_element(&entity, &mut local_decoder)
+                    .ok();
+            }
+
+            if let Some(mut mesh) = mesh_candidate {
+                if !mesh.is_empty() {
+                    if mesh.normals.is_empty() {
+                        calculate_normals(&mut mesh);
+                    }
+
+                    let color = style_index
+                        .get(&job.id)
+                        .copied()
+                        .unwrap_or_else(|| get_default_color(&job.ifc_type));
+
+                    return vec![MeshData::new(
+                        job.id,
+                        job.ifc_type.name().to_string(),
+                        mesh.positions,
+                        mesh.normals,
+                        mesh.indices,
+                        color,
+                    )
+                    .with_element_metadata(global_id, name, presentation_layer)];
+                }
+            }
+
+            Vec::new()
         })
         .collect();
 
@@ -205,7 +327,9 @@ pub fn process_geometry(content: &str) -> ProcessingResult {
             geometry_entity_count,
             coordinate_info: CoordinateInfo {
                 origin_shift: [rtc_offset.0, rtc_offset.1, rtc_offset.2],
-                is_geo_referenced: rtc_offset.0 != 0.0 || rtc_offset.1 != 0.0 || rtc_offset.2 != 0.0,
+                is_geo_referenced: rtc_offset.0 != 0.0
+                    || rtc_offset.1 != 0.0
+                    || rtc_offset.2 != 0.0,
             },
         },
         stats: ProcessingStats {
@@ -226,27 +350,14 @@ pub fn process_geometry(content: &str) -> ProcessingResult {
 fn build_style_indices(
     content: &str,
     decoder: &mut EntityDecoder,
+    geometry_style_index: &FxHashMap<u32, GeometryStyleInfo>,
 ) -> FxHashMap<u32, [f32; 4]> {
-    // Phase 1: Single scan to collect styled items and geometry-bearing elements
-    let mut geometry_styles: FxHashMap<u32, [f32; 4]> = FxHashMap::default();
+    // Collect geometry-bearing element representation IDs
     let mut element_repr_ids: Vec<(u32, u32)> = Vec::with_capacity(2000); // (element_id, repr_id)
     let mut scanner = EntityScanner::new(content);
 
     while let Some((id, type_name, start, end)) = scanner.next_entity() {
-        // Collect IfcStyledItem data
-        if type_name == "IFCSTYLEDITEM" {
-            if let Ok(styled_item) = decoder.decode_at(start, end) {
-                if let Some(geometry_id) = styled_item.get_ref(0) {
-                    if !geometry_styles.contains_key(&geometry_id) {
-                        if let Some(color) = extract_color_from_styled_item(&styled_item, decoder) {
-                            geometry_styles.insert(geometry_id, color);
-                        }
-                    }
-                }
-            }
-        }
-        // Collect geometry-bearing element representation IDs
-        else if ifc_lite_core::has_geometry_by_name(type_name) {
+        if ifc_lite_core::has_geometry_by_name(type_name) {
             if let Ok(element) = decoder.decode_at(start, end) {
                 if let Some(repr_id) = element.get_ref(6) {
                     element_repr_ids.push((id, repr_id));
@@ -258,7 +369,7 @@ fn build_style_indices(
     // Phase 2: Build element style index using collected data (no re-scan needed)
     let mut element_styles: FxHashMap<u32, [f32; 4]> = FxHashMap::default();
     for (element_id, repr_id) in element_repr_ids {
-        if let Some(color) = find_color_in_representation(repr_id, &geometry_styles, decoder) {
+        if let Some(color) = find_color_in_representation(repr_id, geometry_style_index, decoder) {
             element_styles.insert(element_id, color);
         }
     }
@@ -266,10 +377,165 @@ fn build_style_indices(
     element_styles
 }
 
+/// Build per-geometry-item style info (color + material/style name).
+fn build_geometry_style_indices(
+    content: &str,
+    decoder: &mut EntityDecoder,
+) -> FxHashMap<u32, GeometryStyleInfo> {
+    let mut geometry_styles: FxHashMap<u32, GeometryStyleInfo> = FxHashMap::default();
+    let mut scanner = EntityScanner::new(content);
+
+    while let Some((_, type_name, start, end)) = scanner.next_entity() {
+        if type_name != "IFCSTYLEDITEM" {
+            continue;
+        }
+
+        if let Ok(styled_item) = decoder.decode_at(start, end) {
+            if let Some(geometry_id) = styled_item.get_ref(0) {
+                if geometry_styles.contains_key(&geometry_id) {
+                    continue;
+                }
+
+                if let Some(style_info) = extract_style_info_from_styled_item(&styled_item, decoder)
+                {
+                    geometry_styles.insert(geometry_id, style_info);
+                }
+            }
+        }
+    }
+
+    geometry_styles
+}
+
+/// Build a lookup from assigned representation/item id -> presentation layer name.
+fn build_presentation_layer_lookup_by_assigned_representation(
+    content: &str,
+    decoder: &mut EntityDecoder,
+) -> FxHashMap<u32, String> {
+    let mut layer_by_assigned_representation: FxHashMap<u32, String> = FxHashMap::default();
+    let mut scanner = EntityScanner::new(content);
+
+    while let Some((_, type_name, start, end)) = scanner.next_entity() {
+        if type_name != "IFCPRESENTATIONLAYERASSIGNMENT" {
+            continue;
+        }
+
+        let Ok(layer_assignment) = decoder.decode_at(start, end) else {
+            continue;
+        };
+
+        let Some(layer_name) = normalize_optional_string(layer_assignment.get_string(0)) else {
+            continue;
+        };
+
+        let Some(assigned_items) = get_refs_from_list(&layer_assignment, 2) else {
+            continue;
+        };
+
+        for assigned in assigned_items {
+            layer_by_assigned_representation
+                .entry(assigned)
+                .or_insert_with(|| layer_name.clone());
+        }
+    }
+
+    layer_by_assigned_representation
+}
+
+fn resolve_presentation_layer_for_product_definition_shape(
+    product_definition_shape_id: u32,
+    layer_by_assigned_representation: &FxHashMap<u32, String>,
+    cache_by_representation: &mut FxHashMap<u32, Option<String>>,
+    decoder: &mut EntityDecoder,
+) -> Option<String> {
+    if let Some(layer_name) = layer_by_assigned_representation.get(&product_definition_shape_id) {
+        return Some(layer_name.clone());
+    }
+
+    let product_definition_shape = decoder.decode_by_id(product_definition_shape_id).ok()?;
+    let representation_ids = get_refs_from_list(&product_definition_shape, 2)?;
+
+    for representation_id in representation_ids {
+        if let Some(layer_name) = resolve_presentation_layer_name(
+            representation_id,
+            layer_by_assigned_representation,
+            cache_by_representation,
+            decoder,
+            &mut Vec::new(),
+        ) {
+            return Some(layer_name);
+        }
+    }
+
+    None
+}
+
+fn resolve_presentation_layer_name(
+    representation_id: u32,
+    layer_by_assigned_representation: &FxHashMap<u32, String>,
+    cache_by_representation: &mut FxHashMap<u32, Option<String>>,
+    decoder: &mut EntityDecoder,
+    traversal_stack: &mut Vec<u32>,
+) -> Option<String> {
+    if let Some(cached) = cache_by_representation.get(&representation_id) {
+        return cached.clone();
+    }
+
+    if traversal_stack.contains(&representation_id) {
+        return None;
+    }
+    traversal_stack.push(representation_id);
+
+    if let Some(layer_name) = layer_by_assigned_representation.get(&representation_id) {
+        let result = Some(layer_name.clone());
+        cache_by_representation.insert(representation_id, result.clone());
+        traversal_stack.pop();
+        return result;
+    }
+
+    let mut resolved: Option<String> = None;
+
+    if let Ok(representation) = decoder.decode_by_id(representation_id) {
+        if let Some(items) = get_refs_from_list(&representation, 3) {
+            for item_id in items {
+                if let Some(layer_name) = layer_by_assigned_representation.get(&item_id) {
+                    resolved = Some(layer_name.clone());
+                    break;
+                }
+
+                if let Ok(item) = decoder.decode_by_id(item_id) {
+                    if item.ifc_type == IfcType::IfcMappedItem {
+                        if let Some(mapping_source_id) = item.get_ref(0) {
+                            if let Ok(mapping_source) = decoder.decode_by_id(mapping_source_id) {
+                                if let Some(mapped_representation_id) = mapping_source.get_ref(1) {
+                                    if let Some(layer_name) = resolve_presentation_layer_name(
+                                        mapped_representation_id,
+                                        layer_by_assigned_representation,
+                                        cache_by_representation,
+                                        decoder,
+                                        traversal_stack,
+                                    ) {
+                                        resolved = Some(layer_name);
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    traversal_stack.pop();
+    cache_by_representation.insert(representation_id, resolved.clone());
+    resolved
+}
+
 /// Find a color in a representation by traversing its items.
 fn find_color_in_representation(
     repr_id: u32,
-    geometry_styles: &FxHashMap<u32, [f32; 4]>,
+    geometry_styles: &FxHashMap<u32, GeometryStyleInfo>,
     decoder: &mut EntityDecoder,
 ) -> Option<[f32; 4]> {
     // Decode the IfcProductDefinitionShape
@@ -284,8 +550,8 @@ fn find_color_in_representation(
             if let Some(items) = get_refs_from_list(&shape_repr, 3) {
                 for item_id in items {
                     // Check direct style
-                    if let Some(color) = geometry_styles.get(&item_id) {
-                        return Some(*color);
+                    if let Some(style) = geometry_styles.get(&item_id) {
+                        return Some(style.color);
                     }
 
                     // Check mapped items
@@ -317,15 +583,15 @@ fn find_color_in_representation(
 /// Find color in a shape representation.
 fn find_color_in_shape_representation(
     repr_id: u32,
-    geometry_styles: &FxHashMap<u32, [f32; 4]>,
+    geometry_styles: &FxHashMap<u32, GeometryStyleInfo>,
     decoder: &mut EntityDecoder,
 ) -> Option<[f32; 4]> {
     let repr = decoder.decode_by_id(repr_id).ok()?;
     let items = get_refs_from_list(&repr, 3)?;
 
     for item_id in items {
-        if let Some(color) = geometry_styles.get(&item_id) {
-            return Some(*color);
+        if let Some(style) = geometry_styles.get(&item_id) {
+            return Some(style.color);
         }
     }
 
@@ -333,26 +599,26 @@ fn find_color_in_shape_representation(
 }
 
 /// Extract color from an IfcStyledItem by traversing style references.
-fn extract_color_from_styled_item(
+fn extract_style_info_from_styled_item(
     styled_item: &DecodedEntity,
     decoder: &mut EntityDecoder,
-) -> Option<[f32; 4]> {
-    // Attribute 1: Styles (list of style refs)
+) -> Option<GeometryStyleInfo> {
     let style_refs = get_refs_from_list(styled_item, 1)?;
 
     for style_id in style_refs {
         if let Ok(style) = decoder.decode_by_id(style_id) {
-            // IfcPresentationStyleAssignment has Styles at attr 0
+            // IfcPresentationStyleAssignment has nested style refs at attr 0.
             if let Some(inner_refs) = get_refs_from_list(&style, 0) {
                 for inner_id in inner_refs {
-                    if let Some(color) = extract_surface_style_color(inner_id, decoder) {
-                        return Some(color);
+                    if let Some(info) = extract_surface_style_info(inner_id, decoder) {
+                        return Some(info);
                     }
                 }
             }
-            // Or it might be IfcSurfaceStyle directly
-            if let Some(color) = extract_surface_style_color(style_id, decoder) {
-                return Some(color);
+
+            // Or the style ref points directly to IfcSurfaceStyle.
+            if let Some(info) = extract_surface_style_info(style_id, decoder) {
+                return Some(info);
             }
         }
     }
@@ -360,9 +626,13 @@ fn extract_color_from_styled_item(
     None
 }
 
-/// Extract color from an IfcSurfaceStyle.
-fn extract_surface_style_color(style_id: u32, decoder: &mut EntityDecoder) -> Option<[f32; 4]> {
+/// Extract color + style name from an IfcSurfaceStyle.
+fn extract_surface_style_info(
+    style_id: u32,
+    decoder: &mut EntityDecoder,
+) -> Option<GeometryStyleInfo> {
     let style = decoder.decode_by_id(style_id).ok()?;
+    let material_name = normalize_style_name(style.get_string(0));
 
     // IfcSurfaceStyle: Attr 2 = Styles (list of rendering styles)
     let rendering_refs = get_refs_from_list(&style, 2)?;
@@ -377,19 +647,71 @@ fn extract_surface_style_color(style_id: u32, decoder: &mut EntityDecoder) -> Op
                     let g = color.get_float(2).unwrap_or(0.8) as f32;
                     let b = color.get_float(3).unwrap_or(0.8) as f32;
 
-                    // Check for transparency (Attr 1 in IfcSurfaceStyleShading, inherited by IfcSurfaceStyleRendering)
-                    // Transparency: 0.0 = opaque, 1.0 = fully transparent
-                    // Alpha: 1.0 = opaque, 0.0 = fully transparent
-                    // So: alpha = 1.0 - transparency
+                    // Transparency: 0.0 = opaque, 1.0 = transparent
                     let alpha: f32 = 1.0 - rendering.get_float(1).unwrap_or(0.0) as f32;
 
-                    return Some([r, g, b, alpha.max(0.0).min(1.0)]);
+                    return Some(GeometryStyleInfo {
+                        color: [r, g, b, alpha.max(0.0).min(1.0)],
+                        material_name: material_name.clone(),
+                    });
                 }
             }
         }
     }
 
     None
+}
+
+fn normalize_style_name(raw: Option<&str>) -> Option<String> {
+    let name = raw?.trim();
+    if name.is_empty() || name == "$" {
+        return None;
+    }
+
+    if name.eq_ignore_ascii_case("<unnamed>") || name.eq_ignore_ascii_case("unnamed") {
+        return None;
+    }
+
+    Some(name.to_string())
+}
+
+/// Extract color from an IfcStyledItem by traversing style references.
+fn extract_color_from_styled_item(
+    styled_item: &DecodedEntity,
+    decoder: &mut EntityDecoder,
+) -> Option<[f32; 4]> {
+    extract_style_info_from_styled_item(styled_item, decoder).map(|s| s.color)
+}
+
+/// Extract color from an IfcSurfaceStyle.
+fn extract_surface_style_color(style_id: u32, decoder: &mut EntityDecoder) -> Option<[f32; 4]> {
+    extract_surface_style_info(style_id, decoder).map(|s| s.color)
+}
+
+fn is_opening_with_subparts(ifc_type: &IfcType) -> bool {
+    matches!(ifc_type, IfcType::IfcWindow | IfcType::IfcDoor)
+}
+
+fn infer_opening_subpart_material_name(
+    ifc_type: &IfcType,
+    color: [f32; 4],
+    geometry_id: u32,
+) -> Option<String> {
+    if !is_opening_with_subparts(ifc_type) {
+        return None;
+    }
+
+    let prefix = match ifc_type {
+        IfcType::IfcDoor => "Door",
+        _ => "Window",
+    };
+
+    // Transparency is a practical proxy for glazing in many BIM exports.
+    if color[3] <= 0.65 {
+        return Some(format!("{}_Glass", prefix));
+    }
+
+    Some(format!("{}_Frame_{}", prefix, geometry_id))
 }
 
 /// Get default color based on IFC type.
