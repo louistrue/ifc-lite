@@ -93,6 +93,7 @@ export const ExecutableCodeBlock = memo(function ExecutableCodeBlock({
 }: ExecutableCodeBlockProps) {
   const { execute } = useSandbox();
   const setCodeExecResult = useViewerStore((s) => s.setCodeExecResult);
+  const setScriptError = useViewerStore((s) => s.setScriptError);
   const [copied, setCopied] = useState(false);
   const [consoleOpen, setConsoleOpen] = useState(true);
   const consoleEndRef = useRef<HTMLDivElement>(null);
@@ -174,18 +175,30 @@ export const ExecutableCodeBlock = memo(function ExecutableCodeBlock({
       type: 'replaceSelection',
       baseRevision: state.scriptEditorRevision,
       text: block.code,
-    }]);
+    }], {
+      intent: 'create',
+    });
     if (!applyResult.ok) {
-      state.replaceScriptContentFallback(block.code);
+      setScriptError(applyResult.error ?? 'Could not apply code block to the current selection.', applyResult.diagnostic ? [applyResult.diagnostic] : []);
+      return;
     }
+    setScriptError(null);
     state.setScriptPanelVisible(true);
-  }, [block.code]);
+  }, [block.code, setScriptError]);
 
   const handleReplaceAllInEditor = useCallback(() => {
     const state = useViewerStore.getState();
-    state.replaceScriptContentFallback(block.code);
+    const applyResult = state.replaceScriptContentFallback(block.code, {
+      intent: 'explicit_rewrite',
+      source: 'manual_replace_all',
+    });
+    if (!applyResult.ok) {
+      setScriptError(applyResult.error ?? 'Could not replace the script with this code block.', applyResult.diagnostic ? [applyResult.diagnostic] : []);
+      return;
+    }
+    setScriptError(null);
     state.setScriptPanelVisible(true);
-  }, [block.code]);
+  }, [block.code, setScriptError]);
 
   const handleFixError = useCallback(() => {
     if (result?.status === 'error' && result.error && onFixError) {

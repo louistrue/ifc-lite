@@ -219,7 +219,12 @@ export function ScriptPanel({ onClose }: ScriptPanelProps) {
   const handleFixWithLlm = useCallback(() => {
     if (!lastError) return;
     setChatPanelVisible(true);
-    queueChatPrompt(buildErrorFeedbackContent(editorContent, lastError));
+    const state = useViewerStore.getState();
+    queueChatPrompt(buildErrorFeedbackContent(editorContent, lastError, {
+      diagnostics: state.scriptLastDiagnostics,
+      currentRevision: state.scriptEditorRevision,
+      reason: lastError.startsWith('Preflight validation failed:') ? 'preflight' : 'runtime',
+    }));
   }, [editorContent, lastError, queueChatPrompt, setChatPanelVisible]);
 
   const toggleChat = useCallback(() => {

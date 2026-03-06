@@ -6,6 +6,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { NAMESPACE_SCHEMAS } from '@ifc-lite/sandbox/schema';
 import { buildSystemPrompt } from './system-prompt.js';
+import { createPatchDiagnostic } from './script-diagnostics.js';
 
 test('system prompt includes all schema namespaces and methods', () => {
   const prompt = buildSystemPrompt();
@@ -35,6 +36,10 @@ test('system prompt includes script editor revision context when provided', () =
   assert.match(prompt, /Current script revision:\s+42/);
   assert.match(prompt, /Current selection:\s+from=6, to=7/);
   assert.match(prompt, /```ifc-script-edits/);
+  assert.match(prompt, /prefer `replaceSelection` or `replaceRange` over `replaceAll`/);
+  assert.match(prompt, /Do NOT use `replaceAll` for repair turns unless the user explicitly asked to regenerate the full script/);
+  assert.match(prompt, /For create or explicit rewrite turns, wrap runnable code in a ```js``` fence\. For repair turns, return exactly one ```ifc-script-edits``` fence and no ```js``` fence\./);
+  assert.match(prompt, /Do NOT answer with a detached snippet/);
 });
 
 test('system prompt includes storey hierarchy context when provided', () => {
@@ -97,4 +102,34 @@ test('system prompt includes method-specific create contract guidance', () => {
   assert.match(prompt, /addElement.*Use `IfcType`, `Placement:/s);
   assert.match(prompt, /Use `IfcType` not `Type`; use `Placement` not `Position`/);
   assert.match(prompt, /Many advanced methods are world-placement based/);
+  assert.match(prompt, /addIfcPlate.*`Position`, `Width`, `Depth`, `Thickness`/);
+  assert.match(prompt, /Mixed façade scripts often combine both/);
+  assert.match(prompt, /world-placement calls should usually use `elevation`.*`Start`.*`End`.*`Position`/s);
+  assert.match(prompt, /const elevation = i \* storeyHeight;/);
+  assert.match(prompt, /When a fix targets an existing script, preserve the project handle, storey handles, loop variables/);
+  assert.match(prompt, /If a previous repair was rejected for losing context, keep the full building script intact/);
+  assert.match(prompt, /If façade elements stack on the ground floor/);
+});
+
+test('system prompt adapts task focus for repair turns', () => {
+  const prompt = buildSystemPrompt(undefined, undefined, {
+    content: 'const wall = bim.create.addIfcWall(h, storey, { Start: [0,0,0] });',
+    revision: 7,
+    selection: { from: 0, to: 0 },
+  }, {
+    userPrompt: 'fix the revision conflict and keep the current script',
+    diagnostics: [
+      createPatchDiagnostic(
+        'patch_revision_conflict',
+        'Edit ops targeted revision 3 but the current editor revision is 4.',
+        'error',
+        { attemptedOpIds: ['declare-width-depth'] },
+      ),
+    ],
+  });
+
+  assert.match(prompt, /## CURRENT TASK FOCUS/);
+  assert.match(prompt, /Primary intent: `repair`/);
+  assert.match(prompt, /For repair turns, answer with patch ops only and do not include a full runnable script fence/);
+  assert.match(prompt, /\[patch:patch_revision_conflict\] Edit ops targeted revision 3 but the current editor revision is 4/);
 });

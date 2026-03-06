@@ -100,6 +100,18 @@ function isProductType(type: string): boolean {
   return true;
 }
 
+function normalizePropertyValue(value: unknown): string | number | boolean | null {
+  if (value == null) return null;
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+    return value;
+  }
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
 export function createQueryAdapter(store: StoreApi): QueryBackendMethods {
   function getEntityData(ref: EntityRef): EntityData | null {
     const state = store.getState();
@@ -175,7 +187,21 @@ export function createQueryAdapter(store: StoreApi): QueryBackendMethods {
     const state = store.getState();
     const model = getModelForRef(state, ref.modelId);
     if (!model?.ifcDataStore) return null;
-    return extractTypePropertiesOnDemand(model.ifcDataStore, ref.expressId);
+    const info = extractTypePropertiesOnDemand(model.ifcDataStore, ref.expressId);
+    if (!info) return null;
+    return {
+      typeName: info.typeName,
+      typeId: info.typeId,
+      properties: info.properties.map((pset) => ({
+        name: pset.name,
+        globalId: pset.globalId,
+        properties: pset.properties.map((prop) => ({
+          name: prop.name,
+          type: prop.type,
+          value: normalizePropertyValue(prop.value),
+        })),
+      })),
+    };
   }
 
   function getDocuments(ref: EntityRef): DocumentData[] {

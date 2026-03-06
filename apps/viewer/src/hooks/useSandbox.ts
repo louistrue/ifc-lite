@@ -14,7 +14,12 @@ import { useCallback, useEffect, useRef } from 'react';
 import { useBim } from '../sdk/BimProvider.js';
 import { useViewerStore } from '../store/index.js';
 import type { Sandbox, ScriptResult, SandboxConfig } from '@ifc-lite/sandbox';
-import { validateScriptPreflight } from '../lib/llm/script-preflight.js';
+import { validateScriptPreflightDetailed } from '../lib/llm/script-preflight.js';
+import {
+  createRuntimeDiagnostic,
+  formatDiagnosticsForDisplay,
+  type RuntimeScriptDiagnostic,
+} from '../lib/llm/script-diagnostics.js';
 
 /** Type guard for ScriptError shape (has logs + durationMs) */
 function isScriptError(err: unknown): err is { message: string; logs: Array<{ level: string; args: unknown[]; timestamp: number }>; durationMs: number } {
@@ -28,21 +33,75 @@ function isScriptError(err: unknown): err is { message: string; logs: Array<{ le
   );
 }
 
-function augmentScriptErrorMessage(message: string): string {
+function augmentScriptError(message: string, code?: string): { message: string; diagnostics: RuntimeScriptDiagnostic[] } {
   const lower = message.toLowerCase();
+  const source = code ?? '';
+  const missingIdent = /['"]([A-Za-z_]\w*)['"] is not defined/i.exec(message)?.[1];
+  const looksDetachedFacadeSnippet = /\bbim\.create\.[A-Za-z]+\(\s*h\s*,/.test(source)
+    && !/\b(?:const|let|var)\s+h\b/.test(source)
+    && !/bim\.create\.project\(/.test(source);
+  const looksWorldFacadeScript = /\bbim\.create\.(addIfcCurtainWall|addIfcMember|addIfcPlate)\(/.test(source)
+    && /\baddIfcBuildingStorey\(/.test(source)
+    && /\bconst\s+elevation\b|\bz\s*=/.test(source);
+
   if (lower.includes(`can't access property "location", placement is undefined`)) {
-    return `${message}\nLikely cause: a generic \`bim.create.addElement(...)\` payload is using \`Position\` or missing \`Placement.Location\`. Use \`Placement: { Location: [x, y, z] }\` and \`Depth\`.`;
+    const diagnostic = createRuntimeDiagnostic(
+      'generic_placement_contract',
+      'Likely cause: a generic `bim.create.addElement(...)` payload is using `Position` or missing `Placement.Location`. Use `Placement: { Location: [x, y, z] }` and `Depth`.',
+      'error',
+      { methodName: 'addElement', symbol: 'Placement.Location', fixHint: 'Use `Placement: { Location: [...] }` and include `Depth`.' },
+    );
+    return { message: `${message}\n${diagnostic.message}`, diagnostics: [diagnostic] };
   }
   if (lower.includes(`can't access property "tostring", v is undefined`)) {
-    return `${message}\nLikely cause: a required numeric geometry field is missing or undefined (commonly \`Elevation\`, \`Width\`, \`Depth\`, \`Height\`, or \`Thickness\`). Re-check the exact required keys for the create method you called.`;
+    if (/\bbim\.create\.addIfcPlate\(/.test(source) && /\bHeight\s*:/.test(source) && !/\bDepth\s*:/.test(source)) {
+      const diagnostic = createRuntimeDiagnostic(
+        'plate_contract_mismatch',
+        'Likely cause: `bim.create.addIfcPlate(...)` was given slab-style keys. Re-check the plate contract and use `Position`, `Width`, `Depth`, and `Thickness` instead of `Height`.',
+        'error',
+        { methodName: 'addIfcPlate', symbol: 'Height', fixHint: 'Use `Position`, `Width`, `Depth`, and `Thickness` for plates.' },
+      );
+      return { message: `${message}\n${diagnostic.message}`, diagnostics: [diagnostic] };
+    }
+    if (looksWorldFacadeScript) {
+      const diagnostic = createRuntimeDiagnostic(
+        'world_placement_elevation',
+        'Likely cause: a world-placement facade method (such as `addIfcCurtainWall(...)`, `addIfcMember(...)`, or `addIfcPlate(...)`) is missing the current storey elevation in its Z coordinates. These methods do not inherit storey-relative Z automatically.',
+        'error',
+        { failureKind: 'world_placement', fixHint: 'Include the current storey elevation in `Start`, `End`, or `Position` Z coordinates.' },
+      );
+      return { message: `${message}\n${diagnostic.message}`, diagnostics: [diagnostic] };
+    }
+    return {
+      message: `${message}\nLikely cause: a required numeric geometry field is missing or undefined (commonly \`Elevation\`, \`Width\`, \`Depth\`, \`Height\`, or \`Thickness\`). Re-check the exact required keys for the create method you called.`,
+      diagnostics: [],
+    };
   }
   if (lower.includes(`'position' is not defined`) || lower.includes(`"position" is not defined`)) {
-    return `${message}\nLikely cause: the script contains a malformed BIM object literal or transpilation fallback corrupted a plain JS key like \`Position: [...]\`. Re-send the exact object with explicit key-value pairs.`;
+    return {
+      message: `${message}\nLikely cause: the script contains a malformed BIM object literal or transpilation fallback corrupted a plain JS key like \`Position: [...]\`. Re-send the exact object with explicit key-value pairs.`,
+      diagnostics: [],
+    };
+  }
+  if (missingIdent && ['h', 'storey', 'width', 'depth', 'i', 'z'].includes(missingIdent) && looksDetachedFacadeSnippet) {
+    const diagnostic = createRuntimeDiagnostic(
+      'detached_snippet_scope',
+      `Likely cause: the fix replaced the full script with a detached fragment that still depends on outer variables like \`${missingIdent}\`. Preserve the surrounding project/storey/loop context and patch the existing script in place.`,
+      'error',
+      { symbol: missingIdent, failureKind: 'detached_snippet', fixHint: 'Patch the existing script instead of returning a smaller fragment.' },
+    );
+    return { message: `${message}\n${diagnostic.message}`, diagnostics: [diagnostic] };
   }
   if (lower.includes('rotated') && lower.includes('window') && lower.includes('wall')) {
-    return `${message}\nLikely cause: a standalone \`bim.create.addIfcWindow(...)\` was used where a wall-hosted insert was needed. Use \`bim.create.addIfcWallWindow(...)\` or wall \`Openings\` for wall-aligned placement.`;
+    const diagnostic = createRuntimeDiagnostic(
+      'wall_hosted_opening_alignment',
+      'Likely cause: a standalone `bim.create.addIfcWindow(...)` was used where a wall-hosted insert was needed. Use `bim.create.addIfcWallWindow(...)` or wall `Openings` for wall-aligned placement.',
+      'error',
+      { methodName: 'addIfcWindow', fixHint: 'Use `addIfcWallWindow(...)` or wall `Openings` for wall-aligned placement.' },
+    );
+    return { message: `${message}\n${diagnostic.message}`, diagnostics: [diagnostic] };
   }
-  return message;
+  return { message, diagnostics: [] };
 }
 
 /**
@@ -59,16 +118,20 @@ export function useSandbox(config?: SandboxConfig) {
   const setExecutionState = useViewerStore((s) => s.setScriptExecutionState);
   const setResult = useViewerStore((s) => s.setScriptResult);
   const setError = useViewerStore((s) => s.setScriptError);
+  const setDiagnostics = useViewerStore((s) => s.setScriptDiagnostics);
 
   /** Execute a script in an isolated sandbox context */
   const execute = useCallback(async (code: string): Promise<ScriptResult | null> => {
     setExecutionState('running');
     setError(null);
+    setDiagnostics([]);
 
-    const preflightErrors = validateScriptPreflight(code);
-    if (preflightErrors.length > 0) {
+    const preflightDiagnostics = validateScriptPreflightDetailed(code);
+    if (preflightDiagnostics.length > 0) {
+      const preflightErrors = formatDiagnosticsForDisplay(preflightDiagnostics);
       setError(
         `Preflight validation failed:\n${preflightErrors.map((e) => `- ${e}`).join('\n')}`,
+        preflightDiagnostics,
       );
       return null;
     }
@@ -91,7 +154,7 @@ export function useSandbox(config?: SandboxConfig) {
       });
       return result;
     } catch (err: unknown) {
-      const message = augmentScriptErrorMessage(err instanceof Error ? err.message : String(err));
+      const runtime = augmentScriptError(err instanceof Error ? err.message : String(err), code);
 
       // If the error is a ScriptError with captured logs, preserve them.
       // Important: setError must run AFTER setResult, because setResult clears
@@ -103,7 +166,7 @@ export function useSandbox(config?: SandboxConfig) {
           durationMs: err.durationMs,
         });
       }
-      setError(message);
+      setError(runtime.message, runtime.diagnostics);
       return null;
     } finally {
       // Always dispose the sandbox after execution
@@ -114,7 +177,7 @@ export function useSandbox(config?: SandboxConfig) {
         activeSandboxRef.current = null;
       }
     }
-  }, [bim, config?.permissions, config?.limits, setExecutionState, setResult, setError]);
+  }, [bim, config?.permissions, config?.limits, setDiagnostics, setExecutionState, setResult, setError]);
 
   /** Reset clears any active sandbox (no-op if none running) */
   const reset = useCallback(() => {
@@ -125,7 +188,8 @@ export function useSandbox(config?: SandboxConfig) {
     setExecutionState('idle');
     setResult(null);
     setError(null);
-  }, [setExecutionState, setResult, setError]);
+    setDiagnostics([]);
+  }, [setDiagnostics, setExecutionState, setResult, setError]);
 
   // Cleanup on unmount
   useEffect(() => {

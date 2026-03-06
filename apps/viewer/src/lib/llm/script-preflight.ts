@@ -3,6 +3,11 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 import { NAMESPACE_SCHEMAS } from '@ifc-lite/sandbox/schema';
+import {
+  createPreflightDiagnostic,
+  formatDiagnosticsForDisplay,
+  type PreflightScriptDiagnostic,
+} from './script-diagnostics.js';
 
 interface MethodRule {
   required: string[];
@@ -14,148 +19,52 @@ interface MethodRule {
   custom?: (body: string) => string[];
 }
 
-const METHOD_RULES: Record<string, MethodRule> = {
-  addIfcBuildingStorey: {
-    required: ['Elevation'],
-  },
-  addIfcWall: {
-    required: ['Start', 'End', 'Thickness', 'Height'],
-    positiveKeys: ['Thickness', 'Height'],
-    pointArity: { Start: 3, End: 3 },
-    axisPair: ['Start', 'End'],
-  },
-  addIfcSlab: {
-    required: ['Position', 'Thickness'],
-    anyOf: [['Profile'], ['Width', 'Depth']],
-    positiveKeys: ['Thickness', 'Width', 'Depth'],
-    pointArity: { Position: 3 },
-    custom: validateSlabShape,
-  },
-  addIfcColumn: {
-    required: ['Position', 'Width', 'Depth', 'Height'],
-    positiveKeys: ['Width', 'Depth', 'Height'],
-    pointArity: { Position: 3 },
-  },
-  addIfcBeam: {
-    required: ['Start', 'End', 'Width', 'Height'],
-    positiveKeys: ['Width', 'Height'],
-    pointArity: { Start: 3, End: 3 },
-    axisPair: ['Start', 'End'],
-  },
-  addIfcMember: {
-    required: ['Start', 'End', 'Width', 'Height'],
-    positiveKeys: ['Width', 'Height'],
-    pointArity: { Start: 3, End: 3 },
-    axisPair: ['Start', 'End'],
-  },
-  addIfcCurtainWall: {
-    required: ['Start', 'End', 'Height'],
-    positiveKeys: ['Height', 'Thickness'],
-    pointArity: { Start: 3, End: 3 },
-    axisPair: ['Start', 'End'],
-  },
-  addIfcRailing: {
-    required: ['Start', 'End', 'Height'],
-    positiveKeys: ['Height', 'Width'],
-    pointArity: { Start: 3, End: 3 },
-    axisPair: ['Start', 'End'],
-  },
-  addIfcStair: {
-    required: ['Position', 'NumberOfRisers', 'RiserHeight', 'TreadLength', 'Width'],
-    positiveKeys: ['NumberOfRisers', 'RiserHeight', 'TreadLength', 'Width'],
-    pointArity: { Position: 3 },
-  },
-  addIfcRoof: {
-    required: ['Position', 'Width', 'Depth', 'Thickness'],
-    positiveKeys: ['Width', 'Depth', 'Thickness', 'Slope'],
-    pointArity: { Position: 3 },
-    forbidKeys: [
-      { key: 'Profile', message: '`bim.create.addIfcRoof(...)` does not support `Profile`. Use `Position`, `Width`, `Depth`, `Thickness`, and optional `Slope`.' },
-      { key: 'ExtrusionHeight', message: '`bim.create.addIfcRoof(...)` uses `Depth`, not `ExtrusionHeight`.' },
-      { key: 'Height', message: '`bim.create.addIfcRoof(...)` uses `Thickness` and `Depth`, not `Height`.' },
-      { key: 'Overhang', message: '`bim.create.addIfcRoof(...)` does not support `Overhang`. Use `addIfcGableRoof(...)` for a house-style roof with pitch and overhang.' },
-    ],
-    custom: (body) => validateRoofShape('addIfcRoof', body),
-  },
-  addIfcGableRoof: {
-    required: ['Position', 'Width', 'Depth', 'Thickness', 'Slope'],
-    positiveKeys: ['Width', 'Depth', 'Thickness', 'Slope'],
-    pointArity: { Position: 3 },
-    forbidKeys: [
-      { key: 'Profile', message: '`bim.create.addIfcGableRoof(...)` does not support `Profile`. Use `Position`, `Width`, `Depth`, `Thickness`, `Slope`, and optional `Overhang`.' },
-      { key: 'ExtrusionHeight', message: '`bim.create.addIfcGableRoof(...)` uses `Thickness`, not `ExtrusionHeight`.' },
-      { key: 'Height', message: '`bim.create.addIfcGableRoof(...)` uses `Thickness` for roof thickness and derives ridge height from `Slope`.' },
-    ],
-    custom: (body) => validateRoofShape('addIfcGableRoof', body),
-  },
-  addIfcWallDoor: {
-    required: ['Position', 'Width', 'Height'],
-    positiveKeys: ['Width', 'Height', 'Thickness'],
-    pointArity: { Position: 3 },
-    forbidKeys: [
-      { key: 'Start', message: '`bim.create.addIfcWallDoor(...)` uses wall-local `Position`, not `Start`/`End`.' },
-      { key: 'End', message: '`bim.create.addIfcWallDoor(...)` uses wall-local `Position`, not `Start`/`End`.' },
-      { key: 'Rotation', message: '`bim.create.addIfcWallDoor(...)` auto-aligns to the host wall. Do not pass `Rotation`.' },
-      { key: 'Direction', message: '`bim.create.addIfcWallDoor(...)` auto-aligns to the host wall. Do not pass `Direction`.' },
-      { key: 'Axis', message: '`bim.create.addIfcWallDoor(...)` auto-aligns to the host wall. Do not pass `Axis`.' },
-      { key: 'RefDirection', message: '`bim.create.addIfcWallDoor(...)` auto-aligns to the host wall. Do not pass `RefDirection`.' },
-      { key: 'Placement', message: '`bim.create.addIfcWallDoor(...)` uses wall-local `Position`, not `Placement`.' },
-    ],
-  },
-  addIfcWallWindow: {
-    required: ['Position', 'Width', 'Height'],
-    positiveKeys: ['Width', 'Height', 'Thickness'],
-    pointArity: { Position: 3 },
-    forbidKeys: [
-      { key: 'Start', message: '`bim.create.addIfcWallWindow(...)` uses wall-local `Position`, not `Start`/`End`.' },
-      { key: 'End', message: '`bim.create.addIfcWallWindow(...)` uses wall-local `Position`, not `Start`/`End`.' },
-      { key: 'Rotation', message: '`bim.create.addIfcWallWindow(...)` auto-aligns to the host wall. Do not pass `Rotation`.' },
-      { key: 'Direction', message: '`bim.create.addIfcWallWindow(...)` auto-aligns to the host wall. Do not pass `Direction`.' },
-      { key: 'Axis', message: '`bim.create.addIfcWallWindow(...)` auto-aligns to the host wall. Do not pass `Axis`.' },
-      { key: 'RefDirection', message: '`bim.create.addIfcWallWindow(...)` auto-aligns to the host wall. Do not pass `RefDirection`.' },
-      { key: 'Placement', message: '`bim.create.addIfcWallWindow(...)` uses wall-local `Position`, not `Placement`.' },
-    ],
-  },
-  addIfcDoor: {
-    required: ['Position', 'Width', 'Height'],
-    positiveKeys: ['Width', 'Height', 'Thickness'],
-    pointArity: { Position: 3 },
-    forbidKeys: [
-      { key: 'Start', message: '`bim.create.addIfcDoor(...)` uses `Position`, not `Start`/`End`.' },
-      { key: 'End', message: '`bim.create.addIfcDoor(...)` uses `Position`, not `Start`/`End`.' },
-      { key: 'Direction', message: '`bim.create.addIfcDoor(...)` does not support wall-axis rotation. It creates a world-aligned standalone door element.' },
-      { key: 'Rotation', message: '`bim.create.addIfcDoor(...)` does not support rotation. For wall-hosted inserts, use `bim.create.addIfcWallDoor(...)` or wall `Openings`.' },
-      { key: 'Axis', message: '`bim.create.addIfcDoor(...)` does not accept `Axis`. It is not a generic placement API.' },
-      { key: 'RefDirection', message: '`bim.create.addIfcDoor(...)` does not accept `RefDirection`. It is not auto-aligned to wall direction.' },
-      { key: 'Placement', message: '`bim.create.addIfcDoor(...)` uses `Position`, not `Placement`.' },
-    ],
-  },
-  addIfcWindow: {
-    required: ['Position', 'Width', 'Height'],
-    positiveKeys: ['Width', 'Height', 'Thickness'],
-    pointArity: { Position: 3 },
-    forbidKeys: [
-      { key: 'Start', message: '`bim.create.addIfcWindow(...)` uses `Position`, not `Start`/`End`.' },
-      { key: 'End', message: '`bim.create.addIfcWindow(...)` uses `Position`, not `Start`/`End`.' },
-      { key: 'Direction', message: '`bim.create.addIfcWindow(...)` does not support wall-axis rotation. It creates a world-aligned standalone window element.' },
-      { key: 'Rotation', message: '`bim.create.addIfcWindow(...)` does not support rotation. For wall-hosted inserts, use `bim.create.addIfcWallWindow(...)` or wall `Openings`.' },
-      { key: 'Axis', message: '`bim.create.addIfcWindow(...)` does not accept `Axis`. It is not a generic placement API.' },
-      { key: 'RefDirection', message: '`bim.create.addIfcWindow(...)` does not accept `RefDirection`. It is not auto-aligned to wall direction.' },
-      { key: 'Placement', message: '`bim.create.addIfcWindow(...)` uses `Position`, not `Placement`.' },
-    ],
-  },
-  addElement: {
-    required: ['IfcType', 'Placement', 'Profile', 'Depth'],
-    positiveKeys: ['Depth'],
-    custom: validateGenericElementShape,
-  },
-  addAxisElement: {
-    required: ['IfcType', 'Start', 'End', 'Profile'],
-    pointArity: { Start: 3, End: 3 },
-    axisPair: ['Start', 'End'],
-    custom: validateAxisElementShape,
-  },
-};
+function createMethodRulesFromSchema(): Record<string, MethodRule> {
+  const createNamespace = NAMESPACE_SCHEMAS.find((schema) => schema.name === 'create');
+  if (!createNamespace) return {};
+
+  const rules: Record<string, MethodRule> = {};
+  for (const method of createNamespace.methods) {
+    const semantics = method.llmSemantics;
+    if (!semantics?.requiredKeys?.length && !semantics?.anyOfKeys?.length && !semantics?.forbiddenKeys?.length) {
+      continue;
+    }
+
+    let custom: ((body: string) => string[]) | undefined;
+    switch (semantics.customValidationId) {
+      case 'slab-shape':
+        custom = validateSlabShape;
+        break;
+      case 'roof-shape':
+        if (method.name === 'addIfcRoof' || method.name === 'addIfcGableRoof') {
+          const roofMethod = method.name;
+          custom = (body) => validateRoofShape(roofMethod, body);
+        }
+        break;
+      case 'generic-element':
+        custom = validateGenericElementShape;
+        break;
+      case 'axis-element':
+        custom = validateAxisElementShape;
+        break;
+      default:
+        custom = undefined;
+    }
+
+    rules[method.name] = {
+      required: semantics.requiredKeys ?? [],
+      anyOf: semantics.anyOfKeys,
+      positiveKeys: semantics.positiveKeys,
+      pointArity: semantics.pointArity,
+      axisPair: semantics.axisPair,
+      forbidKeys: semantics.forbiddenKeys,
+      custom,
+    };
+  }
+  return rules;
+}
+
+const METHOD_RULES: Record<string, MethodRule> = createMethodRulesFromSchema();
 
 const SUSPICIOUS_BARE_IDENTIFIERS = new Set([
   'Position', 'Placement', 'Start', 'End', 'Width', 'Depth', 'Height', 'Thickness', 'Elevation', 'IfcType',
@@ -267,6 +176,12 @@ function getArrayLiteralArity(body: string, key: string): number | null {
   const value = findPropertyValue(body, key);
   if (!value || !value.startsWith('[')) return null;
   return splitTopLevelItems(value.slice(1, -1)).length;
+}
+
+function getArrayLiteralItems(body: string, key: string): string[] | null {
+  const value = findPropertyValue(body, key);
+  if (!value || !value.startsWith('[')) return null;
+  return splitTopLevelItems(value.slice(1, -1));
 }
 
 function parseNumericPointLiteral(body: string, key: string): number[] | null {
@@ -528,12 +443,100 @@ function validateMetadataQueryPatterns(code: string): string[] {
   return errors;
 }
 
-export function validateScriptPreflight(code: string): string[] {
-  return [
-    ...validateKnownBimMethods(code),
-    ...validateCreateContracts(code),
-    ...validateBareIdentifierTraps(code),
-    ...validateWallHostedOpeningPatterns(code),
-    ...validateMetadataQueryPatterns(code),
+function looksLikeMultiStoreyScript(code: string): boolean {
+  const hasStoreyLoop = /for\s*\([^)]*;\s*[^;]*\b(storeyCount|levels?|floors?)\b/i.test(code) || /for\s*\(\s*let\s+\w+\s*=\s*0\s*;[^)]*<\s*\w+Count/i.test(code);
+  const hasStoreyCreation = code.includes('bim.create.addIfcBuildingStorey(');
+  return hasStoreyLoop && hasStoreyCreation;
+}
+
+function mentionsElevationSignal(value: string): boolean {
+  return /\b(elevation|storeyElevation|levelElevation|baseZ|levelZ|storeyZ|z)\b/.test(value);
+}
+
+function validateFacadePlacementPatterns(code: string): string[] {
+  if (!looksLikeMultiStoreyScript(code)) return [];
+
+  const errors: string[] = [];
+  const checks: Array<{ methodName: 'addIfcCurtainWall' | 'addIfcMember' | 'addIfcPlate'; keys: string[] }> = [
+    { methodName: 'addIfcCurtainWall', keys: ['Start', 'End'] },
+    { methodName: 'addIfcMember', keys: ['Start', 'End'] },
+    { methodName: 'addIfcPlate', keys: ['Position'] },
   ];
+
+  for (const { methodName, keys } of checks) {
+    for (const body of getObjectBodiesForMethod(code, methodName)) {
+      const zValues = keys
+        .map((key) => {
+          const items = getArrayLiteralItems(body, key);
+          return items && items.length >= 3 ? items[2].trim() : null;
+        })
+        .filter((value): value is string => Boolean(value));
+
+      if (zValues.length === 0) continue;
+      const allGrounded = zValues.every((value) => value === '0' || value === '0.0');
+      const anyElevationAware = zValues.some((value) => mentionsElevationSignal(value));
+      if (allGrounded && !anyElevationAware) {
+        errors.push(`Suspicious façade placement: \`bim.create.${methodName}(...)\` appears inside a multi-storey script but uses fixed ground-floor Z coordinates. This method is world-placement based, so façade geometry should usually include the current storey elevation (for example \`elevation\` or \`z\`) in its Z coordinates.`);
+      }
+    }
+  }
+
+  return errors;
+}
+
+function hasDeclarationLike(code: string, identifier: string): boolean {
+  const escaped = identifier.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(String.raw`(?:const|let|var)\s+${escaped}\b|\bfunction\b[^(]*\([^)]*\b${escaped}\b[^)]*\)|\([^)]*\b${escaped}\b[^)]*\)\s*=>`).test(code);
+}
+
+function validateDetachedSnippetScope(code: string): string[] {
+  const errors: string[] = [];
+
+  if (/\bbim\.create\.[A-Za-z]+\(\s*h\s*,/.test(code) && !hasDeclarationLike(code, 'h') && !/bim\.create\.project\(/.test(code)) {
+    errors.push('Detached snippet risk: BIM create calls reference `h`, but no project handle is declared in this script. Preserve the surrounding full script or recreate the project/context explicitly.');
+  }
+
+  if (/\bbim\.create\.[A-Za-z]+\(\s*h\s*,\s*storey\b/.test(code) && !hasDeclarationLike(code, 'storey') && !/addIfcBuildingStorey\(/.test(code)) {
+    errors.push('Detached snippet risk: BIM create calls reference `storey`, but no storey handle is declared in this script. Preserve the surrounding loop/context instead of returning a standalone fragment.');
+  }
+
+  for (const identifier of ['width', 'depth', 'i', 'z']) {
+    if (new RegExp(String.raw`\b${identifier}\b`).test(code) && !hasDeclarationLike(code, identifier)) {
+      errors.push(`Detached snippet risk: script references \`${identifier}\` without declaring it locally. If this is a fix for an existing script, patch the full script in place instead of returning an isolated fragment.`);
+    }
+  }
+
+  return errors;
+}
+
+export function validateScriptPreflightDetailed(code: string): PreflightScriptDiagnostic[] {
+  return [
+    ...validateKnownBimMethods(code).map((message) => createPreflightDiagnostic(
+      message.startsWith('Unknown namespace') ? 'unknown_namespace' : 'unknown_method',
+      message,
+      'error',
+      buildDiagnosticData(message),
+    )),
+    ...validateCreateContracts(code).map((message) => createPreflightDiagnostic('create_contract', message, 'error', buildDiagnosticData(message))),
+    ...validateBareIdentifierTraps(code).map((message) => createPreflightDiagnostic('bare_identifier', message, 'error', buildDiagnosticData(message))),
+    ...validateWallHostedOpeningPatterns(code).map((message) => createPreflightDiagnostic('wall_hosted_opening_pattern', message, 'error', buildDiagnosticData(message))),
+    ...validateMetadataQueryPatterns(code).map((message) => createPreflightDiagnostic('metadata_query_pattern', message, 'error', buildDiagnosticData(message))),
+    ...validateFacadePlacementPatterns(code).map((message) => createPreflightDiagnostic('world_placement_elevation', message, 'error', buildDiagnosticData(message))),
+    ...validateDetachedSnippetScope(code).map((message) => createPreflightDiagnostic('detached_snippet_scope', message, 'error', buildDiagnosticData(message))),
+  ];
+}
+
+export function validateScriptPreflight(code: string): string[] {
+  return formatDiagnosticsForDisplay(validateScriptPreflightDetailed(code));
+}
+
+function buildDiagnosticData(message: string): Record<string, unknown> | undefined {
+  const data: Record<string, unknown> = {};
+  const methodMatch = /`bim\.\w+\.([A-Za-z0-9_]+)\([^`]*`/.exec(message);
+  const symbolMatch = /`([A-Za-z_]\w*)`/.exec(message);
+
+  if (methodMatch) data.methodName = methodMatch[1];
+  if (symbolMatch) data.symbol = symbolMatch[1];
+
+  return Object.keys(data).length > 0 ? data : undefined;
 }

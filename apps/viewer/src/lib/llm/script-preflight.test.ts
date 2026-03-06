@@ -4,7 +4,7 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { validateScriptPreflight } from './script-preflight.js';
+import { validateScriptPreflight, validateScriptPreflightDetailed } from './script-preflight.js';
 
 test('preflight accepts valid dedicated create methods', () => {
   const code = `
@@ -101,6 +101,42 @@ bim.create.addIfcWallWindow(h, wall, {
   assert.deepEqual(errors, []);
 });
 
+test('preflight rejects addIfcPlate slab-style contract misuse', () => {
+  const code = `
+const h = bim.create.project({ Name: "Facade" });
+const s0 = bim.create.addIfcBuildingStorey(h, { Name: "Level 0", Elevation: 0 });
+bim.create.addIfcPlate(h, s0, {
+  Position: [0, 0, 0],
+  Width: 2.8,
+  Height: 3.0,
+  Thickness: 0.08,
+});
+`;
+  const errors = validateScriptPreflight(code);
+  assert.ok(errors.some((error) => error.includes('uses `Depth` and `Thickness`, not `Height`')));
+  assert.ok(errors.some((error) => error.includes('missing required key(s): `Depth`')));
+});
+
+test('preflight warns when world-placement facade methods stay at ground floor in a storey loop', () => {
+  const code = `
+const h = bim.create.project({ Name: "Tower" });
+const storeyHeight = 3.5;
+const storeyCount = 10;
+for (let i = 0; i < storeyCount; i++) {
+  const elevation = i * storeyHeight;
+  const storey = bim.create.addIfcBuildingStorey(h, { Name: "Level " + i, Elevation: elevation });
+  bim.create.addIfcCurtainWall(h, storey, {
+    Start: [0, -0.2, 0],
+    End: [30, -0.2, 0],
+    Height: storeyHeight,
+    Thickness: 0.15,
+  });
+}
+`;
+  const errors = validateScriptPreflight(code);
+  assert.ok(errors.some((error) => error.includes('Suspicious façade placement')));
+});
+
 test('preflight warns when material is queried via property sets', () => {
   const code = `
 const entities = bim.query.all();
@@ -112,6 +148,53 @@ for (const entity of entities) {
 `;
   const errors = validateScriptPreflight(code);
   assert.ok(errors.some((error) => error.includes('Prefer `bim.query.materials(entity)`')));
+});
+
+test('preflight returns structured diagnostics with codes', () => {
+  const diagnostics = validateScriptPreflightDetailed(`
+const entities = bim.query.all();
+for (const entity of entities) {
+  const material = bim.query.property(entity, "Pset_MaterialCommon", "Material");
+  console.log(material);
+}
+`);
+
+  assert.ok(diagnostics.some((diagnostic) => diagnostic.code === 'metadata_query_pattern'));
+  assert.ok(diagnostics.some((diagnostic) => diagnostic.source === 'preflight'));
+});
+
+test('preflight diagnostics include method metadata when available', () => {
+  const diagnostics = validateScriptPreflightDetailed(`
+const h = bim.create.project({ Name: "Facade" });
+const s0 = bim.create.addIfcBuildingStorey(h, { Name: "Level 0", Elevation: 0 });
+bim.create.addIfcPlate(h, s0, {
+  Position: [0, 0, 0],
+  Width: 2.8,
+  Height: 3.0,
+  Thickness: 0.08,
+});
+`);
+
+  const contractDiagnostic = diagnostics.find((diagnostic) => diagnostic.code === 'create_contract');
+  assert.equal(contractDiagnostic?.data?.methodName, 'addIfcPlate');
+});
+
+test('preflight warns on detached snippet scope for common facade variables', () => {
+  const code = `
+for (let x = 0; x < width; x += 3) {
+  bim.create.addIfcMember(h, storey, {
+    Start: [x, -0.2, z],
+    End: [x, -0.2, z + 3.5],
+    Width: 0.25,
+    Height: 0.15,
+  });
+}
+`;
+  const errors = validateScriptPreflight(code);
+  assert.ok(errors.some((error) => error.includes('reference `h`')));
+  assert.ok(errors.some((error) => error.includes('reference `storey`')));
+  assert.ok(errors.some((error) => error.includes('references `width`')));
+  assert.ok(errors.some((error) => error.includes('references `z`')));
 });
 
 test('preflight rejects unsupported rotation keys on windows', () => {

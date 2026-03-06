@@ -63,6 +63,48 @@ type ReturnType =
   | 'string'     // Return as vm.newString()
   | 'value'      // Return as marshalValue() (generic)
 
+export type LlmTaskIntent =
+  | 'create'
+  | 'inspect'
+  | 'modify'
+  | 'visualize'
+  | 'repair'
+  | 'export';
+
+export type MethodPlacementKind =
+  | 'storey-relative'
+  | 'world'
+  | 'wall-local'
+  | 'explicit-placement'
+  | 'element-target';
+
+export interface MethodSemanticContract {
+  /** High-level tasks where this method is especially relevant */
+  taskTags?: LlmTaskIntent[];
+  /** Expected placement frame for geometry methods */
+  placement?: MethodPlacementKind;
+  /** Required keys inside the params object */
+  requiredKeys?: string[];
+  /** Alternative required key groups, where any one group is valid */
+  anyOfKeys?: string[][];
+  /** Numeric keys that should be positive when provided as literals */
+  positiveKeys?: string[];
+  /** Point-array arity checks for literal vectors */
+  pointArity?: Record<string, number>;
+  /** Axis keys that must not collapse to the same point */
+  axisPair?: [string, string];
+  /** Keys that should never be used with this helper */
+  forbiddenKeys?: Array<{ key: string; message: string }>;
+  /** Shared custom validator hook name for prompt/preflight/hints */
+  customValidationId?: 'slab-shape' | 'roof-shape' | 'generic-element' | 'axis-element';
+  /** Guidance for when to choose this helper */
+  useWhen?: string;
+  /** Warnings or repair hints attached to the contract */
+  cautions?: string[];
+  /** Whether repairs should inspect the loaded model first */
+  inspectFirst?: boolean;
+}
+
 export interface MethodSchema {
   /** Method name exposed in QuickJS (e.g., 'colorize') */
   name: string;
@@ -80,6 +122,8 @@ export interface MethodSchema {
   call: (sdk: BimContext, args: unknown[]) => unknown;
   /** How to marshal the return value */
   returns: ReturnType;
+  /** Shared semantic contract for prompts, validation, and repair hints */
+  llmSemantics?: MethodSemanticContract;
 }
 
 export interface NamespaceSchema {
@@ -219,6 +263,246 @@ function methodDoc(name: string): string {
   return `Call ${name} on the creator.`;
 }
 
+const CREATE_METHOD_SEMANTICS: Partial<Record<string, MethodSemanticContract>> = {
+  project: {
+    taskTags: ['create', 'repair'],
+    useWhen: 'Start a new generated IFC model before creating storeys and elements.',
+  },
+  toIfc: {
+    taskTags: ['create', 'export'],
+    useWhen: 'Finalize the in-memory IFC model and produce STEP content for preview or download.',
+  },
+  setColor: {
+    taskTags: ['visualize', 'repair'],
+    useWhen: 'Assign a named RGB color to a created element using [r, g, b] values between 0 and 1.',
+  },
+  addIfcBuildingStorey: {
+    taskTags: ['create', 'repair'],
+    requiredKeys: ['Elevation'],
+    useWhen: 'Create a building storey container before adding level-based geometry.',
+  },
+  addIfcWall: {
+    taskTags: ['create', 'repair'],
+    placement: 'storey-relative',
+    requiredKeys: ['Start', 'End', 'Thickness', 'Height'],
+    positiveKeys: ['Thickness', 'Height'],
+    pointArity: { Start: 3, End: 3 },
+    axisPair: ['Start', 'End'],
+    useWhen: 'Create a wall from a start/end axis on the current storey.',
+  },
+  addIfcSlab: {
+    taskTags: ['create', 'repair'],
+    placement: 'storey-relative',
+    requiredKeys: ['Position', 'Thickness'],
+    anyOfKeys: [['Profile'], ['Width', 'Depth']],
+    positiveKeys: ['Thickness', 'Width', 'Depth'],
+    pointArity: { Position: 3 },
+    customValidationId: 'slab-shape',
+    useWhen: 'Create a slab from a rectangular footprint or a 2D point-array profile.',
+  },
+  addIfcColumn: {
+    taskTags: ['create', 'repair'],
+    placement: 'storey-relative',
+    requiredKeys: ['Position', 'Width', 'Depth', 'Height'],
+    positiveKeys: ['Width', 'Depth', 'Height'],
+    pointArity: { Position: 3 },
+    useWhen: 'Create a vertical column from a base position and dimensions.',
+  },
+  addIfcBeam: {
+    taskTags: ['create', 'repair'],
+    placement: 'storey-relative',
+    requiredKeys: ['Start', 'End', 'Width', 'Height'],
+    positiveKeys: ['Width', 'Height'],
+    pointArity: { Start: 3, End: 3 },
+    axisPair: ['Start', 'End'],
+    useWhen: 'Create a beam from an axis on the current storey.',
+  },
+  addIfcMember: {
+    taskTags: ['create', 'repair'],
+    placement: 'world',
+    requiredKeys: ['Start', 'End', 'Width', 'Height'],
+    positiveKeys: ['Width', 'Height'],
+    pointArity: { Start: 3, End: 3 },
+    axisPair: ['Start', 'End'],
+    useWhen: 'Create mullions, braces, or facade members with explicit world coordinates.',
+    cautions: [
+      'Inside storey loops, include the current storey elevation in Start/End Z for facade members.',
+    ],
+  },
+  addIfcPlate: {
+    taskTags: ['create', 'repair'],
+    placement: 'world',
+    requiredKeys: ['Position', 'Width', 'Depth', 'Thickness'],
+    positiveKeys: ['Width', 'Depth', 'Thickness'],
+    pointArity: { Position: 3 },
+    forbiddenKeys: [
+      { key: 'Height', message: '`bim.create.addIfcPlate(...)` uses `Depth` and `Thickness`, not `Height`.' },
+      { key: 'Start', message: '`bim.create.addIfcPlate(...)` uses `Position`, not `Start`/`End`.' },
+      { key: 'End', message: '`bim.create.addIfcPlate(...)` uses `Position`, not `Start`/`End`.' },
+    ],
+    useWhen: 'Create thin world-placement panels or facade plates from a base point.',
+    cautions: [
+      'Facade plates repeated by storey usually need absolute Z = elevation + localOffset.',
+    ],
+  },
+  addIfcCurtainWall: {
+    taskTags: ['create', 'repair'],
+    placement: 'world',
+    requiredKeys: ['Start', 'End', 'Height'],
+    positiveKeys: ['Height', 'Thickness'],
+    pointArity: { Start: 3, End: 3 },
+    axisPair: ['Start', 'End'],
+    useWhen: 'Create a world-placement curtain wall segment between two points.',
+    cautions: [
+      'Inside storey loops, include the current storey elevation in Start/End Z.',
+    ],
+  },
+  addIfcRailing: {
+    taskTags: ['create', 'repair'],
+    placement: 'world',
+    requiredKeys: ['Start', 'End', 'Height'],
+    positiveKeys: ['Height', 'Width'],
+    pointArity: { Start: 3, End: 3 },
+    axisPair: ['Start', 'End'],
+    useWhen: 'Create a world-placement railing along an axis.',
+  },
+  addIfcStair: {
+    taskTags: ['create', 'repair'],
+    placement: 'storey-relative',
+    requiredKeys: ['Position', 'NumberOfRisers', 'RiserHeight', 'TreadLength', 'Width'],
+    positiveKeys: ['NumberOfRisers', 'RiserHeight', 'TreadLength', 'Width'],
+    pointArity: { Position: 3 },
+    useWhen: 'Create a stair from a base position and riser/tread definition.',
+  },
+  addIfcRoof: {
+    taskTags: ['create', 'repair'],
+    placement: 'storey-relative',
+    requiredKeys: ['Position', 'Width', 'Depth', 'Thickness'],
+    positiveKeys: ['Width', 'Depth', 'Thickness', 'Slope'],
+    pointArity: { Position: 3 },
+    forbiddenKeys: [
+      { key: 'Profile', message: '`bim.create.addIfcRoof(...)` does not support `Profile`. Use `Position`, `Width`, `Depth`, `Thickness`, and optional `Slope`.' },
+      { key: 'ExtrusionHeight', message: '`bim.create.addIfcRoof(...)` uses `Depth`, not `ExtrusionHeight`.' },
+      { key: 'Height', message: '`bim.create.addIfcRoof(...)` uses `Thickness` and `Depth`, not `Height`.' },
+      { key: 'Overhang', message: '`bim.create.addIfcRoof(...)` does not support `Overhang`. Use `addIfcGableRoof(...)` for a house-style roof with pitch and overhang.' },
+    ],
+    customValidationId: 'roof-shape',
+    useWhen: 'Create flat or mono-pitch roof slabs only.',
+    cautions: [
+      'Slope is in radians.',
+      'Use addIfcGableRoof for house, pitched-roof, or gable-roof requests.',
+    ],
+  },
+  addIfcGableRoof: {
+    taskTags: ['create', 'repair'],
+    placement: 'storey-relative',
+    requiredKeys: ['Position', 'Width', 'Depth', 'Thickness', 'Slope'],
+    positiveKeys: ['Width', 'Depth', 'Thickness', 'Slope'],
+    pointArity: { Position: 3 },
+    forbiddenKeys: [
+      { key: 'Profile', message: '`bim.create.addIfcGableRoof(...)` does not support `Profile`. Use `Position`, `Width`, `Depth`, `Thickness`, `Slope`, and optional `Overhang`.' },
+      { key: 'ExtrusionHeight', message: '`bim.create.addIfcGableRoof(...)` uses `Thickness`, not `ExtrusionHeight`.' },
+      { key: 'Height', message: '`bim.create.addIfcGableRoof(...)` uses `Thickness` for roof thickness and derives ridge height from `Slope`.' },
+    ],
+    customValidationId: 'roof-shape',
+    useWhen: 'Create standard dual-pitch house roofs.',
+    cautions: [
+      'Slope is in radians.',
+    ],
+  },
+  addIfcWallDoor: {
+    taskTags: ['create', 'repair'],
+    placement: 'wall-local',
+    requiredKeys: ['Position', 'Width', 'Height'],
+    positiveKeys: ['Width', 'Height', 'Thickness'],
+    pointArity: { Position: 3 },
+    forbiddenKeys: [
+      { key: 'Start', message: '`bim.create.addIfcWallDoor(...)` uses wall-local `Position`, not `Start`/`End`.' },
+      { key: 'End', message: '`bim.create.addIfcWallDoor(...)` uses wall-local `Position`, not `Start`/`End`.' },
+      { key: 'Rotation', message: '`bim.create.addIfcWallDoor(...)` auto-aligns to the host wall. Do not pass `Rotation`.' },
+      { key: 'Direction', message: '`bim.create.addIfcWallDoor(...)` auto-aligns to the host wall. Do not pass `Direction`.' },
+      { key: 'Axis', message: '`bim.create.addIfcWallDoor(...)` auto-aligns to the host wall. Do not pass `Axis`.' },
+      { key: 'RefDirection', message: '`bim.create.addIfcWallDoor(...)` auto-aligns to the host wall. Do not pass `RefDirection`.' },
+      { key: 'Placement', message: '`bim.create.addIfcWallDoor(...)` uses wall-local `Position`, not `Placement`.' },
+    ],
+    useWhen: 'Create a wall-hosted door aligned to a host wall.',
+  },
+  addIfcWallWindow: {
+    taskTags: ['create', 'repair'],
+    placement: 'wall-local',
+    requiredKeys: ['Position', 'Width', 'Height'],
+    positiveKeys: ['Width', 'Height', 'Thickness'],
+    pointArity: { Position: 3 },
+    forbiddenKeys: [
+      { key: 'Start', message: '`bim.create.addIfcWallWindow(...)` uses wall-local `Position`, not `Start`/`End`.' },
+      { key: 'End', message: '`bim.create.addIfcWallWindow(...)` uses wall-local `Position`, not `Start`/`End`.' },
+      { key: 'Rotation', message: '`bim.create.addIfcWallWindow(...)` auto-aligns to the host wall. Do not pass `Rotation`.' },
+      { key: 'Direction', message: '`bim.create.addIfcWallWindow(...)` auto-aligns to the host wall. Do not pass `Direction`.' },
+      { key: 'Axis', message: '`bim.create.addIfcWallWindow(...)` auto-aligns to the host wall. Do not pass `Axis`.' },
+      { key: 'RefDirection', message: '`bim.create.addIfcWallWindow(...)` auto-aligns to the host wall. Do not pass `RefDirection`.' },
+      { key: 'Placement', message: '`bim.create.addIfcWallWindow(...)` uses wall-local `Position`, not `Placement`.' },
+    ],
+    useWhen: 'Create a wall-hosted window aligned to a host wall.',
+  },
+  addIfcDoor: {
+    taskTags: ['create', 'repair'],
+    placement: 'world',
+    requiredKeys: ['Position', 'Width', 'Height'],
+    positiveKeys: ['Width', 'Height', 'Thickness'],
+    pointArity: { Position: 3 },
+    forbiddenKeys: [
+      { key: 'Start', message: '`bim.create.addIfcDoor(...)` uses `Position`, not `Start`/`End`.' },
+      { key: 'End', message: '`bim.create.addIfcDoor(...)` uses `Position`, not `Start`/`End`.' },
+      { key: 'Direction', message: '`bim.create.addIfcDoor(...)` does not support wall-axis rotation. It creates a world-aligned standalone door element.' },
+      { key: 'Rotation', message: '`bim.create.addIfcDoor(...)` does not support rotation. For wall-hosted inserts, use `bim.create.addIfcWallDoor(...)` or wall `Openings`.' },
+      { key: 'Axis', message: '`bim.create.addIfcDoor(...)` does not accept `Axis`. It is not a generic placement API.' },
+      { key: 'RefDirection', message: '`bim.create.addIfcDoor(...)` does not accept `RefDirection`. It is not auto-aligned to wall direction.' },
+      { key: 'Placement', message: '`bim.create.addIfcDoor(...)` uses `Position`, not `Placement`.' },
+    ],
+    useWhen: 'Create a standalone world-aligned door element.',
+    cautions: [
+      'For wall-hosted inserts, use addIfcWallDoor or wall Openings instead.',
+    ],
+  },
+  addIfcWindow: {
+    taskTags: ['create', 'repair'],
+    placement: 'world',
+    requiredKeys: ['Position', 'Width', 'Height'],
+    positiveKeys: ['Width', 'Height', 'Thickness'],
+    pointArity: { Position: 3 },
+    forbiddenKeys: [
+      { key: 'Start', message: '`bim.create.addIfcWindow(...)` uses `Position`, not `Start`/`End`.' },
+      { key: 'End', message: '`bim.create.addIfcWindow(...)` uses `Position`, not `Start`/`End`.' },
+      { key: 'Direction', message: '`bim.create.addIfcWindow(...)` does not support wall-axis rotation. It creates a world-aligned standalone window element.' },
+      { key: 'Rotation', message: '`bim.create.addIfcWindow(...)` does not support rotation. For wall-hosted inserts, use `bim.create.addIfcWallWindow(...)` or wall `Openings`.' },
+      { key: 'Axis', message: '`bim.create.addIfcWindow(...)` does not accept `Axis`. It is not a generic placement API.' },
+      { key: 'RefDirection', message: '`bim.create.addIfcWindow(...)` does not accept `RefDirection`. It is not auto-aligned to wall direction.' },
+      { key: 'Placement', message: '`bim.create.addIfcWindow(...)` uses `Position`, not `Placement`.' },
+    ],
+    useWhen: 'Create a standalone world-aligned window element.',
+    cautions: [
+      'For wall-hosted inserts, use addIfcWallWindow or wall Openings instead.',
+    ],
+  },
+  addElement: {
+    taskTags: ['create', 'repair'],
+    placement: 'explicit-placement',
+    requiredKeys: ['IfcType', 'Placement', 'Profile', 'Depth'],
+    positiveKeys: ['Depth'],
+    customValidationId: 'generic-element',
+    useWhen: 'Create advanced IFC entities only when no dedicated helper exists.',
+  },
+  addAxisElement: {
+    taskTags: ['create', 'repair'],
+    placement: 'world',
+    requiredKeys: ['IfcType', 'Start', 'End', 'Profile'],
+    pointArity: { Start: 3, End: 3 },
+    axisPair: ['Start', 'End'],
+    customValidationId: 'axis-element',
+    useWhen: 'Create advanced axis-based IFC entities when no dedicated helper exists.',
+  },
+};
+
 /**
  * Build all bim.create method schemas by discovering public methods
  * on IfcCreator.prototype. New methods are automatically exposed.
@@ -240,6 +524,7 @@ function buildCreateMethods(): MethodSchema[] {
       return creatorRegistry.register(creator);
     },
     returns: 'value',
+    llmSemantics: CREATE_METHOD_SEMANTICS.project,
   });
 
   // ── Special: toIfc (finalizes + cleans up handle) ──
@@ -259,6 +544,7 @@ function buildCreateMethods(): MethodSchema[] {
       }
     },
     returns: 'value',
+    llmSemantics: CREATE_METHOD_SEMANTICS.toIfc,
   });
 
   // ── Special: setColor (unique signature: handle, elementId, name, rgb) ──
@@ -273,6 +559,7 @@ function buildCreateMethods(): MethodSchema[] {
       creator.setColor(args[1] as number, args[2] as string, args[3] as [number, number, number]);
     },
     returns: 'void',
+    llmSemantics: CREATE_METHOD_SEMANTICS.setColor,
   });
 
   // ── Auto-discover all other public methods from IfcCreator.prototype ──
@@ -300,6 +587,7 @@ function buildCreateMethods(): MethodSchema[] {
               return (creator as any)[name](args[1]);
             },
             returns: 'value',
+            llmSemantics: CREATE_METHOD_SEMANTICS[name],
           });
         } else {
           // Standard: (storeyId, params) — 2 args after handle
@@ -314,6 +602,7 @@ function buildCreateMethods(): MethodSchema[] {
               return (creator as any)[name](args[1], args[2]);
             },
             returns: 'value',
+            llmSemantics: CREATE_METHOD_SEMANTICS[name],
           });
         }
         break;
@@ -331,6 +620,7 @@ function buildCreateMethods(): MethodSchema[] {
             return (creator as any)[name](args[1], args[2]);
           },
           returns: name === 'addIfcMaterial' ? 'void' : 'value',
+          llmSemantics: CREATE_METHOD_SEMANTICS[name],
         });
         break;
 
@@ -346,6 +636,7 @@ function buildCreateMethods(): MethodSchema[] {
             return (creator as any)[name]();
           },
           returns: 'value',
+          llmSemantics: CREATE_METHOD_SEMANTICS[name],
         });
         break;
     }
@@ -457,6 +748,11 @@ export const NAMESPACE_SCHEMAS: NamespaceSchema[] = [
           return sdk.attributes(ref);
         },
         returns: 'value',
+        llmSemantics: {
+          taskTags: ['inspect', 'repair'],
+          inspectFirst: true,
+          useWhen: 'Inspect raw IFC occurrence attributes before guessing metadata names.',
+        },
       },
       {
         name: 'properties',
@@ -486,6 +782,11 @@ export const NAMESPACE_SCHEMAS: NamespaceSchema[] = [
           }));
         },
         returns: 'value',
+        llmSemantics: {
+          taskTags: ['inspect', 'repair'],
+          inspectFirst: true,
+          useWhen: 'Inspect all property sets on an occurrence before guessing individual property names.',
+        },
       },
       {
         name: 'quantities',
@@ -512,6 +813,11 @@ export const NAMESPACE_SCHEMAS: NamespaceSchema[] = [
           }));
         },
         returns: 'value',
+        llmSemantics: {
+          taskTags: ['inspect', 'repair'],
+          inspectFirst: true,
+          useWhen: 'Inspect all quantity sets on an occurrence.',
+        },
       },
       {
         name: 'property',
@@ -526,6 +832,11 @@ export const NAMESPACE_SCHEMAS: NamespaceSchema[] = [
           return sdk.property(ref, args[1] as string, args[2] as string);
         },
         returns: 'value',
+        llmSemantics: {
+          taskTags: ['inspect', 'repair'],
+          inspectFirst: true,
+          useWhen: 'Read one known property when you already know the exact property-set and property names.',
+        },
       },
       {
         name: 'classifications',
@@ -540,6 +851,12 @@ export const NAMESPACE_SCHEMAS: NamespaceSchema[] = [
           return sdk.classifications(ref);
         },
         returns: 'value',
+        llmSemantics: {
+          taskTags: ['inspect', 'repair'],
+          inspectFirst: true,
+          useWhen: 'Read relationship-based classification references.',
+          cautions: ['Prefer this over guessing ad-hoc classification property names.'],
+        },
       },
       {
         name: 'materials',
@@ -554,6 +871,12 @@ export const NAMESPACE_SCHEMAS: NamespaceSchema[] = [
           return sdk.materials(ref);
         },
         returns: 'value',
+        llmSemantics: {
+          taskTags: ['inspect', 'repair'],
+          inspectFirst: true,
+          useWhen: 'Read assigned material data for an entity.',
+          cautions: ['Prefer this over querying Pset_MaterialCommon or Material.Name as ordinary property sets.'],
+        },
       },
       {
         name: 'typeProperties',
@@ -568,6 +891,11 @@ export const NAMESPACE_SCHEMAS: NamespaceSchema[] = [
           return sdk.typeProperties(ref);
         },
         returns: 'value',
+        llmSemantics: {
+          taskTags: ['inspect', 'repair'],
+          inspectFirst: true,
+          useWhen: 'Inspect type-level properties when occurrence-level property sets are missing expected data.',
+        },
       },
       {
         name: 'documents',
@@ -582,6 +910,11 @@ export const NAMESPACE_SCHEMAS: NamespaceSchema[] = [
           return sdk.documents(ref);
         },
         returns: 'value',
+        llmSemantics: {
+          taskTags: ['inspect', 'repair'],
+          inspectFirst: true,
+          useWhen: 'Inspect linked document references and external documentation.',
+        },
       },
       {
         name: 'relationships',
@@ -596,6 +929,11 @@ export const NAMESPACE_SCHEMAS: NamespaceSchema[] = [
           return sdk.relationships(ref);
         },
         returns: 'value',
+        llmSemantics: {
+          taskTags: ['inspect', 'repair'],
+          inspectFirst: true,
+          useWhen: 'Inspect structural and semantic relationships such as voids, fills, groups, and connections.',
+        },
       },
       {
         name: 'quantity',
@@ -624,6 +962,11 @@ export const NAMESPACE_SCHEMAS: NamespaceSchema[] = [
           return sdk.related(ref, args[1] as string, args[2] as 'forward' | 'inverse').map(withAliases);
         },
         returns: 'value',
+        llmSemantics: {
+          taskTags: ['inspect', 'repair'],
+          inspectFirst: true,
+          useWhen: 'Traverse a known IFC relationship type in forward or inverse direction.',
+        },
       },
       {
         name: 'containedIn',
@@ -697,6 +1040,11 @@ export const NAMESPACE_SCHEMAS: NamespaceSchema[] = [
           return entity ? withAliases(entity) : null;
         },
         returns: 'value',
+        llmSemantics: {
+          taskTags: ['inspect', 'repair'],
+          inspectFirst: true,
+          useWhen: 'Resolve which building storey currently contains an entity.',
+        },
       },
       {
         name: 'path',
@@ -711,6 +1059,11 @@ export const NAMESPACE_SCHEMAS: NamespaceSchema[] = [
           return sdk.path(ref).map(withAliases);
         },
         returns: 'value',
+        llmSemantics: {
+          taskTags: ['inspect', 'repair'],
+          inspectFirst: true,
+          useWhen: 'Inspect the full project-to-entity spatial path before generating hierarchy-aware edits.',
+        },
       },
       {
         name: 'storeys',
@@ -721,6 +1074,11 @@ export const NAMESPACE_SCHEMAS: NamespaceSchema[] = [
           return sdk.storeys().map(withAliases);
         },
         returns: 'value',
+        llmSemantics: {
+          taskTags: ['inspect', 'repair'],
+          inspectFirst: true,
+          useWhen: 'List all building storeys and use their actual names/elevations as generation targets.',
+        },
       },
       {
         name: 'selection',
@@ -734,6 +1092,11 @@ export const NAMESPACE_SCHEMAS: NamespaceSchema[] = [
             .map(withAliases);
         },
         returns: 'value',
+        llmSemantics: {
+          taskTags: ['inspect', 'repair'],
+          inspectFirst: true,
+          useWhen: 'Inspect what the user currently selected in the viewer before proposing targeted edits or analysis.',
+        },
       },
     ],
   },

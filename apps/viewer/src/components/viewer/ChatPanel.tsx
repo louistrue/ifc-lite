@@ -42,7 +42,9 @@ import { buildSystemPrompt } from '@/lib/llm/system-prompt';
 import { getModelContext, parseCSV } from '@/lib/llm/context-builder';
 import { extractCodeBlocks } from '@/lib/llm/code-extractor';
 import { extractScriptEditOps, filterUnappliedScriptOps } from '@/lib/llm/script-edit-ops';
+import { createPatchDiagnostic } from '@/lib/llm/script-diagnostics';
 import type { ChatMessage, FileAttachment } from '@/lib/llm/types';
+import { canUsePlainCodeBlockFallback, type ScriptMutationIntent } from '@/lib/llm/script-preservation';
 import { Image as ImageIcon } from 'lucide-react';
 import { isClerkConfigured } from '@/lib/llm/clerk-auth';
 import { getModelById } from '@/lib/llm/models';
@@ -69,6 +71,11 @@ const MIN_INPUT_BUDGET = 8_000;
 const MAX_RECENT_MESSAGES = 48;
 const SUMMARY_SNIPPET_LEN = 240;
 const MAX_INLINE_IMAGE_DATA_URL_CHARS = 1_200_000;
+
+interface ChatSendOptions {
+  continuationBase?: string;
+  intent?: ScriptMutationIntent;
+}
 
 /** Convert a File to a base64 data URL */
 function fileToBase64(file: File): Promise<string> {
@@ -192,6 +199,7 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
   const scriptEditorContent = useViewerStore((s) => s.scriptEditorContent);
   const scriptEditorRevision = useViewerStore((s) => s.scriptEditorRevision);
   const scriptEditorSelection = useViewerStore((s) => s.scriptEditorSelection);
+  const scriptLastDiagnostics = useViewerStore((s) => s.scriptLastDiagnostics);
   const { execute } = useSandbox();
   const displayUsage: UsageInfo | null = usage ?? (hasPro
     ? {
@@ -219,6 +227,8 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dragCounterRef = useRef(0);
   const lastAutoPreflightFixKeyRef = useRef<string | null>(null);
+  const lastAutoConflictFixKeyRef = useRef<string | null>(null);
+  const lastAutoApplyRepairKeyRef = useRef<string | null>(null);
 
   const resizeInput = useCallback(() => {
     const target = inputRef.current;
@@ -312,10 +322,11 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
   }, [onClose, inputText]);
 
   // ── Core send logic ──
-  const doSend = useCallback(async (text: string, options?: { continuationBase?: string }) => {
+  const doSend = useCallback(async (text: string, options?: ChatSendOptions) => {
     if (!text.trim() || status === 'streaming' || status === 'sending') return;
 
     const continuationBase = options?.continuationBase;
+    const responseIntent = options?.intent ?? 'create';
     const currentMessages = useViewerStore.getState().chatMessages;
     setLastFinishReason(null);
 
@@ -375,6 +386,9 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
       content: scriptEditorContent,
       revision: scriptEditorRevision,
       selection: scriptEditorSelection,
+    }, {
+      userPrompt: text.trim(),
+      diagnostics: scriptLastDiagnostics,
     });
     const contextWindow = activeModelInfo?.contextWindow ?? 128_000;
     const inputBudget = Math.max(
@@ -434,14 +448,36 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
 
     const abortController = new AbortController();
     setChatAbortController(abortController);
+    useViewerStore.getState().beginAssistantScriptTurn();
 
     let accumulated = '';
     const responseBaseRevision = useViewerStore.getState().scriptEditorRevision;
+    const responseBaseContent = useViewerStore.getState().scriptEditorContent;
     const responseEditState = {
+      intent: responseIntent,
       appliedOpIds: new Set<string>(),
+      acceptedOps: [] as ReturnType<typeof extractScriptEditOps>['operations'],
       appliedAny: false,
       applyFailed: false,
       fallbackApplied: false,
+      rolledBack: false,
+      applyFailureStatus: null as null | 'revision_conflict' | 'range_error' | 'semantic_error' | 'parse_error',
+      applyFailureError: null as string | null,
+      applyFailureDiagnostic: null as ReturnType<typeof useViewerStore.getState>['scriptLastDiagnostics'][number] | null,
+    };
+
+    const rollbackAssistantTurnIfNeeded = () => {
+      if (responseEditState.rolledBack || !responseEditState.appliedAny) return;
+      useViewerStore.getState().rollbackAssistantScriptTurn();
+      responseEditState.appliedAny = false;
+      responseEditState.fallbackApplied = false;
+      responseEditState.rolledBack = true;
+    };
+
+    const commitAssistantTurn = () => {
+      if (!responseEditState.rolledBack) {
+        useViewerStore.getState().commitAssistantScriptTurn();
+      }
     };
 
     await streamChat({
@@ -453,23 +489,32 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
       signal: abortController.signal,
       onChunk: (chunk) => {
         accumulated += chunk;
-        if (!responseEditState.applyFailed) {
+        if (!responseEditState.applyFailed && responseEditState.intent !== 'repair') {
           const parsed = extractScriptEditOps(accumulated);
-          if (parsed.parseErrors.length > 0) {
-            setChatError(parsed.parseErrors[0]);
-          }
           const freshOps = filterUnappliedScriptOps(parsed.operations, responseEditState.appliedOpIds);
           if (freshOps.length > 0) {
             const applyResult = useViewerStore.getState().applyScriptEditOps(freshOps, {
               acceptedBaseRevision: responseBaseRevision,
+              baseContentSnapshot: responseBaseContent,
+              priorAcceptedOps: responseEditState.acceptedOps,
+              intent: responseEditState.intent,
             });
             if (applyResult.ok) {
               applyResult.appliedOpIds.forEach((id) => responseEditState.appliedOpIds.add(id));
+              responseEditState.acceptedOps.push(...freshOps);
               responseEditState.appliedAny = true;
               useViewerStore.getState().setScriptPanelVisible(true);
             } else {
+              rollbackAssistantTurnIfNeeded();
               responseEditState.applyFailed = true;
-              setChatError(`Incremental edit apply failed: ${applyResult.error ?? 'unknown error'}`);
+              responseEditState.applyFailureStatus = applyResult.status === 'ok' ? 'semantic_error' : (applyResult.status ?? 'semantic_error');
+              responseEditState.applyFailureError = applyResult.error ?? 'unknown error';
+              responseEditState.applyFailureDiagnostic = applyResult.diagnostic ?? null;
+              setChatError(
+                applyResult.status === 'revision_conflict'
+                  ? `Incremental edit apply hit a revision conflict: ${applyResult.error ?? 'unknown error'}`
+                  : `Incremental edit apply failed: ${applyResult.error ?? 'unknown error'}`,
+              );
             }
           }
         }
@@ -485,31 +530,72 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
         if (!responseEditState.applyFailed) {
           const parsed = extractScriptEditOps(fullText);
           if (parsed.parseErrors.length > 0) {
+            if (responseEditState.intent === 'repair') {
+              rollbackAssistantTurnIfNeeded();
+              responseEditState.applyFailed = true;
+              responseEditState.applyFailureDiagnostic = createPatchDiagnostic(
+                'patch_semantic_error',
+                parsed.parseErrors[0],
+                'error',
+                {
+                  failureKind: 'parse_error',
+                  fixHint: 'Return exactly one valid `ifc-script-edits` block for the current script revision and do not mix it with a `js` fence.',
+                },
+              );
+            }
+            responseEditState.applyFailureStatus = 'parse_error';
+            responseEditState.applyFailureError = parsed.parseErrors[0];
             setChatError(parsed.parseErrors[0]);
           }
-          const freshOps = filterUnappliedScriptOps(parsed.operations, responseEditState.appliedOpIds);
+          const canApplyCompletedOps = !(responseEditState.intent === 'repair' && parsed.parseErrors.length > 0);
+          const freshOps = canApplyCompletedOps
+            ? filterUnappliedScriptOps(parsed.operations, responseEditState.appliedOpIds)
+            : [];
           if (freshOps.length > 0) {
             const applyResult = useViewerStore.getState().applyScriptEditOps(freshOps, {
               acceptedBaseRevision: responseBaseRevision,
+              baseContentSnapshot: responseBaseContent,
+              priorAcceptedOps: responseEditState.acceptedOps,
+              intent: responseEditState.intent,
             });
             if (applyResult.ok) {
               applyResult.appliedOpIds.forEach((id) => responseEditState.appliedOpIds.add(id));
+              responseEditState.acceptedOps.push(...freshOps);
               responseEditState.appliedAny = true;
               useViewerStore.getState().setScriptPanelVisible(true);
             } else {
+              rollbackAssistantTurnIfNeeded();
               responseEditState.applyFailed = true;
-              setChatError(`Incremental edit apply failed: ${applyResult.error ?? 'unknown error'}`);
+              responseEditState.applyFailureStatus = applyResult.status === 'ok' ? 'semantic_error' : (applyResult.status ?? 'semantic_error');
+              responseEditState.applyFailureError = applyResult.error ?? 'unknown error';
+              responseEditState.applyFailureDiagnostic = applyResult.diagnostic ?? null;
+              setChatError(
+                applyResult.status === 'revision_conflict'
+                  ? `Incremental edit apply hit a revision conflict: ${applyResult.error ?? 'unknown error'}`
+                  : `Incremental edit apply failed: ${applyResult.error ?? 'unknown error'}`,
+              );
             }
           }
         }
 
-        if (!responseEditState.appliedAny) {
+        if (!responseEditState.appliedAny && !responseEditState.applyFailed && canUsePlainCodeBlockFallback(responseEditState.intent)) {
           const blocks = extractCodeBlocks(fullText);
           if (blocks.length > 0) {
             const lastBlock = blocks[blocks.length - 1];
-            useViewerStore.getState().replaceScriptContentFallback(lastBlock.code);
-            useViewerStore.getState().setScriptPanelVisible(true);
-            responseEditState.fallbackApplied = true;
+            const fallbackResult = useViewerStore.getState().replaceScriptContentFallback(lastBlock.code, {
+              intent: responseEditState.intent,
+              source: 'code_block_fallback',
+            });
+            if (fallbackResult.ok) {
+              useViewerStore.getState().setScriptPanelVisible(true);
+              responseEditState.fallbackApplied = true;
+            } else {
+              responseEditState.applyFailed = true;
+              responseEditState.applyFailureStatus = fallbackResult.status === 'ok' ? 'semantic_error' : (fallbackResult.status ?? 'semantic_error');
+              responseEditState.applyFailureError = fallbackResult.error ?? 'unknown error';
+              responseEditState.applyFailureDiagnostic = fallbackResult.diagnostic ?? null;
+              setChatError(`Full-script apply blocked: ${fallbackResult.error ?? 'unknown error'}`);
+            }
           }
         }
 
@@ -522,7 +608,7 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
               void (async () => {
                 const result = await execute(currentCode);
                 if (!result) {
-                  const { scriptLastError, chatStatus } = useViewerStore.getState();
+                  const { scriptLastError, scriptLastDiagnostics, chatStatus, scriptEditorRevision: currentRevision } = useViewerStore.getState();
                   if (
                     scriptLastError &&
                     scriptLastError.startsWith('Preflight validation failed:') &&
@@ -532,13 +618,18 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
                     const key = `${scriptLastError}\n---\n${currentCode}`;
                     if (lastAutoPreflightFixKeyRef.current !== key) {
                       lastAutoPreflightFixKeyRef.current = key;
-                      void doSend(buildErrorFeedbackContent(currentCode, scriptLastError));
+                      void doSend(buildErrorFeedbackContent(currentCode, scriptLastError, {
+                        diagnostics: scriptLastDiagnostics,
+                        currentRevision: currentRevision,
+                        currentSelection: useViewerStore.getState().scriptEditorSelection,
+                        reason: 'preflight',
+                      }), { intent: 'repair' });
                     }
                   }
                 }
               })();
             }
-          } else {
+          } else if (!responseEditState.applyFailed && responseEditState.intent !== 'repair') {
             const blocks = extractCodeBlocks(fullText);
             if (blocks.length > 0) {
               const lastBlock = blocks[blocks.length - 1];
@@ -550,6 +641,46 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
             }
           }
         }
+
+        if (responseEditState.applyFailureStatus === 'revision_conflict') {
+          const {
+            scriptEditorContent: currentCode,
+            scriptEditorRevision: currentRevision,
+            chatStatus,
+          } = useViewerStore.getState();
+          if (chatStatus !== 'sending' && chatStatus !== 'streaming') {
+            const key = `${responseBaseRevision}->${currentRevision}\n${responseEditState.applyFailureError}\n${currentCode}`;
+            if (lastAutoConflictFixKeyRef.current !== key) {
+              lastAutoConflictFixKeyRef.current = key;
+              void doSend(buildErrorFeedbackContent(currentCode, responseEditState.applyFailureError ?? 'Patch revision conflict.', {
+                diagnostics: responseEditState.applyFailureDiagnostic ? [responseEditState.applyFailureDiagnostic] : [],
+                currentRevision,
+                currentSelection: useViewerStore.getState().scriptEditorSelection,
+                reason: 'patch-conflict',
+              }), { intent: 'repair' });
+            }
+          }
+        } else if (responseEditState.intent === 'repair' && responseEditState.applyFailed) {
+          const {
+            scriptEditorContent: currentCode,
+            scriptEditorRevision: currentRevision,
+            chatStatus,
+          } = useViewerStore.getState();
+          if (chatStatus !== 'sending' && chatStatus !== 'streaming') {
+            const key = `${responseEditState.applyFailureStatus}\n${responseEditState.applyFailureError}\n${currentCode}`;
+            if (lastAutoApplyRepairKeyRef.current !== key) {
+              lastAutoApplyRepairKeyRef.current = key;
+              void doSend(buildErrorFeedbackContent(currentCode, responseEditState.applyFailureError ?? 'Patch apply failed.', {
+                diagnostics: responseEditState.applyFailureDiagnostic ? [responseEditState.applyFailureDiagnostic] : [],
+                currentRevision,
+                currentSelection: useViewerStore.getState().scriptEditorSelection,
+                reason: 'patch-apply',
+              }), { intent: 'repair' });
+            }
+          }
+        }
+
+        commitAssistantTurn();
       },
       onUsageInfo: (info: UsageInfo) => {
         setChatUsage(info);
@@ -563,13 +694,14 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
       onError: (err) => {
         setChatError(err.message);
         setChatAbortController(null);
+        commitAssistantTurn();
       },
     });
   }, [
     status, activeModel, attachments, authToken,
     addMessage, setChatStatus, updateStreaming, finalizeAssistant,
     setChatError, setChatAbortController, clearAttachments, setChatUsage, resizeInput,
-    scriptEditorContent, scriptEditorRevision, scriptEditorSelection, execute,
+    scriptEditorContent, scriptEditorRevision, scriptEditorSelection, scriptLastDiagnostics, execute,
   ]);
 
   const handleSend = useCallback(() => {
@@ -581,7 +713,10 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
     if (!pendingPrompt) return;
     if (status === 'sending' || status === 'streaming') return;
     consumePendingPrompt();
-    void doSend(pendingPrompt);
+    const intent: ScriptMutationIntent | undefined = pendingPrompt.startsWith('The script needs a targeted fix.')
+      ? 'repair'
+      : undefined;
+    void doSend(pendingPrompt, { intent });
   }, [pendingPrompt, status, consumePendingPrompt, doSend]);
 
   const handleContinue = useCallback(() => {
@@ -622,8 +757,20 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
 
   // ── Error feedback (Fix this) ──
   const handleFixError = useCallback((code: string, errorMsg: string) => {
-    // Send exactly one feedback prompt; doSend() appends it as a user message.
-    void doSend(buildErrorFeedbackContent(code, errorMsg));
+    const {
+      scriptEditorContent: liveCode,
+      scriptEditorRevision: currentRevision,
+      scriptEditorSelection: currentSelection,
+      scriptLastDiagnostics,
+    } = useViewerStore.getState();
+    const staleCode = code.trim() !== liveCode.trim() ? code : undefined;
+    void doSend(buildErrorFeedbackContent(liveCode, errorMsg, {
+      diagnostics: scriptLastDiagnostics,
+      currentRevision,
+      currentSelection,
+      staleCodeBlock: staleCode,
+      reason: 'runtime',
+    }), { intent: 'repair' });
   }, [doSend]);
 
   // ── Clickable example prompts ──

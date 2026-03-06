@@ -11,6 +11,8 @@ import type { StateCreator } from 'zustand';
 import type { ChatMessage, ChatStatus, CodeExecResult, FileAttachment } from '../../lib/llm/types.js';
 import { DEFAULT_FREE_MODEL } from '../../lib/llm/models.js';
 import { extractCodeBlocks } from '../../lib/llm/code-extractor.js';
+import type { ScriptDiagnostic } from '../../lib/llm/script-diagnostics.js';
+import { formatDiagnosticsForPrompt } from '../../lib/llm/script-diagnostics.js';
 
 const MODEL_STORAGE_KEY = 'ifc-lite-chat-model';
 const MESSAGES_STORAGE_KEY = 'ifc-lite-chat-messages';
@@ -89,8 +91,32 @@ export interface ChatUsage {
 }
 
 /** Build the standardized "Fix this" feedback message sent to the LLM. */
-export function buildErrorFeedbackContent(code: string, error: string): string {
-  return `The script failed with this error:\n\n\`\`\`\n${error}\n\`\`\`\n\nHere is the code that failed:\n\n\`\`\`js\n${code}\n\`\`\`\n\nPlease fix the issue and provide a corrected version.`;
+export function buildErrorFeedbackContent(
+  code: string,
+  error: string,
+  options?: {
+    diagnostics?: ScriptDiagnostic[];
+    currentRevision?: number;
+    currentSelection?: { from: number; to: number };
+    staleCodeBlock?: string;
+    reason?: 'runtime' | 'preflight' | 'patch-conflict' | 'patch-apply';
+  },
+): string {
+  const reason = options?.reason ?? 'runtime';
+  const diagnosticsBlock = options?.diagnostics && options.diagnostics.length > 0
+    ? `\nStructured diagnostics:\n${formatDiagnosticsForPrompt(options.diagnostics)}\n`
+    : '';
+  const revisionLine = options?.currentRevision !== undefined
+    ? `Current script revision: ${options.currentRevision}\n`
+    : '';
+  const selectionLine = options?.currentSelection
+    ? `Current selection: from=${options.currentSelection.from}, to=${options.currentSelection.to}\n`
+    : '';
+  const staleBlock = options?.staleCodeBlock
+    ? `\nPrevious message code block for reference only (it may be stale relative to the editor):\n\n\`\`\`js\n${options.staleCodeBlock}\n\`\`\`\n`
+    : '';
+
+  return `The script needs a targeted fix.\n\nFailure type: ${reason}\n${revisionLine}${selectionLine}\n\`\`\`\n${error}\n\`\`\`${diagnosticsBlock}\nHere is the current script that should be repaired in place:\n\n\`\`\`js\n${code}\n\`\`\`${staleBlock}\nPlease fix the issue in the existing script, not as a detached standalone snippet.\n- Preserve the project handle, storey handles, loop variables, and surrounding declarations unless they are the direct cause of the error.\n- Prefer the smallest valid in-place correction.\n- Return exactly one \`ifc-script-edits\` block that patches the CURRENT script revision.\n- Do NOT return a \`js\` fence for repair turns.\n- Do NOT use \`replaceAll\` unless the user explicitly asked to regenerate the full script.\n- Do NOT answer with a smaller local loop/body fragment when the current script is a full model script.\n- If you are recovering from a patch conflict, re-target the latest revision shown above and regenerate edit ops with that exact \`baseRevision\`.\n- If a previous answer was rejected for losing script context, keep the full building script and patch only the failing region.\n- If the bug is a multi-storey facade placement issue, check whether the affected methods are world-placement based and whether their Z coordinates include the current storey elevation.\n\nReturn only the repair patch.`;
 }
 
 function loadStoredModel(userId: string | null, fallback?: string): string {

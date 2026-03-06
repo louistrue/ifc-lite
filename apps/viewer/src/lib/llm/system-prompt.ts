@@ -10,9 +10,15 @@
  * This ensures the LLM always has an accurate, up-to-date API surface.
  */
 
-import { NAMESPACE_SCHEMAS } from '@ifc-lite/sandbox/schema';
+import {
+  NAMESPACE_SCHEMAS,
+  type LlmTaskIntent,
+  type MethodPlacementKind,
+  type MethodSchema,
+} from '@ifc-lite/sandbox/schema';
 import type { FileAttachment } from './types.js';
 import type { ScriptEditorSelection } from './types.js';
+import type { ScriptDiagnostic } from './script-diagnostics.js';
 
 /** Context about the currently loaded IFC model */
 export interface ModelContext {
@@ -38,6 +44,159 @@ export interface ScriptEditorPromptContext {
   content: string;
   revision: number;
   selection: ScriptEditorSelection;
+}
+
+export interface PromptTaskContext {
+  userPrompt?: string;
+  diagnostics?: ScriptDiagnostic[];
+}
+
+interface NamespacedMethod {
+  namespace: string;
+  method: MethodSchema;
+}
+
+function getAllNamespacedMethods(): NamespacedMethod[] {
+  return NAMESPACE_SCHEMAS.flatMap((namespace) => namespace.methods.map((method) => ({
+    namespace: namespace.name,
+    method,
+  })));
+}
+
+function inferPromptIntent(task?: PromptTaskContext): LlmTaskIntent {
+  if (task?.diagnostics && task.diagnostics.length > 0) return 'repair';
+
+  const text = task?.userPrompt?.toLowerCase() ?? '';
+  if (!text) return 'create';
+  if (/\bfix|error|failed|repair|debug|why\b/.test(text)) return 'repair';
+  if (/\bcolor|hide|show|isolate|highlight|visuali[sz]e|fly to\b/.test(text)) return 'visualize';
+  if (/\bquery|inspect|analy[sz]e|material|classification|property|quantity|metadata|what is|list\b/.test(text)) return 'inspect';
+  if (/\bmodify|update|change|edit|rename|delete|set property\b/.test(text)) return 'modify';
+  if (/\bexport|csv|json|download\b/.test(text)) return 'export';
+  return 'create';
+}
+
+function formatKeys(keys: string[]): string {
+  return keys.map((key) => `\`${key}\``).join(', ');
+}
+
+function buildIntentMethodSection(intent: LlmTaskIntent): string {
+  const matches = getAllNamespacedMethods()
+    .filter(({ method }) => method.llmSemantics?.taskTags?.includes(intent))
+    .slice(0, 12);
+
+  if (matches.length === 0) return '';
+
+  const lines = ['## CURRENT TASK FOCUS', `- Primary intent: \`${intent}\``];
+  for (const { namespace, method } of matches) {
+    const synopsis = method.llmSemantics?.useWhen ?? method.doc;
+    lines.push(`- \`bim.${namespace}.${method.name}(...)\`: ${synopsis}`);
+  }
+  return lines.join('\n');
+}
+
+function buildCreateContractCheatSheet(): string {
+  const createNamespace = NAMESPACE_SCHEMAS.find((schema) => schema.name === 'create');
+  if (!createNamespace) return '## BIM.CREATE CONTRACT CHEAT SHEET';
+
+  const lines = ['## BIM.CREATE CONTRACT CHEAT SHEET'];
+  for (const method of createNamespace.methods) {
+    const semantics = method.llmSemantics;
+    if (!semantics?.requiredKeys?.length && !semantics?.anyOfKeys?.length) continue;
+
+    const clauses: string[] = [];
+    if (semantics.requiredKeys?.length) {
+      clauses.push(`use ${formatKeys(semantics.requiredKeys)}`);
+    }
+    if (semantics.anyOfKeys?.length) {
+      clauses.push(`plus one of ${semantics.anyOfKeys.map((group) => group.map((key) => `\`${key}\``).join(' + ')).join(' OR ')}`);
+    }
+    if (semantics.useWhen) {
+      clauses.push(semantics.useWhen);
+    }
+    if (semantics.cautions?.length) {
+      clauses.push(semantics.cautions.join(' '));
+    }
+    if (method.name === 'addIfcRoof') {
+      clauses.push('Do NOT use `Profile`, `Height`, or `ExtrusionHeight` with `addIfcRoof`.');
+    }
+    if (method.name === 'addIfcSlab') {
+      clauses.push('Here `Profile` means a 2D point array, not a generic IFC profile object.');
+    }
+    if (method.name === 'addIfcWallDoor' || method.name === 'addIfcWallWindow') {
+      clauses.push('Use wall-local `Position` relative to the host wall, typically `[alongWall, 0, baseOrSillHeight]`.');
+    }
+    lines.push(`- \`${method.name}\`: ${clauses.join('. ')}`);
+  }
+
+  lines.push('- Wall-hosted openings: use `Openings` inside `addIfcWall(...)` when you only need a void.');
+  lines.push('- If the user asks for a house roof, pitched roof, or gable roof, default to `addIfcGableRoof`.');
+  lines.push('- `addIfcDoor` and `addIfcWindow`: these create standalone world-aligned elements.');
+  lines.push('- `addElement`: Use `IfcType`, `Placement: { Location: [...] }`, `Profile`, and `Depth`. Use `IfcType` not `Type`; use `Placement` not `Position`.');
+  return lines.join('\n');
+}
+
+function buildPlacementSemanticsSection(): string {
+  const createNamespace = NAMESPACE_SCHEMAS.find((schema) => schema.name === 'create');
+  if (!createNamespace) return '## PLACEMENT SEMANTICS';
+
+  const groups = new Map<MethodPlacementKind, string[]>();
+  for (const method of createNamespace.methods) {
+    const placement = method.llmSemantics?.placement;
+    if (!placement) continue;
+    groups.set(placement, [...(groups.get(placement) ?? []), method.name]);
+  }
+
+  const formatGroup = (placement: MethodPlacementKind, label: string) => {
+    const methods = groups.get(placement) ?? [];
+    return methods.length > 0 ? `- ${label}: ${methods.map((name) => `\`${name}\``).join(', ')}.` : null;
+  };
+
+  return [
+    '## PLACEMENT SEMANTICS',
+    formatGroup('storey-relative', 'Common storey-relative methods'),
+    formatGroup('wall-local', 'Hosted wall insert methods'),
+    formatGroup('world', 'Many advanced methods are world-placement based'),
+    formatGroup('explicit-placement', 'Explicit-placement generic methods'),
+    '- For world-placement methods, do NOT assume the storey elevation is automatically applied.',
+    '- Mixed façade scripts often combine both: storey-relative and world-placement helpers.',
+    '- If a facade is generated inside a storey loop, world-placement calls should usually use `elevation` or `z` in their `Start`/`End`/`Position` Z coordinates.',
+  ].filter((line): line is string => Boolean(line)).join('\n');
+}
+
+function buildInspectionGuidance(): string {
+  const preferredOrder = [
+    'query.selection',
+    'query.storeys',
+    'query.path',
+    'query.storey',
+    'query.attributes',
+    'query.properties',
+    'query.property',
+    'query.quantities',
+    'query.materials',
+    'query.classifications',
+    'query.documents',
+    'query.typeProperties',
+    'query.relationships',
+    'query.related',
+  ];
+
+  const lookup = new Map<string, string>();
+  for (const { namespace, method } of getAllNamespacedMethods().filter(({ method }) => method.llmSemantics?.inspectFirst)) {
+    let args = '';
+    if (['path', 'storey', 'attributes', 'properties', 'property', 'quantities', 'materials', 'classifications', 'documents', 'typeProperties', 'relationships'].includes(method.name)) {
+      args = 'entity';
+    } else if (method.name === 'related') {
+      args = 'entity, relType, direction';
+    }
+    lookup.set(`${namespace}.${method.name}`, `\`bim.${namespace}.${method.name}(${args})\``);
+  }
+
+  const methods = preferredOrder
+    .map((key) => lookup.get(key))
+    .filter((value): value is string => Boolean(value));
+  return methods.join(', ');
 }
 
 /** Map ArgType → TypeScript type string for prompt */
@@ -109,9 +268,15 @@ export function buildSystemPrompt(
   modelContext?: ModelContext,
   attachments?: FileAttachment[],
   scriptEditor?: ScriptEditorPromptContext,
+  task?: PromptTaskContext,
 ): string {
   const apiRef = getApiReference();
   const namespaces = listNamespaces();
+  const intent = inferPromptIntent(task);
+  const intentSection = buildIntentMethodSection(intent);
+  const createContractCheatSheet = buildCreateContractCheatSheet();
+  const placementSemantics = buildPlacementSemanticsSection();
+  const inspectionGuidance = buildInspectionGuidance();
 
   let prompt = `You are an IFC/BIM scripting assistant embedded in ifc-lite, a web-based IFC viewer with a live 3D viewport.
 You write JavaScript code that executes in a sandboxed environment with a global \`bim\` object.
@@ -124,6 +289,8 @@ You write JavaScript code that executes in a sandboxed environment with a global
 - Export data as IFC, CSV or JSON
 - Process uploaded CSV/JSON files and apply data to IFC models
 
+${intentSection}
+
 ## CRITICAL RULES
 0. For script modifications, prefer structured incremental edits using this exact fenced format:
    \`\`\`ifc-script-edits
@@ -131,7 +298,10 @@ You write JavaScript code that executes in a sandboxed environment with a global
    \`\`\`
    Valid edit types: insert(at,text), replaceRange(from,to,text), replaceSelection(text), append(text), replaceAll(text).
    - Every edit MUST include a unique \`opId\` and the exact \`baseRevision\` provided in SCRIPT EDITOR CONTEXT.
-   - If incremental edits are not possible, fall back to a full \`\`\`js block.
+   - When SCRIPT EDITOR CONTEXT contains a full script and the issue is local, prefer \`replaceSelection\` or \`replaceRange\` over \`replaceAll\`.
+   - Do NOT use \`replaceAll\` for repair turns unless the user explicitly asked to regenerate the full script.
+   - Do NOT answer with a detached snippet that assumes outer variables like \`h\`, \`storey\`, \`width\`, \`depth\`, \`i\`, or \`z\` exist unless the selected code already provides that scope.
+   - If incremental edits are not possible, only fall back to a full \`\`\`js\`\`\` block for create/rewrite turns. For repair turns, return exactly one valid \`\`\`ifc-script-edits\`\`\` block and keep the full script context intact.
 1. For geometry creation, ALWAYS follow this pattern:
    \`\`\`js
    const h = bim.create.project({ Name: "My Project" });
@@ -145,7 +315,7 @@ You write JavaScript code that executes in a sandboxed environment with a global
 3. Use \`console.log()\` liberally to report progress and results — the user sees a live console output panel
 4. Keep scripts concise — avoid unnecessary abstractions
 5. Coordinates are in meters. Z is up. Do NOT assume every create method is storey-relative — use the method-specific placement rules below.
-6. Always wrap code in a \`\`\`js code fence so the user can execute it
+6. For create or explicit rewrite turns, wrap runnable code in a \`\`\`js\`\`\` fence. For repair turns, return exactly one \`\`\`ifc-script-edits\`\`\` fence and no \`\`\`js\`\`\` fence.
 7. If the user asks to modify existing data, use \`bim.mutate\` or \`bim.query\` — NOT \`bim.create\`
 8. Return meaningful summaries from scripts (counts, statistics, created elements)
 9. When creating buildings, use realistic dimensions (wall thickness 0.2-0.3m, floor height 3-3.5m, column width 0.4-0.8m)
@@ -155,50 +325,37 @@ You write JavaScript code that executes in a sandboxed environment with a global
 13. For BIM parameter objects, always use explicit key-value pairs and exact IFC PascalCase keys from the API reference (e.g. \`Position\`, \`Start\`, \`End\`, \`Width\`, \`Depth\`, \`Height\`, \`Thickness\`, \`IfcType\`, \`Placement\`).
 14. For multi-storey additions (facades, repeated windows, repetitive walls, slabs, columns, roofs), resolve the target storeys first and then add geometry to EACH intended storey. Do not put all storey-relative elements on the first storey with repeated \`Z=0\`.
 15. Before finalizing code, self-check required creation keys:
-    - \`addIfcWall\`: \`Start\`, \`End\`, \`Thickness\`, \`Height\`
-    - \`addIfcSlab\`: \`Position\`, \`Thickness\`, plus (\`Width\` and \`Depth\`) or \`Profile\`
-    - \`addIfcColumn\`: \`Position\`, \`Width\`, \`Depth\`, \`Height\`
-    - \`addIfcBeam\` / \`addIfcMember\`: \`Start\`, \`End\`, \`Width\`, \`Height\`
-    - \`addIfcRoof\`: \`Position\`, \`Width\`, \`Depth\`, \`Thickness\` (optional \`Slope\` in radians). Use this for flat or mono-pitch roofs only.
-    - \`addIfcGableRoof\`: \`Position\`, \`Width\`, \`Depth\`, \`Thickness\`, \`Slope\` (radians), optional \`Overhang\`
-    - \`addIfcWallDoor\` / \`addIfcWallWindow\`: \`wallId\`, plus wall-local \`Position\`, \`Width\`, \`Height\`
-    - \`addIfcDoor\` / \`addIfcWindow\`: \`Position\`, \`Width\`, \`Height\` for standalone world-aligned elements only
-    - \`addIfcCurtainWall\`: \`Start\`, \`End\`, \`Height\`
-    - \`addIfcStair\`: \`Position\`, \`NumberOfRisers\`, \`RiserHeight\`, \`TreadLength\`, \`Width\`
-    - \`addElement\`: \`IfcType\`, \`Placement\`, \`Profile\`, \`Depth\`
-    - \`addAxisElement\`: \`IfcType\`, \`Start\`, \`End\`, \`Profile\`
-    - \`addIfcBuildingStorey\`: \`Elevation\`
+    - use the method contracts in BIM.CREATE CONTRACT CHEAT SHEET below
 16. Prefer dedicated high-level methods (\`addIfcWall\`, \`addIfcRoof\`, \`addIfcGableRoof\`, \`addIfcWallWindow\`, \`addIfcWallDoor\`, \`addIfcCurtainWall\`, etc.) over \`addElement\` or \`addAxisElement\`. Use the generic methods only when there is no dedicated helper. For house, pitched-roof, or gable-roof requests, prefer \`addIfcGableRoof\` unless the user explicitly wants a flat or mono-pitch roof slab.
 17. Do not output bare identifiers like \`Position\`, \`Width\`, \`Depth\`, \`Start\`, \`End\`, \`Height\`, \`Thickness\`, \`Placement\`, or \`IfcType\` unless they are declared variables in scope.
 18. Use sandbox query shape (\`bim.query.byType(...)\`), not chained \`bim.query().byType(...)\` in scripts.
-19. When modifying or analyzing an existing IFC model, inspect the actual model first. Use \`bim.query.selection()\`, \`bim.query.storeys()\`, \`bim.query.path(entity)\`, \`bim.query.storey(entity)\`, \`bim.query.attributes(entity)\`, \`bim.query.properties(entity)\`, \`bim.query.property(...)\`, \`bim.query.quantities(entity)\`, \`bim.query.materials(entity)\`, \`bim.query.classifications(entity)\`, \`bim.query.documents(entity)\`, \`bim.query.typeProperties(entity)\`, \`bim.query.relationships(entity)\`, and \`bim.query.related(...)\` instead of guessing hierarchy or metadata.
+19. When modifying or analyzing an existing IFC model, inspect the actual model first. Use ${inspectionGuidance} instead of guessing hierarchy or metadata.
 
-## BIM.CREATE CONTRACT CHEAT SHEET
-- \`addIfcBuildingStorey\`: use \`Elevation\`. This creates the floor container.
-- \`addIfcWall\`: use \`Start\`, \`End\`, \`Thickness\`, \`Height\`. Axis-based element.
-- Wall-hosted openings: use \`Openings\` inside \`addIfcWall(...)\` with items like \`{ Width, Height, Position: [alongWall, 0, sillOrBaseHeight] }\` when you only need a void.
-- \`addIfcWallDoor\` and \`addIfcWallWindow\`: use these for wall-hosted aligned inserts. Pass the host \`wallId\` and wall-local \`Position: [alongWall, 0, baseOrSillHeight]\`.
-- \`addIfcSlab\`: use \`Position\`, \`Thickness\`, plus \`Width\` + \`Depth\` OR \`Profile\`. Here \`Profile\` means a 2D point array like \`[[0,0],[5,0],[5,4],[0,4]]\`, not a generic IFC profile object.
-- \`addIfcColumn\`: use \`Position\`, \`Width\`, \`Depth\`, \`Height\`. \`Position\` is the base point.
-- \`addIfcBeam\` and \`addIfcMember\`: use \`Start\`, \`End\`, \`Width\`, \`Height\`.
-- \`addIfcRoof\`: use \`Position\`, \`Width\`, \`Depth\`, \`Thickness\`, optional \`Slope\` in radians. This is a flat or mono-pitch roof slab, not a gable roof generator. Do NOT use \`Profile\`, \`Height\`, or \`ExtrusionHeight\` with \`addIfcRoof\`.
-- \`addIfcGableRoof\`: use \`Position\`, \`Width\`, \`Depth\`, \`Thickness\`, and \`Slope\` in radians for standard dual-pitch house roofs. Prefer this over hand-rolling two roof slabs or misusing \`addIfcRoof\`.
-- If the user asks for a house roof, pitched roof, or gable roof, default to \`addIfcGableRoof\`. Use \`addIfcRoof\` only when the requested roof is explicitly flat or mono-pitch.
-- \`addIfcDoor\` and \`addIfcWindow\`: these create standalone world-aligned elements. They are NOT auto-hosted in walls and do NOT rotate to match wall direction.
-- If you need a door or window opening in a wall, prefer \`bim.create.addIfcWallDoor(...)\`, \`bim.create.addIfcWallWindow(...)\`, or wall \`Openings\` instead of placing \`addIfcDoor\` or \`addIfcWindow\` directly into the wall.
-- \`addIfcCurtainWall\`: use \`Start\`, \`End\`, \`Height\`, optional \`Thickness\`.
-- \`addIfcStair\`: use \`Position\`, \`NumberOfRisers\`, \`RiserHeight\`, \`TreadLength\`, \`Width\`.
-- \`addElement\`: only for advanced cases. Use \`IfcType\`, \`Placement: { Location: [x,y,z], Axis?: [x,y,z], RefDirection?: [x,y,z] }\`, \`Profile\`, and \`Depth\`. Use \`IfcType\` not \`Type\`; use \`Placement\` not \`Position\`; use \`Depth\` not \`Height\` or \`ExtrusionHeight\`.
-- \`addAxisElement\`: use \`IfcType\`, \`Start\`, \`End\`, and \`Profile\`.
+${createContractCheatSheet}
 
-## PLACEMENT SEMANTICS
-- Common storey-relative methods: \`addIfcWall\`, \`addIfcSlab\`, \`addIfcColumn\`, \`addIfcBeam\`, \`addIfcStair\`, \`addIfcRoof\`, \`addIfcGableRoof\`.
-- Hosted wall insert methods: \`addIfcWallDoor\` and \`addIfcWallWindow\` use wall-local coordinates relative to the host wall, not storey coordinates.
-- Many advanced methods are world-placement based: \`addElement\`, \`addIfcDoor\`, \`addIfcWindow\`, \`addIfcRamp\`, \`addIfcRailing\`, \`addIfcPlate\`, \`addIfcMember\`, \`addIfcFooting\`, \`addIfcPile\`, \`addIfcSpace\`, \`addIfcCurtainWall\`, \`addIfcFurnishingElement\`, \`addIfcBuildingElementProxy\`.
+${placementSemantics}
 - \`addIfcDoor\` and \`addIfcWindow\` do not infer host-wall orientation. If you place them next to angled walls, they will stay world-aligned unless you build the wall void another way.
 - For storey-relative methods, \`Z=0\` usually means floor level of that storey.
-- For world-placement methods, do NOT assume the storey elevation is automatically applied.
 - When CURRENT MODEL STATE includes storeys, use those storey names/elevations as the source of truth for level-by-level generation.
+
+Example:
+\`\`\`js
+for (let i = 0; i < storeyCount; i++) {
+  const elevation = i * storeyHeight;
+  const storey = bim.create.addIfcBuildingStorey(h, { Name: "Level " + i, Elevation: elevation });
+
+  // Storey-relative
+  bim.create.addIfcSlab(h, storey, { Position: [0, 0, 0], Width: 30, Depth: 40, Thickness: 0.3 });
+
+  // World-placement facade members
+  bim.create.addIfcCurtainWall(h, storey, {
+    Start: [0, -0.2, elevation],
+    End: [30, -0.2, elevation],
+    Height: storeyHeight,
+    Thickness: 0.15,
+  });
+}
+\`\`\`
 
 ## ERROR HANDLING
 - If the user shares a script error, analyze the error message carefully
@@ -206,11 +363,14 @@ You write JavaScript code that executes in a sandboxed environment with a global
 - For ReferenceError (\`'X' is not defined\`), identify exactly where \`X\` is referenced and fix that code directly
 - Do not speculate about hidden runtime causes (hoisting/scoping/transpiler internals) unless directly proven by the shown code and error
 - When fixing errors, explain what went wrong and prefer the smallest valid fix.
-- Prefer incremental edit ops for fixes when SCRIPT EDITOR CONTEXT is available. Only provide full script when patching is not feasible.
+- Prefer incremental edit ops for fixes when SCRIPT EDITOR CONTEXT is available. For repair turns, answer with patch ops only and do not include a full runnable script fence.
+- When a fix targets an existing script, preserve the project handle, storey handles, loop variables, and surrounding declarations. Patch the broken call site instead of rewriting the answer as a standalone fragment.
+- If a previous repair was rejected for losing context, keep the full building script intact and patch only the failing region. Never answer with just the facade loop, panel block, or another local body fragment.
 - Repeated errors like \`Position is not defined\`, \`placement is undefined\`, or \`v is undefined\` usually mean the geometry contract is wrong. Re-check the exact required keys for the method you are calling before changing the overall design.
 - If a roof pitch is written as a plain degree value like \`15\`, convert it to radians first (for example \`15 * Math.PI / 180\`) before calling \`addIfcRoof\` or \`addIfcGableRoof\`.
 - If doors or windows appear rotated 90° relative to a wall, you probably used standalone \`addIfcDoor\` / \`addIfcWindow\` where a wall \`Openings\` payload was needed.
 - If a façade or other repeated envelope element appears only at one level, you probably reused a single storey reference instead of iterating over the intended storeys.
+- If façade elements stack on the ground floor, first check whether the affected methods are world-placement based (\`addIfcCurtainWall\`, \`addIfcMember\`, \`addIfcPlate\`) and whether their Z coordinates include the current storey elevation.
 
 ## API REFERENCE
 ${apiRef}
@@ -421,6 +581,11 @@ console.log("Exported CSV with", slabs.length, "rows");
     prompt += `\nCurrent script revision: ${scriptEditor.revision}`;
     prompt += `\nCurrent selection: from=${scriptEditor.selection.from}, to=${scriptEditor.selection.to}`;
     prompt += `\nCurrent script content:\n\`\`\`js\n${scriptEditor.content}\n\`\`\``;
+  }
+
+  if (task?.diagnostics && task.diagnostics.length > 0) {
+    prompt += `\n\n## ACTIVE DIAGNOSTICS`;
+    prompt += `\n${task.diagnostics.map((diagnostic) => `- [${diagnostic.source}:${diagnostic.code}] ${diagnostic.message}`).join('\n')}`;
   }
 
   return prompt;

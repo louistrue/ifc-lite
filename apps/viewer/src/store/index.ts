@@ -286,6 +286,8 @@ export const useViewerStore = create<ViewerState>()((...args) => ({
       scriptExecutionState: 'idle' as const,
       scriptLastResult: null,
       scriptLastError: null,
+      scriptLastDiagnostics: [],
+      scriptAssistantTurnSnapshot: null,
       scriptDeleteConfirmId: null,
 
       // Lens - deactivate but keep saved lenses

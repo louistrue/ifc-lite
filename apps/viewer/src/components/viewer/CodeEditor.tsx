@@ -12,7 +12,7 @@
 
 import { useRef, useEffect } from 'react';
 import { EditorView, keymap, lineNumbers, highlightActiveLine, highlightActiveLineGutter, drawSelection } from '@codemirror/view';
-import { EditorState, Compartment } from '@codemirror/state';
+import { EditorState, Compartment, Transaction } from '@codemirror/state';
 import { javascript } from '@codemirror/lang-javascript';
 import { autocompletion, type CompletionContext, type CompletionResult, type Completion } from '@codemirror/autocomplete';
 import { defaultKeymap, history, historyKeymap, indentWithTab, undo, redo, undoDepth, redoDepth } from '@codemirror/commands';
@@ -205,7 +205,7 @@ interface CodeEditorProps {
   onSelectionChange?: (selection: ScriptEditorSelection) => void;
   onHistoryChange?: (canUndo: boolean, canRedo: boolean) => void;
   registerApplyAdapter?: ((adapter: {
-    apply: (nextContent: string, selection: ScriptEditorSelection) => void;
+    apply: (nextContent: string, selection: ScriptEditorSelection, options?: { userEvent?: string }) => void;
     undo: () => void;
     redo: () => void;
   } | null) => void);
@@ -309,7 +309,7 @@ export function CodeEditor({
     onSelectionChangeRef.current?.({ from: initialSelection.from, to: initialSelection.to });
     onHistoryChangeRef.current?.(undoDepth(view.state) > 0, redoDepth(view.state) > 0);
     registerApplyAdapter?.({
-      apply: (nextContent, selection) => {
+      apply: (nextContent, selection, options) => {
         const active = viewRef.current;
         if (!active) return;
         const safeFrom = Math.max(0, Math.min(selection.from, nextContent.length));
@@ -317,6 +317,7 @@ export function CodeEditor({
         active.dispatch({
           changes: { from: 0, to: active.state.doc.length, insert: nextContent },
           selection: { anchor: safeFrom, head: safeTo },
+          annotations: options?.userEvent ? [Transaction.userEvent.of(options.userEvent)] : undefined,
         });
       },
       undo: () => {
