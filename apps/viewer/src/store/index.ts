@@ -34,6 +34,8 @@ import { createScriptSlice, type ScriptSlice } from './slices/scriptSlice.js';
 import { createEditorSlice, type EditorSlice } from './slices/editorSlice.js';
 import { createNodeEditorSlice, type NodeEditorSlice } from './slices/nodeEditorSlice.js';
 import { createViewsSlice, type ViewsSlice } from './slices/viewsSlice.js';
+import { createDrawRectSlice, type DrawRectSlice } from './slices/drawRectSlice.js';
+import { createBubbleGraphSlice, type BubbleGraphSlice } from './slices/bubbleGraphSlice.js';
 import { invalidateVisibleBasketCache } from './basketVisibleSet.js';
 
 // Import constants for reset function
@@ -78,6 +80,8 @@ export type { EditorSlice } from './slices/editorSlice.js';
 export type { NodeEditorSlice } from './slices/nodeEditorSlice.js';
 export type { ViewsSlice, ViewDefinition, ViewType, ViewCameraState } from './slices/viewsSlice.js';
 export { newViewId } from './slices/viewsSlice.js';
+export type { DrawRectSlice } from './slices/drawRectSlice.js';
+export type { BubbleGraphSlice, BubbleGraphNode, BubbleGraphEdge } from './slices/bubbleGraphSlice.js';
 
 // Combined store type
 export type ViewerState = LoadingSlice &
@@ -101,7 +105,9 @@ export type ViewerState = LoadingSlice &
   ScriptSlice &
   EditorSlice &
   NodeEditorSlice &
-  ViewsSlice & {
+  ViewsSlice &
+  DrawRectSlice &
+  BubbleGraphSlice & {
     resetViewerState: () => void;
   };
 
@@ -132,6 +138,8 @@ export const useViewerStore = create<ViewerState>()((...args) => ({
   ...createEditorSlice(...args),
   ...createNodeEditorSlice(...args),
   ...createViewsSlice(...args),
+  ...createDrawRectSlice(...args),
+  ...createBubbleGraphSlice(...args),
 
   // Reset all viewer state when loading new file
   // Note: Does NOT clear models - use clearAllModels() for that

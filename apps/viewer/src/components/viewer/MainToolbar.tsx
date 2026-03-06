@@ -37,6 +37,7 @@ import {
   Palette,
   Orbit,
   LayoutTemplate,
+  RectangleHorizontal,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
@@ -59,7 +60,8 @@ import { executeBasketIsolate } from '@/store/basket/basketCommands';
 import { useIfc } from '@/hooks/useIfc';
 import { cn } from '@/lib/utils';
 import { GLTFExporter, CSVExporter } from '@ifc-lite/export';
-import { FileSpreadsheet, FileJson, FileText, Filter, Upload, Pencil, Network } from 'lucide-react';
+import { FileSpreadsheet, FileJson, FileText, Filter, Upload, Pencil, Network, Hexagon } from 'lucide-react';
+import { BubbleGraphPanel } from './bubble-graph/BubbleGraphPanel';
 import { ExportDialog } from './ExportDialog';
 import { BulkPropertyEditor } from './BulkPropertyEditor';
 import { DataConnector } from './DataConnector';
@@ -70,7 +72,7 @@ import { recordRecentFiles, cacheFileBlobs } from '@/lib/recent-files';
 import { ThemeSwitch } from './ThemeSwitch';
 import { toast } from '@/components/ui/toast';
 
-type Tool = 'select' | 'pan' | 'orbit' | 'walk' | 'measure' | 'section';
+type Tool = 'select' | 'pan' | 'orbit' | 'walk' | 'measure' | 'section' | 'draw-rect';
 
 // #region FIX: Move ToolButton OUTSIDE MainToolbar to prevent recreation on every render
 // This fixes Radix UI Tooltip's asChild prop becoming stale during re-renders
@@ -205,6 +207,8 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
   const viewsPanelVisible = useViewerStore((state) => state.viewsPanelVisible);
   const toggleViewsPanel = useViewerStore((state) => state.toggleViewsPanel);
   const setViewsPanelVisible = useViewerStore((state) => state.setViewsPanelVisible);
+  const bubbleGraphPanelVisible = useViewerStore((state) => state.bubbleGraphPanelVisible);
+  const toggleBubbleGraphPanel = useViewerStore((state) => state.toggleBubbleGraphPanel);
 
   // Check which type geometries exist across ALL loaded models (federation-aware).
   // PERF: Use meshes.length as dep proxy instead of full geometryResult, and
@@ -720,6 +724,7 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
       {/* ── Measurement & Section ── */}
       <ToolButton tool="measure" icon={Ruler} label="Measure" shortcut="M" activeTool={activeTool} onToolChange={setActiveTool} />
       <ToolButton tool="section" icon={Scissors} label="Section" shortcut="X" activeTool={activeTool} onToolChange={setActiveTool} />
+      <ToolButton tool="draw-rect" icon={RectangleHorizontal} label="Draw Rectangle" activeTool={activeTool} onToolChange={setActiveTool} />
 
       {/* Floorplan dropdown */}
       {availableStoreys.length > 0 && (
@@ -880,6 +885,24 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
           </Button>
         </TooltipTrigger>
         <TooltipContent>Semantic Editor</TooltipContent>
+      </Tooltip>
+
+      {/* BubbleGraph */}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant={bubbleGraphPanelVisible ? 'default' : 'ghost'}
+            size="icon-sm"
+            onClick={(e) => {
+              (e.currentTarget as HTMLButtonElement).blur();
+              toggleBubbleGraphPanel();
+            }}
+            className={cn(bubbleGraphPanelVisible && 'bg-primary text-primary-foreground')}
+          >
+            <Hexagon className="h-4 w-4" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>BubbleGraph — Structural Building Graph</TooltipContent>
       </Tooltip>
 
       {/* Node Graph Editor */}

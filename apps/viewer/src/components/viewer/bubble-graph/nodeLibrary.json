@@ -1,0 +1,177 @@
+{
+  "categories": [
+    {
+      "id": "structure",
+      "label": "Structure",
+      "description": "Structural elements",
+      "icon": "■",
+      "color": "#3b82f6"
+    },
+    {
+      "id": "opening",
+      "label": "Openings",
+      "description": "Windows and doors",
+      "icon": "◻",
+      "color": "#0ea5e9"
+    },
+    {
+      "id": "space",
+      "label": "Spaces",
+      "description": "Rooms and areas",
+      "icon": "▢",
+      "color": "#14b8a6"
+    },
+    {
+      "id": "envelope",
+      "label": "Envelope",
+      "description": "Building envelope",
+      "icon": "◆",
+      "color": "#a855f7"
+    },
+    {
+      "id": "hierarchy",
+      "label": "Hierarchy",
+      "description": "Building hierarchy",
+      "icon": "📋",
+      "color": "#6c5ce7"
+    }
+  ],
+  "nodeTypes": [
+    {
+      "id": "ax",
+      "label": "Ax",
+      "category": "structure",
+      "color": "#64748b",
+      "description": "Grid axis",
+      "defaultProperties": {
+        "has_column": "True",
+        "column_type": "C25x25"
+      }
+    },
+    {
+      "id": "column",
+      "label": "Column",
+      "category": "structure",
+      "color": "#3b82f6",
+      "description": "Structural column",
+      "defaultProperties": {
+        "column_type": "C30x30",
+        "material": "Beton C30/37"
+      }
+    },
+    {
+      "id": "beam",
+      "label": "Beam",
+      "category": "structure",
+      "color": "#10b981",
+      "description": "Structural beam",
+      "defaultProperties": {
+        "beam_type": "B30x60",
+        "material": "Beton C30/37"
+      }
+    },
+    {
+      "id": "wall",
+      "label": "Wall",
+      "category": "structure",
+      "color": "#f59e0b",
+      "description": "Wall element",
+      "defaultProperties": {
+        "wall_type": "W20",
+        "has_beam": "True",
+        "beam_type": "B30x60",
+        "material": "Beton C30/37"
+      }
+    },
+    {
+      "id": "slab",
+      "label": "Slab",
+      "category": "structure",
+      "color": "#8b5cf6",
+      "description": "Floor slab",
+      "defaultProperties": {
+        "slab_type": "SLAB15",
+        "material": "Beton C30/37"
+      }
+    },
+    {
+      "id": "foundation",
+      "label": "Foundation",
+      "category": "structure",
+      "color": "#ef4444",
+      "description": "Foundation element",
+      "defaultProperties": {
+        "material": "Beton C30/37",
+        "tip": "Izolata"
+      }
+    },
+    {
+      "id": "window",
+      "label": "Window",
+      "category": "opening",
+      "color": "#0ea5e9",
+      "description": "Window opening",
+      "defaultProperties": {
+        "offset": "1.0",
+        "sill_height": "0.90"
+      }
+    },
+    {
+      "id": "door",
+      "label": "Door",
+      "category": "opening",
+      "color": "#f97316",
+      "description": "Door opening",
+      "defaultProperties": {
+        "offset": "1.0",
+        "height": "2.10"
+      }
+    },
+    {
+      "id": "room",
+      "label": "Room",
+      "category": "space",
+      "color": "#14b8a6",
+      "description": "Room space",
+      "defaultProperties": {
+        "name": "Room",
+        "height": "2.80"
+      }
+    },
+    {
+      "id": "shell",
+      "label": "Shell",
+      "category": "envelope",
+      "color": "#a855f7",
+      "description": "Shell structure",
+      "defaultProperties": {
+        "material": "Beton C30/37"
+      }
+    },
+    {
+      "id": "covering",
+      "label": "Covering",
+      "category": "envelope",
+      "color": "#f43f5e",
+      "description": "Roof covering",
+      "defaultProperties": {
+        "material": "Tigla ceramica"
+      }
+    },
+    {
+      "id": "storey",
+      "label": "Storey",
+      "category": "hierarchy",
+      "color": "#6c5ce7",
+      "description": "Building storey/level container",
+      "defaultProperties": {
+        "bottomElevation": 0,
+        "topElevation": 3000,
+        "axesX": [],
+        "axesY": [],
+        "width": 0,
+        "height": 0
+      }
+    }
+  ]
+}

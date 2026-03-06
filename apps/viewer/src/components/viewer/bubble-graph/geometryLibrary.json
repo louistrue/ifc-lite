@@ -1,0 +1,247 @@
+{
+  "version": "1.0",
+  "description": "Geometry Library for Building Elements",
+  "categories": [
+    {
+      "id": "columns",
+      "label": "Columns",
+      "description": "Vertical structural elements"
+    },
+    {
+      "id": "beams",
+      "label": "Beams",
+      "description": "Horizontal structural elements"
+    },
+    {
+      "id": "walls",
+      "label": "Walls",
+      "description": "Vertical partition elements"
+    },
+    {
+      "id": "slabs",
+      "label": "Slabs",
+      "description": "Horizontal floor/roof elements"
+    }
+  ],
+  "geometryDefinitions": [
+    {
+      "id": "C25x25",
+      "family": "column",
+      "type": "column",
+      "category": "columns",
+      "label": "Column 25x25cm",
+      "description": "Square column 250mm x 250mm",
+      "material": "Beton C30/37",
+      "section": {
+        "type": "rectangle",
+        "width": 250,
+        "depth": 250
+      },
+      "extrusion": {
+        "direction": "z",
+        "length": "storeyHeight",
+        "anchor": "bottom"
+      },
+      "color": "#3b82f6",
+      "parameters": {
+        "width": { "value": 250, "unit": "mm", "editable": true },
+        "depth": { "value": 250, "unit": "mm", "editable": true },
+        "material": { "value": "Beton C30/37", "editable": true }
+      }
+    },
+    {
+      "id": "C30x30",
+      "family": "column",
+      "type": "column",
+      "category": "columns",
+      "label": "Column 30x30cm",
+      "description": "Square column 300mm x 300mm",
+      "material": "Beton C30/37",
+      "section": {
+        "type": "rectangle",
+        "width": 300,
+        "depth": 300
+      },
+      "extrusion": {
+        "direction": "z",
+        "length": "storeyHeight",
+        "anchor": "bottom"
+      },
+      "color": "#3b82f6",
+      "parameters": {
+        "width": { "value": 300, "unit": "mm", "editable": true },
+        "depth": { "value": 300, "unit": "mm", "editable": true },
+        "material": { "value": "Beton C30/37", "editable": true }
+      }
+    },
+    {
+      "id": "C40x40",
+      "family": "column",
+      "type": "column",
+      "category": "columns",
+      "label": "Column 40x40cm",
+      "description": "Square column 400mm x 400mm",
+      "material": "Beton C30/37",
+      "section": {
+        "type": "rectangle",
+        "width": 400,
+        "depth": 400
+      },
+      "extrusion": {
+        "direction": "z",
+        "length": "storeyHeight",
+        "anchor": "bottom"
+      },
+      "color": "#3b82f6",
+      "parameters": {
+        "width": { "value": 400, "unit": "mm", "editable": true },
+        "depth": { "value": 400, "unit": "mm", "editable": true },
+        "material": { "value": "Beton C30/37", "editable": true }
+      }
+    },
+    {
+      "id": "B30x60",
+      "family": "beam",
+      "type": "beam",
+      "category": "beams",
+      "label": "Beam 30x60cm",
+      "description": "Rectangular beam 300mm x 600mm",
+      "material": "Beton C30/37",
+      "section": {
+        "type": "rectangle",
+        "width": 300,
+        "height": 600
+      },
+      "extrusion": {
+        "direction": "fromNodeToNode",
+        "anchor": "centerBottom"
+      },
+      "color": "#10b981",
+      "parameters": {
+        "width": { "value": 300, "unit": "mm", "editable": true },
+        "height": { "value": 600, "unit": "mm", "editable": true },
+        "material": { "value": "Beton C30/37", "editable": true }
+      }
+    },
+    {
+      "id": "B40x80",
+      "family": "beam",
+      "type": "beam",
+      "category": "beams",
+      "label": "Beam 40x80cm",
+      "description": "Rectangular beam 400mm x 800mm",
+      "material": "Beton C30/37",
+      "section": {
+        "type": "rectangle",
+        "width": 400,
+        "height": 800
+      },
+      "extrusion": {
+        "direction": "fromNodeToNode",
+        "anchor": "centerBottom"
+      },
+      "color": "#10b981",
+      "parameters": {
+        "width": { "value": 400, "unit": "mm", "editable": true },
+        "height": { "value": 800, "unit": "mm", "editable": true },
+        "material": { "value": "Beton C30/37", "editable": true }
+      }
+    },
+    {
+      "id": "W20",
+      "family": "wall",
+      "type": "wall",
+      "category": "walls",
+      "label": "Wall 20cm",
+      "description": "Wall thickness 200mm",
+      "material": "Caramida",
+      "section": {
+        "type": "rectangle",
+        "thickness": 200,
+        "height": "storeyHeight"
+      },
+      "extrusion": {
+        "direction": "fromNodeToNode",
+        "anchor": "centerBottom",
+        "axis": "vertical"
+      },
+      "color": "#f59e0b",
+      "parameters": {
+        "thickness": { "value": 200, "unit": "mm", "editable": true },
+        "material": { "value": "Caramida", "editable": true }
+      }
+    },
+    {
+      "id": "W30",
+      "family": "wall",
+      "type": "wall",
+      "category": "walls",
+      "label": "Wall 30cm",
+      "description": "Wall thickness 300mm",
+      "material": "Beton armat",
+      "section": {
+        "type": "rectangle",
+        "thickness": 300,
+        "height": "storeyHeight"
+      },
+      "extrusion": {
+        "direction": "fromNodeToNode",
+        "anchor": "centerBottom",
+        "axis": "vertical"
+      },
+      "color": "#f59e0b",
+      "parameters": {
+        "thickness": { "value": 300, "unit": "mm", "editable": true },
+        "material": { "value": "Beton armat", "editable": true }
+      }
+    },
+    {
+      "id": "SLAB15",
+      "family": "slab",
+      "type": "slab",
+      "category": "slabs",
+      "label": "Slab 15cm",
+      "description": "Floor slab thickness 150mm",
+      "material": "Beton C30/37",
+      "section": {
+        "type": "polygon",
+        "thickness": 150,
+        "boundary": "computed"
+      },
+      "extrusion": {
+        "direction": "z",
+        "length": 150,
+        "anchor": "bottom"
+      },
+      "color": "#8b5cf6",
+      "parameters": {
+        "thickness": { "value": 150, "unit": "mm", "editable": true },
+        "material": { "value": "Beton C30/37", "editable": true }
+      }
+    },
+    {
+      "id": "SLAB20",
+      "family": "slab",
+      "type": "slab",
+      "category": "slabs",
+      "label": "Slab 20cm",
+      "description": "Floor slab thickness 200mm",
+      "material": "Beton C30/37",
+      "section": {
+        "type": "polygon",
+        "thickness": 200,
+        "boundary": "computed"
+      },
+      "extrusion": {
+        "direction": "z",
+        "length": 200,
+        "anchor": "bottom"
+      },
+      "color": "#8b5cf6",
+      "parameters": {
+        "thickness": { "value": 200, "unit": "mm", "editable": true },
+        "material": { "value": "Beton C30/37", "editable": true }
+      }
+    }
+  ]
+}

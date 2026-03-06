@@ -26,6 +26,7 @@ import { CommandPalette } from './CommandPalette';
 import { EditorPanel } from './EditorPanel';
 import { NodeEditorPanel } from './NodeEditorPanel';
 import { ViewsPanel } from './ViewsPanel';
+import { BubbleGraphPanel } from './bubble-graph/BubbleGraphPanel';
 
 const BOTTOM_PANEL_MIN_HEIGHT = 120;
 const BOTTOM_PANEL_DEFAULT_HEIGHT = 300;
@@ -77,6 +78,8 @@ export function ViewerLayout() {
   const setNodeEditorPanelVisible = useViewerStore((s) => s.setNodeEditorPanelVisible);
   const viewsPanelVisible = useViewerStore((s) => s.viewsPanelVisible);
   const setViewsPanelVisible = useViewerStore((s) => s.setViewsPanelVisible);
+  const bubbleGraphPanelVisible = useViewerStore((s) => s.bubbleGraphPanelVisible);
+  const toggleBubbleGraphPanel = useViewerStore((s) => s.toggleBubbleGraphPanel);
 
   // Panel refs for programmatic collapse/expand (command palette, keyboard shortcuts)
   const leftPanelRef = useRef<PanelImperativeHandle>(null);
@@ -273,6 +276,12 @@ export function ViewerLayout() {
             <NodeEditorPanel
               visible={nodeEditorPanelVisible}
               onClose={() => setNodeEditorPanelVisible(false)}
+            />
+
+            {/* BubbleGraph - structural building graph editor (modal overlay) */}
+            <BubbleGraphPanel
+              visible={bubbleGraphPanelVisible}
+              onClose={() => toggleBubbleGraphPanel()}
             />
           </div>
         )}
