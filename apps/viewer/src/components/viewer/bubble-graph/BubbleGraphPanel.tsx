@@ -195,7 +195,7 @@ function PropertiesPanel({
     'has_column', 'column_type', 'has_beam', 'beam_type',
     'wall_type', 'slab_type', 'material',
     'bottomElevation', 'topElevation', 'axesX', 'axesY', 'width', 'height', 'depth',
-    'sill_height', 'wall_offset', 'discipline',
+    'sill_height', 'wall_offset', 'discipline', 'offset', 'elevation',
   ]);
 
   return (
@@ -465,6 +465,42 @@ function PropertiesPanel({
                 onUpdateProp('wall_offset', v === '' ? undefined : parseFloat(v));
               }}
             />
+          </div>
+        </div>
+      )}
+
+      {/* Room / Slab / Shell — contour offset */}
+      {(node.type === 'room' || node.type === 'slab' || node.type === 'shell') && (
+        <div className="border-b border-border p-3 space-y-2">
+          <div className="font-semibold text-xs uppercase tracking-wider text-muted-foreground">Contour</div>
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="text-[10px] text-muted-foreground block mb-0.5">Offset (m)</label>
+              <input
+                type="number"
+                step="0.025"
+                className="bg-background border border-border rounded px-1.5 py-1 w-full text-xs"
+                value={(node.properties.offset as number) ?? -0.125}
+                onChange={(e) => onUpdateProp('offset', parseFloat(e.target.value))}
+              />
+              <div className="text-[10px] text-muted-foreground mt-0.5">– interior / + exterior</div>
+            </div>
+            {node.type === 'slab' && (
+              <div>
+                <label className="text-[10px] text-muted-foreground block mb-0.5">Elevation (mm)</label>
+                <input
+                  type="number"
+                  step="50"
+                  className="bg-background border border-border rounded px-1.5 py-1 w-full text-xs"
+                  value={(node.properties.elevation as number) ?? ''}
+                  placeholder="storey base"
+                  onChange={(e) => onUpdateProp('elevation', e.target.value === '' ? undefined : parseFloat(e.target.value))}
+                />
+              </div>
+            )}
+          </div>
+          <div className="text-[10px] text-muted-foreground">
+            Connect ≥3 ax nodes to define the floor-plan contour.
           </div>
         </div>
       )}

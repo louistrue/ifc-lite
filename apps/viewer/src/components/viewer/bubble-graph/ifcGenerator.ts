@@ -97,7 +97,6 @@ export function generateIfcFromGraph(
     const nbrs = (id: string) => adj.get(id) ?? [];
 
     // ── IfcColumn — ax nodes with has_column = true ─────────────────────
-    console.log('[IFC] Building axes:', buildingAxes);
     for (const ax of children.filter((n) => n.type === 'ax')) {
       const hasCol = ax.properties.has_column;
       if (hasCol !== 'True' && hasCol !== true) continue;
@@ -111,18 +110,11 @@ export function generateIfcFromGraph(
       let posX = mm(ax.x), posY = mm(ax.y);
       const gx = ax.properties.gridX as number | undefined;
       const gy = ax.properties.gridY as number | undefined;
-      console.log(`[IFC] Column ${ax.name}: gridX=${gx}, gridY=${gy}, canvasPos=[${mm(ax.x)}, ${mm(ax.y)}]`);
-      
       if (buildingAxes && buildingAxes.xValues.length > 0 && buildingAxes.yValues.length > 0) {
         if (gx != null && gy != null && gx < buildingAxes.xValues.length && gy < buildingAxes.yValues.length) {
           posX = mm(buildingAxes.xValues[gx]);
           posY = mm(buildingAxes.yValues[gy]);
-          console.log(`  → Using buildingAxes: [${posX}, ${posY}]`);
-        } else {
-          console.log(`  → Grid indices out of range or missing`);
         }
-      } else {
-        console.log(`  → No buildingAxes, fallback to canvas`);
       }
 
       creator.addIfcColumn(storeyId, {
@@ -287,36 +279,160 @@ export function generateIfcFromGraph(
       });
     }
 
-    // ── IfcSpace — room / shell nodes ────────────────────────────────────
+    // ── IfcSpace + IfcSlab — room / shell nodes ──────────────────────────
+    //
+    // A room node is connected (via edges) to any number of ax nodes.
+    // The connected ax nodes define the floor-plan contour of the room.
+    // Coordinates come from buildingAxes (gridX/gridY) when available,
+    // otherwise fall back to canvas position.
+    // An `offset` property (metres, default -0.125) shrinks the contour inward.
+    //
+    // Generated elements:
+    //   IfcSlab  — 0.15 m thick, extruded downward from topElevM
+    //   IfcSpace — from bottomElevM up to (topElevM - slabThickness)
+    //
     for (const room of children.filter((n) => n.type === 'room' || n.type === 'shell')) {
-      const rW = mm((room.properties.width  as number) ?? 5000);
-      const rD = mm((room.properties.depth  as number) ?? 5000);
-      const rH = room.properties.height
-        ? mm(room.properties.height as number)
-        : storeyH;
+      const neighbors   = nbrs(room.id);
+      const axNeighbors = nodes.filter((n) => neighbors.includes(n.id) && n.type === 'ax');
+      if (axNeighbors.length < 3) continue; // need at least a triangle
 
+      const slabThickness = 0.15;
+      const rawOffset = room.properties.offset;
+      const offset = rawOffset != null
+        ? (typeof rawOffset === 'string' ? parseFloat(rawOffset) : Number(rawOffset))
+        : -0.125;
+      const spaceHeight = Math.max(0.1, storeyH - slabThickness);
+
+      // Resolve each ax node to its real XY coordinates (m)
+      const pts2D = axNeighbors.map((ax) => {
+        let x = mm(ax.x), y = mm(ax.y);
+        if (buildingAxes) {
+          const gx = ax.properties.gridX as number | undefined;
+          const gy = ax.properties.gridY as number | undefined;
+          if (gx != null && gy != null && gx < buildingAxes.xValues.length && gy < buildingAxes.yValues.length) {
+            x = mm(buildingAxes.xValues[gx]);
+            y = mm(buildingAxes.yValues[gy]);
+          }
+        }
+        return [x, y] as [number, number];
+      });
+
+      // Sort points CCW by angle around centroid
+      const cx2 = pts2D.reduce((s, p) => s + p[0], 0) / pts2D.length;
+      const cy2 = pts2D.reduce((s, p) => s + p[1], 0) / pts2D.length;
+      pts2D.sort((a, b) => Math.atan2(a[1] - cy2, a[0] - cx2) - Math.atan2(b[1] - cy2, b[0] - cx2));
+
+      // Apply offset (inset when negative) to each point along the inward-facing normal
+      const n = pts2D.length;
+      const profile: [number, number][] = pts2D.map((p, i) => {
+        const prev = pts2D[(i - 1 + n) % n];
+        const next = pts2D[(i + 1) % n];
+        // Edge vectors
+        const e1x = p[0] - prev[0], e1y = p[1] - prev[1];
+        const e2x = next[0] - p[0], e2y = next[1] - p[1];
+        const len1 = Math.hypot(e1x, e1y) || 1;
+        const len2 = Math.hypot(e2x, e2y) || 1;
+        // Inward normals (CCW winding → left normal = inward)
+        const n1x = -e1y / len1, n1y = e1x / len1;
+        const n2x = -e2y / len2, n2y = e2x / len2;
+        // Bisector
+        let bx = n1x + n2x, by = n1y + n2y;
+        const bl = Math.hypot(bx, by) || 1;
+        bx /= bl; by /= bl;
+        return [p[0] + bx * offset, p[1] + by * offset];
+      });
+
+      // Profile is relative to Position (we use origin [0,0,z] as Position)
+      const profileLocal = profile.map(([x, y]) => [x, y] as [number, number]);
+
+      // IfcSlab at top of storey (extruded downward = position at topElev - thickness)
+      creator.addIfcSlab(storeyId, {
+        Name:      `SL-${room.name}`,
+        Position:  [0, 0, topElevM - slabThickness],
+        Profile:   profileLocal,
+        Thickness: slabThickness,
+      });
+
+      // IfcSpace from storey base up to underside of slab
       creator.addIfcSpace(storeyId, {
         Name:     room.name,
-        Position: [mm(room.x) - rW / 2, mm(room.y) - rD / 2, bottomElevM],
-        Width:    rW,
-        Depth:    rD,
-        Height:   rH,
+        Position: [0, 0, bottomElevM],
+        Profile:  profileLocal,
+        Height:   spaceHeight,
       });
     }
 
-    // ── IfcSlab — slab nodes ─────────────────────────────────────────────
+    // ── IfcSlab standalone — slab nodes ──────────────────────────────────
+    //
+    // A slab node connected to ax nodes defines its floor-plan contour.
+    // Falls back to Width/Depth box when fewer than 3 ax nodes are connected.
+    //
     for (const slab of children.filter((n) => n.type === 'slab')) {
-      const slabType = (slab.properties.slab_type as string) ?? 'SLAB15';
-      const sW = mm((slab.properties.width as number) ?? 5000);
-      const sD = mm((slab.properties.depth as number) ?? 5000);
+      const neighbors   = nbrs(slab.id);
+      const axNeighbors = nodes.filter((n) => neighbors.includes(n.id) && n.type === 'ax');
+      const slabType    = (slab.properties.slab_type as string) ?? 'SLAB15';
+      const thickness   = geomDim(slabType, 'thickness', 0.15);
+      const rawOffset   = slab.properties.offset;
+      const offset      = rawOffset != null
+        ? (typeof rawOffset === 'string' ? parseFloat(rawOffset) : Number(rawOffset))
+        : -0.125;
 
-      creator.addIfcSlab(storeyId, {
-        Name:      slab.name,
-        Position:  [mm(slab.x) - sW / 2, mm(slab.y) - sD / 2, bottomElevM],
-        Width:     sW,
-        Depth:     sD,
-        Thickness: geomDim(slabType, 'thickness', 0.15),
-      });
+      if (axNeighbors.length >= 3) {
+        const pts2D = axNeighbors.map((ax) => {
+          let x = mm(ax.x), y = mm(ax.y);
+          if (buildingAxes) {
+            const gx = ax.properties.gridX as number | undefined;
+            const gy = ax.properties.gridY as number | undefined;
+            if (gx != null && gy != null && gx < buildingAxes.xValues.length && gy < buildingAxes.yValues.length) {
+              x = mm(buildingAxes.xValues[gx]);
+              y = mm(buildingAxes.yValues[gy]);
+            }
+          }
+          return [x, y] as [number, number];
+        });
+
+        const cx2 = pts2D.reduce((s, p) => s + p[0], 0) / pts2D.length;
+        const cy2 = pts2D.reduce((s, p) => s + p[1], 0) / pts2D.length;
+        pts2D.sort((a, b) => Math.atan2(a[1] - cy2, a[0] - cx2) - Math.atan2(b[1] - cy2, b[0] - cx2));
+
+        const n = pts2D.length;
+        const profile: [number, number][] = pts2D.map((p, i) => {
+          const prev = pts2D[(i - 1 + n) % n];
+          const next = pts2D[(i + 1) % n];
+          const e1x = p[0] - prev[0], e1y = p[1] - prev[1];
+          const e2x = next[0] - p[0], e2y = next[1] - p[1];
+          const len1 = Math.hypot(e1x, e1y) || 1;
+          const len2 = Math.hypot(e2x, e2y) || 1;
+          const n1x = -e1y / len1, n1y = e1x / len1;
+          const n2x = -e2y / len2, n2y = e2x / len2;
+          let bx = n1x + n2x, by = n1y + n2y;
+          const bl = Math.hypot(bx, by) || 1;
+          bx /= bl; by /= bl;
+          return [p[0] + bx * offset, p[1] + by * offset];
+        });
+
+        const slabElev = slab.properties.elevation != null
+          ? (slab.properties.elevation as number) / 1000
+          : bottomElevM;
+
+        creator.addIfcSlab(storeyId, {
+          Name:      slab.name,
+          Position:  [0, 0, slabElev],
+          Profile:   profile,
+          Thickness: thickness,
+        });
+      } else {
+        // Fallback: rectangular slab using width/depth
+        const sW = mm((slab.properties.width as number) ?? 5000);
+        const sD = mm((slab.properties.depth as number) ?? 5000);
+        creator.addIfcSlab(storeyId, {
+          Name:      slab.name,
+          Position:  [mm(slab.x) - sW / 2, mm(slab.y) - sD / 2, bottomElevM],
+          Width:     sW,
+          Depth:     sD,
+          Thickness: thickness,
+        });
+      }
     }
   }
 
