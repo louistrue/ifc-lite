@@ -643,11 +643,12 @@ interface BubbleGraphCanvasProps {
   edges: BubbleGraphEdge[];
   /** The storey node to display (null = overview of all storeys) */
   activeStoreyId: string | null;
+  buildingAxes: { xValues: number[]; yValues: number[] };
   setNodes: React.Dispatch<React.SetStateAction<BubbleGraphNode[]>>;
   setEdges: React.Dispatch<React.SetStateAction<BubbleGraphEdge[]>>;
 }
 
-function BubbleGraphCanvas({ nodes, edges, activeStoreyId, setNodes, setEdges }: BubbleGraphCanvasProps) {
+function BubbleGraphCanvas({ nodes, edges, activeStoreyId, buildingAxes, setNodes, setEdges }: BubbleGraphCanvasProps) {
   // Nodes visible in the current view: all children of active storey (or all nodes for overview)
   const visibleNodes = useMemo(() => {
     if (!activeStoreyId) return nodes;
@@ -690,13 +691,13 @@ function BubbleGraphCanvas({ nodes, edges, activeStoreyId, setNodes, setEdges }:
 
   const handleGenerateIfc = useCallback(async () => {
     try {
-      const file = generateIfcFromGraph(nodes, edges, projectName);
+      const file = generateIfcFromGraph(nodes, edges, projectName, buildingAxes);
       await loadFile(file);
       toast.success(`IFC generated: ${file.name}`);
     } catch (err) {
       toast.error(`IFC generation failed: ${err instanceof Error ? err.message : String(err)}`);
     }
-  }, [nodes, edges, projectName, loadFile]);
+  }, [nodes, edges, projectName, buildingAxes, loadFile]);
 
   // Sync to store when nodes/edges change
   useEffect(() => {
@@ -1048,6 +1049,28 @@ function BubbleGraphCanvas({ nodes, edges, activeStoreyId, setNodes, setEdges }:
     setZoom(nz);
   }, [pan, zoom]);
 
+  // Setup non-passive event listeners for wheel and mouse events
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const handleWheelNonPassive = (e: WheelEvent) => {
+      e.preventDefault();
+      const rect = canvas.getBoundingClientRect();
+      const mx = (e as any).clientX - rect.left;
+      const my = (e as any).clientY - rect.top;
+      const wx = (mx - pan.x) / zoom;
+      const wy = (my - pan.y) / zoom;
+      const delta = e.deltaY > 0 ? 0.9 : 1.1;
+      const nz = Math.max(0.1, Math.min(5, zoom * delta));
+      setPan({ x: mx - wx * nz, y: my - wy * nz });
+      setZoom(nz);
+    };
+
+    canvas.addEventListener('wheel', handleWheelNonPassive, { passive: false });
+    return () => canvas.removeEventListener('wheel', handleWheelNonPassive);
+  }, [pan, zoom]);
+
   // ── Actions ───────────────────────────────────────────────────────────
 
   const selectedNodeData = useMemo(
@@ -1370,7 +1393,6 @@ function BubbleGraphCanvas({ nodes, edges, activeStoreyId, setNodes, setEdges }:
             onMouseMove={handleMouseMove}
             onMouseUp={handleMouseUp}
             onMouseLeave={handleMouseUp}
-            onWheel={handleWheel}
           />
 
           {/* Zoom badge */}
@@ -1660,7 +1682,7 @@ export function BubbleGraphPanel({ visible, onClose }: BubbleGraphPanelProps) {
               nodes={nodes}
               edges={edges}
               activeStoreyId={activeStoreyId}
-
+              buildingAxes={buildingAxes}
               setNodes={setNodes}
               setEdges={setEdges}
             />

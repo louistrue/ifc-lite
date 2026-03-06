@@ -97,6 +97,7 @@ export function generateIfcFromGraph(
     const nbrs = (id: string) => adj.get(id) ?? [];
 
     // ── IfcColumn — ax nodes with has_column = true ─────────────────────
+    console.log('[IFC] Building axes:', buildingAxes);
     for (const ax of children.filter((n) => n.type === 'ax')) {
       const hasCol = ax.properties.has_column;
       if (hasCol !== 'True' && hasCol !== true) continue;
@@ -108,13 +109,20 @@ export function generateIfcFromGraph(
       // use the real global axis coordinates.
       // Otherwise fall back to canvas position.
       let posX = mm(ax.x), posY = mm(ax.y);
-      if (buildingAxes) {
-        const gx = ax.properties.gridX as number | undefined;
-        const gy = ax.properties.gridY as number | undefined;
+      const gx = ax.properties.gridX as number | undefined;
+      const gy = ax.properties.gridY as number | undefined;
+      console.log(`[IFC] Column ${ax.name}: gridX=${gx}, gridY=${gy}, canvasPos=[${mm(ax.x)}, ${mm(ax.y)}]`);
+      
+      if (buildingAxes && buildingAxes.xValues.length > 0 && buildingAxes.yValues.length > 0) {
         if (gx != null && gy != null && gx < buildingAxes.xValues.length && gy < buildingAxes.yValues.length) {
           posX = mm(buildingAxes.xValues[gx]);
           posY = mm(buildingAxes.yValues[gy]);
+          console.log(`  → Using buildingAxes: [${posX}, ${posY}]`);
+        } else {
+          console.log(`  → Grid indices out of range or missing`);
         }
+      } else {
+        console.log(`  → No buildingAxes, fallback to canvas`);
       }
 
       creator.addIfcColumn(storeyId, {
