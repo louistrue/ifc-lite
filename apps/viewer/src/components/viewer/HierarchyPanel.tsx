@@ -56,7 +56,7 @@ export function HierarchyPanel() {
   // Resizable panel split (percentage for storeys section, 0.5 = 50%)
   const [splitRatio, setSplitRatio] = useState(0.5);
   const [isDragging, setIsDragging] = useState(false);
-  const containerRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
 
   // Check if we have multiple models loaded
   const isMultiModel = models.size > 1;
@@ -81,13 +81,13 @@ export function HierarchyPanel() {
   const parentRef = useRef<HTMLDivElement>(null); // Legacy single-model mode
 
   // Compact mode for grouping tabs — show icons only when panel is too narrow for text
-  const toggleRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement | null>(null);
   const [compactTabs, setCompactTabs] = useState(false);
   useEffect(() => {
-    const el = toggleRef.current;
+    const el = panelRef.current;
     if (!el) return;
-    const ro = new ResizeObserver(([entry]) => {
-      setCompactTabs(entry.contentRect.width < 180);
+    const ro = new ResizeObserver(() => {
+      setCompactTabs(el.getBoundingClientRect().width < 200);
     });
     ro.observe(el);
     return () => ro.disconnect();
@@ -444,7 +444,7 @@ export function HierarchyPanel() {
   // Multi-model layout with resizable split
   // Grouping mode toggle component (shared by both layouts)
   const groupingToggle = (
-    <div ref={toggleRef} className="flex gap-1 mt-2">
+    <div className="flex gap-1 mt-2">
       <Button
         variant={groupingMode === 'spatial' ? 'default' : 'outline'}
         size="sm"
@@ -478,7 +478,7 @@ export function HierarchyPanel() {
   // In type/ifc-type grouping mode, always use flat tree layout (even for multi-model)
   if (isMultiModel && groupingMode === 'spatial') {
     return (
-      <div ref={containerRef} className="h-full flex flex-col border-r-2 border-zinc-200 dark:border-zinc-800 bg-white dark:bg-black">
+      <div ref={(el) => { containerRef.current = el; panelRef.current = el; }} className="h-full flex flex-col border-r-2 border-zinc-200 dark:border-zinc-800 bg-white dark:bg-black">
         {/* Search Header */}
         <div className="p-3 border-b-2 border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-black">
           <Input
@@ -574,7 +574,7 @@ export function HierarchyPanel() {
 
   // Single model layout
   return (
-    <div className="h-full flex flex-col border-r-2 border-zinc-200 dark:border-zinc-800 bg-white dark:bg-black">
+    <div ref={panelRef} className="h-full flex flex-col border-r-2 border-zinc-200 dark:border-zinc-800 bg-white dark:bg-black">
       {/* Header */}
       <div className="p-3 border-b-2 border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-black">
         <Input
