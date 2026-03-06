@@ -193,7 +193,8 @@ function PropertiesPanel({
   const smartKeys = new Set([
     'has_column', 'column_type', 'has_beam', 'beam_type',
     'wall_type', 'slab_type', 'material',
-    'bottomElevation', 'topElevation', 'axesX', 'axesY', 'width', 'height', 'depth', 'sill_height',
+    'bottomElevation', 'topElevation', 'axesX', 'axesY', 'width', 'height', 'depth',
+    'sill_height', 'wall_offset',
   ]);
 
   return (
@@ -369,6 +370,19 @@ function PropertiesPanel({
               <option value="True">True</option>
               <option value="False">False</option>
             </select>
+            {(node.properties.has_beam === 'True' || node.properties.has_beam === true) && (<>
+              <span className="text-muted-foreground">Beam Type</span>
+              <select
+                className="bg-background border border-border rounded px-1.5 py-0.5 text-xs"
+                value={(node.properties.beam_type as string) ?? ''}
+                onChange={(e) => onUpdateProp('beam_type', e.target.value)}
+              >
+                <option value="">Default 0.25×0.25 m</option>
+                {getGeometriesByFamily('beam').map((g) => (
+                  <option key={g.id} value={g.id}>{g.label}</option>
+                ))}
+              </select>
+            </>)}
           </div>
         </div>
       )}
@@ -415,6 +429,17 @@ function PropertiesPanel({
               className="bg-background border border-border rounded px-1.5 py-0.5 text-xs"
               value={(node.properties.sill_height as number) ?? (node.type === 'window' ? 900 : 0)}
               onChange={(e) => onUpdateProp('sill_height', parseFloat(e.target.value))}
+            />
+            <span className="text-muted-foreground" title="Distance from wall start (axA) to opening centre, in mm. Leave empty to use canvas position.">Offset (mm)</span>
+            <input
+              type="number"
+              className="bg-background border border-border rounded px-1.5 py-0.5 text-xs"
+              placeholder="auto"
+              value={node.properties.wall_offset != null ? (node.properties.wall_offset as number) : ''}
+              onChange={(e) => {
+                const v = e.target.value;
+                onUpdateProp('wall_offset', v === '' ? undefined : parseFloat(v));
+              }}
             />
           </div>
         </div>

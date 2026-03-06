@@ -120,42 +120,58 @@ export function generateIfcFromGraph(
       const [axA, axB] = axNeighbors;
       const wallType   = (wall.properties.wall_type as string) ?? 'W20';
       const thickness  = geomDim(wallType, 'thickness', 0.2);
-      const wallHeight = wall.properties.height != null
-        ? mm(wall.properties.height as number)
-        : storeyH;
+
+      // Auto-beam on top: has_beam=True → generate an IfcBeam and reduce wall height
+      const hasBeam = wall.properties.has_beam === 'True' || wall.properties.has_beam === true;
+      const beamTypeStr = (wall.properties.beam_type as string) ?? '';
+      // Default beam section 0.25 × 0.25 m; override via beam_type geometry entry
+      const autoBeamW = beamTypeStr ? geomDim(beamTypeStr, 'width',  0.25) : 0.25;
+      const autoBeamH = beamTypeStr ? geomDim(beamTypeStr, 'height', 0.25) : 0.25;
+
+      // Wall height: explicit > (storeyH - beamH when hasBeam) > storeyH
+      let wallHeight: number;
+      if (wall.properties.height != null) {
+        wallHeight = mm(wall.properties.height as number);
+      } else if (hasBeam) {
+        wallHeight = Math.max(0.1, storeyH - autoBeamH);
+      } else {
+        wallHeight = storeyH;
+      }
 
       const wxA = mm(axA.x), wyA = mm(axA.y);
       const wxB = mm(axB.x), wyB = mm(axB.y);
       const wLen = Math.hypot(wxB - wxA, wyB - wyA);
+      const dirX = wLen > 0 ? (wxB - wxA) / wLen : 1;
+      const dirY = wLen > 0 ? (wyB - wyA) / wLen : 0;
 
       // Window / door nodes directly connected to this wall node
       const openingNodes = nodes.filter(
         (n) => neighbors.includes(n.id) && (n.type === 'window' || n.type === 'door'),
       );
 
-      // Build WallParams.Openings (creates IfcOpeningElement + IfcRelVoidsElement)
+      /**
+       * Resolve opening X-offset along wall axis (m).
+       * Uses explicit `wall_offset` property (mm) when set;
+       * otherwise projects the node's canvas position onto the wall axis.
+       */
+      const resolveOffset = (o: BubbleGraphNode): number => {
+        const raw = o.properties.wall_offset;
+        if (raw != null) {
+          const v = typeof raw === 'string' ? parseFloat(raw) : Number(raw);
+          if (!isNaN(v)) return mm(v);
+        }
+        return (mm(o.x) - wxA) * dirX + (mm(o.y) - wyA) * dirY;
+      };
+
+      // Build WallParams.Openings (cuts the wall solid via IfcRelVoidsElement)
       const openings: RectangularOpening[] = [];
       for (const o of openingNodes) {
-        const oW   = mm((o.properties.width        as number) ?? (o.type === 'window' ? 1000 :  900));
-        const oH   = mm((o.properties.height       as number) ?? (o.type === 'window' ? 1200 : 2100));
-        const sill = mm((o.properties.sill_height  as number) ?? (o.type === 'window' ?  900 :    0));
-
-        if (wLen > 0) {
-          // Project opening centre onto wall axis (wall-local X)
-          const dirX = (wxB - wxA) / wLen;
-          const dirY = (wyB - wyA) / wLen;
-          const relX = mm(o.x) - wxA;
-          const relY = mm(o.y) - wyA;
-          const dist = relX * dirX + relY * dirY;
-
-          // RectangularOpening.Position = centre in wall-local coords [X along wall, 0, Z]
-          openings.push({
-            Name:     o.name,
-            Width:    oW,
-            Height:   oH,
-            Position: [dist, 0, sill + oH / 2],
-          });
-        }
+        const oW   = mm((o.properties.width       as number) ?? (o.type === 'window' ? 1000 :  900));
+        const oH   = mm((o.properties.height      as number) ?? (o.type === 'window' ? 1200 : 2100));
+        const sill = mm((o.properties.sill_height as number) ?? (o.type === 'window' ?  900 :    0));
+        const dist = resolveOffset(o);
+        // Position = opening centre in wall-local frame [X along wall, Y through thickness, Z up]
+        openings.push({ Name: o.name, Width: oW, Height: oH, Position: [dist, 0, sill + oH / 2] });
       }
 
       creator.addIfcWall(storeyId, {
@@ -167,21 +183,43 @@ export function generateIfcFromGraph(
         Openings:  openings.length > 0 ? openings : undefined,
       });
 
-      // Standalone IfcOpeningElement box at each window/door world position.
-      // This gives the opening a spatial representation independent of the wall,
-      // ensuring it appears in the hierarchy and is selectable in the viewer.
+      // IfcOpeningElement box for each window/door (world-coordinate placement).
+      // The box is placed along the wall axis — exact for axis-aligned walls,
+      // approximate for diagonal walls (the RectangularOpening void cut is exact).
       for (const o of openingNodes) {
         const oW   = mm((o.properties.width       as number) ?? (o.type === 'window' ? 1000 :  900));
         const oH   = mm((o.properties.height      as number) ?? (o.type === 'window' ? 1200 : 2100));
         const sill = mm((o.properties.sill_height as number) ?? (o.type === 'window' ?  900 :    0));
+        const dist = resolveOffset(o);
 
+        // Centre of opening in world XY, then offset to bottom-left corner of box
+        const ocX = wxA + dist * dirX;
+        const ocY = wyA + dist * dirY;
+        // Perpendicular (normal) to wall in XY plane
+        const normX = -dirY;
+        const normY =  dirX;
         creator.addIfcOpeningElement(storeyId, {
-          Name:     o.name,
-          // Bottom-left corner of box: centre along wall axis, half-depth offset in Y
-          Position: [mm(o.x) - oW / 2, mm(o.y) - thickness / 2, bottomElevM + sill],
-          Width:    oW,
-          Height:   oH,
-          Depth:    thickness,
+          Name:     `${o.type === 'window' ? 'WIN' : 'DR'}-${o.name}`,
+          // bottom-left of box = centre shifted by half-width along wall + half-thickness across wall
+          Position: [
+            ocX - (oW / 2) * dirX - (thickness / 2) * normX,
+            ocY - (oW / 2) * dirY - (thickness / 2) * normY,
+            bottomElevM + sill,
+          ],
+          Width:  oW,
+          Height: oH,
+          Depth:  thickness,
+        });
+      }
+
+      // Auto-beam on top of wall (runs from axA to axB at post-wall elevation)
+      if (hasBeam) {
+        creator.addIfcBeam(storeyId, {
+          Name:   `BM-${wall.name}`,
+          Start:  [wxA, wyA, bottomElevM + wallHeight],
+          End:    [wxB, wyB, bottomElevM + wallHeight],
+          Width:  autoBeamW,
+          Height: autoBeamH,
         });
       }
     }

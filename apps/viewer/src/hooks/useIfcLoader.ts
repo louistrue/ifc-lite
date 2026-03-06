@@ -102,13 +102,15 @@ export function useIfcLoader() {
     const totalStartTime = performance.now();
 
     try {
+      // Mark as loading FIRST so the start screen doesn't flash between
+      // resetViewerState() clearing models and the new model being ready.
+      setLoading(true);
+      setError(null);
+
       // Reset all viewer state before loading new file
       // Also clear models Map to ensure clean single-file state
       resetViewerState();
       clearAllModels();
-
-      setLoading(true);
-      setError(null);
       setProgress({ phase: 'Loading file', percent: 0 });
 
       // Read file from disk
