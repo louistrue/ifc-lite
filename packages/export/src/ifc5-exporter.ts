@@ -75,8 +75,25 @@ interface IfcxFileOutput {
     timestamp: string;
   };
   imports: string[];
-  schemas: Record<string, unknown>;
+  schemas: Record<string, IfcxSchemaOutput>;
   data: IfcxNodeOutput[];
+}
+
+interface IfcxSchemaOutput {
+  value: IfcxValueDescriptionOutput;
+}
+
+interface IfcxValueDescriptionOutput {
+  dataType: 'Real' | 'Boolean' | 'Integer' | 'String' | 'DateTime' | 'Enum' | 'Array' | 'Object' | 'Reference' | 'Blob';
+  optional?: boolean;
+  arrayRestrictions?: {
+    min?: number;
+    max?: number;
+    value: IfcxValueDescriptionOutput;
+  };
+  objectRestrictions?: {
+    values: Record<string, IfcxValueDescriptionOutput>;
+  };
 }
 
 /** IFCX node in output */
@@ -135,6 +152,7 @@ export class Ifc5Exporter {
 
     // Collect nodes
     const nodes: IfcxNodeOutput[] = [];
+    const schemas: Record<string, IfcxSchemaOutput> = {};
     let propertyCount = 0;
     let meshCount = 0;
 
@@ -222,6 +240,7 @@ export class Ifc5Exporter {
       }
 
       if (Object.keys(attributes).length > 0) {
+        this.registerSchemasForAttributes(schemas, attributes);
         node.attributes = attributes;
       }
 
@@ -238,7 +257,7 @@ export class Ifc5Exporter {
         timestamp: new Date().toISOString(),
       },
       imports: [],
-      schemas: {},
+      schemas,
       data: nodes,
     };
 
@@ -255,6 +274,57 @@ export class Ifc5Exporter {
         fileSize: new TextEncoder().encode(content).length,
       },
     };
+  }
+
+  private registerSchemasForAttributes(
+    schemas: Record<string, IfcxSchemaOutput>,
+    attributes: Record<string, unknown>,
+  ): void {
+    for (const [key, value] of Object.entries(attributes)) {
+      if (!schemas[key]) {
+        schemas[key] = { value: this.inferSchemaForValue(value) };
+      }
+    }
+  }
+
+  private inferSchemaForValue(value: unknown): IfcxValueDescriptionOutput {
+    if (typeof value === 'string') {
+      return { dataType: 'String' };
+    }
+
+    if (typeof value === 'number') {
+      return { dataType: Number.isInteger(value) ? 'Integer' : 'Real' };
+    }
+
+    if (typeof value === 'boolean') {
+      return { dataType: 'Boolean' };
+    }
+
+    if (Array.isArray(value)) {
+      const firstNonNull = value.find((entry) => entry !== null && entry !== undefined);
+      return {
+        dataType: 'Array',
+        arrayRestrictions: {
+          min: value.length,
+          max: value.length,
+          value: this.inferSchemaForValue(firstNonNull),
+        },
+      };
+    }
+
+    if (value && typeof value === 'object') {
+      const values: Record<string, IfcxValueDescriptionOutput> = {};
+      for (const [childKey, childValue] of Object.entries(value)) {
+        values[childKey] = this.inferSchemaForValue(childValue);
+      }
+
+      return {
+        dataType: 'Object',
+        objectRestrictions: { values },
+      };
+    }
+
+    return { dataType: 'String', optional: true };
   }
 
   // --------------------------------------------------------------------------

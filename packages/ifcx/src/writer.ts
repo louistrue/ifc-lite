@@ -78,11 +78,12 @@ export class IfcxWriter {
   export(options: IfcxExportOptions = {}): IfcxExportResult {
     const header = this.createHeader(options);
     const nodes = this.collectNodes(options);
+    const schemas = this.buildSchemas(nodes);
 
     const file: IfcxFile = {
       header,
       imports: [],
-      schemas: {},
+      schemas,
       data: nodes,
     };
 
@@ -105,6 +106,61 @@ export class IfcxWriter {
         fileSize: new TextEncoder().encode(content).length,
       },
     };
+  }
+
+  private buildSchemas(nodes: IfcxNode[]): IfcxFile['schemas'] {
+    const schemas: IfcxFile['schemas'] = {};
+
+    for (const node of nodes) {
+      if (!node.attributes) continue;
+      for (const [key, value] of Object.entries(node.attributes)) {
+        if (!schemas[key]) {
+          schemas[key] = { value: this.inferSchemaForValue(value) };
+        }
+      }
+    }
+
+    return schemas;
+  }
+
+  private inferSchemaForValue(value: unknown): IfcxFile['schemas'][string]['value'] {
+    if (typeof value === 'string') {
+      return { dataType: 'String' };
+    }
+
+    if (typeof value === 'number') {
+      return { dataType: Number.isInteger(value) ? 'Integer' : 'Real' };
+    }
+
+    if (typeof value === 'boolean') {
+      return { dataType: 'Boolean' };
+    }
+
+    if (Array.isArray(value)) {
+      const firstNonNull = value.find((entry) => entry !== null && entry !== undefined);
+      return {
+        dataType: 'Array',
+        arrayRestrictions: {
+          min: value.length,
+          max: value.length,
+          value: this.inferSchemaForValue(firstNonNull),
+        },
+      };
+    }
+
+    if (value && typeof value === 'object') {
+      const values: Record<string, IfcxFile['schemas'][string]['value']> = {};
+      for (const [childKey, childValue] of Object.entries(value)) {
+        values[childKey] = this.inferSchemaForValue(childValue);
+      }
+
+      return {
+        dataType: 'Object',
+        objectRestrictions: { values },
+      };
+    }
+
+    return { dataType: 'String', optional: true };
   }
 
   /**
