@@ -14,6 +14,7 @@ import { SpatialHierarchyBuilder } from './spatial-hierarchy-builder.js';
 import { EntityExtractor } from './entity-extractor.js';
 import { extractLengthUnitScale } from './unit-extractor.js';
 import { getAttributeNames } from './ifc-schema.js';
+import { getInheritanceChainForEntity } from './generated/schema-registry.js';
 import {
     StringTable,
     EntityTableBuilder,
@@ -736,15 +737,21 @@ export function extractEntityAttributesOnDemand(
     }
 
     const attrs = entity.attributes || [];
+    const typeName = store.entities?.getTypeName?.(entityId) || ref.type;
+    const inheritance = getInheritanceChainForEntity(typeName);
+    const isIfcObject = inheritance.includes('IfcObject');
+    const isIfcElement = inheritance.includes('IfcElement');
+
     // IfcRoot attributes: [GlobalId, OwnerHistory, Name, Description]
     // IfcObject adds: [ObjectType] at index 4
-    // IfcProduct adds: [ObjectPlacement, Representation] at indices 5-6
     // IfcElement adds: [Tag] at index 7
+    // Guard ObjectType/Tag by inheritance to avoid reading unrelated attributes
+    // for entities like IfcTypeObject that don't define those fields.
     const globalId = typeof attrs[0] === 'string' ? attrs[0] : '';
     const name = typeof attrs[2] === 'string' ? attrs[2] : '';
     const description = typeof attrs[3] === 'string' ? attrs[3] : '';
-    const objectType = typeof attrs[4] === 'string' ? attrs[4] : '';
-    const tag = typeof attrs[7] === 'string' ? attrs[7] : '';
+    const objectType = isIfcObject && typeof attrs[4] === 'string' ? attrs[4] : '';
+    const tag = isIfcElement && typeof attrs[7] === 'string' ? attrs[7] : '';
 
     return { globalId, name, description, objectType, tag };
 }

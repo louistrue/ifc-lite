@@ -43,6 +43,40 @@ describe('Entity Attribute Extraction', () => {
     expect(attrs.objectType).toBe('Wall Type');
   });
 
+
+  it('should not treat non-IfcObject attributes as ObjectType', () => {
+    // IfcTypeObject does not define ObjectType; its first extra attr is ApplicableOccurrence
+    const ifcEntity = `#777=IFCWALLTYPE('typeGuid',#1,'Wall Type Name','Type Description','IfcWall/USERDEFINED',$,$,$,.NOTDEFINED.);`;
+    const source = new TextEncoder().encode(ifcEntity);
+
+    const entityRef: EntityRef = {
+      expressId: 777,
+      type: 'IfcWallType',
+      byteOffset: 0,
+      byteLength: source.length,
+      lineNumber: 1,
+    };
+
+    const store = {
+      source,
+      entityIndex: {
+        byId: new Map([[777, entityRef]]),
+        byType: new Map([['IFCWALLTYPE', [777]]]),
+      },
+      entities: {
+        getTypeName: () => 'IfcWallType',
+      },
+    } as unknown as IfcDataStore;
+
+    const attrs = extractEntityAttributesOnDemand(store, 777);
+
+    expect(attrs.globalId).toBe('typeGuid');
+    expect(attrs.name).toBe('Wall Type Name');
+    expect(attrs.description).toBe('Type Description');
+    expect(attrs.objectType).toBe('');
+    expect(attrs.tag).toBe('');
+  });
+
   it('should return empty strings for missing attributes', () => {
     // IFC entity with $  for missing values
     const ifcEntity = `#456=IFCBEAM('abc123',$,$,$,$,$,$,.NOTDEFINED.);`;
