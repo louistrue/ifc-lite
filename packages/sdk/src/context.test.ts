@@ -15,8 +15,14 @@ function createMockBackend() {
   const query = {
     entities: vi.fn(() => []),
     entityData: vi.fn(() => null),
+    attributes: vi.fn(() => []),
     properties: vi.fn(() => []),
     quantities: vi.fn(() => []),
+    classifications: vi.fn(() => []),
+    materials: vi.fn(() => null),
+    typeProperties: vi.fn(() => null),
+    documents: vi.fn(() => []),
+    relationships: vi.fn(() => ({ voids: [], fills: [], groups: [], connections: [] })),
     related: vi.fn(() => []),
   };
   const selection = {
@@ -41,6 +47,7 @@ function createMockBackend() {
   };
   const mutate = {
     setProperty: vi.fn(),
+    setAttribute: vi.fn(),
     deleteProperty: vi.fn(),
     batchBegin: vi.fn(),
     batchEnd: vi.fn(),
@@ -65,6 +72,12 @@ function createMockBackend() {
     deactivate: vi.fn(),
     getActive: vi.fn(() => null),
   };
+  const files = {
+    list: vi.fn(() => []),
+    text: vi.fn(() => null),
+    csv: vi.fn(() => null),
+    csvColumns: vi.fn(() => []),
+  };
 
   const backend: BimBackend = {
     model,
@@ -76,10 +89,11 @@ function createMockBackend() {
     spatial,
     export: exportNs,
     lens,
+    files,
     subscribe: vi.fn(() => () => {}),
   };
 
-  return { backend, model, query, selection, visibility, viewer, mutate, spatial, export: exportNs, lens };
+  return { backend, model, query, selection, visibility, viewer, mutate, spatial, export: exportNs, lens, files };
 }
 
 describe('BimContext', () => {
@@ -93,6 +107,7 @@ describe('BimContext', () => {
     expect(bim.mutate).toBeDefined();
     expect(bim.lens).toBeDefined();
     expect(bim.export).toBeDefined();
+    expect(bim.files).toBeDefined();
     expect(bim.ids).toBeDefined();
     expect(bim.bcf).toBeDefined();
     expect(bim.drawing).toBeDefined();
@@ -182,6 +197,104 @@ describe('QueryBuilder', () => {
   });
 });
 
+describe('QueryNamespace helpers', () => {
+  it('attributes() returns named IFC attributes', () => {
+    const { backend, query } = createMockBackend();
+    query.attributes.mockReturnValue([
+      { name: 'PredefinedType', value: 'STANDARD' },
+    ]);
+
+    const bim = createBimContext({ backend });
+    const attrs = bim.attributes({ modelId: 'model-1', expressId: 1 });
+
+    expect(attrs).toEqual([{ name: 'PredefinedType', value: 'STANDARD' }]);
+  });
+
+  it('property() returns a single property value', () => {
+    const { backend, query } = createMockBackend();
+    query.properties.mockReturnValue([
+      {
+        name: 'Pset_WallCommon',
+        properties: [{ name: 'IsExternal', type: 0, value: true }],
+      },
+    ]);
+
+    const bim = createBimContext({ backend });
+    const value = bim.property({ modelId: 'model-1', expressId: 1 }, 'Pset_WallCommon', 'IsExternal');
+
+    expect(value).toBe(true);
+  });
+
+  it('materials() returns structured material data', () => {
+    const { backend, query } = createMockBackend();
+    query.materials.mockReturnValue({
+      type: 'Material',
+      name: 'Concrete',
+      description: 'Structural concrete',
+    });
+
+    const bim = createBimContext({ backend });
+    const material = bim.materials({ modelId: 'model-1', expressId: 1 });
+
+    expect(material?.name).toBe('Concrete');
+    expect(material?.type).toBe('Material');
+  });
+
+  it('classifications() returns classification references', () => {
+    const { backend, query } = createMockBackend();
+    query.classifications.mockReturnValue([
+      { system: 'Uniclass', identification: 'EF_25', name: 'Walls' },
+    ]);
+
+    const bim = createBimContext({ backend });
+    const classifications = bim.classifications({ modelId: 'model-1', expressId: 1 });
+
+    expect(classifications).toHaveLength(1);
+    expect(classifications[0].system).toBe('Uniclass');
+  });
+
+  it('path() walks from project to entity', () => {
+    const { backend, query } = createMockBackend();
+    query.entityData.mockImplementation((ref) => {
+      if (ref.expressId === 4) return { ref, globalId: '4', name: 'Wall 1', type: 'IfcWall', description: '', objectType: '' };
+      if (ref.expressId === 3) return { ref, globalId: '3', name: 'Level 1', type: 'IfcBuildingStorey', description: '', objectType: '' };
+      if (ref.expressId === 2) return { ref, globalId: '2', name: 'Building', type: 'IfcBuilding', description: '', objectType: '' };
+      if (ref.expressId === 1) return { ref, globalId: '1', name: 'Project', type: 'IfcProject', description: '', objectType: '' };
+      return null;
+    });
+    query.related.mockImplementation((ref, relType, direction) => {
+      if (relType === 'IfcRelContainedInSpatialStructure' && direction === 'inverse' && ref.expressId === 4) {
+        return [{ modelId: 'model-1', expressId: 3 }];
+      }
+      if (relType === 'IfcRelAggregates' && direction === 'inverse' && ref.expressId === 3) {
+        return [{ modelId: 'model-1', expressId: 2 }];
+      }
+      if (relType === 'IfcRelAggregates' && direction === 'inverse' && ref.expressId === 2) {
+        return [{ modelId: 'model-1', expressId: 1 }];
+      }
+      return [];
+    });
+
+    const bim = createBimContext({ backend });
+    const path = bim.path({ modelId: 'model-1', expressId: 4 });
+
+    expect(path.map((entity) => entity.type)).toEqual(['IfcProject', 'IfcBuilding', 'IfcBuildingStorey', 'IfcWall']);
+  });
+
+  it('storeys() returns building storeys', () => {
+    const { backend, query } = createMockBackend();
+    query.entities.mockReturnValue([
+      { ref: { modelId: 'model-1', expressId: 3 }, globalId: '3', name: 'Level 1', type: 'IfcBuildingStorey', description: '', objectType: '' },
+    ]);
+
+    const bim = createBimContext({ backend });
+    const storeys = bim.storeys();
+
+    expect(storeys).toHaveLength(1);
+    expect(storeys[0].type).toBe('IfcBuildingStorey');
+  });
+});
+
 describe('ExportNamespace', () => {
   it('csv() generates CSV string', () => {
     const { backend, query } = createMockBackend();
@@ -243,6 +356,34 @@ describe('ExportNamespace', () => {
 
 });
 
+describe('FilesNamespace', () => {
+  it('list() delegates to backend.files.list', () => {
+    const { backend, files } = createMockBackend();
+    files.list.mockReturnValue([
+      { name: 'entities.csv', type: 'text/csv', size: 128, rowCount: 2, columns: ['GlobalId', 'Description'], hasTextContent: true },
+    ]);
+
+    const bim = createBimContext({ backend });
+    const attachments = bim.files.list();
+
+    expect(attachments).toHaveLength(1);
+    expect(attachments[0].name).toBe('entities.csv');
+  });
+
+  it('csv() delegates to backend.files.csv', () => {
+    const { backend, files } = createMockBackend();
+    files.csv.mockReturnValue([
+      { GlobalId: 'abc', Description: 'Wall A' },
+    ]);
+
+    const bim = createBimContext({ backend });
+    const rows = bim.files.csv('entities.csv');
+
+    expect(rows).toEqual([{ GlobalId: 'abc', Description: 'Wall A' }]);
+    expect(files.csv).toHaveBeenCalledWith('entities.csv');
+  });
+});
+
 describe('ViewerNamespace', () => {
   it('colorize() calls viewer.colorize', () => {
     const { backend, viewer } = createMockBackend();
@@ -277,6 +418,16 @@ describe('MutateNamespace', () => {
     bim.mutate.setProperty({ modelId: 'm', expressId: 1 }, 'Pset', 'Prop', 'value');
     expect(mutate.setProperty).toHaveBeenCalledWith(
       { modelId: 'm', expressId: 1 }, 'Pset', 'Prop', 'value',
+    );
+  });
+
+  it('setAttribute() calls mutate.setAttribute', () => {
+    const { backend, mutate } = createMockBackend();
+    const bim = createBimContext({ backend });
+
+    bim.mutate.setAttribute({ modelId: 'm', expressId: 1 }, 'Description', 'From CSV');
+    expect(mutate.setAttribute).toHaveBeenCalledWith(
+      { modelId: 'm', expressId: 1 }, 'Description', 'From CSV',
     );
   });
 

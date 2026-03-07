@@ -183,6 +183,9 @@ export default defineConfig({
       '@ifc-lite/ifcx': path.resolve(__dirname, '../../packages/ifcx/src'),
       '@ifc-lite/wasm': path.resolve(__dirname, '../../packages/wasm/pkg/ifc-lite.js'),
       '@ifc-lite/sdk': path.resolve(__dirname, '../../packages/sdk/src'),
+      '@ifc-lite/create': path.resolve(__dirname, '../../packages/create/src'),
+      '@ifc-lite/sandbox/schema': path.resolve(__dirname, '../../packages/sandbox/src/bridge-schema.ts'),
+      '@ifc-lite/sandbox': path.resolve(__dirname, '../../packages/sandbox/src'),
       '@ifc-lite/lens': path.resolve(__dirname, '../../packages/lens/src'),
       '@ifc-lite/mutations': path.resolve(__dirname, '../../packages/mutations/src'),
       '@ifc-lite/bcf': path.resolve(__dirname, '../../packages/bcf/src'),
@@ -196,12 +199,20 @@ export default defineConfig({
     port: 3000,
     headers: {
       'Cross-Origin-Opener-Policy': 'same-origin',
-      'Cross-Origin-Embedder-Policy': 'require-corp',
+      // Allows third-party no-cors resources like Stripe.js while preserving
+      // cross-origin isolation in modern browsers.
+      'Cross-Origin-Embedder-Policy': 'credentialless',
     },
     fs: {
       allow: ['../..'],
     },
     proxy: {
+      '/api/chat': {
+        // Single API source of truth lives at repo-root `api/chat.ts`.
+        // For local dev, run `pnpm dev:api` from repo root.
+        target: 'http://localhost:3001',
+        changeOrigin: true,
+      },
       '/api/bsdd': {
         target: 'https://api.bsdd.buildingsmart.org',
         changeOrigin: true,
@@ -211,9 +222,17 @@ export default defineConfig({
   },
   build: {
     target: 'esnext',
+    chunkSizeWarningLimit: 6000,
   },
   optimizeDeps: {
-    exclude: ['@duckdb/duckdb-wasm', '@ifc-lite/wasm', 'parquet-wasm'],
+    exclude: [
+      '@duckdb/duckdb-wasm',
+      '@ifc-lite/wasm',
+      'parquet-wasm',
+      'quickjs-emscripten',
+      '@jitl/quickjs-wasmfile-release-asyncify',
+      'esbuild-wasm',
+    ],
   },
   worker: {
     format: 'es',

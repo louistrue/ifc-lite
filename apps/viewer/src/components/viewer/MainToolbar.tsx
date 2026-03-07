@@ -680,7 +680,7 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
             size="icon-sm"
             onClick={(e) => {
               (e.currentTarget as HTMLButtonElement).blur();
-              // Close script panel (bottom-panel exclusivity)
+              // Close other bottom panels (bottom-panel exclusivity)
               useViewerStore.getState().setScriptPanelVisible(false);
               if (!listPanelVisible) {
                 setRightPanelCollapsed(false);

@@ -10,8 +10,17 @@
 import type { StateCreator } from 'zustand';
 import type { SavedScript } from '../../lib/scripts/persistence.js';
 import { loadSavedScripts, saveScripts, validateScriptName, canCreateScript, isScriptWithinSizeLimit } from '../../lib/scripts/persistence.js';
+import type { ScriptEditOperation, ScriptEditorSelection, ScriptEditorTextChange } from '../../lib/llm/types.js';
+import { applyScriptEditOperations } from '../../lib/llm/script-edit-ops.js';
+import type { ScriptDiagnostic } from '../../lib/llm/script-diagnostics.js';
+import {
+  type ScriptMutationIntent,
+  type ScriptReplacementSource,
+  validateScriptReplacementCandidate,
+} from '../../lib/llm/script-preservation.js';
 
 export type ScriptExecutionState = 'idle' | 'running' | 'error' | 'success';
+const SCRIPT_PANEL_VISIBLE_STORAGE_KEY = 'ifc-lite-script-panel-visible';
 
 export interface LogEntry {
   level: 'log' | 'warn' | 'error' | 'info';
@@ -25,6 +34,42 @@ export interface ScriptResult {
   durationMs: number;
 }
 
+export interface ScriptEditorApplyAdapter {
+  apply: (
+    nextContent: string,
+    selection: ScriptEditorSelection,
+    options?: { userEvent?: string; changes?: ScriptEditorTextChange[] },
+  ) => void;
+  undo: () => void;
+  redo: () => void;
+}
+
+export interface ScriptApplyResult {
+  ok: boolean;
+  error?: string;
+  appliedOpIds: string[];
+  status?: 'ok' | 'revision_conflict' | 'range_error' | 'semantic_error';
+  diagnostic?: ScriptDiagnostic;
+}
+
+export interface ScriptApplyOptions {
+  acceptedBaseRevision?: number;
+  baseContentSnapshot?: string;
+  priorAcceptedOps?: ScriptEditOperation[];
+  intent?: ScriptMutationIntent;
+}
+
+export interface ScriptFallbackOptions {
+  intent?: ScriptMutationIntent;
+  source?: ScriptReplacementSource;
+}
+
+export interface ScriptAssistantTurnSnapshot {
+  content: string;
+  selection: ScriptEditorSelection;
+  revision: number;
+}
+
 export interface ScriptSlice {
   // State
   savedScripts: SavedScript[];
@@ -34,8 +79,16 @@ export interface ScriptSlice {
   scriptExecutionState: ScriptExecutionState;
   scriptLastResult: ScriptResult | null;
   scriptLastError: string | null;
+  scriptLastDiagnostics: ScriptDiagnostic[];
   scriptPanelVisible: boolean;
   scriptDeleteConfirmId: string | null;
+  scriptEditorRevision: number;
+  scriptEditorSelection: ScriptEditorSelection;
+  scriptAppliedOpIds: Set<string>;
+  scriptEditorApplyAdapter: ScriptEditorApplyAdapter | null;
+  scriptCanUndo: boolean;
+  scriptCanRedo: boolean;
+  scriptAssistantTurnSnapshot: ScriptAssistantTurnSnapshot | null;
 
   // Actions
   createScript: (name: string, code?: string) => string;
@@ -46,10 +99,22 @@ export interface ScriptSlice {
   setScriptEditorContent: (content: string) => void;
   setScriptExecutionState: (state: ScriptExecutionState) => void;
   setScriptResult: (result: ScriptResult | null) => void;
-  setScriptError: (error: string | null) => void;
+  setScriptError: (error: string | null, diagnostics?: ScriptDiagnostic[]) => void;
+  setScriptDiagnostics: (diagnostics: ScriptDiagnostic[]) => void;
   setScriptPanelVisible: (visible: boolean) => void;
   toggleScriptPanel: () => void;
   setScriptDeleteConfirmId: (id: string | null) => void;
+  setScriptCursorContext: (selection: ScriptEditorSelection) => void;
+  registerScriptEditorApplyAdapter: (adapter: ScriptEditorApplyAdapter | null) => void;
+  applyScriptEditOps: (ops: ScriptEditOperation[], options?: ScriptApplyOptions) => ScriptApplyResult;
+  replaceScriptContentFallback: (content: string, options?: ScriptFallbackOptions) => ScriptApplyResult;
+  beginAssistantScriptTurn: () => void;
+  commitAssistantScriptTurn: () => void;
+  rollbackAssistantScriptTurn: () => void;
+  resetScriptEditorForNewChat: () => void;
+  setScriptHistoryState: (canUndo: boolean, canRedo: boolean) => void;
+  undoScriptEditor: () => void;
+  redoScriptEditor: () => void;
 }
 
 const DEFAULT_CODE = `// Write your BIM script here
@@ -71,6 +136,14 @@ for (const [type, count] of Object.entries(counts).sort((a, b) => b[1] - a[1])) 
 }
 `;
 
+function loadStoredScriptPanelVisible(): boolean {
+  try {
+    return localStorage.getItem(SCRIPT_PANEL_VISIBLE_STORAGE_KEY) === 'true';
+  } catch {
+    return false;
+  }
+}
+
 export const createScriptSlice: StateCreator<ScriptSlice, [], [], ScriptSlice> = (set, get) => ({
   // Initial state
   savedScripts: loadSavedScripts(),
@@ -80,8 +153,16 @@ export const createScriptSlice: StateCreator<ScriptSlice, [], [], ScriptSlice> =
   scriptExecutionState: 'idle',
   scriptLastResult: null,
   scriptLastError: null,
-  scriptPanelVisible: false,
+  scriptLastDiagnostics: [],
+  scriptPanelVisible: loadStoredScriptPanelVisible(),
   scriptDeleteConfirmId: null,
+  scriptEditorRevision: 0,
+  scriptEditorSelection: { from: 0, to: 0 },
+  scriptAppliedOpIds: new Set(),
+  scriptEditorApplyAdapter: null,
+  scriptCanUndo: false,
+  scriptCanRedo: false,
+  scriptAssistantTurnSnapshot: null,
 
   // Actions
   createScript: (name, code) => {
@@ -113,6 +194,9 @@ export const createScriptSlice: StateCreator<ScriptSlice, [], [], ScriptSlice> =
       activeScriptId: id,
       scriptEditorContent: script.code,
       scriptEditorDirty: false,
+      scriptEditorRevision: get().scriptEditorRevision + 1,
+      scriptEditorSelection: { from: script.code.length, to: script.code.length },
+      scriptAppliedOpIds: new Set(),
     });
     const result = saveScripts(updated);
     if (!result.ok) {
@@ -146,6 +230,9 @@ export const createScriptSlice: StateCreator<ScriptSlice, [], [], ScriptSlice> =
       scriptEditorContent,
       scriptEditorDirty: false,
       scriptDeleteConfirmId: null,
+      scriptEditorRevision: get().scriptEditorRevision + 1,
+      scriptEditorSelection: { from: scriptEditorContent.length, to: scriptEditorContent.length },
+      scriptAppliedOpIds: new Set(),
     });
     saveScripts(updated);
   },
@@ -176,7 +263,11 @@ export const createScriptSlice: StateCreator<ScriptSlice, [], [], ScriptSlice> =
           scriptEditorDirty: false,
           scriptLastResult: null,
           scriptLastError: null,
+          scriptLastDiagnostics: [],
           scriptExecutionState: 'idle',
+          scriptEditorRevision: get().scriptEditorRevision + 1,
+          scriptEditorSelection: { from: script.code.length, to: script.code.length },
+          scriptAppliedOpIds: new Set(),
         });
         return;
       }
@@ -187,32 +278,188 @@ export const createScriptSlice: StateCreator<ScriptSlice, [], [], ScriptSlice> =
       scriptEditorDirty: false,
       scriptLastResult: null,
       scriptLastError: null,
+      scriptLastDiagnostics: [],
       scriptExecutionState: 'idle',
+      scriptEditorRevision: get().scriptEditorRevision + 1,
+      scriptEditorSelection: { from: DEFAULT_CODE.length, to: DEFAULT_CODE.length },
+      scriptAppliedOpIds: new Set(),
     });
   },
 
   setScriptEditorContent: (scriptEditorContent) => {
-    set({ scriptEditorContent, scriptEditorDirty: true });
+    set({
+      scriptEditorContent,
+      scriptEditorDirty: true,
+      scriptEditorRevision: get().scriptEditorRevision + 1,
+      scriptEditorSelection: { from: scriptEditorContent.length, to: scriptEditorContent.length },
+      scriptAppliedOpIds: new Set(),
+    });
   },
 
   setScriptExecutionState: (scriptExecutionState) => set({ scriptExecutionState }),
 
   setScriptResult: (scriptLastResult) =>
-    set({ scriptLastResult, scriptLastError: null, scriptExecutionState: 'success' }),
+    set({ scriptLastResult, scriptLastError: null, scriptLastDiagnostics: [], scriptExecutionState: 'success' }),
 
   // Error and execution state are set independently — clearing an error
   // does NOT change execution state unless explicitly transitioned
-  setScriptError: (scriptLastError) => {
+  setScriptError: (scriptLastError, scriptLastDiagnostics = []) => {
     if (scriptLastError) {
-      set({ scriptLastError, scriptExecutionState: 'error' });
+      set({ scriptLastError, scriptLastDiagnostics, scriptExecutionState: 'error' });
     } else {
-      set({ scriptLastError: null });
+      set({ scriptLastError: null, scriptLastDiagnostics: [] });
     }
   },
 
-  setScriptPanelVisible: (scriptPanelVisible) => set({ scriptPanelVisible }),
+  setScriptDiagnostics: (scriptLastDiagnostics) => set({ scriptLastDiagnostics }),
 
-  toggleScriptPanel: () => set((state) => ({ scriptPanelVisible: !state.scriptPanelVisible })),
+  setScriptPanelVisible: (scriptPanelVisible) => {
+    try { localStorage.setItem(SCRIPT_PANEL_VISIBLE_STORAGE_KEY, String(scriptPanelVisible)); } catch { /* ignore */ }
+    set({ scriptPanelVisible });
+  },
+
+  toggleScriptPanel: () => {
+    const next = !get().scriptPanelVisible;
+    try { localStorage.setItem(SCRIPT_PANEL_VISIBLE_STORAGE_KEY, String(next)); } catch { /* ignore */ }
+    set({ scriptPanelVisible: next });
+  },
 
   setScriptDeleteConfirmId: (scriptDeleteConfirmId) => set({ scriptDeleteConfirmId }),
+
+  setScriptCursorContext: (scriptEditorSelection) => set({ scriptEditorSelection }),
+
+  registerScriptEditorApplyAdapter: (scriptEditorApplyAdapter) => set({ scriptEditorApplyAdapter }),
+
+  applyScriptEditOps: (ops, options) => {
+    const state = get();
+    const result = applyScriptEditOperations({
+      content: state.scriptEditorContent,
+      selection: state.scriptEditorSelection,
+      revision: state.scriptEditorRevision,
+      operations: ops,
+      priorAcceptedOps: options?.priorAcceptedOps,
+      acceptedBaseRevision: options?.acceptedBaseRevision,
+      baseContentSnapshot: options?.baseContentSnapshot,
+      intent: options?.intent,
+    });
+
+    if (!result.ok) {
+      return {
+        ok: false,
+        error: result.error,
+        appliedOpIds: [],
+        status: result.status,
+        diagnostic: result.diagnostic,
+      };
+    }
+
+    const appliedSet = new Set(state.scriptAppliedOpIds);
+    result.appliedOpIds.forEach((id) => appliedSet.add(id));
+    state.scriptEditorApplyAdapter?.apply(result.content, result.selection, {
+      userEvent: 'assistant-turn',
+      changes: result.changes,
+    });
+    set({
+      scriptEditorContent: result.content,
+      scriptEditorSelection: result.selection,
+      scriptEditorRevision: result.revision,
+      scriptEditorDirty: true,
+      scriptAppliedOpIds: appliedSet,
+    });
+    return { ok: true, appliedOpIds: result.appliedOpIds, status: result.status };
+  },
+
+  replaceScriptContentFallback: (scriptEditorContent, options) => {
+    const state = get();
+    const replacementCheck = validateScriptReplacementCandidate({
+      previousContent: state.scriptEditorContent,
+      candidateContent: scriptEditorContent,
+      intent: options?.intent ?? 'create',
+      source: options?.source ?? 'code_block_fallback',
+    });
+    if (!replacementCheck.ok) {
+      return {
+        ok: false,
+        error: replacementCheck.diagnostic?.message,
+        appliedOpIds: [],
+        status: 'semantic_error',
+        diagnostic: replacementCheck.diagnostic,
+      };
+    }
+
+    const nextRevision = state.scriptEditorRevision + 1;
+    const selection = { from: scriptEditorContent.length, to: scriptEditorContent.length };
+    state.scriptEditorApplyAdapter?.apply(scriptEditorContent, selection, { userEvent: 'assistant-turn' });
+    set({
+      scriptEditorContent,
+      scriptEditorDirty: true,
+      scriptEditorRevision: nextRevision,
+      scriptEditorSelection: selection,
+      scriptAppliedOpIds: new Set(),
+    });
+    return { ok: true, appliedOpIds: [], status: 'ok' };
+  },
+
+  beginAssistantScriptTurn: () => {
+    const state = get();
+    set({
+      scriptAssistantTurnSnapshot: {
+        content: state.scriptEditorContent,
+        selection: state.scriptEditorSelection,
+        revision: state.scriptEditorRevision,
+      },
+    });
+  },
+
+  commitAssistantScriptTurn: () => {
+    set({ scriptAssistantTurnSnapshot: null });
+  },
+
+  rollbackAssistantScriptTurn: () => {
+    const state = get();
+    const snapshot = state.scriptAssistantTurnSnapshot;
+    if (!snapshot) return;
+    state.scriptEditorApplyAdapter?.apply(snapshot.content, snapshot.selection, { userEvent: 'assistant-turn' });
+    set({
+      scriptEditorContent: snapshot.content,
+      scriptEditorSelection: snapshot.selection,
+      scriptEditorRevision: snapshot.revision,
+      scriptEditorDirty: true,
+      scriptAppliedOpIds: new Set(),
+      scriptAssistantTurnSnapshot: null,
+    });
+  },
+
+  resetScriptEditorForNewChat: () => {
+    const state = get();
+    const scriptEditorContent = '';
+    const scriptEditorSelection = { from: 0, to: 0 };
+    state.scriptEditorApplyAdapter?.apply(scriptEditorContent, scriptEditorSelection, {
+      userEvent: 'new-chat-reset',
+    });
+    set({
+      activeScriptId: null,
+      scriptEditorContent,
+      scriptEditorDirty: false,
+      scriptExecutionState: 'idle',
+      scriptLastResult: null,
+      scriptLastError: null,
+      scriptLastDiagnostics: [],
+      scriptDeleteConfirmId: null,
+      scriptEditorRevision: state.scriptEditorRevision + 1,
+      scriptEditorSelection,
+      scriptAppliedOpIds: new Set(),
+      scriptAssistantTurnSnapshot: null,
+    });
+  },
+
+  setScriptHistoryState: (scriptCanUndo, scriptCanRedo) => set({ scriptCanUndo, scriptCanRedo }),
+
+  undoScriptEditor: () => {
+    get().scriptEditorApplyAdapter?.undo();
+  },
+
+  redoScriptEditor: () => {
+    get().scriptEditorApplyAdapter?.redo();
+  },
 });

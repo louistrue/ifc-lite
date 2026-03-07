@@ -23,6 +23,8 @@
     "@ifc-lite/parser": "workspace:^",
     "@ifc-lite/query": "workspace:^",
     "@ifc-lite/renderer": "workspace:^",
+    "@ifc-lite/sandbox": "workspace:^",
+    "@ifc-lite/sdk": "workspace:^",
     "@ifc-lite/server-client": "workspace:^",
     "@ifc-lite/spatial": "workspace:^",
     "@ifc-lite/wasm": "workspace:^",

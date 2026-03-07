@@ -49,6 +49,10 @@ export class IfcLiteBridge {
   private ifcApi: IfcAPI | null = null;
   private initialized: boolean = false;
 
+  private isWasmRuntimeError(error: unknown): boolean {
+    return error instanceof WebAssembly.RuntimeError;
+  }
+
   /**
    * Initialize IFC-Lite WASM
    * The WASM binary is automatically resolved from the same location as the JS module
@@ -68,8 +72,19 @@ export class IfcLiteBridge {
       log.error('Failed to initialize WASM geometry engine', error, {
         operation: 'init',
       });
+      // Reset state so re-initialization can be attempted
+      this.initialized = false;
+      this.ifcApi = null;
       throw error;
     }
+  }
+
+  /**
+   * Reset WASM state after a crash. Allows re-initialization.
+   */
+  reset(): void {
+    this.initialized = false;
+    this.ifcApi = null;
   }
 
   /**
@@ -89,6 +104,10 @@ export class IfcLiteBridge {
         operation: 'parseMeshes',
         data: { contentLength: content.length },
       });
+      // WASM panics corrupt module state - reset so next attempt re-initializes
+      if (this.isWasmRuntimeError(error)) {
+        this.reset();
+      }
       throw error;
     }
   }
@@ -111,6 +130,9 @@ export class IfcLiteBridge {
         operation: 'parseMeshesInstanced',
         data: { contentLength: content.length },
       });
+      if (this.isWasmRuntimeError(error)) {
+        this.reset();
+      }
       throw error;
     }
   }
@@ -131,6 +153,9 @@ export class IfcLiteBridge {
         operation: 'parseMeshesAsync',
         data: { contentLength: content.length },
       });
+      if (this.isWasmRuntimeError(error)) {
+        this.reset();
+      }
       throw error;
     }
   }
@@ -152,6 +177,9 @@ export class IfcLiteBridge {
         operation: 'parseMeshesInstancedAsync',
         data: { contentLength: content.length },
       });
+      if (this.isWasmRuntimeError(error)) {
+        this.reset();
+      }
       throw error;
     }
   }
@@ -173,6 +201,9 @@ export class IfcLiteBridge {
         operation: 'parseSymbolicRepresentations',
         data: { contentLength: content.length },
       });
+      if (this.isWasmRuntimeError(error)) {
+        this.reset();
+      }
       throw error;
     }
   }

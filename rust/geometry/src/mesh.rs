@@ -370,6 +370,9 @@ impl Mesh {
 
         // Check each triangle
         for i in (0..self.indices.len()).step_by(3) {
+            if i + 2 >= self.indices.len() {
+                break;
+            }
             let i0 = self.indices[i] as usize;
             let i1 = self.indices[i + 1] as usize;
             let i2 = self.indices[i + 2] as usize;

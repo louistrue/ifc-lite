@@ -4,12 +4,14 @@
   "description": "High-performance browser IFC parser & renderer",
   "private": true,
   "type": "module",
+  "packageManager": "pnpm@10.8.1",
   "workspaces": [
     "packages/*",
     "apps/*"
   ],
   "scripts": {
     "dev": "pnpm build && pnpm --filter viewer dev",
+    "dev:api": "zsh -lc 'set -a; source \"apps/api/.env.local\"; set +a; PORT=3001 tsx scripts/dev-chat-api.ts'",
     "dev:embed": "pnpm build && pnpm --filter @ifc-lite/viewer-embed dev",
     "dev:desktop": "pnpm --filter @ifc-lite/desktop dev",
     "build": "pnpm -r build",
@@ -48,7 +50,10 @@
     "typescript": "^5.3.0"
   },
   "engines": {
-    "node": ">=18.0.0",
+    "node": "22.x",
     "pnpm": ">=8.0.0"
+  },
+  "dependencies": {
+    "@neondatabase/serverless": "^1.0.2"
   }
 }

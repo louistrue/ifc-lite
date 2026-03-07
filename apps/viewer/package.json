@@ -7,10 +7,11 @@
     "dev": "vite",
     "build": "NODE_OPTIONS='--max-old-space-size=4096' bash -c '(tsc || true) && vite build'",
     "preview": "vite preview",
-    "test": "bash -c 'shopt -s globstar && tsx --test src/**/*.test.ts'",
+    "test": "tsx --test \"src/**/*.test.ts\"",
     "check:templates": "tsc -p src/lib/scripts/templates/tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@clerk/clerk-react": "^5.61.3",
     "@codemirror/autocomplete": "^6.20.0",
     "@codemirror/commands": "^6.10.2",
     "@codemirror/lang-javascript": "^6.2.4",
