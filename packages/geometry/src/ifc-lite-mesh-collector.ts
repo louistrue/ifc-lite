@@ -49,13 +49,19 @@ export interface StreamingRtcOffsetEvent {
 
 export type StreamingEvent = StreamingBatchEvent | StreamingCompleteEvent | StreamingColorUpdateEvent | StreamingRtcOffsetEvent;
 
+export interface IfcLiteMeshCollectorOptions {
+  deflection?: number;
+}
+
 export class IfcLiteMeshCollector {
   private ifcApi: IfcAPI;
   private content: string;
+  private deflection?: number;
 
-  constructor(ifcApi: IfcAPI, content: string) {
+  constructor(ifcApi: IfcAPI, content: string, options: IfcLiteMeshCollectorOptions = {}) {
     this.ifcApi = ifcApi;
     this.content = content;
+    this.deflection = options.deflection;
   }
 
   /**
@@ -205,6 +211,7 @@ export class IfcLiteMeshCollector {
     // NOTE: WASM now automatically defers style building for faster first frame
     const processingPromise = this.ifcApi.parseMeshesAsync(this.content, {
       batchSize,
+      deflection: this.deflection,
       onRtcOffset: (rtc: { x: number; y: number; z: number; hasRtc: boolean }) => {
         // Emit RTC offset event so consumer can capture it
         batchQueue.push({
@@ -416,6 +423,7 @@ export class IfcLiteMeshCollector {
     // Start async processing
     const processingPromise = this.ifcApi.parseMeshesInstancedAsync(this.content, {
       batchSize,
+      deflection: this.deflection,
       onBatch: (geometries: InstancedGeometry[], _progress: StreamingProgress) => {
         // NOTE: Do NOT convert Z-up to Y-up here for instanced geometry!
         // Instance transforms position geometry in world space.

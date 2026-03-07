@@ -8,22 +8,51 @@
 
 use crate::profile::Profile2D;
 use crate::{Error, Point2, Point3, Result, Vector3};
-use ifc_lite_core::{AttributeValue, DecodedEntity, EntityDecoder, IfcSchema, IfcType, ProfileCategory};
+use ifc_lite_core::{
+    AttributeValue, DecodedEntity, EntityDecoder, IfcSchema, IfcType, ProfileCategory,
+};
 use std::f64::consts::PI;
 
 /// Maximum recursion depth for nested curve processing.
 /// Prevents stack overflow from deeply nested CompositeCurve → TrimmedCurve → CompositeCurve chains.
 const MAX_CURVE_DEPTH: u32 = 50;
+const MIN_CIRCLE_SEGMENTS: usize = 6;
+const MAX_CIRCLE_SEGMENTS: usize = 64;
+
+/// Compute the number of segments needed to approximate a circle arc while
+/// keeping the maximum chord error (deflection) within tolerance.
+pub fn segments_for_radius(radius: f64, deflection: f64) -> usize {
+    if radius <= 0.0 || deflection <= 0.0 {
+        return MIN_CIRCLE_SEGMENTS;
+    }
+
+    let ratio = deflection / radius;
+    if ratio >= 1.0 {
+        return MIN_CIRCLE_SEGMENTS;
+    }
+
+    let segments = (PI / (1.0 - ratio).acos()).ceil() as usize;
+    segments.clamp(MIN_CIRCLE_SEGMENTS, MAX_CIRCLE_SEGMENTS)
+}
 
 /// Profile processor - processes IFC profiles into 2D contours
 pub struct ProfileProcessor {
     schema: IfcSchema,
+    deflection: f64,
 }
 
 impl ProfileProcessor {
     /// Create new profile processor
     pub fn new(schema: IfcSchema) -> Self {
-        Self { schema }
+        Self {
+            schema,
+            deflection: 0.001,
+        }
+    }
+
+    /// Create new profile processor with custom deflection tolerance.
+    pub fn with_deflection(schema: IfcSchema, deflection: f64) -> Self {
+        Self { schema, deflection }
     }
 
     /// Process any IFC profile definition
@@ -210,8 +239,7 @@ impl ProfileProcessor {
             .get_float(3)
             .ok_or_else(|| Error::geometry("Circle missing Radius".to_string()))?;
 
-        // Generate circle with 36 segments for smooth appearance
-        let segments = 36;
+        let segments = segments_for_radius(radius, self.deflection);
         let mut points = Vec::with_capacity(segments);
 
         for i in 0..segments {
@@ -279,7 +307,7 @@ impl ProfileProcessor {
             .ok_or_else(|| Error::geometry("CircleHollow missing WallThickness".to_string()))?;
 
         let inner_radius = radius - wall_thickness;
-        let segments = 36;
+        let segments = segments_for_radius(radius, self.deflection);
 
         // Outer circle
         let mut outer_points = Vec::with_capacity(segments);
@@ -575,8 +603,12 @@ impl ProfileProcessor {
         match curve.ifc_type {
             IfcType::IfcPolyline => self.process_polyline(curve, decoder),
             IfcType::IfcIndexedPolyCurve => self.process_indexed_polycurve(curve, decoder),
-            IfcType::IfcCompositeCurve => self.process_composite_curve_with_depth(curve, decoder, depth),
-            IfcType::IfcTrimmedCurve => self.process_trimmed_curve_with_depth(curve, decoder, depth),
+            IfcType::IfcCompositeCurve => {
+                self.process_composite_curve_with_depth(curve, decoder, depth)
+            }
+            IfcType::IfcTrimmedCurve => {
+                self.process_trimmed_curve_with_depth(curve, decoder, depth)
+            }
             IfcType::IfcCircle => self.process_circle_curve(curve, decoder),
             IfcType::IfcEllipse => self.process_ellipse_curve(curve, decoder),
             _ => Err(Error::geometry(format!(
@@ -611,7 +643,9 @@ impl ProfileProcessor {
         }
         match curve.ifc_type {
             IfcType::IfcPolyline => self.process_polyline_3d(curve, decoder),
-            IfcType::IfcCompositeCurve => self.process_composite_curve_3d_with_depth(curve, decoder, depth),
+            IfcType::IfcCompositeCurve => {
+                self.process_composite_curve_3d_with_depth(curve, decoder, depth)
+            }
             IfcType::IfcCircle => self.process_circle_3d(curve, decoder),
             IfcType::IfcTrimmedCurve => {
                 // For trimmed curve, get 2D points and convert to 3D
@@ -755,7 +789,7 @@ impl ProfileProcessor {
         };
 
         // Generate circle points in 3D
-        let segments = 24usize;
+        let segments = segments_for_radius(radius, self.deflection);
         let mut points = Vec::with_capacity(segments + 1);
 
         for i in 0..=segments {
@@ -836,7 +870,8 @@ impl ProfileProcessor {
                 .map(|e| e == "T" || e == "TRUE")
                 .unwrap_or(true);
 
-            let mut segment_points = self.get_curve_points_with_depth(&parent_curve, decoder, depth + 1)?;
+            let mut segment_points =
+                self.get_curve_points_with_depth(&parent_curve, decoder, depth + 1)?;
 
             if !same_sense {
                 segment_points.reverse();
@@ -1034,7 +1069,7 @@ impl ProfileProcessor {
         let radius = curve.get_float(1).unwrap_or(1.0);
         let (center, rotation) = self.get_placement_2d(curve, decoder)?;
 
-        let segments = 36;
+        let segments = segments_for_radius(radius, self.deflection);
         let mut points = Vec::with_capacity(segments);
 
         for i in 0..segments {
@@ -1061,7 +1096,7 @@ impl ProfileProcessor {
         let semi_axis2 = curve.get_float(2).unwrap_or(1.0);
         let (center, rotation) = self.get_placement_2d(curve, decoder)?;
 
-        let segments = 36;
+        let segments = segments_for_radius(semi_axis1.max(semi_axis2), self.deflection);
         let mut points = Vec::with_capacity(segments);
 
         for i in 0..segments {
@@ -1180,11 +1215,12 @@ impl ProfileProcessor {
                 // List([String("IFCLINEINDEX"), List([Integer(1), Integer(2)])])
                 if segment_list.len() >= 2 {
                     // First element is type name (String), second is the actual indices list
-                    let type_name = segment_list.first()
+                    let type_name = segment_list
+                        .first()
                         .and_then(|v| v.as_string())
                         .unwrap_or("");
                     let is_arc_type = type_name.to_uppercase().contains("ARC");
-                    
+
                     if let Some(AttributeValue::List(indices_list)) = segment_list.get(1) {
                         (is_arc_type, Some(indices_list.as_slice()))
                     } else {
@@ -1274,12 +1310,12 @@ impl ProfileProcessor {
         // The determinant d scales with the square of the point distances
         let arc_span = ((p3.x - p1.x).powi(2) + (p3.y - p1.y).powi(2)).sqrt();
         let collinear_tolerance = 1e-6 * arc_span.powi(2).max(1e-10);
-        
+
         if d.abs() < collinear_tolerance {
             // Points are collinear - return as line
             return vec![p1, p2, p3];
         }
-        
+
         // Calculate center
         let ux_num = (ax * ax + ay * ay) * (by - cy)
             + (bx * bx + by * by) * (cy - ay)
@@ -1291,7 +1327,7 @@ impl ProfileProcessor {
         let uy = uy_num / d;
         let center = Point2::new(ux, uy);
         let radius = ((p1.x - center.x).powi(2) + (p1.y - center.y).powi(2)).sqrt();
-        
+
         // If radius is more than 100x the arc span, the points are essentially collinear
         if radius > arc_span * 100.0 {
             return vec![p1, p2, p3];
@@ -1317,7 +1353,7 @@ impl ProfileProcessor {
         // The correct direction is the one that passes through angle2
         let diff_direct = normalize_angle(angle3 - angle1);
         let diff_to_mid = normalize_angle(angle2 - angle1);
-        
+
         let go_direct = if diff_direct > 0.0 {
             // Direct path is counterclockwise (positive angles)
             diff_to_mid > 0.0 && diff_to_mid < diff_direct
@@ -1395,7 +1431,8 @@ impl ProfileProcessor {
                 .unwrap_or(true);
 
             // Process the parent curve (with depth tracking)
-            let mut segment_points = self.process_curve_with_depth(&parent_curve, decoder, depth + 1)?;
+            let mut segment_points =
+                self.process_curve_with_depth(&parent_curve, decoder, depth + 1)?;
 
             if !same_sense {
                 segment_points.reverse();
@@ -1479,8 +1516,16 @@ mod tests {
         let profile_entity = decoder.decode_by_id(1).unwrap();
         let profile = processor.process(&profile_entity, &mut decoder).unwrap();
 
-        assert_eq!(profile.outer.len(), 36); // Circle with 36 segments
+        assert!(profile.outer.len() >= MIN_CIRCLE_SEGMENTS);
         assert!(!profile.outer.is_empty());
+    }
+
+    #[test]
+    fn test_segments_for_radius_respects_deflection() {
+        assert_eq!(segments_for_radius(0.0, 0.001), MIN_CIRCLE_SEGMENTS);
+        assert_eq!(segments_for_radius(1.0, 2.0), MIN_CIRCLE_SEGMENTS);
+        assert!(segments_for_radius(1.0, 0.001) > segments_for_radius(1.0, 0.01));
+        assert!(segments_for_radius(100.0, 0.0001) <= MAX_CIRCLE_SEGMENTS);
     }
 
     #[test]

@@ -19,7 +19,7 @@ import { IfcQuery } from '@ifc-lite/query';
 import { buildSpatialIndex } from '@ifc-lite/spatial';
 import { loadGLBToMeshData } from '@ifc-lite/cache';
 
-import { getDynamicBatchConfig } from '../utils/ifcConfig.js';
+import { getDynamicBatchConfig, getViewerCurveDeflection } from '../utils/ifcConfig.js';
 import {
   calculateMeshBounds,
   createCoordinateInfo,
@@ -281,7 +281,10 @@ export function useIfcFederation() {
         // IFC4/IFC2X3 STEP format - use WASM parsing
         setProgress({ phase: 'Starting geometry streaming', percent: 10 });
 
-        const geometryProcessor = new GeometryProcessor({ quality: GeometryQuality.Balanced });
+        const geometryProcessor = new GeometryProcessor({
+          quality: GeometryQuality.Balanced,
+          curveDeflection: getViewerCurveDeflection(),
+        });
         await geometryProcessor.init();
 
         // Parse data model

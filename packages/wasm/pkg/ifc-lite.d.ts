@@ -300,6 +300,7 @@ export class IfcAPI {
      *
      * Options:
      * - `batchSize`: Number of meshes per batch (default: 25)
+     * - `deflection`: Curved tessellation tolerance in meters (default: 0.001)
      * - `onBatch(meshes, progress)`: Called for each batch of meshes
      * - `onRtcOffset({x, y, z, hasRtc})`: Called early with RTC offset for camera/world setup
      * - `onColorUpdate(Map<id, color>)`: Called with style updates after initial render
@@ -1097,24 +1098,24 @@ export interface InitOutput {
     readonly instancedmeshcollection_totalGeometries: (a: number) => number;
     readonly meshcollectionwithrtc_length: (a: number) => number;
     readonly zerocopymesh_indices_len: (a: number) => number;
-    readonly __wbg_get_rtcoffsetjs_x: (a: number) => number;
-    readonly __wbg_get_rtcoffsetjs_y: (a: number) => number;
-    readonly __wbg_get_rtcoffsetjs_z: (a: number) => number;
     readonly __wbg_set_rtcoffsetjs_x: (a: number, b: number) => void;
     readonly __wbg_set_rtcoffsetjs_y: (a: number, b: number) => void;
     readonly __wbg_set_rtcoffsetjs_z: (a: number, b: number) => void;
+    readonly __wbg_get_rtcoffsetjs_x: (a: number) => number;
+    readonly __wbg_get_rtcoffsetjs_y: (a: number) => number;
+    readonly __wbg_get_rtcoffsetjs_z: (a: number) => number;
+    readonly get_memory: () => number;
     readonly instancedgeometry_geometryId: (a: number) => bigint;
     readonly meshcollection_rtcOffsetX: (a: number) => number;
     readonly symboliccircle_expressId: (a: number) => number;
     readonly zerocopymesh_triangle_count: (a: number) => number;
     readonly zerocopymesh_indices_ptr: (a: number) => number;
     readonly zerocopymesh_normals_ptr: (a: number) => number;
-    readonly get_memory: () => number;
-    readonly __wasm_bindgen_func_elem_1032: (a: number, b: number) => void;
-    readonly __wasm_bindgen_func_elem_480: (a: number, b: number) => void;
-    readonly __wasm_bindgen_func_elem_1037: (a: number, b: number, c: number, d: number) => void;
-    readonly __wasm_bindgen_func_elem_1070: (a: number, b: number, c: number, d: number) => void;
-    readonly __wasm_bindgen_func_elem_484: (a: number, b: number) => void;
+    readonly __wasm_bindgen_func_elem_1039: (a: number, b: number) => void;
+    readonly __wasm_bindgen_func_elem_483: (a: number, b: number) => void;
+    readonly __wasm_bindgen_func_elem_1041: (a: number, b: number, c: number, d: number) => void;
+    readonly __wasm_bindgen_func_elem_1074: (a: number, b: number, c: number, d: number) => void;
+    readonly __wasm_bindgen_func_elem_485: (a: number, b: number) => void;
     readonly __wbindgen_export: (a: number) => void;
     readonly __wbindgen_export2: (a: number, b: number, c: number) => void;
     readonly __wbindgen_export3: (a: number, b: number) => number;

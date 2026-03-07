@@ -67,6 +67,35 @@ export const THRESHOLDS = {
 /** Detect if running in Tauri (desktop) environment */
 export const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 
+const DEFAULT_CURVE_DEFLECTION_METERS = 0.001;
+
+function parseCurveDeflection(value: string | undefined): number | undefined {
+  if (!value) return undefined;
+  const parsed = Number.parseFloat(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+/**
+ * Resolve curved tessellation deflection for the client-side WASM viewer.
+ * Query param `curveDeflection` takes precedence over `VITE_IFC_CURVE_DEFLECTION`.
+ */
+export function getViewerCurveDeflection(): number | undefined {
+  if (typeof window !== 'undefined') {
+    const params = new URLSearchParams(window.location.search);
+    const queryDeflection = parseCurveDeflection(params.get('curveDeflection') ?? undefined);
+    if (queryDeflection !== undefined && queryDeflection !== DEFAULT_CURVE_DEFLECTION_METERS) {
+      return queryDeflection;
+    }
+  }
+
+  const envDeflection = parseCurveDeflection(import.meta.env.VITE_IFC_CURVE_DEFLECTION);
+  if (envDeflection !== undefined && envDeflection !== DEFAULT_CURVE_DEFLECTION_METERS) {
+    return envDeflection;
+  }
+
+  return undefined;
+}
+
 // ============================================================================
 // Dynamic Batch Configuration
 // ============================================================================
