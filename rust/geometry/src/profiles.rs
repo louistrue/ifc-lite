@@ -939,24 +939,38 @@ impl ProfileProcessor {
         let start_angle = trim1.unwrap_or(0.0).to_radians();
         let end_angle = trim2.unwrap_or(360.0).to_radians();
 
-        // Calculate arc angle and adaptive segment count
-        // Use ~8 segments per 90° (quarter circle), minimum 2
-        let arc_angle = (end_angle - start_angle).abs();
-        let num_segments = ((arc_angle / std::f64::consts::FRAC_PI_2 * 8.0).ceil() as usize).max(2);
-        let mut points = Vec::with_capacity(num_segments + 1);
-
-        let angle_range = if sense {
+        // IFC trimmed conics can wrap around the 0°/360° seam.
+        // Example: trim1=359.98°, trim2=0.0°, SenseAgreement=.T.
+        // should produce a tiny arc, not an almost full circle.
+        let two_pi = 2.0 * PI;
+        let mut angle_range = if sense {
             end_angle - start_angle
         } else {
             start_angle - end_angle
         };
+
+        // Normalize direction-preserving wraparound so the resulting range follows
+        // SenseAgreement and remains within a single revolution.
+        if sense {
+            if angle_range < 0.0 {
+                angle_range += two_pi;
+            }
+        } else if angle_range < 0.0 {
+            angle_range += two_pi;
+        }
+
+        // Calculate arc angle and adaptive segment count
+        // Use ~8 segments per 90° (quarter circle), minimum 2
+        let arc_angle = angle_range.abs();
+        let num_segments = ((arc_angle / std::f64::consts::FRAC_PI_2 * 8.0).ceil() as usize).max(2);
+        let mut points = Vec::with_capacity(num_segments + 1);
 
         for i in 0..=num_segments {
             let t = i as f64 / num_segments as f64;
             let angle = if sense {
                 start_angle + t * angle_range
             } else {
-                start_angle - t * angle_range.abs()
+                start_angle - t * angle_range
             };
 
             let x = radius * angle.cos();
@@ -1521,4 +1535,52 @@ mod tests {
         assert_eq!(profile.outer.len(), 5); // 4 corners + closing point
         assert!(!profile.outer.is_empty());
     }
+
+    #[test]
+    fn test_trimmed_curve_wraparound_generates_small_arc() {
+        let content = r#"
+#1=IFCCARTESIANPOINT((0.0,0.0));
+#2=IFCAXIS2PLACEMENT2D(#1,$);
+#3=IFCCIRCLE(#2,10.0);
+#4=IFCTRIMMEDCURVE(#3,(IFCPARAMETERVALUE(359.9)),(IFCPARAMETERVALUE(0.1)),.T.,.PARAMETER.);
+#5=IFCARBITRARYCLOSEDPROFILEDEF(.AREA.,$,#4);
+"#;
+
+        let mut decoder = EntityDecoder::new(content);
+        let processor = ProfileProcessor::new(IfcSchema::new());
+
+        let profile_entity = decoder.decode_by_id(5).unwrap();
+        let profile = processor.process(&profile_entity, &mut decoder).unwrap();
+
+        // A tiny wraparound arc should not explode into a near-full circle approximation.
+        // With adaptive tessellation this should stay very small (3 points: 2 segments minimum + endpoint).
+        assert!(profile.outer.len() <= 6, "expected small arc point count, got {}", profile.outer.len());
+    }
+
+    #[test]
+    fn test_composite_curve_same_sense_false_reverses_segment() {
+        let content = r#"
+#1=IFCCARTESIANPOINT((0.0,0.0));
+#2=IFCCARTESIANPOINT((10.0,0.0));
+#3=IFCCARTESIANPOINT((20.0,0.0));
+#4=IFCPOLYLINE((#1,#2));
+#5=IFCPOLYLINE((#2,#3));
+#6=IFCCOMPOSITECURVESEGMENT(.CONTINUOUS.,.T.,#4);
+#7=IFCCOMPOSITECURVESEGMENT(.CONTINUOUS.,.F.,#5);
+#8=IFCCOMPOSITECURVE((#6,#7),.F.);
+#9=IFCARBITRARYCLOSEDPROFILEDEF(.AREA.,$,#8);
+"#;
+
+        let mut decoder = EntityDecoder::new(content);
+        let processor = ProfileProcessor::new(IfcSchema::new());
+
+        let profile_entity = decoder.decode_by_id(9).unwrap();
+        let profile = processor.process(&profile_entity, &mut decoder).unwrap();
+
+        // second segment reversed by SameSense=.F. so points should return toward x=10 then x=20 should not be appended at end
+        assert!(!profile.outer.is_empty());
+        assert!((profile.outer[0].x - 0.0).abs() < 1e-9);
+        assert!(profile.outer.iter().any(|p| (p.x - 10.0).abs() < 1e-9));
+    }
+
 }
