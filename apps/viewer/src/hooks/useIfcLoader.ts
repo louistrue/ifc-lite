@@ -18,7 +18,7 @@ import { GeometryProcessor, GeometryQuality, type MeshData, type CoordinateInfo 
 import { buildSpatialIndex } from '@ifc-lite/spatial';
 import { type GeometryData, loadGLBToMeshData } from '@ifc-lite/cache';
 
-import { SERVER_URL, USE_SERVER, CACHE_SIZE_THRESHOLD, CACHE_MAX_SOURCE_SIZE, getDynamicBatchConfig } from '../utils/ifcConfig.js';
+import { SERVER_URL, USE_SERVER, CACHE_SIZE_THRESHOLD, CACHE_MAX_SOURCE_SIZE, DEFAULT_CURVE_DEFLECTION_METERS, getDynamicBatchConfig, getViewerCurveDeflection } from '../utils/ifcConfig.js';
 import {
   calculateMeshBounds,
   createCoordinateInfo,
@@ -256,10 +256,13 @@ export function useIfcLoader() {
         }
       }
 
-      // Cache key uses filename + size + content fingerprint + format version
+      const curveDeflection = getViewerCurveDeflection();
+      const normalizedCurveDeflection = curveDeflection ?? DEFAULT_CURVE_DEFLECTION_METERS;
+
+      // Cache key uses filename + size + content fingerprint + tessellation + format version
       // Fingerprint prevents collisions for different files with the same name and size
       const fingerprint = computeFastFingerprint(buffer);
-      const cacheKey = `${file.name}-${buffer.byteLength}-${fingerprint}-v4`;
+      const cacheKey = `${file.name}-${buffer.byteLength}-${fingerprint}-defl-${normalizedCurveDeflection.toFixed(6)}-v5`;
 
       if (buffer.byteLength >= CACHE_SIZE_THRESHOLD) {
         setProgress({ phase: 'Checking cache', percent: 5 });
@@ -296,7 +299,8 @@ export function useIfcLoader() {
 
       // Initialize geometry processor first (WASM init is fast if already loaded)
       const geometryProcessor = new GeometryProcessor({
-        quality: GeometryQuality.Balanced
+        quality: GeometryQuality.Balanced,
+        curveDeflection,
       });
       await geometryProcessor.init();
 

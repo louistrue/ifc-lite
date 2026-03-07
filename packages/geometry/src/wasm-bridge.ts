@@ -13,6 +13,7 @@ import type {
   IPlatformBridge,
   GeometryProcessingResult,
   GeometryStats,
+  GeometryProcessingOptions,
   StreamingOptions,
 } from './platform-bridge.js';
 import { IfcLiteBridge } from './ifc-lite-bridge.js';
@@ -40,13 +41,15 @@ export class WasmBridge implements IPlatformBridge {
     return this.initialized;
   }
 
-  async processGeometry(content: string): Promise<GeometryProcessingResult> {
+  async processGeometry(content: string, options: GeometryProcessingOptions = {}): Promise<GeometryProcessingResult> {
     if (!this.initialized) {
       await this.init();
     }
 
     const startTime = performance.now();
-    const collector = new IfcLiteMeshCollector(this.bridge.getApi(), content);
+    const collector = new IfcLiteMeshCollector(this.bridge.getApi(), content, {
+      deflection: options.curveDeflection,
+    });
     const meshes = collector.collectMeshes();
     const buildingRotation = collector.getBuildingRotation();
     const endTime = performance.now();
@@ -84,14 +87,17 @@ export class WasmBridge implements IPlatformBridge {
 
   async processGeometryStreaming(
     content: string,
-    options: StreamingOptions
+    options: StreamingOptions,
+    processingOptions: GeometryProcessingOptions = {}
   ): Promise<GeometryStats> {
     if (!this.initialized) {
       await this.init();
     }
 
     const startTime = performance.now();
-    const collector = new IfcLiteMeshCollector(this.bridge.getApi(), content);
+    const collector = new IfcLiteMeshCollector(this.bridge.getApi(), content, {
+      deflection: processingOptions.curveDeflection,
+    });
 
     let totalMeshes = 0;
     let totalVertices = 0;

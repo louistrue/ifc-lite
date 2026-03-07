@@ -205,16 +205,16 @@ if (!('encodeInto' in cachedTextEncoder)) {
 
 let WASM_VECTOR_LEN = 0;
 
-function __wasm_bindgen_func_elem_1021(arg0, arg1, arg2) {
-    wasm.__wasm_bindgen_func_elem_1021(arg0, arg1, addHeapObject(arg2));
+function __wasm_bindgen_func_elem_471(arg0, arg1) {
+    wasm.__wasm_bindgen_func_elem_471(arg0, arg1);
 }
 
-function __wasm_bindgen_func_elem_469(arg0, arg1) {
-    wasm.__wasm_bindgen_func_elem_469(arg0, arg1);
+function __wasm_bindgen_func_elem_1026(arg0, arg1, arg2) {
+    wasm.__wasm_bindgen_func_elem_1026(arg0, arg1, addHeapObject(arg2));
 }
 
-function __wasm_bindgen_func_elem_1052(arg0, arg1, arg2, arg3) {
-    wasm.__wasm_bindgen_func_elem_1052(arg0, arg1, addHeapObject(arg2), addHeapObject(arg3));
+function __wasm_bindgen_func_elem_1057(arg0, arg1, arg2, arg3) {
+    wasm.__wasm_bindgen_func_elem_1057(arg0, arg1, addHeapObject(arg2), addHeapObject(arg3));
 }
 
 const GeoReferenceJsFinalization = (typeof FinalizationRegistry === 'undefined')
@@ -1086,7 +1086,7 @@ export class IfcAPI {
      * Example:
      * ```javascript
      * const api = new IfcAPI();
-     * const collection = api.parseMeshes(ifcData);
+     * const collection = api.parseMeshes(ifcData, { deflection: 0.003 });
      * for (let i = 0; i < collection.length; i++) {
      *   const mesh = collection.get(i);
      *   console.log('Express ID:', mesh.expressId);
@@ -1095,12 +1095,13 @@ export class IfcAPI {
      * }
      * ```
      * @param {string} content
+     * @param {any | null} [options]
      * @returns {MeshCollection}
      */
-    parseMeshes(content) {
+    parseMeshes(content, options) {
         const ptr0 = passStringToWasm0(content, wasm.__wbindgen_export3, wasm.__wbindgen_export4);
         const len0 = WASM_VECTOR_LEN;
-        const ret = wasm.ifcapi_parseMeshes(this.__wbg_ptr, ptr0, len0);
+        const ret = wasm.ifcapi_parseMeshes(this.__wbg_ptr, ptr0, len0, isLikeNone(options) ? 0 : addHeapObject(options));
         return MeshCollection.__wrap(ret);
     }
     /**
@@ -1109,6 +1110,7 @@ export class IfcAPI {
      *
      * Options:
      * - `batchSize`: Number of meshes per batch (default: 25)
+     * - `deflection`: Curved tessellation tolerance in meters (default: 0.001)
      * - `onBatch(meshes, progress)`: Called for each batch of meshes
      * - `onRtcOffset({x, y, z, hasRtc})`: Called early with RTC offset for camera/world setup
      * - `onColorUpdate(Map<id, color>)`: Called with style updates after initial render
@@ -2767,7 +2769,7 @@ function __wbg_get_imports() {
                 const a = state0.a;
                 state0.a = 0;
                 try {
-                    return __wasm_bindgen_func_elem_1052(a, state0.b, arg0, arg1);
+                    return __wasm_bindgen_func_elem_1057(a, state0.b, arg0, arg1);
                 } finally {
                     state0.a = a;
                 }
@@ -2852,11 +2854,6 @@ function __wbg_get_imports() {
     imports.wbg.__wbg_warn_6e567d0d926ff881 = function(arg0) {
         console.warn(getObject(arg0));
     };
-    imports.wbg.__wbindgen_cast_0663cdfcad33dbe7 = function(arg0, arg1) {
-        // Cast intrinsic for `Closure(Closure { dtor_idx: 135, function: Function { arguments: [Externref], shim_idx: 136, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
-        const ret = makeMutClosure(arg0, arg1, wasm.__wasm_bindgen_func_elem_1019, __wasm_bindgen_func_elem_1021);
-        return addHeapObject(ret);
-    };
     imports.wbg.__wbindgen_cast_2241b6af4c4b2941 = function(arg0, arg1) {
         // Cast intrinsic for `Ref(String) -> Externref`.
         const ret = getStringFromWasm0(arg0, arg1);
@@ -2867,6 +2864,11 @@ function __wbg_get_imports() {
         const ret = BigInt.asUintN(64, arg0);
         return addHeapObject(ret);
     };
+    imports.wbg.__wbindgen_cast_672dc6952d2f152a = function(arg0, arg1) {
+        // Cast intrinsic for `Closure(Closure { dtor_idx: 136, function: Function { arguments: [Externref], shim_idx: 137, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+        const ret = makeMutClosure(arg0, arg1, wasm.__wasm_bindgen_func_elem_1024, __wasm_bindgen_func_elem_1026);
+        return addHeapObject(ret);
+    };
     imports.wbg.__wbindgen_cast_d6cd19b81560fd6e = function(arg0) {
         // Cast intrinsic for `F64 -> Externref`.
         const ret = arg0;
@@ -2874,7 +2876,7 @@ function __wbg_get_imports() {
     };
     imports.wbg.__wbindgen_cast_dcf665cfcd643c22 = function(arg0, arg1) {
         // Cast intrinsic for `Closure(Closure { dtor_idx: 46, function: Function { arguments: [], shim_idx: 47, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
-        const ret = makeMutClosure(arg0, arg1, wasm.__wasm_bindgen_func_elem_467, __wasm_bindgen_func_elem_469);
+        const ret = makeMutClosure(arg0, arg1, wasm.__wasm_bindgen_func_elem_469, __wasm_bindgen_func_elem_471);
         return addHeapObject(ret);
     };
     imports.wbg.__wbindgen_object_clone_ref = function(arg0) {
@@ -2883,6 +2885,10 @@ function __wbg_get_imports() {
     };
     imports.wbg.__wbindgen_object_drop_ref = function(arg0) {
         takeObject(arg0);
+    };
+    imports.wbg.__wbindgen_object_is_undefined = function(arg0) {
+        const ret = getObject(arg0) === undefined;
+        return ret;
     };
 
     return imports;

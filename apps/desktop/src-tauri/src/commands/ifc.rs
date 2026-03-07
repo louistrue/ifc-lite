@@ -7,13 +7,17 @@
 //! These commands mirror the WASM API but use native Rust processing
 //! for maximum performance with parallel processing via rayon.
 
-use super::types::{CoordinateInfo, GeometryBatch, GeometryProgress, GeometryResult, GeometryStats, MeshData};
+use super::types::{
+    CoordinateInfo, GeometryBatch, GeometryProgress, GeometryResult, GeometryStats, MeshData,
+};
 use ifc_lite_core::{build_entity_index, EntityDecoder, EntityScanner, IfcType};
 use ifc_lite_geometry::{calculate_normals, GeometryRouter};
 use rayon::prelude::*;
 use std::sync::Arc;
 use std::time::Instant;
 use tauri::Emitter;
+
+const DEFAULT_CURVE_DEFLECTION: f64 = 0.001;
 
 /// Parse IFC buffer and return basic parse info (without geometry)
 #[tauri::command]
@@ -48,10 +52,14 @@ pub async fn parse_ifc_buffer(buffer: Vec<u8>) -> Result<serde_json::Value, Stri
 
 /// Process IFC buffer and return all geometry meshes
 #[tauri::command]
-pub async fn get_geometry(buffer: Vec<u8>) -> Result<GeometryResult, String> {
+pub async fn get_geometry(
+    buffer: Vec<u8>,
+    deflection: Option<f64>,
+) -> Result<GeometryResult, String> {
     let content = String::from_utf8(buffer).map_err(|e| format!("Invalid UTF-8: {}", e))?;
 
-    let (meshes, _stats) = process_geometry(&content)?;
+    let (meshes, _stats) =
+        process_geometry(&content, deflection.unwrap_or(DEFAULT_CURVE_DEFLECTION))?;
 
     let total_vertices: usize = meshes.iter().map(|m| m.positions.len() / 3).sum();
     let total_triangles: usize = meshes.iter().map(|m| m.indices.len() / 3).sum();
@@ -69,8 +77,10 @@ pub async fn get_geometry(buffer: Vec<u8>) -> Result<GeometryResult, String> {
 pub async fn get_geometry_streaming(
     buffer: Vec<u8>,
     window: tauri::Window,
+    deflection: Option<f64>,
 ) -> Result<GeometryStats, String> {
     let content = String::from_utf8(buffer).map_err(|e| format!("Invalid UTF-8: {}", e))?;
+    let deflection = deflection.unwrap_or(DEFAULT_CURVE_DEFLECTION);
 
     let start = Instant::now();
     let parse_start = Instant::now();
@@ -105,7 +115,7 @@ pub async fn get_geometry_streaming(
     }
 
     // Create geometry router with unit scale
-    let router = GeometryRouter::with_units(&content, &mut decoder);
+    let router = GeometryRouter::with_units_deflection(&content, &mut decoder, deflection);
 
     // Batch preprocess FacetedBrep
     if !faceted_brep_ids.is_empty() {
@@ -137,7 +147,8 @@ pub async fn get_geometry_streaming(
                 continue;
             }
 
-            if let Ok(mut mesh) = router.process_element_with_voids(&entity, &mut decoder, &void_index)
+            if let Ok(mut mesh) =
+                router.process_element_with_voids(&entity, &mut decoder, &void_index)
             {
                 if !mesh.is_empty() {
                     if mesh.normals.is_empty() {
@@ -215,7 +226,10 @@ struct EntityJob {
 
 /// Internal function to process geometry (shared by sync and streaming)
 /// Uses PARALLEL processing via rayon for maximum performance
-fn process_geometry(content: &str) -> Result<(Vec<MeshData>, GeometryStats), String> {
+fn process_geometry(
+    content: &str,
+    deflection: f64,
+) -> Result<(Vec<MeshData>, GeometryStats), String> {
     let parse_start = Instant::now();
 
     // Build entity index (this is fast)
@@ -224,7 +238,11 @@ fn process_geometry(content: &str) -> Result<(Vec<MeshData>, GeometryStats), Str
 
     // Build style index
     let geometry_styles = build_geometry_style_index(content, &mut decoder);
-    let style_index = Arc::new(build_element_style_index(content, &geometry_styles, &mut decoder));
+    let style_index = Arc::new(build_element_style_index(
+        content,
+        &geometry_styles,
+        &mut decoder,
+    ));
 
     // PHASE 1: Collect all entities that need processing (sequential scan)
     let mut scanner = EntityScanner::new(content);
@@ -255,7 +273,7 @@ fn process_geometry(content: &str) -> Result<(Vec<MeshData>, GeometryStats), Str
     }
 
     // Create geometry router with unit scale
-    let router = GeometryRouter::with_units(content, &mut decoder);
+    let router = GeometryRouter::with_units_deflection(content, &mut decoder, deflection);
 
     // Batch preprocess FacetedBrep
     if !faceted_brep_ids.is_empty() {
@@ -277,7 +295,8 @@ fn process_geometry(content: &str) -> Result<(Vec<MeshData>, GeometryStats), Str
         .into_par_iter()
         .filter_map(|job| {
             // Each thread creates its own decoder (they're cheap)
-            let mut local_decoder = EntityDecoder::with_index(&content_arc, (*entity_index_arc).clone());
+            let mut local_decoder =
+                EntityDecoder::with_index(&content_arc, (*entity_index_arc).clone());
 
             if let Ok(entity) = local_decoder.decode_at(job.start, job.end) {
                 let has_representation = entity.get(6).map(|a| !a.is_null()).unwrap_or(false);
@@ -288,7 +307,11 @@ fn process_geometry(content: &str) -> Result<(Vec<MeshData>, GeometryStats), Str
                 // Create local router for this thread
                 let local_router = GeometryRouter::with_units(&content_arc, &mut local_decoder);
 
-                if let Ok(mut mesh) = local_router.process_element_with_voids(&entity, &mut local_decoder, &void_index_arc) {
+                if let Ok(mut mesh) = local_router.process_element_with_voids(
+                    &entity,
+                    &mut local_decoder,
+                    &void_index_arc,
+                ) {
                     if !mesh.is_empty() {
                         if mesh.normals.is_empty() {
                             calculate_normals(&mut mesh);
@@ -333,24 +356,28 @@ fn process_geometry(content: &str) -> Result<(Vec<MeshData>, GeometryStats), Str
 }
 
 /// Convert ifc_lite_geometry::Mesh to MeshData (with Z-up to Y-up conversion)
-fn convert_mesh_to_data(express_id: u32, mesh: ifc_lite_geometry::Mesh, color: [f32; 4]) -> MeshData {
+fn convert_mesh_to_data(
+    express_id: u32,
+    mesh: ifc_lite_geometry::Mesh,
+    color: [f32; 4],
+) -> MeshData {
     // Convert Z-up (IFC) to Y-up (WebGL)
     // New Y = old Z, New Z = -old Y
     let mut positions = Vec::with_capacity(mesh.positions.len());
     for chunk in mesh.positions.chunks(3) {
         if chunk.len() == 3 {
-            positions.push(chunk[0]);       // X unchanged
-            positions.push(chunk[2]);       // Y = old Z
-            positions.push(-chunk[1]);      // Z = -old Y
+            positions.push(chunk[0]); // X unchanged
+            positions.push(chunk[2]); // Y = old Z
+            positions.push(-chunk[1]); // Z = -old Y
         }
     }
 
     let mut normals = Vec::with_capacity(mesh.normals.len());
     for chunk in mesh.normals.chunks(3) {
         if chunk.len() == 3 {
-            normals.push(chunk[0]);         // X unchanged
-            normals.push(chunk[2]);         // Y = old Z
-            normals.push(-chunk[1]);        // Z = -old Y
+            normals.push(chunk[0]); // X unchanged
+            normals.push(chunk[2]); // Y = old Z
+            normals.push(-chunk[1]); // Z = -old Y
         }
     }
 
@@ -411,7 +438,8 @@ fn build_element_style_index(
             // IfcProduct has Representation at index 6
             if let Some(repr_ref) = entity.get_ref(6) {
                 // Try to find color through representation
-                if let Some(color) = find_color_for_representation(repr_ref, geometry_styles, decoder)
+                if let Some(color) =
+                    find_color_for_representation(repr_ref, geometry_styles, decoder)
                 {
                     element_styles.insert(id, color);
                 }

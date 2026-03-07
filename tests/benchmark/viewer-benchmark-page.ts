@@ -40,7 +40,7 @@ export class ViewerBenchmarkPage {
     this.page = page;
   }
 
-  async setup() {
+  async setup(deflection?: number, baseUrl?: string) {
     // Capture all console logs
     this.page.on('console', (msg: ConsoleMessage) => {
       const text = msg.text();
@@ -48,7 +48,11 @@ export class ViewerBenchmarkPage {
     });
 
     // Navigate to viewer app
-    await this.page.goto('http://localhost:3000');
+    const url = new URL(baseUrl ?? process.env.VIEWER_BENCHMARK_BASE_URL ?? 'http://localhost:3000');
+    if (deflection !== undefined) {
+      url.searchParams.set('curveDeflection', String(deflection));
+    }
+    await this.page.goto(url.toString());
     
     // Wait for app to be ready (file input exists but is hidden, so check for existence)
     await this.page.waitForSelector('input[type="file"]', { state: 'attached', timeout: 30000 });

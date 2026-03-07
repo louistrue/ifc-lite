@@ -12,8 +12,8 @@ use crate::{
 use ifc_lite_core::{DecodedEntity, EntityDecoder, IfcSchema, IfcType};
 use nalgebra::Matrix4;
 
-use crate::router::GeometryProcessor;
 use super::helpers::parse_axis2_placement_3d;
+use crate::router::GeometryProcessor;
 
 /// ExtrudedAreaSolid processor (P0)
 /// Handles IfcExtrudedAreaSolid - extrusion of 2D profiles
@@ -26,6 +26,12 @@ impl ExtrudedAreaSolidProcessor {
     pub fn new(schema: IfcSchema) -> Self {
         Self {
             profile_processor: ProfileProcessor::new(schema),
+        }
+    }
+
+    pub fn with_deflection(schema: IfcSchema, deflection: f64) -> Self {
+        Self {
+            profile_processor: ProfileProcessor::with_deflection(schema, deflection),
         }
     }
 }
@@ -162,9 +168,9 @@ impl GeometryProcessor for ExtrudedAreaSolidProcessor {
             // This transforms (x, y, depth) to (x + dx*depth, y + dy*depth, dz*depth)
             // while keeping (x, y, 0) unchanged.
             let mut shear_mat = Matrix4::identity();
-            shear_mat[(0, 2)] = local_direction.x;  // X shear from Z
-            shear_mat[(1, 2)] = local_direction.y;  // Y shear from Z
-            shear_mat[(2, 2)] = local_direction.z;  // Z scale
+            shear_mat[(0, 2)] = local_direction.x; // X shear from Z
+            shear_mat[(1, 2)] = local_direction.y; // Y shear from Z
+            shear_mat[(2, 2)] = local_direction.z; // Z scale
 
             Some(shear_mat)
         };
