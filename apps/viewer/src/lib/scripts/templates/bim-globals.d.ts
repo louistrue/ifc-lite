@@ -355,6 +355,8 @@ declare const bim: {
     csv(entities: BimEntity[], options: { columns: string[]; filename?: string; separator?: string }): string;
     /** Export entities to JSON array */
     json(entities: BimEntity[], columns: string[]): Record<string, unknown>[];
+    /** Export entities to IFC STEP text. Pass filename to auto-download a valid .ifc file */
+    ifc(entities: BimEntity[], options?: { schema?: "IFC2X3" | "IFC4" | "IFC4X3"; filename?: string; includeMutations?: boolean; visibleOnly?: boolean }): string;
     /** Trigger a browser file download with raw content */
     download(content: string, filename: string, mimeType?: string): void;
   };

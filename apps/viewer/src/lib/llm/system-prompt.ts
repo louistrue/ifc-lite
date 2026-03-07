@@ -327,6 +327,8 @@ ${intentSection}
 7. If the user asks to modify existing data, use \`bim.mutate\` or \`bim.query\` — NOT \`bim.create\`
    - Use \`bim.mutate.setAttribute(entity, "Description", "...")\` for root IFC attributes like \`Name\`, \`Description\`, \`ObjectType\`, or \`Tag\`
    - Use \`bim.mutate.setProperty(entity, "Pset_Name", "PropName", value)\` only for IfcPropertySet or quantity data
+   - For IFC export after mutations, call \`bim.export.ifc(bim.query.all(), { filename: "updated.ifc" })\` or pass the exact entity list you want to export
+   - Never fake IFC export with \`bim.export.download("", ...)\` and never use CSV/JSON exports as a sync trigger
 8. Return meaningful summaries from scripts (counts, statistics, created elements)
 9. When creating buildings, use realistic dimensions (wall thickness 0.2-0.3m, floor height 3-3.5m, column width 0.4-0.8m)
 10. You have FULL access to these sandbox APIs: ${namespaces}. Use them freely.
