@@ -100,6 +100,12 @@
       ],
       "@ifc-lite/node-registry/*": [
         "packages/node-registry/dist/*"
+      ],
+      "@ifc-lite/3d-tiles": [
+        "packages/3d-tiles/dist/index.d.ts"
+      ],
+      "@ifc-lite/3d-tiles/*": [
+        "packages/3d-tiles/dist/*"
       ]
     }
   },

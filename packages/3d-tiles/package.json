@@ -1,0 +1,52 @@
+{
+  "name": "@ifc-lite/3d-tiles",
+  "version": "1.14.1",
+  "description": "3D Tiles 1.1 generation, federation, and remote loading for IFC-Lite",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@ifc-lite/geometry": "workspace:^",
+    "@ifc-lite/spatial": "workspace:^"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.0",
+    "vitest": "^1.6.0"
+  },
+  "license": "MPL-2.0",
+  "author": "Louis True",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/louistrue/ifc-lite.git",
+    "directory": "packages/3d-tiles"
+  },
+  "homepage": "https://louistrue.github.io/ifc-lite/",
+  "bugs": "https://github.com/louistrue/ifc-lite/issues",
+  "keywords": [
+    "ifc",
+    "bim",
+    "3d-tiles",
+    "federation",
+    "streaming",
+    "ogc",
+    "aec"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ]
+}
