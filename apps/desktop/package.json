@@ -15,10 +15,6 @@
     "build:linux": "tauri build --target x86_64-unknown-linux-gnu"
   },
   "dependencies": {
-    "@tauri-apps/api": "^2.0.0",
-    "@tauri-apps/plugin-dialog": "^2.0.0",
-    "@tauri-apps/plugin-fs": "^2.0.0",
-    "@tauri-apps/plugin-shell": "^2.0.0",
     "@ifc-lite/cache": "workspace:^",
     "@ifc-lite/data": "workspace:^",
     "@ifc-lite/export": "workspace:^",
@@ -40,6 +36,10 @@
     "@radix-ui/react-toggle": "^1.1.10",
     "@radix-ui/react-tooltip": "^1.2.8",
     "@tanstack/react-virtual": "^3.13.18",
+    "@tauri-apps/api": "^2.10.1",
+    "@tauri-apps/plugin-dialog": "^2.6.0",
+    "@tauri-apps/plugin-fs": "^2.4.5",
+    "@tauri-apps/plugin-shell": "^2.3.5",
     "autoprefixer": "^10.4.23",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
@@ -53,8 +53,8 @@
     "zustand": "^4.4.0"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "^2.0.0",
     "@tailwindcss/postcss": "^4.1.18",
+    "@tauri-apps/cli": "^2.10.1",
     "@types/react": "^18.2.0",
     "@types/react-dom": "^18.2.0",
     "@vitejs/plugin-react": "^4.2.0",
