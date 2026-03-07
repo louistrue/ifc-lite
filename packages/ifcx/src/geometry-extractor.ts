@@ -64,7 +64,7 @@ export function extractGeometry(
     const nextLineage = [...lineage, node];
 
     const mesh = node.attributes.get(ATTR.MESH) as UsdMesh | undefined;
-    if (mesh && context) {
+    if (mesh && context && !isInvisible(nextLineage)) {
       const meshData = convertUsdMesh(mesh, context.expressId, context.ifcType, transform);
       applyPresentation(meshData, nextLineage);
       meshes.push(meshData);
@@ -240,6 +240,18 @@ function applyTransform(x: number, y: number, z: number, m: Float32Array): [numb
     (m[1] * x + m[5] * y + m[9] * z + m[13]) / w,
     (m[2] * x + m[6] * y + m[10] * z + m[14]) / w,
   ];
+}
+
+
+function isInvisible(lineage: ComposedNode[]): boolean {
+  for (let i = lineage.length - 1; i >= 0; i--) {
+    const current = lineage[i];
+    const visibility = current.attributes.get(ATTR.VISIBILITY) as { visibility?: string } | undefined;
+    if (typeof visibility?.visibility === 'string') {
+      return visibility.visibility.toLowerCase() === 'invisible';
+    }
+  }
+  return false;
 }
 
 /**
