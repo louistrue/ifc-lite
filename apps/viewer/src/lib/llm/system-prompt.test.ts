@@ -99,7 +99,7 @@ test('system prompt includes method-specific create contract guidance', () => {
   assert.match(prompt, /const material = bim\.query\.materials\(wall\);/);
   assert.match(prompt, /addIfcDoor` and `addIfcWindow`: these create standalone world-aligned elements/);
   assert.match(prompt, /If doors or windows appear rotated 90° relative to a wall/);
-  assert.match(prompt, /If a façade or other repeated envelope element appears only at one level/);
+  assert.match(prompt, /If repeated elements appear only at one level/);
   assert.match(prompt, /house, pitched-roof, or gable-roof requests, prefer `addIfcGableRoof`/);
   assert.match(prompt, /If the user asks for a house roof, pitched roof, or gable roof, default to `addIfcGableRoof`/);
   assert.match(prompt, /convert it to radians first .*addIfcRoof.*addIfcGableRoof/s);
@@ -108,7 +108,7 @@ test('system prompt includes method-specific create contract guidance', () => {
   assert.match(prompt, /Many advanced methods are world-placement based/);
   assert.match(prompt, /addIfcPlate.*`Position`, `Width`, `Depth`, `Thickness`/);
   assert.match(prompt, /Mixed multi-level scripts often combine both/);
-  assert.match(prompt, /world-placement calls should usually use `elevation`.*`Start`.*`End`.*`Position`/s);
+  assert.match(prompt, /those calls should usually use `elevation`.*`Start`.*`End`.*`Position`/s);
   assert.match(prompt, /const elevation = i \* storeyHeight;/);
   assert.match(prompt, /When a fix targets an existing script, preserve the project handle, storey handles, loop variables/);
   assert.match(prompt, /If a previous repair was rejected for losing context, keep the full script intact/);

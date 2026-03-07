@@ -205,16 +205,16 @@ if (!('encodeInto' in cachedTextEncoder)) {
 
 let WASM_VECTOR_LEN = 0;
 
-function __wasm_bindgen_func_elem_484(arg0, arg1) {
-    wasm.__wasm_bindgen_func_elem_484(arg0, arg1);
+function __wasm_bindgen_func_elem_469(arg0, arg1) {
+    wasm.__wasm_bindgen_func_elem_469(arg0, arg1);
 }
 
-function __wasm_bindgen_func_elem_1028(arg0, arg1, arg2) {
-    wasm.__wasm_bindgen_func_elem_1028(arg0, arg1, addHeapObject(arg2));
+function __wasm_bindgen_func_elem_1021(arg0, arg1, arg2) {
+    wasm.__wasm_bindgen_func_elem_1021(arg0, arg1, addHeapObject(arg2));
 }
 
-function __wasm_bindgen_func_elem_1059(arg0, arg1, arg2, arg3) {
-    wasm.__wasm_bindgen_func_elem_1059(arg0, arg1, addHeapObject(arg2), addHeapObject(arg3));
+function __wasm_bindgen_func_elem_1052(arg0, arg1, arg2, arg3) {
+    wasm.__wasm_bindgen_func_elem_1052(arg0, arg1, addHeapObject(arg2), addHeapObject(arg3));
 }
 
 const GeoReferenceJsFinalization = (typeof FinalizationRegistry === 'undefined')
@@ -862,21 +862,21 @@ export class GpuInstancedGeometryCollection {
         return ret >>> 0;
     }
     /**
-     * Get geometry by index with zero-copy access
-     * Returns a reference that provides pointer access
+     * Get geometry by index with pointer access over owned buffers.
+     * This avoids exposing references tied to collection lifetime.
      * @param {number} index
      * @returns {GpuInstancedGeometryRef | undefined}
      */
     getRef(index) {
-        const ret = wasm.gpuinstancedgeometrycollection_getRef(this.__wbg_ptr, index);
+        const ret = wasm.gpuinstancedgeometrycollection_get(this.__wbg_ptr, index);
         return ret === 0 ? undefined : GpuInstancedGeometryRef.__wrap(ret);
     }
 }
 if (Symbol.dispose) GpuInstancedGeometryCollection.prototype[Symbol.dispose] = GpuInstancedGeometryCollection.prototype.free;
 
 /**
- * Reference to geometry in collection for zero-copy access
- * This avoids cloning when accessing geometry data
+ * Pointer-friendly geometry view with owned backing storage.
+ * Owning buffers prevents dangling pointers after collection mutation/drop.
  */
 export class GpuInstancedGeometryRef {
     static __wrap(ptr) {
@@ -900,84 +900,84 @@ export class GpuInstancedGeometryRef {
      * @returns {bigint}
      */
     get geometryId() {
-        const ret = wasm.gpuinstancedgeometryref_geometryId(this.__wbg_ptr);
+        const ret = wasm.gpuinstancedgeometry_geometryId(this.__wbg_ptr);
         return BigInt.asUintN(64, ret);
     }
     /**
      * @returns {number}
      */
     get indicesLen() {
-        const ret = wasm.gpuinstancedgeometryref_indicesLen(this.__wbg_ptr);
+        const ret = wasm.gpuinstancedgeometry_indicesLen(this.__wbg_ptr);
         return ret >>> 0;
     }
     /**
      * @returns {number}
      */
     get indicesPtr() {
-        const ret = wasm.gpuinstancedgeometryref_indicesPtr(this.__wbg_ptr);
+        const ret = wasm.gpuinstancedgeometry_indicesPtr(this.__wbg_ptr);
         return ret >>> 0;
     }
     /**
      * @returns {number}
      */
     get instanceCount() {
-        const ret = wasm.gpuinstancedgeometryref_instanceCount(this.__wbg_ptr);
+        const ret = wasm.gpuinstancedgeometry_instanceCount(this.__wbg_ptr);
         return ret >>> 0;
     }
     /**
      * @returns {number}
      */
     get vertexDataLen() {
-        const ret = wasm.gpuinstancedgeometryref_vertexDataLen(this.__wbg_ptr);
+        const ret = wasm.gpuinstancedgeometry_vertexDataLen(this.__wbg_ptr);
         return ret >>> 0;
     }
     /**
      * @returns {number}
      */
     get vertexDataPtr() {
-        const ret = wasm.gpuinstancedgeometryref_vertexDataPtr(this.__wbg_ptr);
+        const ret = wasm.gpuinstancedgeometry_vertexDataPtr(this.__wbg_ptr);
         return ret >>> 0;
     }
     /**
      * @returns {number}
      */
     get instanceDataLen() {
-        const ret = wasm.gpuinstancedgeometryref_instanceDataLen(this.__wbg_ptr);
+        const ret = wasm.gpuinstancedgeometry_instanceDataLen(this.__wbg_ptr);
         return ret >>> 0;
     }
     /**
      * @returns {number}
      */
     get instanceDataPtr() {
-        const ret = wasm.gpuinstancedgeometryref_instanceDataPtr(this.__wbg_ptr);
+        const ret = wasm.gpuinstancedgeometry_instanceDataPtr(this.__wbg_ptr);
         return ret >>> 0;
     }
     /**
      * @returns {number}
      */
     get indicesByteLength() {
-        const ret = wasm.gpuinstancedgeometryref_indicesByteLength(this.__wbg_ptr);
+        const ret = wasm.gpuinstancedgeometry_indicesByteLength(this.__wbg_ptr);
         return ret >>> 0;
     }
     /**
      * @returns {number}
      */
     get vertexDataByteLength() {
-        const ret = wasm.gpuinstancedgeometryref_vertexDataByteLength(this.__wbg_ptr);
+        const ret = wasm.gpuinstancedgeometry_vertexDataByteLength(this.__wbg_ptr);
         return ret >>> 0;
     }
     /**
      * @returns {number}
      */
     get instanceExpressIdsPtr() {
-        const ret = wasm.gpuinstancedgeometryref_instanceExpressIdsPtr(this.__wbg_ptr);
+        const ret = wasm.gpuinstancedgeometry_instanceExpressIdsPtr(this.__wbg_ptr);
         return ret >>> 0;
     }
     /**
      * @returns {number}
      */
     get instanceDataByteLength() {
-        const ret = wasm.gpuinstancedgeometryref_instanceDataByteLength(this.__wbg_ptr);
+        const ret = wasm.gpuinstancedgeometry_instanceDataByteLength(this.__wbg_ptr);
         return ret >>> 0;
     }
 }
@@ -2767,7 +2767,7 @@ function __wbg_get_imports() {
                 const a = state0.a;
                 state0.a = 0;
                 try {
-                    return __wasm_bindgen_func_elem_1059(a, state0.b, arg0, arg1);
+                    return __wasm_bindgen_func_elem_1052(a, state0.b, arg0, arg1);
                 } finally {
                     state0.a = a;
                 }
@@ -2854,7 +2854,7 @@ function __wbg_get_imports() {
     };
     imports.wbg.__wbindgen_cast_0663cdfcad33dbe7 = function(arg0, arg1) {
         // Cast intrinsic for `Closure(Closure { dtor_idx: 135, function: Function { arguments: [Externref], shim_idx: 136, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
-        const ret = makeMutClosure(arg0, arg1, wasm.__wasm_bindgen_func_elem_1026, __wasm_bindgen_func_elem_1028);
+        const ret = makeMutClosure(arg0, arg1, wasm.__wasm_bindgen_func_elem_1019, __wasm_bindgen_func_elem_1021);
         return addHeapObject(ret);
     };
     imports.wbg.__wbindgen_cast_2241b6af4c4b2941 = function(arg0, arg1) {
@@ -2874,7 +2874,7 @@ function __wbg_get_imports() {
     };
     imports.wbg.__wbindgen_cast_dcf665cfcd643c22 = function(arg0, arg1) {
         // Cast intrinsic for `Closure(Closure { dtor_idx: 46, function: Function { arguments: [], shim_idx: 47, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
-        const ret = makeMutClosure(arg0, arg1, wasm.__wasm_bindgen_func_elem_482, __wasm_bindgen_func_elem_484);
+        const ret = makeMutClosure(arg0, arg1, wasm.__wasm_bindgen_func_elem_467, __wasm_bindgen_func_elem_469);
         return addHeapObject(ret);
     };
     imports.wbg.__wbindgen_object_clone_ref = function(arg0) {

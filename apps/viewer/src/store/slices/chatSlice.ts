@@ -135,7 +135,7 @@ export function buildErrorFeedbackContent(
     : '';
 
   return `The script needs a root-cause repair.\n\nFailure type: ${reason}\n${revisionLine}${selectionLine}\n\`\`\`\n${error}\n\`\`\`${rootCauseBlock}${evidenceBlock}${diagnosticsBlock}\nHere is the current script that should be repaired in place:\n\n\`\`\`js\n${code}\n\`\`\`${staleBlock}\nPlease fix the underlying cause in the existing script, not just the first visible symptom.\n- Preserve the project handle, storey handles, loop variables, and surrounding declarations unless they are the direct cause of the error.
-- Match the requested repair scope above: `local` for one call/site, `block` for a related cluster, `structural` for broader context-preserving repairs. Use a full rewrite only if the user explicitly asked for it.
+- Match the requested repair scope above: \`local\` for one call/site, \`block\` for a related cluster, \`structural\` for broader context-preserving repairs. Use a full rewrite only if the user explicitly asked for it.
 - Return exactly one \`ifc-script-edits\` block that patches the CURRENT script revision.
 - For repair edits, do NOT use \`replaceSelection\`.
 - For every \`replaceRange\`, include the exact current \`expectedText\` from the CURRENT script before replacing it.

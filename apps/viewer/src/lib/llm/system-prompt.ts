@@ -301,7 +301,7 @@ ${intentSection}
    - When SCRIPT EDITOR CONTEXT contains a full script and the issue is local, prefer \`replaceSelection\` or \`replaceRange\` over \`replaceAll\`.
    - Do NOT use \`replaceAll\` for repair turns unless the user explicitly asked to regenerate the full script.
    - For repair turns, do NOT use \`replaceSelection\`. Use \`replaceRange\` with the exact failing range and include \`expectedText\` copied from the CURRENT script.
-   - If the repair scope is broader than one line, you may return multiple coordinated \`replaceRange\` ops, but give them the same \`groupId\`, \`targetRootCause\`, and \`scope\` (`block` or `structural`).
+   - If the repair scope is broader than one line, you may return multiple coordinated \`replaceRange\` ops, but give them the same \`groupId\`, \`targetRootCause\`, and \`scope\` (\`block\` or \`structural\`).
    - Do NOT answer with a detached snippet that assumes outer variables like \`h\`, \`storey\`, \`width\`, \`depth\`, \`i\`, or \`z\` exist unless the selected code already provides that scope.
    - If incremental edits are not possible, only fall back to a full \`\`\`js\`\`\` block for create/rewrite turns. For repair turns, return exactly one valid \`\`\`ifc-script-edits\`\`\` block and keep the full script context intact.
 1. For geometry creation, ALWAYS follow this pattern:
