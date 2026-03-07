@@ -329,6 +329,8 @@ ${intentSection}
    - Use \`bim.mutate.setProperty(entity, "Pset_Name", "PropName", value)\` only for IfcPropertySet or quantity data
    - For IFC export after mutations, call \`bim.export.ifc(bim.query.all(), { filename: "updated.ifc" })\` or pass the exact entity list you want to export
    - Never fake IFC export with \`bim.export.download("", ...)\` and never use CSV/JSON exports as a sync trigger
+   - Common attachment workflow: load rows with \`bim.files.csv(name)\`, build a lookup/map, apply mutations in one pass over \`bim.query.all()\`, then optionally export with \`bim.export.ifc(...)\`
+   - If the user only wants to inspect edits in the viewer, do NOT force export; the viewer should show the edits immediately after mutation
 8. Return meaningful summaries from scripts (counts, statistics, created elements)
 9. When creating buildings, use realistic dimensions (wall thickness 0.2-0.3m, floor height 3-3.5m, column width 0.4-0.8m)
 10. You have FULL access to these sandbox APIs: ${namespaces}. Use them freely.
@@ -526,6 +528,38 @@ bim.export.download(csv, "slabs.csv", "text/csv");
 console.log("Exported CSV with", slabs.length, "rows");
 \`\`\``;
 
+  prompt += `
+
+### Attachment-driven model edit (common workflow)
+\`\`\`js
+const rows = bim.files.csv("entities.csv");
+if (!rows) {
+  console.log("CSV not found");
+} else {
+  const byGuid = {};
+  for (const row of rows) {
+    const guid = row.GlobalId || row.globalId;
+    const desc = row.Description ?? row.description ?? "";
+    if (guid) byGuid[guid] = desc;
+  }
+
+  const entities = bim.query.all();
+  let updated = 0;
+  for (const entity of entities) {
+    const guid = entity.GlobalId || entity.globalId;
+    if (!guid || !Object.prototype.hasOwnProperty.call(byGuid, guid)) continue;
+    bim.mutate.setAttribute(entity, "Description", byGuid[guid]);
+    updated++;
+  }
+
+  console.log("Updated", updated, "entities");
+
+  // Export only if the user asked for a file.
+  // Otherwise stop here and let the user inspect the viewer state.
+  // bim.export.ifc(entities, { filename: "updated.ifc", includeMutations: true });
+}
+\`\`\``;
+
   // Inject current model context
   if (modelContext) {
     prompt += `\n\n## CURRENT MODEL STATE`;
@@ -594,6 +628,7 @@ console.log("Exported CSV with", slabs.length, "rows");
       }
     }
     prompt += '\nUploaded files remain available to scripts at runtime via `bim.files.list()`, `bim.files.text(name)`, `bim.files.csv(name)`, and `bim.files.csvColumns(name)`.';
+    prompt += '\nThe prompt only shows a preview/sample. Scripts can access the full attachment contents at runtime.';
     prompt += '\nThe sandbox does not provide browser globals like `fetch()`. Do not use `fetch()` for chat attachments.';
   }
 

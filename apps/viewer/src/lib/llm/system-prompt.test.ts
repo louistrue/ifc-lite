@@ -154,6 +154,10 @@ test('system prompt explains uploaded file runtime access', () => {
   assert.match(prompt, /UPLOADED FILES/);
   assert.match(prompt, /bim\.files\.list\(\)/);
   assert.match(prompt, /bim\.files\.csv\(name\)/);
+  assert.match(prompt, /Scripts can access the full attachment contents at runtime/);
   assert.match(prompt, /Do not use `fetch\(\)` for chat attachments/);
+  assert.match(prompt, /Attachment-driven model edit \(common workflow\)/);
+  assert.match(prompt, /bim\.mutate\.setAttribute\(entity, "Description", byGuid\[guid\]\)/);
+  assert.match(prompt, /bim\.export\.ifc\(entities, \{ filename: "updated\.ifc", includeMutations: true \}\)/);
   assert.match(prompt, /Text preview:/);
 });
