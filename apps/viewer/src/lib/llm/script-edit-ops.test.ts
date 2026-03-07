@@ -189,3 +189,145 @@ test('applyScriptEditOperations blocks replaceAll during repair turns', () => {
   assert.equal(applied.status, 'semantic_error');
   assert.equal(applied.diagnostic?.code, 'unsafe_full_replacement');
 });
+
+test('applyScriptEditOperations rejects replaceSelection during repair turns', () => {
+  const applied = applyScriptEditOperations({
+    content: 'bim.create.addIfcDoor(h, ground, { Name: "Front Door" });',
+    selection: { from: 0, to: 10 },
+    revision: 6,
+    intent: 'repair',
+    operations: [
+      {
+        opId: 'repair-via-selection',
+        type: 'replaceSelection',
+        baseRevision: 6,
+        text: '',
+      },
+    ],
+  });
+
+  assert.equal(applied.ok, false);
+  assert.equal(applied.status, 'semantic_error');
+  assert.match(applied.error ?? '', /not allowed for automated repair turns/);
+});
+
+test('applyScriptEditOperations rejects repair range ops when expectedText does not match', () => {
+  const content = 'bim.create.addIfcDoor(h, ground, { Name: "Front Door" });';
+  const applied = applyScriptEditOperations({
+    content,
+    selection: { from: 0, to: 0 },
+    revision: 8,
+    intent: 'repair',
+    acceptedBaseRevision: 8,
+    baseContentSnapshot: content,
+    operations: [
+      {
+        opId: 'remove-door',
+        type: 'replaceRange',
+        baseRevision: 8,
+        from: 0,
+        to: content.length,
+        expectedText: 'bim.create.addIfcDoor(h, ground, { Name: "Wrong" });',
+        text: '// removed',
+      },
+    ],
+  });
+
+  assert.equal(applied.ok, false);
+  assert.equal(applied.status, 'revision_conflict');
+  assert.match(applied.error ?? '', /no longer matches the expected text/);
+});
+
+test('applyScriptEditOperations accepts coordinated structural repair ops with shared metadata', () => {
+  const content = [
+    'const width = 30;',
+    'const depth = 40;',
+    'bim.create.addIfcMember(h, storey, {',
+    '  Start: [0, 0, 0],',
+    '  End: [0, 0, 3],',
+    '  Width: 0.2,',
+    '  Height: 0.2,',
+    '});',
+  ].join('\n');
+  const startLine = '  Start: [0, 0, 0],';
+  const endLine = '  End: [0, 0, 3],';
+  const startFrom = content.indexOf(startLine);
+  const endFrom = content.indexOf(endLine);
+
+  const applied = applyScriptEditOperations({
+    content,
+    selection: { from: 0, to: 0 },
+    revision: 10,
+    intent: 'repair',
+    acceptedBaseRevision: 10,
+    baseContentSnapshot: content,
+    operations: [
+      {
+        opId: 'fix-start',
+        type: 'replaceRange',
+        baseRevision: 10,
+        groupId: 'placement-fix',
+        scope: 'structural',
+        targetRootCause: 'placement_context_mismatch',
+        from: startFrom,
+        to: startFrom + startLine.length,
+        expectedText: startLine,
+        text: '  Start: [0, 0, elevation],',
+      },
+      {
+        opId: 'fix-end',
+        type: 'replaceRange',
+        baseRevision: 10,
+        groupId: 'placement-fix',
+        scope: 'structural',
+        targetRootCause: 'placement_context_mismatch',
+        from: endFrom,
+        to: endFrom + endLine.length,
+        expectedText: endLine,
+        text: '  End: [0, 0, elevation + 3],',
+      },
+    ],
+  });
+
+  assert.equal(applied.ok, true);
+  assert.match(applied.content, /Start: \[0, 0, elevation\]/);
+  assert.match(applied.content, /End: \[0, 0, elevation \+ 3\]/);
+});
+
+test('applyScriptEditOperations rejects grouped structural repair ops without shared metadata', () => {
+  const content = 'const width = 30;\nconst depth = 40;\n';
+  const applied = applyScriptEditOperations({
+    content,
+    selection: { from: 0, to: 0 },
+    revision: 11,
+    intent: 'repair',
+    acceptedBaseRevision: 11,
+    baseContentSnapshot: content,
+    operations: [
+      {
+        opId: 'fix-width',
+        type: 'replaceRange',
+        baseRevision: 11,
+        scope: 'structural',
+        from: 0,
+        to: 5,
+        expectedText: 'const',
+        text: 'let',
+      },
+      {
+        opId: 'fix-depth',
+        type: 'replaceRange',
+        baseRevision: 11,
+        scope: 'structural',
+        from: 17,
+        to: 22,
+        expectedText: 'const',
+        text: 'let',
+      },
+    ],
+  });
+
+  assert.equal(applied.ok, false);
+  assert.equal(applied.status, 'semantic_error');
+  assert.match(applied.error ?? '', /must declare `targetRootCause`/);
+});

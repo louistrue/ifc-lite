@@ -42,8 +42,10 @@ import { buildSystemPrompt } from '@/lib/llm/system-prompt';
 import { getModelContext, parseCSV } from '@/lib/llm/context-builder';
 import { extractCodeBlocks } from '@/lib/llm/code-extractor';
 import { extractScriptEditOps, filterUnappliedScriptOps } from '@/lib/llm/script-edit-ops';
-import { createPatchDiagnostic } from '@/lib/llm/script-diagnostics';
-import type { ChatMessage, FileAttachment } from '@/lib/llm/types';
+import { createPatchDiagnostic, getPrimaryRootCause, type RepairScope } from '@/lib/llm/script-diagnostics';
+import type { ScriptDiagnostic } from '@/lib/llm/script-diagnostics';
+import { buildRepairSessionKey, getEscalatedRepairScope, pruneMessagesForRepair } from '@/lib/llm/repair-loop';
+import type { ChatMessage, ChatRepairRequest, FileAttachment } from '@/lib/llm/types';
 import { canUsePlainCodeBlockFallback, type ScriptMutationIntent } from '@/lib/llm/script-preservation';
 import { Image as ImageIcon } from 'lucide-react';
 import { isClerkConfigured } from '@/lib/llm/clerk-auth';
@@ -75,6 +77,7 @@ const MAX_INLINE_IMAGE_DATA_URL_CHARS = 1_200_000;
 interface ChatSendOptions {
   continuationBase?: string;
   intent?: ScriptMutationIntent;
+  repairDiagnostics?: ScriptDiagnostic[];
 }
 
 /** Convert a File to a base64 data URL */
@@ -192,14 +195,12 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
   const clearMessages = useViewerStore((s) => s.clearChatMessages);
   const pendingPrompt = useViewerStore((s) => s.chatPendingPrompt);
   const consumePendingPrompt = useViewerStore((s) => s.consumeChatPendingPrompt);
+  const pendingRepairRequest = useViewerStore((s) => s.chatPendingRepairRequest);
+  const consumePendingRepairRequest = useViewerStore((s) => s.consumeChatPendingRepairRequest);
   const authToken = useViewerStore((s) => s.chatAuthToken);
   const hasPro = useViewerStore((s) => s.chatHasPro);
   const usage = useViewerStore((s) => s.chatUsage);
   const setChatUsage = useViewerStore((s) => s.setChatUsage);
-  const scriptEditorContent = useViewerStore((s) => s.scriptEditorContent);
-  const scriptEditorRevision = useViewerStore((s) => s.scriptEditorRevision);
-  const scriptEditorSelection = useViewerStore((s) => s.scriptEditorSelection);
-  const scriptLastDiagnostics = useViewerStore((s) => s.scriptLastDiagnostics);
   const { execute } = useSandbox();
   const displayUsage: UsageInfo | null = usage ?? (hasPro
     ? {
@@ -226,9 +227,7 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dragCounterRef = useRef(0);
-  const lastAutoPreflightFixKeyRef = useRef<string | null>(null);
-  const lastAutoConflictFixKeyRef = useRef<string | null>(null);
-  const lastAutoApplyRepairKeyRef = useRef<string | null>(null);
+  const autoRepairAttemptCountsRef = useRef(new Map<string, { attempts: number; lastScope: RepairScope }>());
 
   const resizeInput = useCallback(() => {
     const target = inputRef.current;
@@ -321,13 +320,72 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
     return () => window.removeEventListener('keydown', handler);
   }, [onClose, inputText]);
 
+  const buildRepairPromptFromLiveState = useCallback((request: ChatRepairRequest) => {
+    const state = useViewerStore.getState();
+    return buildErrorFeedbackContent(state.scriptEditorContent, request.error, {
+      diagnostics: request.diagnostics ?? state.scriptLastDiagnostics,
+      currentRevision: state.scriptEditorRevision,
+      currentSelection: request.includeSelection ? state.scriptEditorSelection : undefined,
+      staleCodeBlock: request.staleCodeBlock,
+      reason: request.reason,
+      requestedRepairScope: request.requestedRepairScope,
+    });
+  }, []);
+
+  const triggerAutoRepair = (request: ChatRepairRequest) => {
+    const state = useViewerStore.getState();
+    const diagnostics = request.diagnostics ?? state.scriptLastDiagnostics;
+    const primaryRootCause = getPrimaryRootCause(diagnostics);
+    const sessionKey = buildRepairSessionKey({
+      diagnostics,
+      currentCode: state.scriptEditorContent,
+    });
+    const sessionState = autoRepairAttemptCountsRef.current.get(sessionKey);
+    const defaultScope = request.requestedRepairScope ?? primaryRootCause?.repairScope ?? 'local';
+    const requestedScope = sessionState
+      ? sessionState.attempts >= 1 && sessionState.lastScope === defaultScope
+        ? getEscalatedRepairScope(defaultScope) ?? null
+        : defaultScope
+      : defaultScope;
+
+    if (!requestedScope) {
+      setChatError('Auto-repair stopped after the same root cause persisted through escalation. Use Fix with LLM after adjusting the script or make a broader manual change.');
+      return;
+    }
+
+    autoRepairAttemptCountsRef.current.set(sessionKey, {
+      attempts: (sessionState?.attempts ?? 0) + 1,
+      lastScope: requestedScope,
+    });
+
+    void doSend(buildRepairPromptFromLiveState({
+      ...request,
+      diagnostics,
+      requestedRepairScope: requestedScope,
+      rootCauseKey: primaryRootCause?.rootCauseKey,
+    }), { intent: 'repair', repairDiagnostics: diagnostics });
+  };
+
   // ── Core send logic ──
   const doSend = useCallback(async (text: string, options?: ChatSendOptions) => {
     if (!text.trim() || status === 'streaming' || status === 'sending') return;
 
     const continuationBase = options?.continuationBase;
     const responseIntent = options?.intent ?? 'create';
-    const currentMessages = useViewerStore.getState().chatMessages;
+    if (responseIntent !== 'repair') {
+      autoRepairAttemptCountsRef.current.clear();
+    }
+    const liveState = useViewerStore.getState();
+    const currentMessages = responseIntent === 'repair'
+      ? pruneMessagesForRepair(liveState.chatMessages)
+      : liveState.chatMessages;
+    const liveScriptContext = {
+      content: liveState.scriptEditorContent,
+      revision: liveState.scriptEditorRevision,
+      selection: liveState.scriptEditorSelection,
+    };
+    const liveDiagnostics = liveState.scriptLastDiagnostics;
+    const effectiveDiagnostics = options?.repairDiagnostics ?? liveDiagnostics;
     setLastFinishReason(null);
 
     const activeModelInfo = getModelById(activeModel);
@@ -383,12 +441,12 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
     const modelContext = getModelContext();
     const fileAttachments = filtered.accepted.length > 0 ? filtered.accepted : undefined;
     const systemPrompt = buildSystemPrompt(modelContext, fileAttachments, {
-      content: scriptEditorContent,
-      revision: scriptEditorRevision,
-      selection: scriptEditorSelection,
+      content: liveScriptContext.content,
+      revision: liveScriptContext.revision,
+      selection: liveScriptContext.selection,
     }, {
       userPrompt: text.trim(),
-      diagnostics: scriptLastDiagnostics,
+      diagnostics: effectiveDiagnostics,
     });
     const contextWindow = activeModelInfo?.contextWindow ?? 128_000;
     const inputBudget = Math.max(
@@ -451,8 +509,8 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
     useViewerStore.getState().beginAssistantScriptTurn();
 
     let accumulated = '';
-    const responseBaseRevision = useViewerStore.getState().scriptEditorRevision;
-    const responseBaseContent = useViewerStore.getState().scriptEditorContent;
+    const responseBaseRevision = liveScriptContext.revision;
+    const responseBaseContent = liveScriptContext.content;
     const responseEditState = {
       intent: responseIntent,
       appliedOpIds: new Set<string>(),
@@ -608,23 +666,18 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
               void (async () => {
                 const result = await execute(currentCode);
                 if (!result) {
-                  const { scriptLastError, scriptLastDiagnostics, chatStatus, scriptEditorRevision: currentRevision } = useViewerStore.getState();
+                  const { scriptLastError, scriptLastDiagnostics, chatStatus } = useViewerStore.getState();
                   if (
                     scriptLastError &&
                     scriptLastError.startsWith('Preflight validation failed:') &&
                     chatStatus !== 'sending' &&
                     chatStatus !== 'streaming'
                   ) {
-                    const key = `${scriptLastError}\n---\n${currentCode}`;
-                    if (lastAutoPreflightFixKeyRef.current !== key) {
-                      lastAutoPreflightFixKeyRef.current = key;
-                      void doSend(buildErrorFeedbackContent(currentCode, scriptLastError, {
-                        diagnostics: scriptLastDiagnostics,
-                        currentRevision: currentRevision,
-                        currentSelection: useViewerStore.getState().scriptEditorSelection,
-                        reason: 'preflight',
-                      }), { intent: 'repair' });
-                    }
+                    triggerAutoRepair({
+                      error: scriptLastError,
+                      diagnostics: scriptLastDiagnostics,
+                      reason: 'preflight',
+                    });
                   }
                 }
               })();
@@ -644,39 +697,25 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
 
         if (responseEditState.applyFailureStatus === 'revision_conflict') {
           const {
-            scriptEditorContent: currentCode,
-            scriptEditorRevision: currentRevision,
             chatStatus,
           } = useViewerStore.getState();
           if (chatStatus !== 'sending' && chatStatus !== 'streaming') {
-            const key = `${responseBaseRevision}->${currentRevision}\n${responseEditState.applyFailureError}\n${currentCode}`;
-            if (lastAutoConflictFixKeyRef.current !== key) {
-              lastAutoConflictFixKeyRef.current = key;
-              void doSend(buildErrorFeedbackContent(currentCode, responseEditState.applyFailureError ?? 'Patch revision conflict.', {
-                diagnostics: responseEditState.applyFailureDiagnostic ? [responseEditState.applyFailureDiagnostic] : [],
-                currentRevision,
-                currentSelection: useViewerStore.getState().scriptEditorSelection,
-                reason: 'patch-conflict',
-              }), { intent: 'repair' });
-            }
+            triggerAutoRepair({
+              error: responseEditState.applyFailureError ?? 'Patch revision conflict.',
+              diagnostics: responseEditState.applyFailureDiagnostic ? [responseEditState.applyFailureDiagnostic] : [],
+              reason: 'patch-conflict',
+            });
           }
         } else if (responseEditState.intent === 'repair' && responseEditState.applyFailed) {
           const {
-            scriptEditorContent: currentCode,
-            scriptEditorRevision: currentRevision,
             chatStatus,
           } = useViewerStore.getState();
           if (chatStatus !== 'sending' && chatStatus !== 'streaming') {
-            const key = `${responseEditState.applyFailureStatus}\n${responseEditState.applyFailureError}\n${currentCode}`;
-            if (lastAutoApplyRepairKeyRef.current !== key) {
-              lastAutoApplyRepairKeyRef.current = key;
-              void doSend(buildErrorFeedbackContent(currentCode, responseEditState.applyFailureError ?? 'Patch apply failed.', {
-                diagnostics: responseEditState.applyFailureDiagnostic ? [responseEditState.applyFailureDiagnostic] : [],
-                currentRevision,
-                currentSelection: useViewerStore.getState().scriptEditorSelection,
-                reason: 'patch-apply',
-              }), { intent: 'repair' });
-            }
+            triggerAutoRepair({
+              error: responseEditState.applyFailureError ?? 'Patch apply failed.',
+              diagnostics: responseEditState.applyFailureDiagnostic ? [responseEditState.applyFailureDiagnostic] : [],
+              reason: 'patch-apply',
+            });
           }
         }
 
@@ -701,7 +740,7 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
     status, activeModel, attachments, authToken,
     addMessage, setChatStatus, updateStreaming, finalizeAssistant,
     setChatError, setChatAbortController, clearAttachments, setChatUsage, resizeInput,
-    scriptEditorContent, scriptEditorRevision, scriptEditorSelection, scriptLastDiagnostics, execute,
+    buildRepairPromptFromLiveState, triggerAutoRepair, execute,
   ]);
 
   const handleSend = useCallback(() => {
@@ -713,11 +752,24 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
     if (!pendingPrompt) return;
     if (status === 'sending' || status === 'streaming') return;
     consumePendingPrompt();
-    const intent: ScriptMutationIntent | undefined = pendingPrompt.startsWith('The script needs a targeted fix.')
+    const intent: ScriptMutationIntent | undefined = (
+      pendingPrompt.startsWith('The script needs a root-cause repair.')
+      || pendingPrompt.startsWith('The script needs a targeted fix.')
+    )
       ? 'repair'
       : undefined;
     void doSend(pendingPrompt, { intent });
   }, [pendingPrompt, status, consumePendingPrompt, doSend]);
+
+  useEffect(() => {
+    if (!pendingRepairRequest) return;
+    if (status === 'sending' || status === 'streaming') return;
+    consumePendingRepairRequest();
+    void doSend(buildRepairPromptFromLiveState(pendingRepairRequest), {
+      intent: 'repair',
+      repairDiagnostics: pendingRepairRequest.diagnostics,
+    });
+  }, [pendingRepairRequest, status, consumePendingRepairRequest, buildRepairPromptFromLiveState, doSend]);
 
   const handleContinue = useCallback(() => {
     const state = useViewerStore.getState();
@@ -757,21 +809,16 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
 
   // ── Error feedback (Fix this) ──
   const handleFixError = useCallback((code: string, errorMsg: string) => {
-    const {
-      scriptEditorContent: liveCode,
-      scriptEditorRevision: currentRevision,
-      scriptEditorSelection: currentSelection,
-      scriptLastDiagnostics,
-    } = useViewerStore.getState();
+    const diagnostics = useViewerStore.getState().scriptLastDiagnostics;
+    const liveCode = useViewerStore.getState().scriptEditorContent;
     const staleCode = code.trim() !== liveCode.trim() ? code : undefined;
-    void doSend(buildErrorFeedbackContent(liveCode, errorMsg, {
-      diagnostics: scriptLastDiagnostics,
-      currentRevision,
-      currentSelection,
+    void doSend(buildRepairPromptFromLiveState({
+      error: errorMsg,
+      diagnostics,
       staleCodeBlock: staleCode,
       reason: 'runtime',
-    }), { intent: 'repair' });
-  }, [doSend]);
+    }), { intent: 'repair', repairDiagnostics: diagnostics });
+  }, [buildRepairPromptFromLiveState, doSend]);
 
   // ── Clickable example prompts ──
   const handleExampleClick = useCallback((prompt: string) => {

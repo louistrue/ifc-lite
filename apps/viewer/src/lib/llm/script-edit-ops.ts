@@ -38,6 +38,16 @@ function asFiniteNumber(value: unknown): number | null {
   return value;
 }
 
+function asBoolean(value: unknown): boolean | undefined {
+  return typeof value === 'boolean' ? value : undefined;
+}
+
+function asRepairScope(value: unknown): ScriptEditOperation['scope'] | undefined {
+  return value === 'local' || value === 'block' || value === 'structural' || value === 'full_rewrite'
+    ? value
+    : undefined;
+}
+
 function parseOperation(raw: unknown, index: number): { op?: ScriptEditOperation; error?: string } {
   if (!raw || typeof raw !== 'object') {
     return { error: `scriptEdits[${index}] must be an object.` };
@@ -47,32 +57,38 @@ function parseOperation(raw: unknown, index: number): { op?: ScriptEditOperation
   const opId = typeof record.opId === 'string' ? record.opId.trim() : '';
   const type = typeof record.type === 'string' ? record.type.trim() : '';
   const baseRevision = asFiniteNumber(record.baseRevision);
+  const groupId = typeof record.groupId === 'string' ? record.groupId.trim() || undefined : undefined;
+  const scope = asRepairScope(record.scope);
+  const atomic = asBoolean(record.atomic);
+  const targetRootCause = typeof record.targetRootCause === 'string' ? record.targetRootCause.trim() || undefined : undefined;
 
   if (!opId) return { error: `scriptEdits[${index}] is missing a valid opId.` };
   if (baseRevision === null) return { error: `scriptEdits[${index}] is missing a valid baseRevision.` };
 
   const text = typeof record.text === 'string' ? record.text : '';
+  const shared = { opId, baseRevision, groupId, scope, atomic, targetRootCause };
 
   switch (type) {
     case 'insert': {
       const at = asFiniteNumber(record.at);
       if (at === null) return { error: `insert op "${opId}" is missing a valid "at" index.` };
-      return { op: { type, opId, baseRevision, at, text } };
+      return { op: { type, ...shared, at, text } };
     }
     case 'replaceRange': {
       const from = asFiniteNumber(record.from);
       const to = asFiniteNumber(record.to);
+      const expectedText = typeof record.expectedText === 'string' ? record.expectedText : undefined;
       if (from === null || to === null) {
         return { error: `replaceRange op "${opId}" requires numeric "from" and "to".` };
       }
-      return { op: { type, opId, baseRevision, from, to, text } };
+      return { op: { type, ...shared, from, to, text, expectedText } };
     }
     case 'replaceSelection':
-      return { op: { type, opId, baseRevision, text } };
+      return { op: { type, ...shared, text } };
     case 'append':
-      return { op: { type, opId, baseRevision, text } };
+      return { op: { type, ...shared, text } };
     case 'replaceAll':
-      return { op: { type, opId, baseRevision, text } };
+      return { op: { type, ...shared, text } };
     default:
       return { error: `scriptEdits[${index}] has unsupported type "${type}".` };
   }
@@ -171,6 +187,22 @@ export function applyScriptEditOperations(params: {
     return { ok: true, content, selection, revision, appliedOpIds, status: 'ok' };
   }
 
+  if (params.intent === 'repair') {
+    const metadataError = validateRepairBatchMetadata(operations);
+    if (metadataError) {
+      return {
+        ok: false,
+        content: params.content,
+        selection: params.selection,
+        revision,
+        appliedOpIds: [],
+        status: 'semantic_error',
+        error: metadataError.message,
+        diagnostic: metadataError,
+      };
+    }
+  }
+
   for (const op of operations) {
     if (op.baseRevision !== expectedBaseRevision) {
       const attemptedOpIds = operations.map((candidate) => candidate.opId);
@@ -238,6 +270,27 @@ export function applyScriptEditOperations(params: {
     }
 
     if (op.type === 'replaceSelection') {
+      if (params.intent === 'repair') {
+        const diagnostic = createPatchDiagnostic(
+          'patch_semantic_error',
+          `replaceSelection op "${op.opId}" is not allowed for automated repair turns.`,
+          'error',
+          {
+            opId: op.opId,
+            fixHint: 'Use replaceRange with the exact failing range and include `expectedText` from the current script.',
+          },
+        );
+        return {
+          ok: false,
+          content: params.content,
+          selection: params.selection,
+          revision,
+          appliedOpIds: [],
+          status: 'semantic_error',
+          error: diagnostic.message,
+          diagnostic,
+        };
+      }
       const issue = validateRange(selection.from, selection.to, content.length);
       if (issue) {
         const diagnostic = createPatchDiagnostic(
@@ -396,6 +449,55 @@ export function applyScriptEditOperations(params: {
         diagnostic,
       };
     }
+    if (params.intent === 'repair') {
+      if (typeof op.expectedText !== 'string') {
+        const diagnostic = createPatchDiagnostic(
+          'patch_semantic_error',
+          `replaceRange op "${op.opId}" must include \`expectedText\` for repair turns.`,
+          'error',
+          {
+            opId: op.opId,
+            range: { from: op.from, to: op.to },
+            fixHint: 'Copy the exact current text from the failing range into `expectedText` before replacing it.',
+          },
+        );
+        return {
+          ok: false,
+          content: params.content,
+          selection: params.selection,
+          revision,
+          appliedOpIds: [],
+          status: 'semantic_error',
+          error: diagnostic.message,
+          diagnostic,
+        };
+      }
+      const actualText = baseContent.slice(op.from, op.to);
+      if (actualText !== op.expectedText) {
+        const diagnostic = createPatchDiagnostic(
+          'patch_revision_conflict',
+          `replaceRange op "${op.opId}" no longer matches the expected text in the base snapshot.`,
+          'error',
+          {
+            opId: op.opId,
+            range: { from: op.from, to: op.to },
+            expectedText: op.expectedText,
+            actualText,
+            fixHint: 'Re-read the latest script and regenerate the repair patch against the exact current text.',
+          },
+        );
+        return {
+          ok: false,
+          content: params.content,
+          selection: params.selection,
+          revision,
+          appliedOpIds: [],
+          status: 'revision_conflict',
+          error: diagnostic.message,
+          diagnostic,
+        };
+      }
+    }
     if (hasOverlappingBaseMutation(op.from, op.to, baseMutations)) {
       const diagnostic = createPatchDiagnostic(
         'patch_revision_conflict',
@@ -466,6 +568,66 @@ export function applyScriptEditOperations(params: {
     appliedOpIds,
     status: 'ok',
   };
+}
+
+function validateRepairBatchMetadata(operations: ScriptEditOperation[]): PatchScriptDiagnostic | null {
+  const nonLocalOps = operations.filter((op) => op.scope && op.scope !== 'local');
+  const scopes = new Set(nonLocalOps.map((op) => op.scope));
+  const targetRootCauses = new Set(operations.map((op) => op.targetRootCause).filter((value): value is string => Boolean(value)));
+
+  if (scopes.size > 1) {
+    return createPatchDiagnostic(
+      'patch_semantic_error',
+      'Repair patch mixes incompatible scopes in one batch. Use one coordinated scope per repair response.',
+      'error',
+      {
+        failureKind: 'mixed_repair_scopes',
+        fixHint: 'Emit one local/block/structural repair batch at a time.',
+      },
+    );
+  }
+
+  if (targetRootCauses.size > 1) {
+    return createPatchDiagnostic(
+      'patch_semantic_error',
+      'Repair patch targets multiple root causes in one batch. Focus on one grouped root cause per response.',
+      'error',
+      {
+        failureKind: 'mixed_root_causes',
+        fixHint: 'Choose one root cause and patch only the related evidence spans in this response.',
+      },
+    );
+  }
+
+  const sharedScope = nonLocalOps[0]?.scope;
+  if (sharedScope === 'block' || sharedScope === 'structural') {
+    if (targetRootCauses.size === 0) {
+      return createPatchDiagnostic(
+        'patch_semantic_error',
+        `A ${sharedScope} repair batch must declare \`targetRootCause\` so the system can track the broader fix session.`,
+        'error',
+        {
+          failureKind: 'missing_root_cause_metadata',
+          fixHint: 'Set the same `targetRootCause` on each coordinated repair op.',
+        },
+      );
+    }
+
+    const groupIds = new Set(nonLocalOps.map((op) => op.groupId).filter((value): value is string => Boolean(value)));
+    if (groupIds.size !== 1) {
+      return createPatchDiagnostic(
+        'patch_semantic_error',
+        `A ${sharedScope} repair batch must use one shared \`groupId\` across its coordinated ops.`,
+        'error',
+        {
+          failureKind: 'missing_group_metadata',
+          fixHint: 'Assign the same `groupId` to every coordinated op in the batch.',
+        },
+      );
+    }
+  }
+
+  return null;
 }
 
 function rebaseIndex(

@@ -219,6 +219,76 @@ function getObjectBodiesForMethod(code: string, methodName: string): string[] {
   return bodies;
 }
 
+interface MethodCallMatch {
+  methodName: string;
+  range: { from: number; to: number };
+  snippet: string;
+  line: number;
+  column: number;
+  unterminated: boolean;
+}
+
+function getMethodCalls(code: string, methodName: string): MethodCallMatch[] {
+  const marker = `bim.create.${methodName}(`;
+  const matches: MethodCallMatch[] = [];
+  let start = 0;
+
+  while (true) {
+    const idx = code.indexOf(marker, start);
+    if (idx < 0) break;
+    const openParen = idx + marker.length - 1;
+    const closeParen = scanToMatching(code, openParen, '(', ')');
+    const unterminated = closeParen < 0;
+    const end = unterminated ? findFallbackCallEnd(code, idx + marker.length) : closeParen + 1;
+    const { line, column } = getLineAndColumn(code, idx);
+
+    matches.push({
+      methodName,
+      range: { from: idx, to: end },
+      snippet: code.slice(idx, end).trimEnd(),
+      line,
+      column,
+      unterminated,
+    });
+
+    start = Math.max(end, idx + marker.length);
+  }
+
+  return matches;
+}
+
+function findFallbackCallEnd(code: string, start: number): number {
+  const candidates = [
+    code.indexOf('\n//', start),
+    code.indexOf('\nconst ', start),
+    code.indexOf('\nlet ', start),
+    code.indexOf('\nvar ', start),
+    code.indexOf('\nbim.create.', start),
+    code.indexOf('\n\n', start),
+  ].filter((value) => value >= 0);
+
+  return candidates.length > 0 ? Math.min(...candidates) : code.length;
+}
+
+function getLineAndColumn(code: string, offset: number): { line: number; column: number } {
+  let line = 1;
+  let lastLineStart = 0;
+  for (let i = 0; i < offset; i++) {
+    if (code[i] === '\n') {
+      line++;
+      lastLineStart = i + 1;
+    }
+  }
+  return { line, column: offset - lastLineStart + 1 };
+}
+
+function getLineSnippet(code: string, offset: number): string {
+  const lineStart = code.lastIndexOf('\n', Math.max(0, offset - 1)) + 1;
+  const nextBreak = code.indexOf('\n', offset);
+  const lineEnd = nextBreak >= 0 ? nextBreak : code.length;
+  return code.slice(lineStart, lineEnd).trimEnd();
+}
+
 function validateKnownBimMethods(code: string): string[] {
   const errors: string[] = [];
   const byNamespace = new Map<string, Set<string>>();
@@ -415,22 +485,41 @@ function validateBareIdentifierTraps(code: string): string[] {
   return errors;
 }
 
-function validateWallHostedOpeningPatterns(code: string): string[] {
+function validateWallHostedOpeningDiagnostics(code: string): PreflightScriptDiagnostic[] {
   const hasWallCalls = code.includes('bim.create.addIfcWall(');
   if (!hasWallCalls) return [];
 
   const hasWallOpenings = /\bOpenings\s*:/.test(code);
-  const errors: string[] = [];
+  if (hasWallOpenings) return [];
 
-  if (code.includes('bim.create.addIfcWindow(') && !hasWallOpenings) {
-    errors.push('Suspicious pattern: `bim.create.addIfcWindow(...)` is being used alongside walls, but no wall `Openings` are defined. `addIfcWindow(...)` creates a world-aligned standalone window and will not auto-align or host into a wall. For wall-hosted inserts, use `bim.create.addIfcWallWindow(...)` or `Openings` on `bim.create.addIfcWall(...)`.');
+  const diagnostics: PreflightScriptDiagnostic[] = [];
+  const methodMessages = {
+    addIfcWindow: 'Suspicious pattern: `bim.create.addIfcWindow(...)` is being used alongside walls, but no wall `Openings` are defined. `addIfcWindow(...)` creates a world-aligned standalone window and will not auto-align or host into a wall. For wall-hosted inserts, use `bim.create.addIfcWallWindow(...)` or `Openings` on `bim.create.addIfcWall(...)`.',
+    addIfcDoor: 'Suspicious pattern: `bim.create.addIfcDoor(...)` is being used alongside walls, but no wall `Openings` are defined. `addIfcDoor(...)` creates a world-aligned standalone door and will not auto-align or host into a wall. For wall-hosted inserts, use `bim.create.addIfcWallDoor(...)` or `Openings` on `bim.create.addIfcWall(...)`.',
+  } satisfies Record<'addIfcWindow' | 'addIfcDoor', string>;
+
+  for (const methodName of Object.keys(methodMessages) as Array<'addIfcWindow' | 'addIfcDoor'>) {
+    for (const match of getMethodCalls(code, methodName)) {
+      diagnostics.push(createPreflightDiagnostic(
+        'wall_hosted_opening_pattern',
+        methodMessages[methodName],
+        'error',
+        {
+          methodName,
+          symbol: 'Openings',
+          failureKind: 'standalone_opening',
+          range: match.range,
+          line: match.line,
+          column: match.column,
+          snippet: match.snippet,
+          fixHint: `Replace this ${methodName === 'addIfcDoor' ? 'door' : 'window'} call with a wall-hosted insert or add it through the host wall's \`Openings\` payload.`,
+          unterminated: match.unterminated,
+        },
+      ));
+    }
   }
 
-  if (code.includes('bim.create.addIfcDoor(') && !hasWallOpenings) {
-    errors.push('Suspicious pattern: `bim.create.addIfcDoor(...)` is being used alongside walls, but no wall `Openings` are defined. `addIfcDoor(...)` creates a world-aligned standalone door and will not auto-align or host into a wall. For wall-hosted inserts, use `bim.create.addIfcWallDoor(...)` or `Openings` on `bim.create.addIfcWall(...)`.');
-  }
-
-  return errors;
+  return diagnostics;
 }
 
 function validateMetadataQueryPatterns(code: string): string[] {
@@ -453,10 +542,10 @@ function mentionsElevationSignal(value: string): boolean {
   return /\b(elevation|storeyElevation|levelElevation|baseZ|levelZ|storeyZ|z)\b/.test(value);
 }
 
-function validateFacadePlacementPatterns(code: string): string[] {
+function validateWorldPlacementPatterns(code: string): PreflightScriptDiagnostic[] {
   if (!looksLikeMultiStoreyScript(code)) return [];
 
-  const errors: string[] = [];
+  const diagnostics: PreflightScriptDiagnostic[] = [];
   const checks: Array<{ methodName: 'addIfcCurtainWall' | 'addIfcMember' | 'addIfcPlate'; keys: string[] }> = [
     { methodName: 'addIfcCurtainWall', keys: ['Start', 'End'] },
     { methodName: 'addIfcMember', keys: ['Start', 'End'] },
@@ -464,7 +553,9 @@ function validateFacadePlacementPatterns(code: string): string[] {
   ];
 
   for (const { methodName, keys } of checks) {
-    for (const body of getObjectBodiesForMethod(code, methodName)) {
+    for (const match of getMethodCalls(code, methodName)) {
+      const body = getObjectBodiesForMethod(match.snippet, methodName)[0];
+      if (!body) continue;
       const zValues = keys
         .map((key) => {
           const items = getArrayLiteralItems(body, key);
@@ -476,12 +567,25 @@ function validateFacadePlacementPatterns(code: string): string[] {
       const allGrounded = zValues.every((value) => value === '0' || value === '0.0');
       const anyElevationAware = zValues.some((value) => mentionsElevationSignal(value));
       if (allGrounded && !anyElevationAware) {
-        errors.push(`Suspicious façade placement: \`bim.create.${methodName}(...)\` appears inside a multi-storey script but uses fixed ground-floor Z coordinates. This method is world-placement based, so façade geometry should usually include the current storey elevation (for example \`elevation\` or \`z\`) in its Z coordinates.`);
+        diagnostics.push(createPreflightDiagnostic(
+          'world_placement_elevation',
+          `Suspicious multi-level placement: \`bim.create.${methodName}(...)\` appears inside a repeated storey-level script but uses fixed ground-level Z coordinates. This method is world-placement based, so its Z coordinates should usually include the current level elevation.`,
+          'error',
+          {
+            methodName,
+            failureKind: 'missing_level_elevation',
+            range: match.range,
+            line: match.line,
+            column: match.column,
+            snippet: match.snippet,
+            fixHint: 'Include the current level/storey elevation in the Z coordinates for this world-placement call.',
+          },
+        ));
       }
     }
   }
 
-  return errors;
+  return diagnostics;
 }
 
 function hasDeclarationLike(code: string, identifier: string): boolean {
@@ -489,24 +593,44 @@ function hasDeclarationLike(code: string, identifier: string): boolean {
   return new RegExp(String.raw`(?:const|let|var)\s+${escaped}\b|\bfunction\b[^(]*\([^)]*\b${escaped}\b[^)]*\)|\([^)]*\b${escaped}\b[^)]*\)\s*=>`).test(code);
 }
 
-function validateDetachedSnippetScope(code: string): string[] {
-  const errors: string[] = [];
+function validateDetachedSnippetScope(code: string): PreflightScriptDiagnostic[] {
+  const diagnostics: PreflightScriptDiagnostic[] = [];
+
+  const maybePushIdentifierDiagnostic = (identifier: string, message: string) => {
+    const match = new RegExp(String.raw`\b${identifier}\b`).exec(code);
+    const offset = match?.index ?? 0;
+    const { line, column } = getLineAndColumn(code, offset);
+    diagnostics.push(createPreflightDiagnostic(
+      'detached_snippet_scope',
+      message,
+      'error',
+      {
+        symbol: identifier,
+        failureKind: 'missing_context_binding',
+        range: { from: offset, to: offset + identifier.length },
+        line,
+        column,
+        snippet: getLineSnippet(code, offset),
+        fixHint: 'Patch the existing full script or restore the missing surrounding declarations instead of returning an isolated fragment.',
+      },
+    ));
+  };
 
   if (/\bbim\.create\.[A-Za-z]+\(\s*h\s*,/.test(code) && !hasDeclarationLike(code, 'h') && !/bim\.create\.project\(/.test(code)) {
-    errors.push('Detached snippet risk: BIM create calls reference `h`, but no project handle is declared in this script. Preserve the surrounding full script or recreate the project/context explicitly.');
+    maybePushIdentifierDiagnostic('h', 'Detached snippet risk: BIM create calls reference `h`, but no project handle is declared in this script. Preserve the surrounding full script or recreate the project/context explicitly.');
   }
 
   if (/\bbim\.create\.[A-Za-z]+\(\s*h\s*,\s*storey\b/.test(code) && !hasDeclarationLike(code, 'storey') && !/addIfcBuildingStorey\(/.test(code)) {
-    errors.push('Detached snippet risk: BIM create calls reference `storey`, but no storey handle is declared in this script. Preserve the surrounding loop/context instead of returning a standalone fragment.');
+    maybePushIdentifierDiagnostic('storey', 'Detached snippet risk: BIM create calls reference `storey`, but no storey handle is declared in this script. Preserve the surrounding loop/context instead of returning a standalone fragment.');
   }
 
   for (const identifier of ['width', 'depth', 'i', 'z']) {
     if (new RegExp(String.raw`\b${identifier}\b`).test(code) && !hasDeclarationLike(code, identifier)) {
-      errors.push(`Detached snippet risk: script references \`${identifier}\` without declaring it locally. If this is a fix for an existing script, patch the full script in place instead of returning an isolated fragment.`);
+      maybePushIdentifierDiagnostic(identifier, `Detached snippet risk: script references \`${identifier}\` without declaring it locally. If this is a fix for an existing script, patch the full script in place instead of returning an isolated fragment.`);
     }
   }
 
-  return errors;
+  return diagnostics;
 }
 
 export function validateScriptPreflightDetailed(code: string): PreflightScriptDiagnostic[] {
@@ -519,10 +643,10 @@ export function validateScriptPreflightDetailed(code: string): PreflightScriptDi
     )),
     ...validateCreateContracts(code).map((message) => createPreflightDiagnostic('create_contract', message, 'error', buildDiagnosticData(message))),
     ...validateBareIdentifierTraps(code).map((message) => createPreflightDiagnostic('bare_identifier', message, 'error', buildDiagnosticData(message))),
-    ...validateWallHostedOpeningPatterns(code).map((message) => createPreflightDiagnostic('wall_hosted_opening_pattern', message, 'error', buildDiagnosticData(message))),
+    ...validateWallHostedOpeningDiagnostics(code),
     ...validateMetadataQueryPatterns(code).map((message) => createPreflightDiagnostic('metadata_query_pattern', message, 'error', buildDiagnosticData(message))),
-    ...validateFacadePlacementPatterns(code).map((message) => createPreflightDiagnostic('world_placement_elevation', message, 'error', buildDiagnosticData(message))),
-    ...validateDetachedSnippetScope(code).map((message) => createPreflightDiagnostic('detached_snippet_scope', message, 'error', buildDiagnosticData(message))),
+    ...validateWorldPlacementPatterns(code),
+    ...validateDetachedSnippetScope(code),
   ];
 }
 

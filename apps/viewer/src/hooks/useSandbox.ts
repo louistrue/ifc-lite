@@ -37,10 +37,10 @@ function augmentScriptError(message: string, code?: string): { message: string; 
   const lower = message.toLowerCase();
   const source = code ?? '';
   const missingIdent = /['"]([A-Za-z_]\w*)['"] is not defined/i.exec(message)?.[1];
-  const looksDetachedFacadeSnippet = /\bbim\.create\.[A-Za-z]+\(\s*h\s*,/.test(source)
+  const looksDetachedCreateSnippet = /\bbim\.create\.[A-Za-z]+\(\s*h\s*,/.test(source)
     && !/\b(?:const|let|var)\s+h\b/.test(source)
     && !/bim\.create\.project\(/.test(source);
-  const looksWorldFacadeScript = /\bbim\.create\.(addIfcCurtainWall|addIfcMember|addIfcPlate)\(/.test(source)
+  const looksWorldPlacementScript = /\bbim\.create\.(addIfcCurtainWall|addIfcMember|addIfcPlate)\(/.test(source)
     && /\baddIfcBuildingStorey\(/.test(source)
     && /\bconst\s+elevation\b|\bz\s*=/.test(source);
 
@@ -50,6 +50,21 @@ function augmentScriptError(message: string, code?: string): { message: string; 
       'Likely cause: a generic `bim.create.addElement(...)` payload is using `Position` or missing `Placement.Location`. Use `Placement: { Location: [x, y, z] }` and `Depth`.',
       'error',
       { methodName: 'addElement', symbol: 'Placement.Location', fixHint: 'Use `Placement: { Location: [...] }` and include `Depth`.' },
+    );
+    return { message: `${message}\n${diagnostic.message}`, diagnostics: [diagnostic] };
+  }
+  if (lower.includes('invalid creator handle')) {
+    const diagnostic = createRuntimeDiagnostic(
+      'generic_placement_contract',
+      'Likely cause: the script finalized or invalidated the active creator handle before later create calls completed. Move `bim.create.toIfc(h)` to the end and do not reuse a finalized handle.',
+      'error',
+      {
+        symbol: 'h',
+        failureKind: 'creator_lifecycle',
+        rootCauseKey: 'creator_lifecycle_violation',
+        repairScope: 'structural',
+        fixHint: 'Finalize the model only once, after all create calls are done.',
+      },
     );
     return { message: `${message}\n${diagnostic.message}`, diagnostics: [diagnostic] };
   }
@@ -63,12 +78,16 @@ function augmentScriptError(message: string, code?: string): { message: string; 
       );
       return { message: `${message}\n${diagnostic.message}`, diagnostics: [diagnostic] };
     }
-    if (looksWorldFacadeScript) {
+    if (looksWorldPlacementScript) {
       const diagnostic = createRuntimeDiagnostic(
         'world_placement_elevation',
-        'Likely cause: a world-placement facade method (such as `addIfcCurtainWall(...)`, `addIfcMember(...)`, or `addIfcPlate(...)`) is missing the current storey elevation in its Z coordinates. These methods do not inherit storey-relative Z automatically.',
+        'Likely cause: a repeated world-placement method (such as `addIfcCurtainWall(...)`, `addIfcMember(...)`, or `addIfcPlate(...)`) is missing the current level elevation in its Z coordinates. These methods do not inherit storey-relative Z automatically.',
         'error',
-        { failureKind: 'world_placement', fixHint: 'Include the current storey elevation in `Start`, `End`, or `Position` Z coordinates.' },
+        {
+          failureKind: 'world_placement',
+          repairScope: 'block',
+          fixHint: 'Include the current level/storey elevation in `Start`, `End`, or `Position` Z coordinates.',
+        },
       );
       return { message: `${message}\n${diagnostic.message}`, diagnostics: [diagnostic] };
     }
@@ -83,12 +102,17 @@ function augmentScriptError(message: string, code?: string): { message: string; 
       diagnostics: [],
     };
   }
-  if (missingIdent && ['h', 'storey', 'width', 'depth', 'i', 'z'].includes(missingIdent) && looksDetachedFacadeSnippet) {
+  if (missingIdent && ['h', 'storey', 'width', 'depth', 'i', 'z'].includes(missingIdent) && looksDetachedCreateSnippet) {
     const diagnostic = createRuntimeDiagnostic(
       'detached_snippet_scope',
       `Likely cause: the fix replaced the full script with a detached fragment that still depends on outer variables like \`${missingIdent}\`. Preserve the surrounding project/storey/loop context and patch the existing script in place.`,
       'error',
-      { symbol: missingIdent, failureKind: 'detached_snippet', fixHint: 'Patch the existing script instead of returning a smaller fragment.' },
+      {
+        symbol: missingIdent,
+        failureKind: 'detached_snippet',
+        repairScope: 'structural',
+        fixHint: 'Patch the existing script instead of returning a smaller fragment.',
+      },
     );
     return { message: `${message}\n${diagnostic.message}`, diagnostics: [diagnostic] };
   }

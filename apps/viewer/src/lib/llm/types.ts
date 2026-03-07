@@ -6,6 +6,8 @@
  * Types for the LLM chat integration.
  */
 
+import type { RepairScope, ScriptDiagnostic } from './script-diagnostics.js';
+
 export type MessageRole = 'user' | 'assistant' | 'system';
 
 export interface ChatMessage {
@@ -47,6 +49,10 @@ export interface ScriptEditorSelection {
 interface ScriptEditBase {
   opId: string;
   baseRevision: number;
+  groupId?: string;
+  scope?: RepairScope;
+  atomic?: boolean;
+  targetRootCause?: string;
 }
 
 export interface ScriptEditInsertOp extends ScriptEditBase {
@@ -60,6 +66,7 @@ export interface ScriptEditReplaceRangeOp extends ScriptEditBase {
   from: number;
   to: number;
   text: string;
+  expectedText?: string;
 }
 
 export interface ScriptEditReplaceSelectionOp extends ScriptEditBase {
@@ -83,6 +90,18 @@ export type ScriptEditOperation =
   | ScriptEditReplaceSelectionOp
   | ScriptEditAppendOp
   | ScriptEditReplaceAllOp;
+
+export type ChatRepairReason = 'runtime' | 'preflight' | 'patch-conflict' | 'patch-apply';
+
+export interface ChatRepairRequest {
+  error: string;
+  reason: ChatRepairReason;
+  diagnostics?: ScriptDiagnostic[];
+  staleCodeBlock?: string;
+  includeSelection?: boolean;
+  requestedRepairScope?: RepairScope;
+  rootCauseKey?: string;
+}
 
 export interface FileAttachment {
   name: string;

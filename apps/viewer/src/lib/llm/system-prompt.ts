@@ -18,7 +18,7 @@ import {
 } from '@ifc-lite/sandbox/schema';
 import type { FileAttachment } from './types.js';
 import type { ScriptEditorSelection } from './types.js';
-import type { ScriptDiagnostic } from './script-diagnostics.js';
+import { formatDiagnosticsForPrompt, type ScriptDiagnostic } from './script-diagnostics.js';
 
 /** Context about the currently loaded IFC model */
 export interface ModelContext {
@@ -159,8 +159,8 @@ function buildPlacementSemanticsSection(): string {
     formatGroup('world', 'Many advanced methods are world-placement based'),
     formatGroup('explicit-placement', 'Explicit-placement generic methods'),
     '- For world-placement methods, do NOT assume the storey elevation is automatically applied.',
-    '- Mixed façade scripts often combine both: storey-relative and world-placement helpers.',
-    '- If a facade is generated inside a storey loop, world-placement calls should usually use `elevation` or `z` in their `Start`/`End`/`Position` Z coordinates.',
+    '- Mixed multi-level scripts often combine both: storey-relative and world-placement helpers.',
+    '- If repeated world-placement elements are generated inside a storey loop, those calls should usually use `elevation` or `z` in their `Start`/`End`/`Position` Z coordinates.',
   ].filter((line): line is string => Boolean(line)).join('\n');
 }
 
@@ -296,10 +296,12 @@ ${intentSection}
    \`\`\`ifc-script-edits
    {"scriptEdits":[{"opId":"unique-id","type":"replaceSelection","baseRevision":REVISION_NUMBER,"text":"new code"}]}
    \`\`\`
-   Valid edit types: insert(at,text), replaceRange(from,to,text), replaceSelection(text), append(text), replaceAll(text).
+   Valid edit types: insert(at,text), replaceRange(from,to,text[,expectedText]), replaceSelection(text), append(text), replaceAll(text).
    - Every edit MUST include a unique \`opId\` and the exact \`baseRevision\` provided in SCRIPT EDITOR CONTEXT.
    - When SCRIPT EDITOR CONTEXT contains a full script and the issue is local, prefer \`replaceSelection\` or \`replaceRange\` over \`replaceAll\`.
    - Do NOT use \`replaceAll\` for repair turns unless the user explicitly asked to regenerate the full script.
+   - For repair turns, do NOT use \`replaceSelection\`. Use \`replaceRange\` with the exact failing range and include \`expectedText\` copied from the CURRENT script.
+   - If the repair scope is broader than one line, you may return multiple coordinated \`replaceRange\` ops, but give them the same \`groupId\`, \`targetRootCause\`, and \`scope\` (`block` or `structural`).
    - Do NOT answer with a detached snippet that assumes outer variables like \`h\`, \`storey\`, \`width\`, \`depth\`, \`i\`, or \`z\` exist unless the selected code already provides that scope.
    - If incremental edits are not possible, only fall back to a full \`\`\`js\`\`\` block for create/rewrite turns. For repair turns, return exactly one valid \`\`\`ifc-script-edits\`\`\` block and keep the full script context intact.
 1. For geometry creation, ALWAYS follow this pattern:
@@ -323,7 +325,7 @@ ${intentSection}
 11. Only call namespaces listed above. Do not invent other \`bim.*\` namespaces.
 12. Output plain JavaScript only. Do NOT use TypeScript syntax (\`: type\`, \`interface\`, \`type\`, \`as\`, generics, enums).
 13. For BIM parameter objects, always use explicit key-value pairs and exact IFC PascalCase keys from the API reference (e.g. \`Position\`, \`Start\`, \`End\`, \`Width\`, \`Depth\`, \`Height\`, \`Thickness\`, \`IfcType\`, \`Placement\`).
-14. For multi-storey additions (facades, repeated windows, repetitive walls, slabs, columns, roofs), resolve the target storeys first and then add geometry to EACH intended storey. Do not put all storey-relative elements on the first storey with repeated \`Z=0\`.
+14. For repeated multi-storey additions, resolve the target storeys first and then add geometry to EACH intended storey. Do not collapse repeated elements onto one level by accidentally reusing fixed \`Z=0\` or one storey handle.
 15. Before finalizing code, self-check required creation keys:
     - use the method contracts in BIM.CREATE CONTRACT CHEAT SHEET below
 16. Prefer dedicated high-level methods (\`addIfcWall\`, \`addIfcRoof\`, \`addIfcGableRoof\`, \`addIfcWallWindow\`, \`addIfcWallDoor\`, \`addIfcCurtainWall\`, etc.) over \`addElement\` or \`addAxisElement\`. Use the generic methods only when there is no dedicated helper. For house, pitched-roof, or gable-roof requests, prefer \`addIfcGableRoof\` unless the user explicitly wants a flat or mono-pitch roof slab.
@@ -358,19 +360,20 @@ for (let i = 0; i < storeyCount; i++) {
 \`\`\`
 
 ## ERROR HANDLING
-- If the user shares a script error, analyze the error message carefully
+- If the user shares a script error, analyze the error message carefully.
 - Common issues: wrong method names, missing arguments, incorrect argument types
-- For ReferenceError (\`'X' is not defined\`), identify exactly where \`X\` is referenced and fix that code directly
-- Do not speculate about hidden runtime causes (hoisting/scoping/transpiler internals) unless directly proven by the shown code and error
-- When fixing errors, explain what went wrong and prefer the smallest valid fix.
+- For ReferenceError (\`'X' is not defined\`), identify whether the true problem is a missing local declaration, a detached fragment, or a broader context loss before patching one token.
+- Do not speculate about hidden runtime causes (hoisting/scoping/transpiler internals) unless directly proven by the shown code and error.
+- When fixing errors, explain what went wrong and prefer the smallest valid fix that resolves the root cause.
 - Prefer incremental edit ops for fixes when SCRIPT EDITOR CONTEXT is available. For repair turns, answer with patch ops only and do not include a full runnable script fence.
-- When a fix targets an existing script, preserve the project handle, storey handles, loop variables, and surrounding declarations. Patch the broken call site instead of rewriting the answer as a standalone fragment.
-- If a previous repair was rejected for losing context, keep the full building script intact and patch only the failing region. Never answer with just the facade loop, panel block, or another local body fragment.
+- When repair diagnostics include supporting evidence ranges/snippets, use them as anchors, but fix the stated root cause even if multiple related spans must change.
+- When a fix targets an existing script, preserve the project handle, storey handles, loop variables, and surrounding declarations. Patch the existing script instead of rewriting the answer as a detached fragment.
+- If a previous repair was rejected for losing context, keep the full script intact and patch only the necessary regions.
 - Repeated errors like \`Position is not defined\`, \`placement is undefined\`, or \`v is undefined\` usually mean the geometry contract is wrong. Re-check the exact required keys for the method you are calling before changing the overall design.
 - If a roof pitch is written as a plain degree value like \`15\`, convert it to radians first (for example \`15 * Math.PI / 180\`) before calling \`addIfcRoof\` or \`addIfcGableRoof\`.
 - If doors or windows appear rotated 90° relative to a wall, you probably used standalone \`addIfcDoor\` / \`addIfcWindow\` where a wall \`Openings\` payload was needed.
-- If a façade or other repeated envelope element appears only at one level, you probably reused a single storey reference instead of iterating over the intended storeys.
-- If façade elements stack on the ground floor, first check whether the affected methods are world-placement based (\`addIfcCurtainWall\`, \`addIfcMember\`, \`addIfcPlate\`) and whether their Z coordinates include the current storey elevation.
+- If repeated elements appear only at one level, you probably reused one storey reference instead of iterating over the intended storeys.
+- If repeated world-placement elements stack at the base level, first check whether their Z coordinates include the current storey elevation.
 
 ## API REFERENCE
 ${apiRef}
@@ -585,7 +588,7 @@ console.log("Exported CSV with", slabs.length, "rows");
 
   if (task?.diagnostics && task.diagnostics.length > 0) {
     prompt += `\n\n## ACTIVE DIAGNOSTICS`;
-    prompt += `\n${task.diagnostics.map((diagnostic) => `- [${diagnostic.source}:${diagnostic.code}] ${diagnostic.message}`).join('\n')}`;
+    prompt += `\n${formatDiagnosticsForPrompt(task.diagnostics)}`;
   }
 
   return prompt;

@@ -8,11 +8,11 @@
  */
 
 import type { StateCreator } from 'zustand';
-import type { ChatMessage, ChatStatus, CodeExecResult, FileAttachment } from '../../lib/llm/types.js';
+import type { ChatMessage, ChatRepairRequest, ChatStatus, CodeExecResult, FileAttachment } from '../../lib/llm/types.js';
 import { DEFAULT_FREE_MODEL } from '../../lib/llm/models.js';
 import { extractCodeBlocks } from '../../lib/llm/code-extractor.js';
 import type { ScriptDiagnostic } from '../../lib/llm/script-diagnostics.js';
-import { formatDiagnosticsForPrompt } from '../../lib/llm/script-diagnostics.js';
+import { formatDiagnosticsForPrompt, getPrimaryRootCause, groupDiagnosticsByRootCause } from '../../lib/llm/script-diagnostics.js';
 
 const MODEL_STORAGE_KEY = 'ifc-lite-chat-model';
 const MESSAGES_STORAGE_KEY = 'ifc-lite-chat-messages';
@@ -36,6 +36,7 @@ export interface ChatSlice {
   chatAbortController: AbortController | null;
   chatAttachments: FileAttachment[];
   chatPendingPrompt: string | null;
+  chatPendingRepairRequest: ChatRepairRequest | null;
   /** Auto-captured viewport screenshot (base64 data URL) to include with next LLM message */
   chatViewportScreenshot: string | null;
   /** Clerk JWT for authenticated API calls (null for anonymous/free tier) */
@@ -67,6 +68,8 @@ export interface ChatSlice {
   clearChatMessages: () => void;
   queueChatPrompt: (prompt: string) => void;
   consumeChatPendingPrompt: () => void;
+  queueChatRepairRequest: (request: ChatRepairRequest) => void;
+  consumeChatPendingRepairRequest: () => void;
   /** Send an error from a failed code block back to the chat as a user message for retry. */
   sendErrorFeedback: (code: string, error: string) => void;
   /** Store a viewport screenshot to include with the next LLM message */
@@ -99,10 +102,14 @@ export function buildErrorFeedbackContent(
     currentRevision?: number;
     currentSelection?: { from: number; to: number };
     staleCodeBlock?: string;
-    reason?: 'runtime' | 'preflight' | 'patch-conflict' | 'patch-apply';
+    reason?: ChatRepairRequest['reason'];
+    requestedRepairScope?: ChatRepairRequest['requestedRepairScope'];
   },
 ): string {
   const reason = options?.reason ?? 'runtime';
+  const rootCauseGroups = groupDiagnosticsByRootCause(options?.diagnostics ?? []);
+  const primaryRootCause = getPrimaryRootCause(options?.diagnostics ?? []);
+  const requestedRepairScope = options?.requestedRepairScope ?? primaryRootCause?.repairScope;
   const diagnosticsBlock = options?.diagnostics && options.diagnostics.length > 0
     ? `\nStructured diagnostics:\n${formatDiagnosticsForPrompt(options.diagnostics)}\n`
     : '';
@@ -115,8 +122,31 @@ export function buildErrorFeedbackContent(
   const staleBlock = options?.staleCodeBlock
     ? `\nPrevious message code block for reference only (it may be stale relative to the editor):\n\n\`\`\`js\n${options.staleCodeBlock}\n\`\`\`\n`
     : '';
+  const rootCauseBlock = primaryRootCause
+    ? `\nRoot cause to fix first:\n- key: ${primaryRootCause.rootCauseKey}\n- scope: ${requestedRepairScope ?? primaryRootCause.repairScope}\n- summary: ${primaryRootCause.summary}\n`
+    : '';
+  const evidenceBlock = rootCauseGroups.length > 0
+    ? `\nSupporting evidence:\n${rootCauseGroups.flatMap((group) => group.evidence.slice(0, 3).map((evidence) => {
+      const method = evidence.methodName ? ` method=${evidence.methodName};` : '';
+      const range = evidence.range ? ` range=${formatRange(evidence.range)};` : '';
+      const snippet = evidence.snippet ? ` snippet=${JSON.stringify(evidence.snippet.trim())};` : '';
+      return `- [${group.rootCauseKey}]${method}${range}${snippet}`.trimEnd();
+    })).join('\n')}\n`
+    : '';
 
-  return `The script needs a targeted fix.\n\nFailure type: ${reason}\n${revisionLine}${selectionLine}\n\`\`\`\n${error}\n\`\`\`${diagnosticsBlock}\nHere is the current script that should be repaired in place:\n\n\`\`\`js\n${code}\n\`\`\`${staleBlock}\nPlease fix the issue in the existing script, not as a detached standalone snippet.\n- Preserve the project handle, storey handles, loop variables, and surrounding declarations unless they are the direct cause of the error.\n- Prefer the smallest valid in-place correction.\n- Return exactly one \`ifc-script-edits\` block that patches the CURRENT script revision.\n- Do NOT return a \`js\` fence for repair turns.\n- Do NOT use \`replaceAll\` unless the user explicitly asked to regenerate the full script.\n- Do NOT answer with a smaller local loop/body fragment when the current script is a full model script.\n- If you are recovering from a patch conflict, re-target the latest revision shown above and regenerate edit ops with that exact \`baseRevision\`.\n- If a previous answer was rejected for losing script context, keep the full building script and patch only the failing region.\n- If the bug is a multi-storey facade placement issue, check whether the affected methods are world-placement based and whether their Z coordinates include the current storey elevation.\n\nReturn only the repair patch.`;
+  return `The script needs a root-cause repair.\n\nFailure type: ${reason}\n${revisionLine}${selectionLine}\n\`\`\`\n${error}\n\`\`\`${rootCauseBlock}${evidenceBlock}${diagnosticsBlock}\nHere is the current script that should be repaired in place:\n\n\`\`\`js\n${code}\n\`\`\`${staleBlock}\nPlease fix the underlying cause in the existing script, not just the first visible symptom.\n- Preserve the project handle, storey handles, loop variables, and surrounding declarations unless they are the direct cause of the error.
+- Match the requested repair scope above: `local` for one call/site, `block` for a related cluster, `structural` for broader context-preserving repairs. Use a full rewrite only if the user explicitly asked for it.
+- Return exactly one \`ifc-script-edits\` block that patches the CURRENT script revision.
+- For repair edits, do NOT use \`replaceSelection\`.
+- For every \`replaceRange\`, include the exact current \`expectedText\` from the CURRENT script before replacing it.
+- Do NOT return a \`js\` fence for repair turns.
+- Do NOT use \`replaceAll\` unless the user explicitly asked to regenerate the full script.
+- Do NOT answer with a detached fragment or smaller local body when the current script is larger and the root cause spans surrounding context.
+- If the diagnostics share one root cause, you may use multiple coordinated \`replaceRange\` edits in one patch to resolve that cause.
+- If you are recovering from a patch conflict, re-target the latest revision shown above and regenerate edit ops with that exact \`baseRevision\`.
+- If a previous answer was rejected for losing script context, keep the full script intact and patch only the necessary regions.
+
+Return only the repair patch.`;
 }
 
 function loadStoredModel(userId: string | null, fallback?: string): string {
@@ -208,6 +238,7 @@ export const createChatSlice: StateCreator<ChatSlice, [], [], ChatSlice> = (set,
   chatAbortController: null,
   chatAttachments: [],
   chatPendingPrompt: null,
+  chatPendingRepairRequest: null,
   chatViewportScreenshot: null,
   chatAuthToken: null,
   chatHasPro: false,
@@ -311,6 +342,7 @@ export const createChatSlice: StateCreator<ChatSlice, [], [], ChatSlice> = (set,
       chatStreamingContent: '',
       chatError: null,
       chatPendingPrompt: null,
+      chatPendingRepairRequest: null,
       chatViewportScreenshot: null,
     });
     try { localStorage.removeItem(MESSAGES_STORAGE_KEY); } catch { /* ignore */ }
@@ -319,6 +351,10 @@ export const createChatSlice: StateCreator<ChatSlice, [], [], ChatSlice> = (set,
   queueChatPrompt: (chatPendingPrompt) => set({ chatPendingPrompt }),
 
   consumeChatPendingPrompt: () => set({ chatPendingPrompt: null }),
+
+  queueChatRepairRequest: (chatPendingRepairRequest) => set({ chatPendingRepairRequest }),
+
+  consumeChatPendingRepairRequest: () => set({ chatPendingRepairRequest: null }),
 
   setChatViewportScreenshot: (chatViewportScreenshot) => set({ chatViewportScreenshot }),
 
@@ -352,3 +388,12 @@ export const createChatSlice: StateCreator<ChatSlice, [], [], ChatSlice> = (set,
     persistMessages(messages);
   },
 });
+
+function formatRange(value: unknown): string {
+  if (!value || typeof value !== 'object') return 'unknown';
+  const from = (value as Record<string, unknown>).from;
+  const to = (value as Record<string, unknown>).to;
+  return typeof from === 'number' && typeof to === 'number'
+    ? `${from}..${to}`
+    : 'unknown';
+}

@@ -28,6 +28,7 @@ test('buildErrorFeedbackContent includes revision and diagnostics for patch conf
   assert.match(prompt, /Failure type: patch-conflict/);
   assert.match(prompt, /Current script revision: 4/);
   assert.match(prompt, /Return exactly one `ifc-script-edits` block/);
+  assert.match(prompt, /The script needs a root-cause repair\./);
   assert.match(prompt, /\[patch:patch_revision_conflict\]/);
   assert.match(prompt, /regenerate edit ops with that exact `baseRevision`/);
 });
@@ -51,6 +52,36 @@ test('buildErrorFeedbackContent includes structured preflight diagnostics', () =
   assert.match(prompt, /current script that should be repaired in place/i);
 });
 
+test('buildErrorFeedbackContent surfaces grouped root cause evidence when diagnostics include ranges', () => {
+  const prompt = buildErrorFeedbackContent(
+    'const script = true;',
+    'Preflight validation failed.',
+    {
+      reason: 'preflight',
+      diagnostics: [
+        createPreflightDiagnostic(
+          'wall_hosted_opening_pattern',
+          'Suspicious pattern: `bim.create.addIfcDoor(...)`...',
+          'error',
+          {
+            methodName: 'addIfcDoor',
+            range: { from: 120, to: 180 },
+            snippet: 'bim.create.addIfcDoor(h, ground, { Name: "Front Door" });',
+          },
+        ),
+      ],
+    },
+  );
+
+  assert.match(prompt, /Root cause to fix first:/);
+  assert.match(prompt, /key: placement_context_mismatch/);
+  assert.match(prompt, /scope: block/);
+  assert.match(prompt, /Supporting evidence:/);
+  assert.match(prompt, /method=addIfcDoor/);
+  assert.match(prompt, /range=120\.\.180/);
+  assert.match(prompt, /Front Door/);
+});
+
 test('buildErrorFeedbackContent reinforces preservation rules for patch apply failures', () => {
   const prompt = buildErrorFeedbackContent(
     'const h = bim.create.project({ Name: "Tower" });',
@@ -69,7 +100,9 @@ test('buildErrorFeedbackContent reinforces preservation rules for patch apply fa
 
   assert.match(prompt, /Failure type: patch-apply/);
   assert.match(prompt, /Do NOT use `replaceAll` unless the user explicitly asked to regenerate the full script/);
-  assert.match(prompt, /If a previous answer was rejected for losing script context/);
+  assert.match(prompt, /do NOT use `replaceSelection`/i);
+  assert.match(prompt, /include the exact current `expectedText`/);
+  assert.match(prompt, /keep the full script intact and patch only the necessary regions/);
   assert.doesNotMatch(prompt, /Provide a corrected version/);
 });
 
@@ -96,4 +129,41 @@ test('buildErrorFeedbackContent can include live selection and stale code block 
   assert.match(prompt, /it may be stale relative to the editor/);
   assert.match(prompt, /failure=parse_error/);
   assert.match(prompt, /Hint: Return one patch block only\./);
+});
+
+test('buildErrorFeedbackContent groups multiple local diagnostics under one root cause', () => {
+  const prompt = buildErrorFeedbackContent(
+    'const h = bim.create.project({ Name: "House" });',
+    'Preflight validation failed.',
+    {
+      reason: 'preflight',
+      diagnostics: [
+        createPreflightDiagnostic(
+          'wall_hosted_opening_pattern',
+          'Suspicious door call.',
+          'error',
+          {
+            methodName: 'addIfcDoor',
+            range: { from: 10, to: 20 },
+            snippet: 'bim.create.addIfcDoor(...)',
+          },
+        ),
+        createPreflightDiagnostic(
+          'world_placement_elevation',
+          'Suspicious repeated world placement.',
+          'error',
+          {
+            methodName: 'addIfcMember',
+            range: { from: 30, to: 40 },
+            snippet: 'bim.create.addIfcMember(...)',
+          },
+        ),
+      ],
+    },
+  );
+
+  assert.equal((prompt.match(/\[root-cause:placement_context_mismatch\]/g) ?? []).length, 1);
+  assert.match(prompt, /scope=block/);
+  assert.match(prompt, /supporting evidence: preflight:wall_hosted_opening_pattern/);
+  assert.match(prompt, /supporting evidence: preflight:world_placement_elevation/);
 });

@@ -55,7 +55,6 @@ import { SCRIPT_TEMPLATES } from '@/lib/scripts/templates';
 import { CodeEditor } from './CodeEditor';
 import { ChatPanel } from './ChatPanel';
 import type { LogEntry } from '@/store/slices/scriptSlice';
-import { buildErrorFeedbackContent } from '@/store/slices/chatSlice';
 
 interface ScriptPanelProps {
   onClose?: () => void;
@@ -84,7 +83,7 @@ function useScriptState() {
   const setScriptHistoryState = useViewerStore((s) => s.setScriptHistoryState);
   const undoScriptEditor = useViewerStore((s) => s.undoScriptEditor);
   const redoScriptEditor = useViewerStore((s) => s.redoScriptEditor);
-  const queueChatPrompt = useViewerStore((s) => s.queueChatPrompt);
+  const queueChatRepairRequest = useViewerStore((s) => s.queueChatRepairRequest);
 
   return {
     editorContent,
@@ -108,7 +107,7 @@ function useScriptState() {
     setScriptHistoryState,
     undoScriptEditor,
     redoScriptEditor,
-    queueChatPrompt,
+    queueChatRepairRequest,
   };
 }
 
@@ -135,7 +134,7 @@ export function ScriptPanel({ onClose }: ScriptPanelProps) {
     setScriptHistoryState,
     undoScriptEditor,
     redoScriptEditor,
-    queueChatPrompt,
+    queueChatRepairRequest,
   } = useScriptState();
 
   const { execute, reset } = useSandbox();
@@ -220,12 +219,12 @@ export function ScriptPanel({ onClose }: ScriptPanelProps) {
     if (!lastError) return;
     setChatPanelVisible(true);
     const state = useViewerStore.getState();
-    queueChatPrompt(buildErrorFeedbackContent(editorContent, lastError, {
+    queueChatRepairRequest({
+      error: lastError,
       diagnostics: state.scriptLastDiagnostics,
-      currentRevision: state.scriptEditorRevision,
       reason: lastError.startsWith('Preflight validation failed:') ? 'preflight' : 'runtime',
-    }));
-  }, [editorContent, lastError, queueChatPrompt, setChatPanelVisible]);
+    });
+  }, [lastError, queueChatRepairRequest, setChatPanelVisible]);
 
   const toggleChat = useCallback(() => {
     setChatPanelVisible(!chatPanelVisible);
