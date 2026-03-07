@@ -870,9 +870,8 @@ impl ProfileProcessor {
             .resolve_ref(basis_attr)?
             .ok_or_else(|| Error::geometry("Failed to resolve BasisCurve".to_string()))?;
 
-        // Get trim parameters
-        let trim1 = curve.get(1).and_then(|v| self.extract_trim_param(v));
-        let trim2 = curve.get(2).and_then(|v| self.extract_trim_param(v));
+        let trim1 = curve.get(1);
+        let trim2 = curve.get(2);
 
         // Get sense agreement (attribute 3) - default true
         let sense = curve
@@ -883,10 +882,25 @@ impl ProfileProcessor {
             })
             .unwrap_or(true);
 
+        // Get master representation (attribute 4), defaulting to PARAMETER.
+        // Some exporters provide both trim styles, and this disambiguates precedence.
+        let prefer_cartesian = curve
+            .get(4)
+            .and_then(|v| v.as_enum())
+            .map(|representation| representation == "CARTESIAN")
+            .unwrap_or(false);
+
         // Process basis curve based on type
         match basis_curve.ifc_type {
             IfcType::IfcCircle | IfcType::IfcEllipse => {
-                self.process_trimmed_conic(&basis_curve, trim1, trim2, sense, decoder)
+                self.process_trimmed_conic(
+                    &basis_curve,
+                    trim1,
+                    trim2,
+                    sense,
+                    prefer_cartesian,
+                    decoder,
+                )
             }
             _ => {
                 // Fallback: try to process as a regular curve (with depth tracking)
@@ -921,9 +935,10 @@ impl ProfileProcessor {
     fn process_trimmed_conic(
         &self,
         basis: &DecodedEntity,
-        trim1: Option<f64>,
-        trim2: Option<f64>,
+        trim1: Option<&ifc_lite_core::AttributeValue>,
+        trim2: Option<&ifc_lite_core::AttributeValue>,
         sense: bool,
+        prefer_cartesian: bool,
         decoder: &mut EntityDecoder,
     ) -> Result<Vec<Point2<f64>>> {
         let radius = basis.get_float(1).unwrap_or(1.0);
@@ -935,20 +950,55 @@ impl ProfileProcessor {
 
         let (center, rotation) = self.get_placement_2d(basis, decoder)?;
 
-        // Convert trim parameters to angles (in degrees usually)
-        let start_angle = trim1.unwrap_or(0.0).to_radians();
-        let end_angle = trim2.unwrap_or(360.0).to_radians();
+        let start_raw = self.resolve_trim_angle(
+            trim1,
+            center,
+            rotation,
+            radius,
+            radius2,
+            prefer_cartesian,
+            decoder,
+        )?;
+        let end_raw = self.resolve_trim_angle(
+            trim2,
+            center,
+            rotation,
+            radius,
+            radius2,
+            prefer_cartesian,
+            decoder,
+        )?;
+
+        // IFC spec uses radians for IfcConic parameterization, but some exporters write degrees.
+        // Heuristic: if either trim is outside a full turn in radians, interpret both as degrees.
+        let (start_angle, end_angle) = match (start_raw, end_raw) {
+            (Some(start), Some(end)) => {
+                let likely_degrees = start.abs() > (2.0 * PI + 1e-6) || end.abs() > (2.0 * PI + 1e-6);
+                if likely_degrees {
+                    (start.to_radians(), end.to_radians())
+                } else {
+                    (start, end)
+                }
+            }
+            (Some(start), None) => (start, 2.0 * PI),
+            (None, Some(end)) => (0.0, end),
+            (None, None) => (0.0, 2.0 * PI),
+        };
 
         // Calculate arc angle and adaptive segment count
         // Use ~8 segments per 90° (quarter circle), minimum 2
-        let arc_angle = (end_angle - start_angle).abs();
+        let arc_angle = if sense {
+            (end_angle - start_angle).rem_euclid(2.0 * PI)
+        } else {
+            (start_angle - end_angle).rem_euclid(2.0 * PI)
+        };
         let num_segments = ((arc_angle / std::f64::consts::FRAC_PI_2 * 8.0).ceil() as usize).max(2);
         let mut points = Vec::with_capacity(num_segments + 1);
 
         let angle_range = if sense {
-            end_angle - start_angle
+            (end_angle - start_angle).rem_euclid(2.0 * PI)
         } else {
-            start_angle - end_angle
+            -(start_angle - end_angle).rem_euclid(2.0 * PI)
         };
 
         for i in 0..=num_segments {
@@ -969,6 +1019,100 @@ impl ProfileProcessor {
         }
 
         Ok(points)
+    }
+
+    fn resolve_trim_angle(
+        &self,
+        trim: Option<&ifc_lite_core::AttributeValue>,
+        center: Point2<f64>,
+        rotation: f64,
+        radius: f64,
+        radius2: f64,
+        prefer_cartesian: bool,
+        decoder: &mut EntityDecoder,
+    ) -> Result<Option<f64>> {
+        let Some(trim_attr) = trim else {
+            return Ok(None);
+        };
+
+        if prefer_cartesian {
+            if let Some(angle) = self.extract_trim_point_angle(trim_attr, center, rotation, radius, radius2, decoder)? {
+                return Ok(Some(angle));
+            }
+            return Ok(self.extract_trim_param(trim_attr));
+        }
+
+        if let Some(param) = self.extract_trim_param(trim_attr) {
+            return Ok(Some(param));
+        }
+
+        self.extract_trim_point_angle(trim_attr, center, rotation, radius, radius2, decoder)
+    }
+
+    fn extract_trim_point_angle(
+        &self,
+        attr: &ifc_lite_core::AttributeValue,
+        center: Point2<f64>,
+        rotation: f64,
+        radius: f64,
+        radius2: f64,
+        decoder: &mut EntityDecoder,
+    ) -> Result<Option<f64>> {
+        let Some(list) = attr.as_list() else {
+            return Ok(None);
+        };
+
+        for item in list {
+            // Common IFC form: trim list item is an IfcCartesianPoint reference
+            if let Some(point_ref) = item.as_entity_ref() {
+                if let Ok(point) = decoder.decode_by_id(point_ref) {
+                    if point.ifc_type == IfcType::IfcCartesianPoint {
+                        if let Some(coords) = point.get(0).and_then(|v| v.as_list()) {
+                            let x = coords.first().and_then(|v| v.as_float());
+                            let y = coords.get(1).and_then(|v| v.as_float());
+                            if let (Some(px), Some(py)) = (x, y) {
+                                return Ok(Some(self.point_to_conic_angle(
+                                    px, py, center, rotation, radius, radius2,
+                                )));
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Fallback: inline coordinates ((x,y)) inside trim list
+            if let Some(coord) = item.as_list() {
+                let x = coord.first().and_then(|v| v.as_float());
+                let y = coord.get(1).and_then(|v| v.as_float());
+                if let (Some(px), Some(py)) = (x, y) {
+                    return Ok(Some(self.point_to_conic_angle(
+                        px, py, center, rotation, radius, radius2,
+                    )));
+                }
+            }
+        }
+
+        Ok(None)
+    }
+
+    fn point_to_conic_angle(
+        &self,
+        px: f64,
+        py: f64,
+        center: Point2<f64>,
+        rotation: f64,
+        radius: f64,
+        radius2: f64,
+    ) -> f64 {
+        // Convert world point into basis curve local coordinates
+        let dx = px - center.x;
+        let dy = py - center.y;
+        let cos_r = rotation.cos();
+        let sin_r = rotation.sin();
+        let lx = dx * cos_r + dy * sin_r;
+        let ly = -dx * sin_r + dy * cos_r;
+
+        (ly / radius2.max(1e-12)).atan2(lx / radius.max(1e-12))
     }
 
     /// Get 2D placement from entity
@@ -1520,5 +1664,94 @@ mod tests {
 
         assert_eq!(profile.outer.len(), 5); // 4 corners + closing point
         assert!(!profile.outer.is_empty());
+    }
+
+    #[test]
+    fn test_trimmed_circle_wraparound_ccw() {
+        let content = r#"
+#1=IFCCARTESIANPOINT((0.0,0.0));
+#2=IFCAXIS2PLACEMENT2D(#1,$);
+#3=IFCCIRCLE(#2,10.0);
+#4=IFCTRIMMEDCURVE(#3,(IFCPARAMETERVALUE(270.0)),(IFCPARAMETERVALUE(0.0)),.T.,.PARAMETER.);
+"#;
+
+        let mut decoder = EntityDecoder::new(content);
+        let schema = IfcSchema::new();
+        let processor = ProfileProcessor::new(schema);
+
+        let curve = decoder.decode_by_id(4).unwrap();
+        let points = processor
+            .process_trimmed_curve_with_depth(&curve, &mut decoder, 0)
+            .unwrap();
+
+        let first = points.first().unwrap();
+        let last = points.last().unwrap();
+        let mid = points[points.len() / 2];
+
+        assert!((first.x - 0.0).abs() < 1e-6);
+        assert!((first.y + 10.0).abs() < 1e-6);
+        assert!((last.x - 10.0).abs() < 1e-6);
+        assert!((last.y - 0.0).abs() < 1e-6);
+
+        // Ensure this is the short 90° arc in quadrant IV, not a 270° sweep
+        assert!(mid.x > 5.0);
+        assert!(mid.y < -5.0);
+    }
+
+    #[test]
+    fn test_trimmed_circle_parameter_values_in_radians() {
+        let content = r#"
+#1=IFCCARTESIANPOINT((0.0,0.0));
+#2=IFCAXIS2PLACEMENT2D(#1,$);
+#3=IFCCIRCLE(#2,10.0);
+#4=IFCTRIMMEDCURVE(#3,(IFCPARAMETERVALUE(0.0)),(IFCPARAMETERVALUE(1.5707963267948966)),.T.,.PARAMETER.);
+"#;
+
+        let mut decoder = EntityDecoder::new(content);
+        let schema = IfcSchema::new();
+        let processor = ProfileProcessor::new(schema);
+
+        let curve = decoder.decode_by_id(4).unwrap();
+        let points = processor
+            .process_trimmed_curve_with_depth(&curve, &mut decoder, 0)
+            .unwrap();
+
+        let first = points.first().unwrap();
+        let last = points.last().unwrap();
+
+        assert!((first.x - 10.0).abs() < 1e-6);
+        assert!((first.y - 0.0).abs() < 1e-6);
+        assert!(last.x.abs() < 1e-3);
+        assert!((last.y - 10.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn test_trimmed_circle_cartesian_trim_points() {
+        let content = r#"
+#1=IFCCARTESIANPOINT((0.0,0.0));
+#2=IFCAXIS2PLACEMENT2D(#1,$);
+#3=IFCCIRCLE(#2,10.0);
+#10=IFCCARTESIANPOINT((0.0,-10.0));
+#11=IFCCARTESIANPOINT((10.0,0.0));
+#4=IFCTRIMMEDCURVE(#3,(#10),(#11),.T.,.CARTESIAN.);
+"#;
+
+        let mut decoder = EntityDecoder::new(content);
+        let schema = IfcSchema::new();
+        let processor = ProfileProcessor::new(schema);
+
+        let curve = decoder.decode_by_id(4).unwrap();
+        let points = processor
+            .process_trimmed_curve_with_depth(&curve, &mut decoder, 0)
+            .unwrap();
+
+        let first = points.first().unwrap();
+        let last = points.last().unwrap();
+
+        assert!((first.x - 0.0).abs() < 1e-6);
+        assert!((first.y + 10.0).abs() < 1e-6);
+        assert!((last.x - 10.0).abs() < 1e-6);
+        assert!((last.y - 0.0).abs() < 1e-6);
+        assert!(points.len() < 30);
     }
 }
