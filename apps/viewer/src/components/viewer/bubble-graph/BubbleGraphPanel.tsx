@@ -672,6 +672,96 @@ function NewStoreyDialog({ buildingAxes, existingNames, onClose, onCreate }: New
   );
 }
 
+// ─── EditStoreyDialog ─────────────────────────────────────────────────────
+
+interface EditStoreyDialogProps {
+  storey: BubbleGraphNode;
+  onClose: () => void;
+  onSave: (updates: { name: string; bottomElev: number; topElev: number; discipline: StoreyDiscipline }) => void;
+}
+
+function EditStoreyDialog({ storey, onClose, onSave }: EditStoreyDialogProps) {
+  const [name, setName] = useState(storey.name);
+  const [bottomElev, setBottomElev] = useState(String(storey.properties.bottomElevation ?? 0));
+  const [topElev, setTopElev] = useState(String(storey.properties.topElevation ?? 3000));
+  const [discipline, setDiscipline] = useState<StoreyDiscipline>(
+    (storey.properties.discipline as StoreyDiscipline) ?? 'architectural',
+  );
+
+  const handleSave = () => {
+    if (!name.trim()) { alert('Enter a storey name'); return; }
+    const bot = parseFloat(bottomElev);
+    const top = parseFloat(topElev);
+    if (isNaN(bot) || isNaN(top)) { alert('Enter valid elevations'); return; }
+    onSave({ name: name.trim(), bottomElev: bot, topElev: top, discipline });
+  };
+
+  return (
+    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50">
+      <div className="bg-background border border-border rounded-lg shadow-2xl w-96 p-5 space-y-4">
+        <div className="flex items-center justify-between">
+          <h3 className="font-semibold">Edit Storey</h3>
+          <button className="text-muted-foreground hover:text-foreground" onClick={onClose}>✕</button>
+        </div>
+        <div className="space-y-3 text-sm">
+          <div>
+            <label className="text-muted-foreground block mb-1">Storey Name</label>
+            <input
+              className="bg-muted border border-border rounded px-2 py-1.5 w-full"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              autoFocus
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-muted-foreground block mb-1">Bottom Elevation (mm)</label>
+              <input
+                type="number"
+                className="bg-muted border border-border rounded px-2 py-1.5 w-full"
+                value={bottomElev}
+                onChange={(e) => setBottomElev(e.target.value)}
+              />
+            </div>
+            <div>
+              <label className="text-muted-foreground block mb-1">Top Elevation (mm)</label>
+              <input
+                type="number"
+                className="bg-muted border border-border rounded px-2 py-1.5 w-full"
+                value={topElev}
+                onChange={(e) => setTopElev(e.target.value)}
+              />
+            </div>
+          </div>
+          <div>
+            <label className="text-muted-foreground block mb-1">Discipline</label>
+            <div className="grid grid-cols-3 gap-1">
+              {(['architectural', 'structural', 'mep'] as StoreyDiscipline[]).map((d) => (
+                <button
+                  key={d}
+                  className={cn(
+                    'text-xs px-2 py-1.5 rounded border transition-colors',
+                    discipline === d
+                      ? 'bg-primary/20 border-primary/50 text-primary'
+                      : 'border-border hover:bg-muted text-muted-foreground',
+                  )}
+                  onClick={() => setDiscipline(d)}
+                >
+                  {d === 'architectural' ? 'Arch.' : d === 'structural' ? 'Struct.' : 'MEP'}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+        <div className="flex justify-end gap-2">
+          <Button variant="ghost" size="sm" onClick={onClose}>Cancel</Button>
+          <Button size="sm" onClick={handleSave}>Save</Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── BubbleGraphCanvas ────────────────────────────────────────────────────
 
 interface BubbleGraphCanvasProps {
@@ -1021,8 +1111,8 @@ function BubbleGraphCanvas({ nodes, edges, activeStoreyId, buildingAxes, setNode
               { id: `edge_${uid()}_2`, from: intId, to: endN.id },
             ]);
           }
-          if (!continuousMode) { setEdgeStart(null); setMode('select'); }
-          else setEdgeStart(null);
+          // Always stay in addEdge mode after creating an edge — press ESC to exit
+          setEdgeStart(null);
         }
       }
       return;
@@ -1044,7 +1134,7 @@ function BubbleGraphCanvas({ nodes, edges, activeStoreyId, buildingAxes, setNode
     } else {
       setSelectedNode(null); setSelectedEdge(null);
     }
-  }, [mode, pan, zoom, nodes, edges, edgeStart, edgeType, selectedNodeType, continuousMode, getNodeAt, getEdgeAt, setNodes, setEdges]);
+  }, [mode, pan, zoom, nodes, edges, edgeStart, edgeType, selectedNodeType, continuousMode, activeStoreyId, getNodeAt, getEdgeAt, setNodes, setEdges]);
 
   const handleMouseMove = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
@@ -1073,42 +1163,48 @@ function BubbleGraphCanvas({ nodes, edges, activeStoreyId, buildingAxes, setNode
     setIsPanning(false);
   }, []);
 
-  const handleWheel = useCallback((e: React.WheelEvent<HTMLCanvasElement>) => {
-    e.preventDefault();
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const rect = canvas.getBoundingClientRect();
-    const mx = e.clientX - rect.left;
-    const my = e.clientY - rect.top;
-    const wx = (mx - pan.x) / zoom;
-    const wy = (my - pan.y) / zoom;
-    const delta = e.deltaY > 0 ? 0.9 : 1.1;
-    const nz = Math.max(0.1, Math.min(5, zoom * delta));
-    setPan({ x: mx - wx * nz, y: my - wy * nz });
-    setZoom(nz);
-  }, [pan, zoom]);
+  // Refs for latest pan/zoom so the wheel handler is registered once without stale closures
+  const panRef = useRef(pan);
+  const zoomRef = useRef(zoom);
+  useEffect(() => { panRef.current = pan; }, [pan]);
+  useEffect(() => { zoomRef.current = zoom; }, [zoom]);
 
-  // Setup non-passive event listeners for wheel and mouse events
+  // Non-passive wheel — zoom towards mouse cursor; registered once via refs
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-
-    const handleWheelNonPassive = (e: WheelEvent) => {
+    const onWheel = (e: WheelEvent) => {
       e.preventDefault();
       const rect = canvas.getBoundingClientRect();
-      const mx = (e as any).clientX - rect.left;
-      const my = (e as any).clientY - rect.top;
-      const wx = (mx - pan.x) / zoom;
-      const wy = (my - pan.y) / zoom;
+      const mx = e.clientX - rect.left;
+      const my = e.clientY - rect.top;
+      const curPan = panRef.current;
+      const curZoom = zoomRef.current;
+      const wx = (mx - curPan.x) / curZoom;
+      const wy = (my - curPan.y) / curZoom;
       const delta = e.deltaY > 0 ? 0.9 : 1.1;
-      const nz = Math.max(0.1, Math.min(5, zoom * delta));
-      setPan({ x: mx - wx * nz, y: my - wy * nz });
+      const nz = Math.max(0.1, Math.min(5, curZoom * delta));
+      const newPan = { x: mx - wx * nz, y: my - wy * nz };
+      panRef.current = newPan;
+      zoomRef.current = nz;
+      setPan(newPan);
       setZoom(nz);
     };
+    canvas.addEventListener('wheel', onWheel, { passive: false });
+    return () => canvas.removeEventListener('wheel', onWheel);
+  }, []); // register once — reads latest pan/zoom via refs
 
-    canvas.addEventListener('wheel', handleWheelNonPassive, { passive: false });
-    return () => canvas.removeEventListener('wheel', handleWheelNonPassive);
-  }, [pan, zoom]);
+  // ESC key — cancel active placement mode
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setEdgeStart(null);
+        setMode('select');
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
 
   // ── Actions ───────────────────────────────────────────────────────────
 
@@ -1434,6 +1530,15 @@ function BubbleGraphCanvas({ nodes, edges, activeStoreyId, buildingAxes, setNode
             onMouseLeave={handleMouseUp}
           />
 
+          {/* Mode hint */}
+          {mode !== 'select' && (
+            <div className="absolute top-2 left-1/2 -translate-x-1/2 text-[11px] text-foreground bg-background/90 border border-border px-3 py-1 rounded-full pointer-events-none shadow">
+              {mode === 'addEdge'
+                ? (edgeStart ? '→ Click target node  •  ESC to cancel' : '→ Click source node  •  ESC to cancel')
+                : 'Click canvas to place node  •  ESC to cancel'}
+            </div>
+          )}
+
           {/* Zoom badge */}
           <div className="absolute bottom-2 right-2 text-[10px] text-muted-foreground bg-background/60 px-1.5 py-0.5 rounded pointer-events-none">
             {Math.round(zoom * 100)}%
@@ -1515,6 +1620,7 @@ export function BubbleGraphPanel({ visible, onClose }: BubbleGraphPanelProps) {
 
   const [showAxesDialog, setShowAxesDialog] = useState(false);
   const [showNewStoreyDialog, setShowNewStoreyDialog] = useState(false);
+  const [editingStoreyId, setEditingStoreyId] = useState<string | null>(null);
 
   // Sync from store only on first mount (don't override local edits)
   const didInit = useRef(false);
@@ -1618,6 +1724,27 @@ export function BubbleGraphPanel({ visible, onClose }: BubbleGraphPanelProps) {
     setActiveStoreyId(storeyId);
   }, [buildingAxes, storeyNodes.length, setActiveStoreyId]);
 
+  /** Update mutable properties on an existing storey */
+  const handleEditStorey = useCallback((updates: {
+    name: string; bottomElev: number; topElev: number; discipline: StoreyDiscipline;
+  }) => {
+    if (!editingStoreyId) return;
+    setNodes((prev) => prev.map((n) => {
+      if (n.id !== editingStoreyId) return n;
+      return {
+        ...n,
+        name: updates.name,
+        properties: {
+          ...n.properties,
+          bottomElevation: updates.bottomElev,
+          topElevation: updates.topElev,
+          discipline: updates.discipline,
+        },
+      };
+    }));
+    setEditingStoreyId(null);
+  }, [editingStoreyId]);
+
   if (!visible) return null;
 
   return (
@@ -1691,11 +1818,20 @@ export function BubbleGraphPanel({ visible, onClose }: BubbleGraphPanelProps) {
                     isActive && 'bg-primary/10',
                   )}
                   onClick={() => setActiveStoreyId(s.id)}
+                  onDoubleClick={(e) => { e.stopPropagation(); setEditingStoreyId(s.id); }}
                 >
                   <span className={cn('text-[10px] font-bold px-1 py-0.5 rounded border', DISC_CLS[disc])}>
                     {DISC_LABEL[disc]}
                   </span>
                   <span className={cn('flex-1 truncate', isActive && 'text-primary font-medium')}>{s.name}</span>
+                  {/* Edit properties */}
+                  <button
+                    className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-foreground p-0.5"
+                    onClick={(e) => { e.stopPropagation(); setEditingStoreyId(s.id); }}
+                    title="Edit storey properties"
+                  >
+                    ✎
+                  </button>
                   <button
                     className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-foreground p-0.5"
                     onClick={(e) => { e.stopPropagation(); duplicateStorey(s.id); }}
@@ -1747,6 +1883,18 @@ export function BubbleGraphPanel({ visible, onClose }: BubbleGraphPanelProps) {
           onCreate={handleCreateStorey}
         />
       )}
+
+      {/* ── Edit Storey Dialog ── */}
+      {editingStoreyId && (() => {
+        const storey = nodes.find((n) => n.id === editingStoreyId);
+        return storey ? (
+          <EditStoreyDialog
+            storey={storey}
+            onClose={() => setEditingStoreyId(null)}
+            onSave={handleEditStorey}
+          />
+        ) : null;
+      })()}
     </div>
   );
 }

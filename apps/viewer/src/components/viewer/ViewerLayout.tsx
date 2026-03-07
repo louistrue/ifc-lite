@@ -26,6 +26,8 @@ import { CommandPalette } from './CommandPalette';
 import { EditorPanel } from './EditorPanel';
 import { NodeEditorPanel } from './NodeEditorPanel';
 import { ViewsPanel } from './ViewsPanel';
+import { ViewTabBar } from './ViewTabBar';
+import { ViewDrawingTab } from './ViewDrawingTab';
 import { BubbleGraphPanel } from './bubble-graph/BubbleGraphPanel';
 
 const BOTTOM_PANEL_MIN_HEIGHT = 120;
@@ -78,6 +80,7 @@ export function ViewerLayout() {
   const setNodeEditorPanelVisible = useViewerStore((s) => s.setNodeEditorPanelVisible);
   const viewsPanelVisible = useViewerStore((s) => s.viewsPanelVisible);
   const setViewsPanelVisible = useViewerStore((s) => s.setViewsPanelVisible);
+  const activeTab  = useViewerStore((s) => s.activeTab);
   const bubbleGraphPanelVisible = useViewerStore((s) => s.bubbleGraphPanelVisible);
   const toggleBubbleGraphPanel = useViewerStore((s) => s.toggleBubbleGraphPanel);
 
@@ -213,10 +216,23 @@ export function ViewerLayout() {
 
                 <PanelResizeHandle className="w-1.5 bg-border hover:bg-primary/50 active:bg-primary/70 transition-colors cursor-col-resize" />
 
-                {/* Center - Viewport */}
+                {/* Center - Viewport + tab bar */}
                 <Panel id="viewport-panel" defaultSize={58} minSize={30}>
-                  <div className="h-full w-full overflow-hidden">
-                    <ViewportContainer />
+                  <div className="h-full w-full overflow-hidden flex flex-col">
+                    {/* Tab bar — only visible when view tabs are open */}
+                    <ViewTabBar />
+                    {/* Viewport area: 3D always mounted; 2D pane overlaid via absolute */}
+                    <div className="flex-1 min-h-0 relative overflow-hidden">
+                      <ViewportContainer />
+                      {/* 2D drawing tab sits on top of the 3D canvas when active.
+                          ViewportContainer stays mounted so Section2DPanel can
+                          generate drawings in the background. */}
+                      {activeTab !== '3d' && (
+                        <div className="absolute inset-0 z-10 bg-background">
+                          <ViewDrawingTab viewId={activeTab} />
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </Panel>
 

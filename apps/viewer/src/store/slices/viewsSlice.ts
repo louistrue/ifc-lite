@@ -8,7 +8,7 @@
  */
 
 import type { StateCreator } from 'zustand';
-import type { SectionPlaneAxis } from '../types.js';
+import type { SectionPlaneAxis, CameraViewpoint } from '../types.js';
 
 // ─── Types ────────────────────────────────────────────────────────────────
 
@@ -18,6 +18,8 @@ export interface ViewCameraState {
   /** Named preset: top, front, back, left, right (null = free camera) */
   presetView: 'top' | 'front' | 'back' | 'left' | 'right' | null;
   projectionMode: 'orthographic' | 'perspective';
+  /** Full captured viewpoint — restored via applyViewpoint when present */
+  capturedViewpoint?: CameraViewpoint;
 }
 
 export interface ViewDefinition {
@@ -68,12 +70,21 @@ export interface ViewsSlice {
   activeViewId: string | null;
   viewsPanelVisible: boolean;
 
+  /** Ordered list of view IDs open as drawing tabs ('3d' is always implicit) */
+  openViewTabs: string[];
+  /** Active center-pane tab — '3d' or a viewId */
+  activeTab: '3d' | string;
+
   addView: (view: ViewDefinition) => void;
   updateView: (id: string, updates: Partial<ViewDefinition>) => void;
   deleteView: (id: string) => void;
   setActiveViewId: (id: string | null) => void;
   setViewsPanelVisible: (visible: boolean) => void;
   toggleViewsPanel: () => void;
+
+  openViewTab: (viewId: string) => void;
+  closeViewTab: (viewId: string) => void;
+  setActiveTab: (tab: '3d' | string) => void;
 }
 
 // ─── ID helper (module-level counter) ─────────────────────────────────────
@@ -89,6 +100,8 @@ export const createViewsSlice: StateCreator<ViewsSlice, [], [], ViewsSlice> = (s
   views: new Map(),
   activeViewId: null,
   viewsPanelVisible: false,
+  openViewTabs: [],
+  activeTab: '3d',
 
   addView: (view) =>
     set((s) => {
@@ -110,13 +123,39 @@ export const createViewsSlice: StateCreator<ViewsSlice, [], [], ViewsSlice> = (s
     set((s) => {
       const next = new Map(s.views);
       next.delete(id);
+      // Close the tab if it's open
+      const nextTabs = s.openViewTabs.filter((t) => t !== id);
+      const nextActiveTab = s.activeTab === id ? '3d' : s.activeTab;
       return {
         views: next,
         activeViewId: s.activeViewId === id ? null : s.activeViewId,
+        openViewTabs: nextTabs,
+        activeTab: nextActiveTab,
       };
     }),
 
   setActiveViewId: (activeViewId) => set({ activeViewId }),
   setViewsPanelVisible: (viewsPanelVisible) => set({ viewsPanelVisible }),
   toggleViewsPanel: () => set((s) => ({ viewsPanelVisible: !s.viewsPanelVisible })),
+
+  openViewTab: (viewId) =>
+    set((s) => ({
+      openViewTabs: s.openViewTabs.includes(viewId)
+        ? s.openViewTabs
+        : [...s.openViewTabs, viewId],
+    })),
+
+  closeViewTab: (viewId) =>
+    set((s) => {
+      const nextTabs = s.openViewTabs.filter((t) => t !== viewId);
+      // If closing the active tab, switch to 3D or the previous tab
+      let nextActiveTab: '3d' | string = s.activeTab;
+      if (s.activeTab === viewId) {
+        const idx = s.openViewTabs.indexOf(viewId);
+        nextActiveTab = nextTabs[idx - 1] ?? nextTabs[0] ?? '3d';
+      }
+      return { openViewTabs: nextTabs, activeTab: nextActiveTab };
+    }),
+
+  setActiveTab: (activeTab) => set({ activeTab }),
 });
