@@ -7,6 +7,7 @@ import type { EntityRef, EntityData, PropertySetData, QuantitySetData, ExportBac
 import { EntityNode } from '@ifc-lite/query';
 import { StepExporter, type StepExportOptions } from '@ifc-lite/export';
 import { getModelForRef } from './model-compat.js';
+import { applyAttributeMutationsToEntityData, getMutationViewForModel } from './mutation-view.js';
 
 /** Options for CSV export */
 interface CsvOptions {
@@ -104,14 +105,14 @@ export function createExportAdapter(store: StoreApi): ExportBackendMethods {
     if (!model?.ifcDataStore) return null;
 
     const node = new EntityNode(model.ifcDataStore, ref.expressId);
-    return {
+    return applyAttributeMutationsToEntityData(store, ref.modelId, ref.expressId, {
       ref,
       globalId: node.globalId,
       name: node.name,
       type: node.type,
       description: node.description,
       objectType: node.objectType,
-    };
+    });
   }
 
   /** Resolve property sets for an entity */
@@ -329,7 +330,10 @@ export function createExportAdapter(store: StoreApi): ExportBackendMethods {
         ? selectedExpressIds
         : modelIsolated;
 
-      const exporter = new StepExporter(model.ifcDataStore);
+      const exporter = new StepExporter(
+        model.ifcDataStore,
+        options.includeMutations === false ? undefined : getMutationViewForModel(store, modelId) ?? undefined,
+      );
       const exportOptions: StepExportOptions = {
         schema: options.schema ?? model.ifcDataStore.schemaVersion,
         includeGeometry: true,

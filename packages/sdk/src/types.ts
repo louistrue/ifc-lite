@@ -53,6 +53,15 @@ export interface ModelInfo {
   loadedAt: number;
 }
 
+export interface FileAttachmentInfo {
+  name: string;
+  type: string;
+  size: number;
+  rowCount?: number;
+  columns?: string[];
+  hasTextContent: boolean;
+}
+
 // ============================================================================
 // Entity Data (serializable — crosses sandbox/transport boundary)
 // ============================================================================
@@ -331,6 +340,7 @@ export interface ViewerBackendMethods {
 
 export interface MutateBackendMethods {
   setProperty(ref: EntityRef, psetName: string, propName: string, value: string | number | boolean): void;
+  setAttribute(ref: EntityRef, attrName: string, value: string): void;
   deleteProperty(ref: EntityRef, psetName: string, propName: string): void;
   batchBegin(label: string): void;
   batchEnd(label: string): void;
@@ -359,6 +369,13 @@ export interface LensBackendMethods {
   getActive(): string | null;
 }
 
+export interface FilesBackendMethods {
+  list(): FileAttachmentInfo[];
+  text(name: string): string | null;
+  csv(name: string): Record<string, string>[] | null;
+  csvColumns(name: string): string[];
+}
+
 // ============================================================================
 // Backend Interface (implemented by local store or remote proxy)
 // ============================================================================
@@ -382,6 +399,7 @@ export interface BimBackend {
   readonly spatial: SpatialBackendMethods;
   readonly export: ExportBackendMethods;
   readonly lens: LensBackendMethods;
+  readonly files: FilesBackendMethods;
 
   /** Subscribe to viewer events */
   subscribe(event: BimEventType, handler: (data: unknown) => void): () => void;

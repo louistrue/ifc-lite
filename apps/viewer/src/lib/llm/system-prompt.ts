@@ -20,6 +20,9 @@ import type { FileAttachment } from './types.js';
 import type { ScriptEditorSelection } from './types.js';
 import { formatDiagnosticsForPrompt, type ScriptDiagnostic } from './script-diagnostics.js';
 
+const MAX_ATTACHMENT_ROWS_IN_PROMPT = 5;
+const MAX_ATTACHMENT_TEXT_PREVIEW_CHARS = 1200;
+
 /** Context about the currently loaded IFC model */
 export interface ModelContext {
   models: Array<{ name: string; entityCount: number }>;
@@ -322,6 +325,8 @@ ${intentSection}
 5. Coordinates are in meters. Z is up. Do NOT assume every create method is storey-relative — use the method-specific placement rules below.
 6. For create or explicit rewrite turns, wrap runnable code in a \`\`\`js\`\`\` fence. For repair turns, return exactly one \`\`\`ifc-script-edits\`\`\` fence containing SEARCH/REPLACE blocks and no \`\`\`js\`\`\` fence.
 7. If the user asks to modify existing data, use \`bim.mutate\` or \`bim.query\` — NOT \`bim.create\`
+   - Use \`bim.mutate.setAttribute(entity, "Description", "...")\` for root IFC attributes like \`Name\`, \`Description\`, \`ObjectType\`, or \`Tag\`
+   - Use \`bim.mutate.setProperty(entity, "Pset_Name", "PropName", value)\` only for IfcPropertySet or quantity data
 8. Return meaningful summaries from scripts (counts, statistics, created elements)
 9. When creating buildings, use realistic dimensions (wall thickness 0.2-0.3m, floor height 3-3.5m, column width 0.4-0.8m)
 10. You have FULL access to these sandbox APIs: ${namespaces}. Use them freely.
@@ -575,11 +580,19 @@ console.log("Exported CSV with", slabs.length, "rows");
         prompt += `\n  Columns: ${file.csvColumns.join(', ')}`;
         prompt += `\n  Rows: ${file.csvData?.length ?? 'unknown'}`;
         if (file.csvData && file.csvData.length > 0) {
-          prompt += `\n  Sample (first 3 rows): ${JSON.stringify(file.csvData.slice(0, 3))}`;
+          prompt += `\n  Sample (first ${Math.min(MAX_ATTACHMENT_ROWS_IN_PROMPT, file.csvData.length)} rows): ${JSON.stringify(file.csvData.slice(0, MAX_ATTACHMENT_ROWS_IN_PROMPT))}`;
+        }
+      }
+      if (file.textContent) {
+        const preview = file.textContent.slice(0, MAX_ATTACHMENT_TEXT_PREVIEW_CHARS);
+        prompt += `\n  Text preview: ${JSON.stringify(preview)}`;
+        if (file.textContent.length > preview.length) {
+          prompt += `\n  Text preview truncated from ${file.textContent.length} chars.`;
         }
       }
     }
-    prompt += `\nWhen processing uploaded data, inject it directly into the script as a const array.`;
+    prompt += '\nUploaded files remain available to scripts at runtime via `bim.files.list()`, `bim.files.text(name)`, `bim.files.csv(name)`, and `bim.files.csvColumns(name)`.';
+    prompt += '\nThe sandbox does not provide browser globals like `fetch()`. Do not use `fetch()` for chat attachments.';
   }
 
   if (scriptEditor) {

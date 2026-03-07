@@ -28,6 +28,7 @@ import {
   extractDocumentsOnDemand,
   extractRelationshipsOnDemand,
 } from '@ifc-lite/parser';
+import { applyAttributeMutationsToEntityData, mergeAttributeMutations } from './mutation-view.js';
 
 /** Map IFC relationship entity names to internal RelationshipType enum.
  * Keys use proper IFC schema names (e.g. IfcRelAggregates, not "Aggregates"). */
@@ -119,14 +120,14 @@ export function createQueryAdapter(store: StoreApi): QueryBackendMethods {
     if (!model?.ifcDataStore) return null;
 
     const node = new EntityNode(model.ifcDataStore, ref.expressId);
-    return {
+    return applyAttributeMutationsToEntityData(store, ref.modelId, ref.expressId, {
       ref,
       globalId: node.globalId,
       name: node.name,
       type: node.type,
       description: node.description,
       objectType: node.objectType,
-    };
+    });
   }
 
   function getProperties(ref: EntityRef): PropertySetData[] {
@@ -150,7 +151,12 @@ export function createQueryAdapter(store: StoreApi): QueryBackendMethods {
     const state = store.getState();
     const model = getModelForRef(state, ref.modelId);
     if (!model?.ifcDataStore) return [];
-    return extractAllEntityAttributes(model.ifcDataStore, ref.expressId);
+    return mergeAttributeMutations(
+      extractAllEntityAttributes(model.ifcDataStore, ref.expressId),
+      store,
+      ref.modelId,
+      ref.expressId,
+    );
   }
 
   function getQuantities(ref: EntityRef): QuantitySetData[] {
@@ -251,14 +257,14 @@ export function createQueryAdapter(store: StoreApi): QueryBackendMethods {
       for (const expressId of entityIds) {
         if (expressId === 0) continue;
         const node = new EntityNode(model.ifcDataStore, expressId);
-        results.push({
+        results.push(applyAttributeMutationsToEntityData(store, modelId, expressId, {
           ref: { modelId, expressId },
           globalId: node.globalId,
           name: node.name,
           type: node.type,
           description: node.description,
           objectType: node.objectType,
-        });
+        }));
       }
     }
 

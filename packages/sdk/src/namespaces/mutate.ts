@@ -13,6 +13,11 @@ export class MutateNamespace {
     this.backend.mutate.setProperty(ref, psetName, propName, value);
   }
 
+  /** Set a root IFC attribute on an entity */
+  setAttribute(ref: EntityRef, attrName: string, value: string): void {
+    this.backend.mutate.setAttribute(ref, attrName, value);
+  }
+
   /** Delete a property from an entity */
   deleteProperty(ref: EntityRef, psetName: string, propName: string): void {
     this.backend.mutate.deleteProperty(ref, psetName, propName);

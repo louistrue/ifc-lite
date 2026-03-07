@@ -32,8 +32,8 @@ interface BimPropertySet {
 
 interface BimQuantitySet {
   name: string;
-  Name?: string;
   quantities: Array<{ name: string; value: number | null }>;
+  Name?: string;
   Quantities?: Array<{ name: string; value: number | null }>;
 }
 
@@ -114,6 +114,15 @@ interface BimModelInfo {
   fileSize: number;
 }
 
+interface BimFileAttachment {
+  name: string;
+  type: string;
+  size: number;
+  rowCount?: number;
+  columns?: string[];
+  hasTextContent: boolean;
+}
+
 type BimPoint3D = [number, number, number];
 type BimPoint2D = [number, number];
 
@@ -174,10 +183,10 @@ declare const bim: {
     attributes(entity: BimEntity): BimAttribute[];
     /** Get all IfcPropertySet data for an entity */
     properties(entity: BimEntity): BimPropertySet[];
-    /** Get a single property value from an entity */
-    property(entity: BimEntity, psetName: string, propName: string): string | number | boolean | null;
     /** Get all IfcElementQuantity data for an entity */
     quantities(entity: BimEntity): BimQuantitySet[];
+    /** Get a single property value from an entity */
+    property(entity: BimEntity, psetName: string, propName: string): string | number | boolean | null;
     /** Get classification references for an entity */
     classifications(entity: BimEntity): BimClassification[];
     /** Get material assignment for an entity */
@@ -232,8 +241,10 @@ declare const bim: {
   };
   /** Property editing */
   mutate: {
-    /** Set a property value */
+    /** Set an IfcPropertySet or quantity value */
     setProperty(entity: unknown, psetName: string, propName: string, value: unknown): void;
+    /** Set a root IFC attribute such as Name, Description, ObjectType, or Tag */
+    setAttribute(entity: unknown, attrName: string, value: string): void;
     /** Delete a property */
     deleteProperty(entity: unknown, psetName: string, propName: string): void;
     /** Undo last mutation */
@@ -326,6 +337,17 @@ declare const bim: {
     addIfcElementQuantity(handle: number, elementId: number, qset: { Name: string; Quantities: Array<{ Name: string; Value: number; Kind: 'IfcQuantityLength' | 'IfcQuantityArea' | 'IfcQuantityVolume' | 'IfcQuantityCount' | 'IfcQuantityWeight' }> }): number;
     /** Generate the IFC STEP file content. Returns { content, entities, stats }. */
     toIfc(handle: number): { content: string; entities: Array<{ expressId: number; type: string; Name?: string }>; stats: { entityCount: number; fileSize: number } };
+  };
+  /** Uploaded file attachments */
+  files: {
+    /** List uploaded file attachments available to scripts */
+    list(): BimFileAttachment[];
+    /** Get raw text content for an uploaded attachment by file name */
+    text(name: string): string | null;
+    /** Get parsed CSV/TSV rows for an uploaded attachment by file name */
+    csv(name: string): Record<string, string>[] | null;
+    /** Get parsed CSV column names for an uploaded attachment by file name */
+    csvColumns(name: string): string[];
   };
   /** Data export */
   export: {

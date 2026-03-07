@@ -55,6 +55,7 @@ export type {
 
   // Model
   ModelInfo,
+  FileAttachmentInfo,
   SchemaVersion,
 
   // Query
@@ -100,6 +101,7 @@ export type {
   SpatialBackendMethods,
   ExportBackendMethods,
   LensBackendMethods,
+  FilesBackendMethods,
 } from './types.js';
 
 export { entityRefToString, stringToEntityRef, dispatchToBackend } from './types.js';
@@ -135,6 +137,7 @@ export type { ListColumn, ListCondition, ListDefinition } from './namespaces/lis
 export { SpatialNamespace } from './namespaces/spatial.js';
 export { EventsNamespace } from './namespaces/events.js';
 export { CreateNamespace } from './namespaces/create.js';
+export { FilesNamespace } from './namespaces/files.js';
 
 // bSDD — buildingSMART Data Dictionary property/classification lookup
 export { BsddNamespace } from './namespaces/bsdd.js';

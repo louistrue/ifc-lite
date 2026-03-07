@@ -4,31 +4,45 @@
 
 import type { EntityRef, MutateBackendMethods } from '@ifc-lite/sdk';
 import type { StoreApi } from './types.js';
+import { getOrCreateMutationView, normalizeMutationModelId } from './mutation-view.js';
 
 export function createMutateAdapter(store: StoreApi): MutateBackendMethods {
   return {
     setProperty(ref: EntityRef, psetName: string, propName: string, value: string | number | boolean) {
       const state = store.getState();
-      state.setProperty?.(ref.modelId, ref.expressId, psetName, propName, value);
+      const normalizedModelId = normalizeMutationModelId(state, ref.modelId);
+      if (!getOrCreateMutationView(store, ref.modelId)) return undefined;
+      state.setProperty?.(normalizedModelId, ref.expressId, psetName, propName, value);
+      return undefined;
+    },
+    setAttribute(ref: EntityRef, attrName: string, value: string) {
+      const state = store.getState();
+      const normalizedModelId = normalizeMutationModelId(state, ref.modelId);
+      if (!getOrCreateMutationView(store, ref.modelId)) return undefined;
+      state.setAttribute?.(normalizedModelId, ref.expressId, attrName, value);
       return undefined;
     },
     deleteProperty(ref: EntityRef, psetName: string, propName: string) {
       const state = store.getState();
-      state.deleteProperty?.(ref.modelId, ref.expressId, psetName, propName);
+      const normalizedModelId = normalizeMutationModelId(state, ref.modelId);
+      if (!getOrCreateMutationView(store, ref.modelId)) return undefined;
+      state.deleteProperty?.(normalizedModelId, ref.expressId, psetName, propName);
       return undefined;
     },
     undo(modelId: string) {
       const state = store.getState();
-      if (state.canUndo?.(modelId)) {
-        state.undo?.(modelId);
+      const normalizedModelId = normalizeMutationModelId(state, modelId);
+      if (state.canUndo?.(normalizedModelId)) {
+        state.undo?.(normalizedModelId);
         return true;
       }
       return false;
     },
     redo(modelId: string) {
       const state = store.getState();
-      if (state.canRedo?.(modelId)) {
-        state.redo?.(modelId);
+      const normalizedModelId = normalizeMutationModelId(state, modelId);
+      if (state.canRedo?.(normalizedModelId)) {
+        state.redo?.(normalizedModelId);
         return true;
       }
       return false;

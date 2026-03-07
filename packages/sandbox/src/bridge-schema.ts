@@ -1215,15 +1215,37 @@ export const NAMESPACE_SCHEMAS: NamespaceSchema[] = [
     methods: [
       {
         name: 'setProperty',
-        doc: 'Set a property value',
+        doc: 'Set an IfcPropertySet or quantity value (not a root IFC attribute)',
         args: ['dump', 'string', 'string', 'dump'],
         paramNames: ['entity', 'psetName', 'propName', 'value'],
         call: (sdk, args) => {
+          const ref = toRef(args[0]);
+          if (!ref) {
+            throw new Error('bim.mutate.setProperty: invalid entity reference');
+          }
           sdk.mutate.setProperty(
-            args[0] as EntityRef,
+            ref,
             args[1] as string,
             args[2] as string,
             args[3] as string | number | boolean,
+          );
+        },
+        returns: 'void',
+      },
+      {
+        name: 'setAttribute',
+        doc: 'Set a root IFC attribute such as Name, Description, ObjectType, or Tag',
+        args: ['dump', 'string', 'string'],
+        paramNames: ['entity', 'attrName', 'value'],
+        call: (sdk, args) => {
+          const ref = toRef(args[0]);
+          if (!ref) {
+            throw new Error('bim.mutate.setAttribute: invalid entity reference');
+          }
+          sdk.mutate.setAttribute(
+            ref,
+            args[1] as string,
+            args[2] as string,
           );
         },
         returns: 'void',
@@ -1234,8 +1256,12 @@ export const NAMESPACE_SCHEMAS: NamespaceSchema[] = [
         args: ['dump', 'string', 'string'],
         paramNames: ['entity', 'psetName', 'propName'],
         call: (sdk, args) => {
+          const ref = toRef(args[0]);
+          if (!ref) {
+            throw new Error('bim.mutate.deleteProperty: invalid entity reference');
+          }
           sdk.mutate.deleteProperty(
-            args[0] as EntityRef,
+            ref,
             args[1] as string,
             args[2] as string,
           );
@@ -1299,6 +1325,57 @@ export const NAMESPACE_SCHEMAS: NamespaceSchema[] = [
   },
 
   // ── bim.export ─────────────────────────────────────────────
+  {
+    name: 'files',
+    doc: 'Uploaded file attachments',
+    permission: 'files',
+    methods: [
+      {
+        name: 'list',
+        doc: 'List uploaded file attachments available to scripts',
+        args: [],
+        tsReturn: 'BimFileAttachment[]',
+        call: (sdk) => sdk.files.list(),
+        returns: 'value',
+      },
+      {
+        name: 'text',
+        doc: 'Get raw text content for an uploaded attachment by file name',
+        args: ['string'],
+        paramNames: ['name'],
+        tsReturn: 'string | null',
+        call: (sdk, args) => sdk.files.text(args[0] as string),
+        returns: 'value',
+        llmSemantics: {
+          taskTags: ['inspect', 'modify', 'repair', 'export'],
+          useWhen: 'Read uploaded CSV, TSV, JSON, or text attachments without using fetch().',
+        },
+      },
+      {
+        name: 'csv',
+        doc: 'Get parsed CSV/TSV rows for an uploaded attachment by file name',
+        args: ['string'],
+        paramNames: ['name'],
+        tsReturn: 'Record<string, string>[] | null',
+        call: (sdk, args) => sdk.files.csv(args[0] as string),
+        returns: 'value',
+        llmSemantics: {
+          taskTags: ['inspect', 'modify', 'repair', 'export'],
+          useWhen: 'Load uploaded CSV rows directly inside a script and join them against model entities.',
+        },
+      },
+      {
+        name: 'csvColumns',
+        doc: 'Get parsed CSV column names for an uploaded attachment by file name',
+        args: ['string'],
+        paramNames: ['name'],
+        tsReturn: 'string[]',
+        call: (sdk, args) => sdk.files.csvColumns(args[0] as string),
+        returns: 'value',
+      },
+    ],
+  },
+
   {
     name: 'export',
     doc: 'Data export',

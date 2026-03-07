@@ -40,6 +40,7 @@ import { fetchUsageSnapshot, streamChat, type StreamMessage, type TextContentPar
 import { buildStreamMessagesForModel, filterAttachmentsForModel } from '@/lib/llm/message-capabilities';
 import { buildSystemPrompt } from '@/lib/llm/system-prompt';
 import { getModelContext, parseCSV } from '@/lib/llm/context-builder';
+import { collectActiveFileAttachments } from '@/lib/attachments';
 import { extractCodeBlocks } from '@/lib/llm/code-extractor';
 import { extractScriptEditOps, filterUnappliedScriptOps } from '@/lib/llm/script-edit-ops';
 import { createPatchDiagnostic, getPrimaryRootCause, type RepairScope } from '@/lib/llm/script-diagnostics';
@@ -450,7 +451,9 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
     const allMessages = [...currentMessages, userMessage];
 
     const modelContext = getModelContext();
-    const fileAttachments = filtered.accepted.length > 0 ? filtered.accepted : undefined;
+    const fileAttachments = supportsFileAttachments
+      ? collectActiveFileAttachments(allMessages, filtered.accepted)
+      : [];
     const systemPrompt = buildSystemPrompt(modelContext, fileAttachments, {
       content: liveScriptContext.content,
       revision: liveScriptContext.revision,

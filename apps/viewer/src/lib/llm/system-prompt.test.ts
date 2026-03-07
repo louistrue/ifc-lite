@@ -138,3 +138,22 @@ test('system prompt adapts task focus for repair turns', () => {
   assert.match(prompt, /\[root-cause:stale_patch_target\]/);
   assert.match(prompt, /\[patch:patch_revision_conflict\] Edit ops targeted revision 3 but the current editor revision is 4/);
 });
+
+test('system prompt explains uploaded file runtime access', () => {
+  const prompt = buildSystemPrompt(undefined, [
+    {
+      name: 'entities-1.csv',
+      type: 'text/csv',
+      size: 256,
+      textContent: 'GlobalId,Description\nabc,Wall A\n',
+      csvColumns: ['GlobalId', 'Description'],
+      csvData: [{ GlobalId: 'abc', Description: 'Wall A' }],
+    },
+  ]);
+
+  assert.match(prompt, /UPLOADED FILES/);
+  assert.match(prompt, /bim\.files\.list\(\)/);
+  assert.match(prompt, /bim\.files\.csv\(name\)/);
+  assert.match(prompt, /Do not use `fetch\(\)` for chat attachments/);
+  assert.match(prompt, /Text preview:/);
+});

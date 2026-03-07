@@ -47,6 +47,7 @@ function createMockBackend() {
   };
   const mutate = {
     setProperty: vi.fn(),
+    setAttribute: vi.fn(),
     deleteProperty: vi.fn(),
     batchBegin: vi.fn(),
     batchEnd: vi.fn(),
@@ -71,6 +72,12 @@ function createMockBackend() {
     deactivate: vi.fn(),
     getActive: vi.fn(() => null),
   };
+  const files = {
+    list: vi.fn(() => []),
+    text: vi.fn(() => null),
+    csv: vi.fn(() => null),
+    csvColumns: vi.fn(() => []),
+  };
 
   const backend: BimBackend = {
     model,
@@ -82,10 +89,11 @@ function createMockBackend() {
     spatial,
     export: exportNs,
     lens,
+    files,
     subscribe: vi.fn(() => () => {}),
   };
 
-  return { backend, model, query, selection, visibility, viewer, mutate, spatial, export: exportNs, lens };
+  return { backend, model, query, selection, visibility, viewer, mutate, spatial, export: exportNs, lens, files };
 }
 
 describe('BimContext', () => {
@@ -99,6 +107,7 @@ describe('BimContext', () => {
     expect(bim.mutate).toBeDefined();
     expect(bim.lens).toBeDefined();
     expect(bim.export).toBeDefined();
+    expect(bim.files).toBeDefined();
     expect(bim.ids).toBeDefined();
     expect(bim.bcf).toBeDefined();
     expect(bim.drawing).toBeDefined();
@@ -347,6 +356,34 @@ describe('ExportNamespace', () => {
 
 });
 
+describe('FilesNamespace', () => {
+  it('list() delegates to backend.files.list', () => {
+    const { backend, files } = createMockBackend();
+    files.list.mockReturnValue([
+      { name: 'entities.csv', type: 'text/csv', size: 128, rowCount: 2, columns: ['GlobalId', 'Description'], hasTextContent: true },
+    ]);
+
+    const bim = createBimContext({ backend });
+    const attachments = bim.files.list();
+
+    expect(attachments).toHaveLength(1);
+    expect(attachments[0].name).toBe('entities.csv');
+  });
+
+  it('csv() delegates to backend.files.csv', () => {
+    const { backend, files } = createMockBackend();
+    files.csv.mockReturnValue([
+      { GlobalId: 'abc', Description: 'Wall A' },
+    ]);
+
+    const bim = createBimContext({ backend });
+    const rows = bim.files.csv('entities.csv');
+
+    expect(rows).toEqual([{ GlobalId: 'abc', Description: 'Wall A' }]);
+    expect(files.csv).toHaveBeenCalledWith('entities.csv');
+  });
+});
+
 describe('ViewerNamespace', () => {
   it('colorize() calls viewer.colorize', () => {
     const { backend, viewer } = createMockBackend();
@@ -381,6 +418,16 @@ describe('MutateNamespace', () => {
     bim.mutate.setProperty({ modelId: 'm', expressId: 1 }, 'Pset', 'Prop', 'value');
     expect(mutate.setProperty).toHaveBeenCalledWith(
       { modelId: 'm', expressId: 1 }, 'Pset', 'Prop', 'value',
+    );
+  });
+
+  it('setAttribute() calls mutate.setAttribute', () => {
+    const { backend, mutate } = createMockBackend();
+    const bim = createBimContext({ backend });
+
+    bim.mutate.setAttribute({ modelId: 'm', expressId: 1 }, 'Description', 'From CSV');
+    expect(mutate.setAttribute).toHaveBeenCalledWith(
+      { modelId: 'm', expressId: 1 }, 'Description', 'From CSV',
     );
   });
 

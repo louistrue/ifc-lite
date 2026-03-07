@@ -6,17 +6,16 @@
  * IFC STEP file exporter
  *
  * Exports IFC data store to ISO 10303-21 STEP format.
- * Supports applying property mutations before export.
+ * Supports applying property and root attribute mutations before export.
  */
 
 import type { IfcDataStore } from '@ifc-lite/parser';
 import {
   generateHeader,
+  getAttributeNames,
   serializeValue,
   ref,
-  enumVal,
   type StepValue,
-  type StepEntity,
 } from '@ifc-lite/parser';
 import type { MutablePropertyView } from '@ifc-lite/mutations';
 import type { PropertySet, Property, QuantitySet } from '@ifc-lite/data';
@@ -123,6 +122,7 @@ export class StepExporter {
     // Collect entities that need to be modified or created
     const modifiedEntities = new Set<number>();
     const modifiedPsets = new Map<number, Set<string>>(); // entityId -> psetNames being modified
+    const modifiedAttributes = new Map<number, Map<string, string>>();
     const newPropertySets: Array<{ entityId: number; psets: PropertySet[] }> = [];
     const newQuantitySets: Array<{ entityId: number; qsets: QuantitySet[] }> = [];
 
@@ -138,6 +138,18 @@ export class StepExporter {
       const entityPropMutations = new Map<number, Set<string>>();
       const entityQuantMutations = new Map<number, Set<string>>();
       for (const mutation of mutations) {
+        if (mutation.type === 'UPDATE_ATTRIBUTE' && mutation.attributeName) {
+          modifiedEntities.add(mutation.entityId);
+          if (!modifiedAttributes.has(mutation.entityId)) {
+            modifiedAttributes.set(mutation.entityId, new Map());
+          }
+          modifiedAttributes.get(mutation.entityId)!.set(
+            mutation.attributeName,
+            mutation.newValue == null ? '' : String(mutation.newValue),
+          );
+          continue;
+        }
+
         if (!mutation.psetName) continue;
 
         const isQuantity = mutation.type === 'CREATE_QUANTITY' || mutation.type === 'UPDATE_QUANTITY' || mutation.type === 'DELETE_QUANTITY';
@@ -223,6 +235,12 @@ export class StepExporter {
           }
         }
       }
+
+      for (const [entityId] of modifiedAttributes) {
+        if (!entityPropMutations.has(entityId) && !entityQuantMutations.has(entityId)) {
+          modifiedEntityCount++;
+        }
+      }
     }
 
     // If delta only, only export modified entities
@@ -291,16 +309,19 @@ export class StepExporter {
         const entityText = decoder.decode(
           source.subarray(entityRef.byteOffset, entityRef.byteOffset + entityRef.byteLength)
         );
+        const nextEntityText = modifiedAttributes.has(expressId)
+          ? this.applyAttributeMutations(entityText, entityType, modifiedAttributes.get(expressId)!)
+          : entityText;
 
         // Apply schema conversion if exporting to a different schema version
         if (converting) {
-          const converted = convertStepLine(entityText, sourceSchema, schema);
+          const converted = convertStepLine(nextEntityText, sourceSchema, schema);
           if (converted !== null) {
             entities.push(converted);
           }
           // null means entity should be skipped (no valid representation in target schema)
         } else {
-          entities.push(entityText);
+          entities.push(nextEntityText);
         }
       }
     }
@@ -503,6 +524,122 @@ export class StepExporter {
       default:
         return `IFCLABEL('${this.escapeStepString(String(value))}')`;
     }
+  }
+
+  /**
+   * Rewrite root IFC attributes directly on the original STEP entity line.
+   */
+  private applyAttributeMutations(
+    entityText: string,
+    entityType: string,
+    attributeMutations: Map<string, string>,
+  ): string {
+    const openParen = entityText.indexOf('(');
+    const closeParen = entityText.lastIndexOf(');');
+    if (openParen < 0 || closeParen < openParen) {
+      return entityText;
+    }
+
+    const attrNames = getAttributeNames(entityType);
+    if (attrNames.length === 0) {
+      return entityText;
+    }
+
+    const args = this.splitTopLevelArgs(entityText.slice(openParen + 1, closeParen));
+    let changed = false;
+
+    for (const [attrName, value] of attributeMutations) {
+      const index = attrNames.indexOf(attrName);
+      if (index < 0 || index >= args.length) continue;
+      args[index] = this.serializeAttributeValue(value, args[index]);
+      changed = true;
+    }
+
+    if (!changed) {
+      return entityText;
+    }
+
+    return `${entityText.slice(0, openParen + 1)}${args.join(',')}${entityText.slice(closeParen)}`;
+  }
+
+  private serializeAttributeValue(value: string, currentToken: string): string {
+    const trimmed = value.trim();
+    const current = currentToken.trim();
+
+    if (value === '') return '$';
+    if (trimmed === '$' || trimmed === '*') return trimmed;
+    if (/^#\d+$/.test(trimmed)) return trimmed;
+
+    if (/^\.[A-Z0-9_]+\.$/i.test(current) || /^\.[A-Z0-9_]+\.$/i.test(trimmed)) {
+      return `.${trimmed.replace(/^\./, '').replace(/\.$/, '').toUpperCase()}.`;
+    }
+
+    if (/^(?:\.T\.|\.F\.|\.U\.)$/i.test(current)) {
+      const normalized = trimmed.toLowerCase();
+      if (normalized === 'true' || normalized === '.t.') return '.T.';
+      if (normalized === 'false' || normalized === '.f.') return '.F.';
+      return '.U.';
+    }
+
+    if (/^-?\d+(?:\.\d+)?(?:E[+-]?\d+)?$/i.test(trimmed) && /^-?\d/.test(current)) {
+      const numberValue = Number(trimmed);
+      if (!Number.isFinite(numberValue)) return '$';
+      return current.includes('.') || /E/i.test(current)
+        ? this.toStepReal(numberValue)
+        : String(numberValue);
+    }
+
+    return serializeValue(value);
+  }
+
+  private splitTopLevelArgs(text: string): string[] {
+    const parts: string[] = [];
+    let current = '';
+    let depth = 0;
+    let inString = false;
+
+    for (let i = 0; i < text.length; i++) {
+      const char = text[i];
+      current += char;
+
+      if (inString) {
+        if (char === '\'') {
+          if (text[i + 1] === '\'') {
+            current += text[i + 1];
+            i++;
+          } else {
+            inString = false;
+          }
+        }
+        continue;
+      }
+
+      if (char === '\'') {
+        inString = true;
+        continue;
+      }
+
+      if (char === '(') {
+        depth++;
+        continue;
+      }
+
+      if (char === ')') {
+        depth--;
+        continue;
+      }
+
+      if (char === ',' && depth === 0) {
+        parts.push(current.slice(0, -1).trim());
+        current = '';
+      }
+    }
+
+    if (current.trim() || text.endsWith(',')) {
+      parts.push(current.trim());
+    }
+
+    return parts;
   }
 
   /**
