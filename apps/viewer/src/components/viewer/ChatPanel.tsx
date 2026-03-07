@@ -78,6 +78,8 @@ interface ChatSendOptions {
   continuationBase?: string;
   intent?: ScriptMutationIntent;
   repairDiagnostics?: ScriptDiagnostic[];
+  requestedRepairScope?: RepairScope;
+  rootCauseKey?: string;
 }
 
 /** Convert a File to a base64 data URL */
@@ -193,6 +195,7 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
   const removeAttachment = useViewerStore((s) => s.removeChatAttachment);
   const clearAttachments = useViewerStore((s) => s.clearChatAttachments);
   const clearMessages = useViewerStore((s) => s.clearChatMessages);
+  const resetScriptEditorForNewChat = useViewerStore((s) => s.resetScriptEditorForNewChat);
   const pendingPrompt = useViewerStore((s) => s.chatPendingPrompt);
   const consumePendingPrompt = useViewerStore((s) => s.consumeChatPendingPrompt);
   const pendingRepairRequest = useViewerStore((s) => s.chatPendingRepairRequest);
@@ -363,7 +366,12 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
       diagnostics,
       requestedRepairScope: requestedScope,
       rootCauseKey: primaryRootCause?.rootCauseKey,
-    }), { intent: 'repair', repairDiagnostics: diagnostics });
+    }), {
+      intent: 'repair',
+      repairDiagnostics: diagnostics,
+      requestedRepairScope: requestedScope,
+      rootCauseKey: primaryRootCause?.rootCauseKey,
+    });
   };
 
   // ── Core send logic ──
@@ -386,6 +394,9 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
     };
     const liveDiagnostics = liveState.scriptLastDiagnostics;
     const effectiveDiagnostics = options?.repairDiagnostics ?? liveDiagnostics;
+    const primaryRootCause = options?.rootCauseKey
+      ? { rootCauseKey: options.rootCauseKey, repairScope: options.requestedRepairScope ?? 'local' }
+      : getPrimaryRootCause(effectiveDiagnostics);
     setLastFinishReason(null);
 
     const activeModelInfo = getModelById(activeModel);
@@ -511,6 +522,13 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
     let accumulated = '';
     const responseBaseRevision = liveScriptContext.revision;
     const responseBaseContent = liveScriptContext.content;
+    const editParseOptions = {
+      baseRevision: responseBaseRevision,
+      baseContent: responseBaseContent,
+      intent: responseIntent,
+      requestedRepairScope: options?.requestedRepairScope ?? primaryRootCause?.repairScope,
+      targetRootCause: options?.rootCauseKey ?? primaryRootCause?.rootCauseKey,
+    } as const;
     const responseEditState = {
       intent: responseIntent,
       appliedOpIds: new Set<string>(),
@@ -548,7 +566,7 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
       onChunk: (chunk) => {
         accumulated += chunk;
         if (!responseEditState.applyFailed && responseEditState.intent !== 'repair') {
-          const parsed = extractScriptEditOps(accumulated);
+          const parsed = extractScriptEditOps(accumulated, editParseOptions);
           const freshOps = filterUnappliedScriptOps(parsed.operations, responseEditState.appliedOpIds);
           if (freshOps.length > 0) {
             const applyResult = useViewerStore.getState().applyScriptEditOps(freshOps, {
@@ -586,12 +604,12 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
         const messageId = finalizeAssistant(normalizedText || fullText);
 
         if (!responseEditState.applyFailed) {
-          const parsed = extractScriptEditOps(fullText);
+          const parsed = extractScriptEditOps(fullText, editParseOptions);
           if (parsed.parseErrors.length > 0) {
             if (responseEditState.intent === 'repair') {
               rollbackAssistantTurnIfNeeded();
               responseEditState.applyFailed = true;
-              responseEditState.applyFailureDiagnostic = createPatchDiagnostic(
+              responseEditState.applyFailureDiagnostic = parsed.parseDiagnostics[0] ?? createPatchDiagnostic(
                 'patch_semantic_error',
                 parsed.parseErrors[0],
                 'error',
@@ -768,6 +786,8 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
     void doSend(buildRepairPromptFromLiveState(pendingRepairRequest), {
       intent: 'repair',
       repairDiagnostics: pendingRepairRequest.diagnostics,
+      requestedRepairScope: pendingRepairRequest.requestedRepairScope,
+      rootCauseKey: pendingRepairRequest.rootCauseKey,
     });
   }, [pendingRepairRequest, status, consumePendingRepairRequest, buildRepairPromptFromLiveState, doSend]);
 
@@ -817,7 +837,12 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
       diagnostics,
       staleCodeBlock: staleCode,
       reason: 'runtime',
-    }), { intent: 'repair', repairDiagnostics: diagnostics });
+    }), {
+      intent: 'repair',
+      repairDiagnostics: diagnostics,
+      requestedRepairScope: getPrimaryRootCause(diagnostics)?.repairScope,
+      rootCauseKey: getPrimaryRootCause(diagnostics)?.rootCauseKey,
+    });
   }, [buildRepairPromptFromLiveState, doSend]);
 
   // ── Clickable example prompts ──
@@ -829,16 +854,22 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
   // ── Clear with confirmation ──
   const handleClearClick = useCallback(() => {
     if (messages.length <= 2) {
+      resetScriptEditorForNewChat();
       clearMessages();
+      setInputText('');
+      setLastFinishReason(null);
     } else {
       setShowClearConfirm(true);
     }
-  }, [messages.length, clearMessages]);
+  }, [messages.length, clearMessages, resetScriptEditorForNewChat]);
 
   const confirmClear = useCallback(() => {
+    resetScriptEditorForNewChat();
     clearMessages();
+    setInputText('');
+    setLastFinishReason(null);
     setShowClearConfirm(false);
-  }, [clearMessages]);
+  }, [clearMessages, resetScriptEditorForNewChat]);
 
   // ── File upload (button + drag-drop + paste) ──
   const processFiles = useCallback(async (files: FileList | File[]) => {

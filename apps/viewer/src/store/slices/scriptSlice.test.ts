@@ -46,3 +46,30 @@ const storey = bim.create.addIfcBuildingStorey(h, { Name: "Level 0", Elevation: 
   assert.equal(useScriptStore.getState().scriptEditorRevision, baseRevision);
   assert.ok(appliedContents.some((content) => content === initialScript));
 });
+
+test('resetScriptEditorForNewChat clears the editor and detaches the active script', () => {
+  const useScriptStore = create<ScriptSlice>()((...args) => createScriptSlice(...args));
+  const appliedContents: string[] = [];
+
+  useScriptStore.getState().registerScriptEditorApplyAdapter({
+    apply: (nextContent) => {
+      appliedContents.push(nextContent);
+    },
+    undo: () => {},
+    redo: () => {},
+  });
+
+  const scriptId = useScriptStore.getState().createScript('Tower Script', 'const h = bim.create.project({ Name: "Tower" });');
+  useScriptStore.getState().setScriptError('Script execution failed');
+
+  useScriptStore.getState().resetScriptEditorForNewChat();
+
+  assert.equal(scriptId.length > 0, true);
+  assert.equal(useScriptStore.getState().activeScriptId, null);
+  assert.equal(useScriptStore.getState().scriptEditorContent, '');
+  assert.equal(useScriptStore.getState().scriptEditorDirty, false);
+  assert.equal(useScriptStore.getState().scriptExecutionState, 'idle');
+  assert.equal(useScriptStore.getState().scriptLastError, null);
+  assert.equal(useScriptStore.getState().scriptAssistantTurnSnapshot, null);
+  assert.deepEqual(appliedContents.at(-1), '');
+});

@@ -36,13 +36,11 @@ test('system prompt includes script editor revision context when provided', () =
   assert.match(prompt, /Current script revision:\s+42/);
   assert.match(prompt, /Current selection:\s+from=6, to=7/);
   assert.match(prompt, /```ifc-script-edits/);
-  assert.match(prompt, /prefer `replaceSelection` or `replaceRange` over `replaceAll`/);
-  assert.match(prompt, /Do NOT use `replaceAll` for repair turns unless the user explicitly asked to regenerate the full script/);
-  assert.match(prompt, /For repair turns, do NOT use `replaceSelection`/);
-  assert.match(prompt, /include `expectedText` copied from the CURRENT script/);
-  assert.match(prompt, /multiple coordinated `replaceRange` ops/);
-  assert.match(prompt, /same `groupId`, `targetRootCause`, and `scope`/);
-  assert.match(prompt, /For create or explicit rewrite turns, wrap runnable code in a ```js``` fence\. For repair turns, return exactly one ```ifc-script-edits``` fence and no ```js``` fence\./);
+  assert.match(prompt, /<<<<<<< SEARCH/);
+  assert.match(prompt, /Copy every SEARCH block exactly from the CURRENT script/);
+  assert.match(prompt, /Each SEARCH block must match exactly one location/);
+  assert.match(prompt, /The system also understands legacy JSON edit ops, but SEARCH\/REPLACE is the default/);
+  assert.match(prompt, /For create or explicit rewrite turns, wrap runnable code in a ```js``` fence\. For repair turns, return exactly one ```ifc-script-edits``` fence containing SEARCH\/REPLACE blocks and no ```js``` fence\./);
   assert.match(prompt, /Do NOT answer with a detached snippet/);
 });
 
@@ -134,7 +132,7 @@ test('system prompt adapts task focus for repair turns', () => {
 
   assert.match(prompt, /## CURRENT TASK FOCUS/);
   assert.match(prompt, /Primary intent: `repair`/);
-  assert.match(prompt, /For repair turns, answer with patch ops only and do not include a full runnable script fence/);
+  assert.match(prompt, /For repair turns, answer with patch blocks only and do not include a full runnable script fence/);
   assert.match(prompt, /use them as anchors, but fix the stated root cause even if multiple related spans must change/);
   assert.match(prompt, /Root causes:/);
   assert.match(prompt, /\[root-cause:stale_patch_target\]/);

@@ -19,7 +19,7 @@ import { defaultKeymap, history, historyKeymap, indentWithTab, undo, redo, undoD
 import { syntaxHighlighting, defaultHighlightStyle, bracketMatching, indentOnInput } from '@codemirror/language';
 import { highlightSelectionMatches } from '@codemirror/search';
 import { NAMESPACE_SCHEMAS } from '@ifc-lite/sandbox/schema';
-import type { ScriptEditorSelection } from '@/lib/llm/types';
+import type { ScriptEditorSelection, ScriptEditorTextChange } from '@/lib/llm/types';
 
 /** Shared structural styles (mode-agnostic) */
 const baseTheme = EditorView.theme({
@@ -205,7 +205,11 @@ interface CodeEditorProps {
   onSelectionChange?: (selection: ScriptEditorSelection) => void;
   onHistoryChange?: (canUndo: boolean, canRedo: boolean) => void;
   registerApplyAdapter?: ((adapter: {
-    apply: (nextContent: string, selection: ScriptEditorSelection, options?: { userEvent?: string }) => void;
+    apply: (
+      nextContent: string,
+      selection: ScriptEditorSelection,
+      options?: { userEvent?: string; changes?: ScriptEditorTextChange[] },
+    ) => void;
     undo: () => void;
     redo: () => void;
   } | null) => void);
@@ -314,8 +318,11 @@ export function CodeEditor({
         if (!active) return;
         const safeFrom = Math.max(0, Math.min(selection.from, nextContent.length));
         const safeTo = Math.max(safeFrom, Math.min(selection.to, nextContent.length));
+        const changes = options?.changes && options.changes.length > 0
+          ? options.changes
+          : [{ from: 0, to: active.state.doc.length, insert: nextContent }];
         active.dispatch({
-          changes: { from: 0, to: active.state.doc.length, insert: nextContent },
+          changes,
           selection: { anchor: safeFrom, head: safeTo },
           annotations: options?.userEvent ? [Transaction.userEvent.of(options.userEvent)] : undefined,
         });

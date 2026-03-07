@@ -137,13 +137,14 @@ export function buildErrorFeedbackContent(
   return `The script needs a root-cause repair.\n\nFailure type: ${reason}\n${revisionLine}${selectionLine}\n\`\`\`\n${error}\n\`\`\`${rootCauseBlock}${evidenceBlock}${diagnosticsBlock}\nHere is the current script that should be repaired in place:\n\n\`\`\`js\n${code}\n\`\`\`${staleBlock}\nPlease fix the underlying cause in the existing script, not just the first visible symptom.\n- Preserve the project handle, storey handles, loop variables, and surrounding declarations unless they are the direct cause of the error.
 - Match the requested repair scope above: \`local\` for one call/site, \`block\` for a related cluster, \`structural\` for broader context-preserving repairs. Use a full rewrite only if the user explicitly asked for it.
 - Return exactly one \`ifc-script-edits\` block that patches the CURRENT script revision.
-- For repair edits, do NOT use \`replaceSelection\`.
-- For every \`replaceRange\`, include the exact current \`expectedText\` from the CURRENT script before replacing it.
+- Use exact SEARCH/REPLACE blocks inside that fence. Copy SEARCH text verbatim from the CURRENT script.
+- Every SEARCH block must match exactly one location in the CURRENT script. If a match is missing or ambiguous, add more unchanged surrounding context.
+- For insertions, include unchanged surrounding context in SEARCH and place the inserted code inside REPLACE. Do not use an empty SEARCH block.
 - Do NOT return a \`js\` fence for repair turns.
 - Do NOT use \`replaceAll\` unless the user explicitly asked to regenerate the full script.
 - Do NOT answer with a detached fragment or smaller local body when the current script is larger and the root cause spans surrounding context.
-- If the diagnostics share one root cause, you may use multiple coordinated \`replaceRange\` edits in one patch to resolve that cause.
-- If you are recovering from a patch conflict, re-target the latest revision shown above and regenerate edit ops with that exact \`baseRevision\`.
+- If the diagnostics share one root cause, you may use multiple coordinated SEARCH/REPLACE blocks in one patch to resolve that cause.
+- If you are recovering from a patch conflict, re-target the latest revision shown above and copy SEARCH blocks from that latest revision, not from an older reply.
 - If a previous answer was rejected for losing script context, keep the full script intact and patch only the necessary regions.
 
 Return only the repair patch.`;
@@ -339,8 +340,10 @@ export const createChatSlice: StateCreator<ChatSlice, [], [], ChatSlice> = (set,
   clearChatMessages: () => {
     set({
       chatMessages: [],
+      chatStatus: 'idle',
       chatStreamingContent: '',
       chatError: null,
+      chatAbortController: null,
       chatPendingPrompt: null,
       chatPendingRepairRequest: null,
       chatViewportScreenshot: null,

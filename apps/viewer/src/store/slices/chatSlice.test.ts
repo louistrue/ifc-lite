@@ -5,6 +5,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildErrorFeedbackContent } from './chatSlice.js';
+import { create } from 'zustand';
+import { createChatSlice, type ChatSlice } from './chatSlice.js';
 import { createPatchDiagnostic, createPreflightDiagnostic } from '../../lib/llm/script-diagnostics.js';
 
 test('buildErrorFeedbackContent includes revision and diagnostics for patch conflicts', () => {
@@ -28,9 +30,10 @@ test('buildErrorFeedbackContent includes revision and diagnostics for patch conf
   assert.match(prompt, /Failure type: patch-conflict/);
   assert.match(prompt, /Current script revision: 4/);
   assert.match(prompt, /Return exactly one `ifc-script-edits` block/);
+  assert.match(prompt, /Use exact SEARCH\/REPLACE blocks inside that fence/);
   assert.match(prompt, /The script needs a root-cause repair\./);
   assert.match(prompt, /\[patch:patch_revision_conflict\]/);
-  assert.match(prompt, /regenerate edit ops with that exact `baseRevision`/);
+  assert.match(prompt, /copy SEARCH blocks from that latest revision/);
 });
 
 test('buildErrorFeedbackContent includes structured preflight diagnostics', () => {
@@ -100,8 +103,8 @@ test('buildErrorFeedbackContent reinforces preservation rules for patch apply fa
 
   assert.match(prompt, /Failure type: patch-apply/);
   assert.match(prompt, /Do NOT use `replaceAll` unless the user explicitly asked to regenerate the full script/);
-  assert.match(prompt, /do NOT use `replaceSelection`/i);
-  assert.match(prompt, /include the exact current `expectedText`/);
+  assert.match(prompt, /Use exact SEARCH\/REPLACE blocks inside that fence/);
+  assert.match(prompt, /Copy SEARCH text verbatim from the CURRENT script/);
   assert.match(prompt, /keep the full script intact and patch only the necessary regions/);
   assert.doesNotMatch(prompt, /Provide a corrected version/);
 });
@@ -166,4 +169,26 @@ test('buildErrorFeedbackContent groups multiple local diagnostics under one root
   assert.match(prompt, /scope=block/);
   assert.match(prompt, /supporting evidence: preflight:wall_hosted_opening_pattern/);
   assert.match(prompt, /supporting evidence: preflight:world_placement_elevation/);
+});
+
+test('clearChatMessages resets streaming state as well as persisted messages', () => {
+  const useChatStore = create<ChatSlice>()((...args) => createChatSlice(...args));
+  const abortController = new AbortController();
+
+  useChatStore.getState().addChatMessage({
+    id: '1',
+    role: 'user',
+    content: 'Create a house',
+    createdAt: Date.now(),
+  });
+  useChatStore.getState().setChatStatus('streaming');
+  useChatStore.getState().setChatStreamingContent('partial');
+  useChatStore.getState().setChatAbortController(abortController);
+
+  useChatStore.getState().clearChatMessages();
+
+  assert.deepEqual(useChatStore.getState().chatMessages, []);
+  assert.equal(useChatStore.getState().chatStatus, 'idle');
+  assert.equal(useChatStore.getState().chatStreamingContent, '');
+  assert.equal(useChatStore.getState().chatAbortController, null);
 });

@@ -10,7 +10,7 @@
 import type { StateCreator } from 'zustand';
 import type { SavedScript } from '../../lib/scripts/persistence.js';
 import { loadSavedScripts, saveScripts, validateScriptName, canCreateScript, isScriptWithinSizeLimit } from '../../lib/scripts/persistence.js';
-import type { ScriptEditOperation, ScriptEditorSelection } from '../../lib/llm/types.js';
+import type { ScriptEditOperation, ScriptEditorSelection, ScriptEditorTextChange } from '../../lib/llm/types.js';
 import { applyScriptEditOperations } from '../../lib/llm/script-edit-ops.js';
 import type { ScriptDiagnostic } from '../../lib/llm/script-diagnostics.js';
 import {
@@ -35,7 +35,11 @@ export interface ScriptResult {
 }
 
 export interface ScriptEditorApplyAdapter {
-  apply: (nextContent: string, selection: ScriptEditorSelection, options?: { userEvent?: string }) => void;
+  apply: (
+    nextContent: string,
+    selection: ScriptEditorSelection,
+    options?: { userEvent?: string; changes?: ScriptEditorTextChange[] },
+  ) => void;
   undo: () => void;
   redo: () => void;
 }
@@ -107,6 +111,7 @@ export interface ScriptSlice {
   beginAssistantScriptTurn: () => void;
   commitAssistantScriptTurn: () => void;
   rollbackAssistantScriptTurn: () => void;
+  resetScriptEditorForNewChat: () => void;
   setScriptHistoryState: (canUndo: boolean, canRedo: boolean) => void;
   undoScriptEditor: () => void;
   redoScriptEditor: () => void;
@@ -350,7 +355,10 @@ export const createScriptSlice: StateCreator<ScriptSlice, [], [], ScriptSlice> =
 
     const appliedSet = new Set(state.scriptAppliedOpIds);
     result.appliedOpIds.forEach((id) => appliedSet.add(id));
-    state.scriptEditorApplyAdapter?.apply(result.content, result.selection, { userEvent: 'assistant-turn' });
+    state.scriptEditorApplyAdapter?.apply(result.content, result.selection, {
+      userEvent: 'assistant-turn',
+      changes: result.changes,
+    });
     set({
       scriptEditorContent: result.content,
       scriptEditorSelection: result.selection,
@@ -417,6 +425,29 @@ export const createScriptSlice: StateCreator<ScriptSlice, [], [], ScriptSlice> =
       scriptEditorSelection: snapshot.selection,
       scriptEditorRevision: snapshot.revision,
       scriptEditorDirty: true,
+      scriptAppliedOpIds: new Set(),
+      scriptAssistantTurnSnapshot: null,
+    });
+  },
+
+  resetScriptEditorForNewChat: () => {
+    const state = get();
+    const scriptEditorContent = '';
+    const scriptEditorSelection = { from: 0, to: 0 };
+    state.scriptEditorApplyAdapter?.apply(scriptEditorContent, scriptEditorSelection, {
+      userEvent: 'new-chat-reset',
+    });
+    set({
+      activeScriptId: null,
+      scriptEditorContent,
+      scriptEditorDirty: false,
+      scriptExecutionState: 'idle',
+      scriptLastResult: null,
+      scriptLastError: null,
+      scriptLastDiagnostics: [],
+      scriptDeleteConfirmId: null,
+      scriptEditorRevision: state.scriptEditorRevision + 1,
+      scriptEditorSelection,
       scriptAppliedOpIds: new Set(),
       scriptAssistantTurnSnapshot: null,
     });

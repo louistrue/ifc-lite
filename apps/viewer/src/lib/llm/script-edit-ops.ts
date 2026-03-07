@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-import type { ScriptEditOperation, ScriptEditorSelection } from './types.js';
+import type { ScriptEditOperation, ScriptEditorSelection, ScriptEditorTextChange } from './types.js';
 import type { PatchScriptDiagnostic } from './script-diagnostics.js';
 import { createPatchDiagnostic } from './script-diagnostics.js';
 import {
@@ -11,6 +11,9 @@ import {
 } from './script-preservation.js';
 
 const EDIT_FENCE_LANGUAGES = new Set(['ifc-script-edits', 'ifc-script-edit']);
+const SEARCH_REPLACE_START = '<<<<<<< SEARCH';
+const SEARCH_REPLACE_SEPARATOR = '=======';
+const SEARCH_REPLACE_END = '>>>>>>> REPLACE';
 
 type RawEditsEnvelope = {
   scriptEdits?: unknown;
@@ -20,6 +23,15 @@ type RawEditsEnvelope = {
 export interface ParsedScriptEditOps {
   operations: ScriptEditOperation[];
   parseErrors: string[];
+  parseDiagnostics: PatchScriptDiagnostic[];
+}
+
+export interface ScriptEditParseOptions {
+  baseRevision?: number;
+  baseContent?: string;
+  intent?: ScriptMutationIntent;
+  requestedRepairScope?: ScriptEditOperation['scope'];
+  targetRootCause?: string;
 }
 
 export interface ApplyScriptEditOpsResult {
@@ -28,6 +40,7 @@ export interface ApplyScriptEditOpsResult {
   selection: ScriptEditorSelection;
   revision: number;
   appliedOpIds: string[];
+  changes?: ScriptEditorTextChange[];
   status: 'ok' | 'revision_conflict' | 'range_error' | 'semantic_error';
   error?: string;
   diagnostic?: PatchScriptDiagnostic;
@@ -94,9 +107,284 @@ function parseOperation(raw: unknown, index: number): { op?: ScriptEditOperation
   }
 }
 
-export function extractScriptEditOps(markdown: string): ParsedScriptEditOps {
+function stableHash(value: string): string {
+  let hash = 2166136261;
+  for (let i = 0; i < value.length; i++) {
+    hash ^= value.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36);
+}
+
+function addParseDiagnostic(
+  parseErrors: string[],
+  parseDiagnostics: PatchScriptDiagnostic[],
+  diagnostic: PatchScriptDiagnostic,
+) {
+  parseErrors.push(diagnostic.message);
+  parseDiagnostics.push(diagnostic);
+}
+
+function parseJsonFence(
+  body: string,
+  seenIds: Set<string>,
+  operations: ScriptEditOperation[],
+  parseErrors: string[],
+  parseDiagnostics: PatchScriptDiagnostic[],
+) {
+  let parsed: RawEditsEnvelope | null = null;
+  try {
+    parsed = JSON.parse(body) as RawEditsEnvelope;
+  } catch (error) {
+    addParseDiagnostic(
+      parseErrors,
+      parseDiagnostics,
+      createPatchDiagnostic(
+        'patch_semantic_error',
+        `Invalid JSON in ifc-script-edits block: ${error instanceof Error ? error.message : String(error)}`,
+        'error',
+        {
+          failureKind: 'parse_error',
+          fixHint: 'Return one valid `ifc-script-edits` fence. For broad model compatibility, prefer exact SEARCH/REPLACE blocks instead of raw JSON ops.',
+          rootCauseKey: 'malformed_repair_reply',
+        },
+      ),
+    );
+    return false;
+  }
+
+  const rawOps = Array.isArray(parsed.scriptEdits)
+    ? parsed.scriptEdits
+    : Array.isArray(parsed.ops)
+      ? parsed.ops
+      : null;
+
+  if (!rawOps) {
+    addParseDiagnostic(
+      parseErrors,
+      parseDiagnostics,
+      createPatchDiagnostic(
+        'patch_semantic_error',
+        'No "scriptEdits" array found in ifc-script-edits block.',
+        'error',
+        {
+          failureKind: 'parse_error',
+          fixHint: 'Return either a JSON `scriptEdits` array or one or more exact SEARCH/REPLACE blocks inside the fence.',
+          rootCauseKey: 'malformed_repair_reply',
+        },
+      ),
+    );
+    return false;
+  }
+
+  rawOps.forEach((raw, index) => {
+    const { op, error } = parseOperation(raw, index);
+    if (error) {
+      addParseDiagnostic(
+        parseErrors,
+        parseDiagnostics,
+        createPatchDiagnostic('patch_semantic_error', error, 'error', {
+          failureKind: 'parse_error',
+          fixHint: 'Return valid edit objects for every entry in `scriptEdits`.',
+          rootCauseKey: 'malformed_repair_reply',
+        }),
+      );
+      return;
+    }
+    if (!op) return;
+    if (seenIds.has(op.opId)) return;
+    seenIds.add(op.opId);
+    operations.push(op);
+  });
+  return true;
+}
+
+function findAllOccurrences(haystack: string, needle: string): number[] {
+  if (!needle) return [];
+  const matches: number[] = [];
+  let fromIndex = 0;
+  while (fromIndex <= haystack.length) {
+    const index = haystack.indexOf(needle, fromIndex);
+    if (index === -1) break;
+    matches.push(index);
+    fromIndex = index + 1;
+  }
+  return matches;
+}
+
+function parseSearchReplaceFence(
+  body: string,
+  options: ScriptEditParseOptions | undefined,
+  seenIds: Set<string>,
+  operations: ScriptEditOperation[],
+  parseErrors: string[],
+  parseDiagnostics: PatchScriptDiagnostic[],
+) {
+  const normalizedBody = body.replace(/\r\n/g, '\n');
+  const hasSearchMarkers = normalizedBody.includes(SEARCH_REPLACE_START)
+    || normalizedBody.includes(SEARCH_REPLACE_SEPARATOR)
+    || normalizedBody.includes(SEARCH_REPLACE_END);
+  if (!hasSearchMarkers) return false;
+
+  if (typeof options?.baseContent !== 'string' || !Number.isInteger(options.baseRevision)) {
+    addParseDiagnostic(
+      parseErrors,
+      parseDiagnostics,
+      createPatchDiagnostic(
+        'patch_semantic_error',
+        'SEARCH/REPLACE edits require the current script content and revision context.',
+        'error',
+        {
+          failureKind: 'missing_editor_context',
+          fixHint: 'Only emit SEARCH/REPLACE edits when SCRIPT EDITOR CONTEXT is present.',
+          rootCauseKey: 'malformed_repair_reply',
+        },
+      ),
+    );
+    return true;
+  }
+  const baseRevision = options.baseRevision as number;
+
+  const blockRegex = /<<<<<<< SEARCH\n([\s\S]*?)\n=======\n([\s\S]*?)\n>>>>>>> REPLACE/g;
+  const matches: Array<{ search: string; replace: string; index: number }> = [];
+  let cursor = 0;
+  let match: RegExpExecArray | null;
+  while ((match = blockRegex.exec(normalizedBody)) !== null) {
+    const gap = normalizedBody.slice(cursor, match.index).trim();
+    if (gap.length > 0) {
+      addParseDiagnostic(
+        parseErrors,
+        parseDiagnostics,
+        createPatchDiagnostic(
+          'patch_semantic_error',
+          'Unexpected text appeared between SEARCH/REPLACE blocks.',
+          'error',
+          {
+            failureKind: 'parse_error',
+            fixHint: 'Return only SEARCH/REPLACE blocks inside the `ifc-script-edits` fence.',
+            snippet: gap,
+            rootCauseKey: 'malformed_repair_reply',
+          },
+        ),
+      );
+      return true;
+    }
+    matches.push({ search: match[1], replace: match[2], index: matches.length });
+    cursor = blockRegex.lastIndex;
+  }
+
+  const trailing = normalizedBody.slice(cursor).trim();
+  if (trailing.length > 0) {
+    addParseDiagnostic(
+      parseErrors,
+      parseDiagnostics,
+      createPatchDiagnostic(
+        'patch_semantic_error',
+        matches.length === 0
+          ? 'Malformed SEARCH/REPLACE block in ifc-script-edits fence.'
+          : 'Unexpected trailing text after SEARCH/REPLACE blocks.',
+        'error',
+        {
+          failureKind: 'parse_error',
+          fixHint: 'Each block must use `<<<<<<< SEARCH`, `=======`, and `>>>>>>> REPLACE` exactly, with no extra prose in the fence.',
+          snippet: trailing,
+          rootCauseKey: 'malformed_repair_reply',
+        },
+      ),
+    );
+    return true;
+  }
+
+  const scope = options.intent === 'repair'
+    ? (options.requestedRepairScope ?? (matches.length > 1 ? 'block' : 'local'))
+    : undefined;
+  const groupId = options.intent === 'repair' && (scope === 'block' || scope === 'structural')
+    ? `search-replace-${stableHash(normalizedBody)}`
+    : undefined;
+
+  for (const block of matches) {
+    if (block.search.length === 0) {
+      addParseDiagnostic(
+        parseErrors,
+        parseDiagnostics,
+        createPatchDiagnostic(
+          'patch_semantic_error',
+          'SEARCH/REPLACE blocks must include a non-empty SEARCH section copied from the current script.',
+          'error',
+          {
+            failureKind: 'empty_search_block',
+            fixHint: 'To insert new code, include unchanged surrounding context in SEARCH and add the new text inside REPLACE.',
+            rootCauseKey: 'malformed_repair_reply',
+          },
+        ),
+      );
+      continue;
+    }
+
+    const occurrences = findAllOccurrences(options.baseContent, block.search);
+    if (occurrences.length === 0) {
+      addParseDiagnostic(
+        parseErrors,
+        parseDiagnostics,
+        createPatchDiagnostic(
+          'patch_semantic_error',
+          `SEARCH block ${block.index + 1} does not match the current script.`,
+          'error',
+          {
+            failureKind: 'no_unique_match',
+            snippet: block.search,
+            expectedBaseRevision: options.baseRevision,
+            fixHint: 'Copy the SEARCH text exactly from the CURRENT script revision before replacing it.',
+            rootCauseKey: 'stale_patch_target',
+          },
+        ),
+      );
+      continue;
+    }
+    if (occurrences.length > 1) {
+      addParseDiagnostic(
+        parseErrors,
+        parseDiagnostics,
+        createPatchDiagnostic(
+          'patch_semantic_error',
+          `SEARCH block ${block.index + 1} matches multiple locations in the current script.`,
+          'error',
+          {
+            failureKind: 'multiple_matches',
+            snippet: block.search,
+            fixHint: 'Include more unchanged surrounding context in SEARCH so it matches exactly one location.',
+            rootCauseKey: 'malformed_repair_reply',
+          },
+        ),
+      );
+      continue;
+    }
+
+    const from = occurrences[0];
+    const opId = `sr-${block.index}-${stableHash(block.search)}-${stableHash(block.replace)}`;
+    if (seenIds.has(opId)) continue;
+    seenIds.add(opId);
+    operations.push({
+      opId,
+      type: 'replaceRange',
+      baseRevision,
+      from,
+      to: from + block.search.length,
+      expectedText: block.search,
+      text: block.replace,
+      groupId,
+      scope,
+      targetRootCause: options.intent === 'repair' ? options.targetRootCause : undefined,
+    });
+  }
+
+  return true;
+}
+
+export function extractScriptEditOps(markdown: string, options?: ScriptEditParseOptions): ParsedScriptEditOps {
   const operations: ScriptEditOperation[] = [];
   const parseErrors: string[] = [];
+  const parseDiagnostics: PatchScriptDiagnostic[] = [];
   const seenIds = new Set<string>();
   const fenceRegex = /```([\w-]+)\n([\s\S]*?)```/g;
   let match: RegExpExecArray | null;
@@ -104,40 +392,20 @@ export function extractScriptEditOps(markdown: string): ParsedScriptEditOps {
   while ((match = fenceRegex.exec(markdown)) !== null) {
     const language = (match[1] ?? '').toLowerCase();
     if (!EDIT_FENCE_LANGUAGES.has(language)) continue;
-
-    let parsed: RawEditsEnvelope | null = null;
-    try {
-      parsed = JSON.parse(match[2]) as RawEditsEnvelope;
-    } catch (error) {
-      parseErrors.push(`Invalid JSON in ${language} block: ${error instanceof Error ? error.message : String(error)}`);
-      continue;
-    }
-
-    const rawOps = Array.isArray(parsed.scriptEdits)
-      ? parsed.scriptEdits
-      : Array.isArray(parsed.ops)
-        ? parsed.ops
-        : null;
-
-    if (!rawOps) {
-      parseErrors.push(`No "scriptEdits" array found in ${language} block.`);
-      continue;
-    }
-
-    rawOps.forEach((raw, index) => {
-      const { op, error } = parseOperation(raw, index);
-      if (error) {
-        parseErrors.push(error);
-        return;
-      }
-      if (!op) return;
-      if (seenIds.has(op.opId)) return;
-      seenIds.add(op.opId);
-      operations.push(op);
-    });
+    const body = match[2] ?? '';
+    const parsedSearchReplace = parseSearchReplaceFence(
+      body,
+      options,
+      seenIds,
+      operations,
+      parseErrors,
+      parseDiagnostics,
+    );
+    if (parsedSearchReplace) continue;
+    parseJsonFence(body, seenIds, operations, parseErrors, parseDiagnostics);
   }
 
-  return { operations, parseErrors };
+  return { operations, parseErrors, parseDiagnostics };
 }
 
 export function filterUnappliedScriptOps(
@@ -180,11 +448,12 @@ export function applyScriptEditOperations(params: {
   let content = params.content;
   let selection = params.selection;
   const appliedOpIds: string[] = [];
+  const changes: ScriptEditorTextChange[] = [];
   const baseMutations = buildBaseMutations(params.priorAcceptedOps ?? [], baseContent.length);
   let selectionMutationSeen = (params.priorAcceptedOps ?? []).some((op) => op.type === 'replaceSelection');
 
   if (operations.length === 0) {
-    return { ok: true, content, selection, revision, appliedOpIds, status: 'ok' };
+    return { ok: true, content, selection, revision, appliedOpIds, changes, status: 'ok' };
   }
 
   if (params.intent === 'repair') {
@@ -252,6 +521,7 @@ export function applyScriptEditOperations(params: {
       content = op.text;
       selection = { from: op.text.length, to: op.text.length };
       appliedOpIds.push(op.opId);
+      changes.push({ from: 0, to: params.content.length, insert: op.text });
       continue;
     }
 
@@ -260,6 +530,7 @@ export function applyScriptEditOperations(params: {
       content = replaceRange(content, at, at, op.text);
       selection = { from: at + op.text.length, to: at + op.text.length };
       appliedOpIds.push(op.opId);
+      changes.push({ from: at, to: at, insert: op.text });
       baseMutations.push({
         from: baseContent.length,
         to: baseContent.length,
@@ -316,6 +587,7 @@ export function applyScriptEditOperations(params: {
       }
       content = replaceRange(content, selection.from, selection.to, op.text);
       const cursor = selection.from + op.text.length;
+      changes.push({ from: selection.from, to: selection.to, insert: op.text });
       selection = { from: cursor, to: cursor };
       appliedOpIds.push(op.opId);
       selectionMutationSeen = true;
@@ -392,6 +664,7 @@ export function applyScriptEditOperations(params: {
       }
       content = replaceRange(content, rebasedAt, rebasedAt, op.text);
       const cursor = rebasedAt + op.text.length;
+      changes.push({ from: rebasedAt, to: rebasedAt, insert: op.text });
       selection = { from: cursor, to: cursor };
       appliedOpIds.push(op.opId);
       baseMutations.push({
@@ -550,6 +823,7 @@ export function applyScriptEditOperations(params: {
 
     content = replaceRange(content, rebasedFrom, rebasedTo, op.text);
     const cursor = rebasedFrom + op.text.length;
+    changes.push({ from: rebasedFrom, to: rebasedTo, insert: op.text });
     selection = { from: cursor, to: cursor };
     appliedOpIds.push(op.opId);
     baseMutations.push({
@@ -566,6 +840,7 @@ export function applyScriptEditOperations(params: {
     selection,
     revision: revision + 1,
     appliedOpIds,
+    changes,
     status: 'ok',
   };
 }

@@ -46,6 +46,12 @@ export interface ScriptEditorSelection {
   to: number;
 }
 
+export interface ScriptEditorTextChange {
+  from: number;
+  to: number;
+  insert: string;
+}
+
 interface ScriptEditBase {
   opId: string;
   baseRevision: number;

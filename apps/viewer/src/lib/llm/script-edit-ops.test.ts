@@ -23,6 +23,72 @@ Hello
   assert.equal(result.operations[1].type, 'append');
 });
 
+test('extractScriptEditOps parses SEARCH/REPLACE blocks into replaceRange ops', () => {
+  const baseContent = 'const width = 30;\nconst depth = 40;\n';
+  const result = extractScriptEditOps(`
+\`\`\`ifc-script-edits
+<<<<<<< SEARCH
+const width = 30;
+=======
+const width = 36;
+>>>>>>> REPLACE
+\`\`\`
+`, {
+    baseRevision: 7,
+    baseContent,
+    intent: 'repair',
+    requestedRepairScope: 'local',
+    targetRootCause: 'api_contract_mismatch',
+  });
+
+  assert.equal(result.parseErrors.length, 0);
+  assert.equal(result.operations.length, 1);
+  assert.equal(result.operations[0].type, 'replaceRange');
+  assert.equal(result.operations[0].baseRevision, 7);
+  assert.equal(result.operations[0].expectedText, 'const width = 30;');
+  assert.equal(result.operations[0].text, 'const width = 36;');
+});
+
+test('extractScriptEditOps reports no-match SEARCH blocks with targeted diagnostics', () => {
+  const result = extractScriptEditOps(`
+\`\`\`ifc-script-edits
+<<<<<<< SEARCH
+const missing = true;
+=======
+const present = true;
+>>>>>>> REPLACE
+\`\`\`
+`, {
+    baseRevision: 4,
+    baseContent: 'const width = 30;\n',
+    intent: 'repair',
+  });
+
+  assert.equal(result.operations.length, 0);
+  assert.match(result.parseErrors[0] ?? '', /does not match the current script/);
+  assert.equal(result.parseDiagnostics[0]?.data?.failureKind, 'no_unique_match');
+});
+
+test('extractScriptEditOps reports ambiguous SEARCH blocks with targeted diagnostics', () => {
+  const result = extractScriptEditOps(`
+\`\`\`ifc-script-edits
+<<<<<<< SEARCH
+const value = 1;
+=======
+const value = 2;
+>>>>>>> REPLACE
+\`\`\`
+`, {
+    baseRevision: 4,
+    baseContent: 'const value = 1;\nconst value = 1;\n',
+    intent: 'repair',
+  });
+
+  assert.equal(result.operations.length, 0);
+  assert.match(result.parseErrors[0] ?? '', /matches multiple locations/);
+  assert.equal(result.parseDiagnostics[0]?.data?.failureKind, 'multiple_matches');
+});
+
 test('filterUnappliedScriptOps drops already applied op ids', () => {
   const result = extractScriptEditOps(`
 \`\`\`ifc-script-edits

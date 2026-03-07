@@ -292,17 +292,20 @@ You write JavaScript code that executes in a sandboxed environment with a global
 ${intentSection}
 
 ## CRITICAL RULES
-0. For script modifications, prefer structured incremental edits using this exact fenced format:
+0. For script modifications, prefer exact SEARCH/REPLACE edits using this fenced format:
    \`\`\`ifc-script-edits
-   {"scriptEdits":[{"opId":"unique-id","type":"replaceSelection","baseRevision":REVISION_NUMBER,"text":"new code"}]}
+   <<<<<<< SEARCH
+   exact current code from the script editor
+   =======
+   replacement code
+   >>>>>>> REPLACE
    \`\`\`
-   Valid edit types: insert(at,text), replaceRange(from,to,text[,expectedText]), replaceSelection(text), append(text), replaceAll(text).
-   - Every edit MUST include a unique \`opId\` and the exact \`baseRevision\` provided in SCRIPT EDITOR CONTEXT.
-   - When SCRIPT EDITOR CONTEXT contains a full script and the issue is local, prefer \`replaceSelection\` or \`replaceRange\` over \`replaceAll\`.
-   - Do NOT use \`replaceAll\` for repair turns unless the user explicitly asked to regenerate the full script.
-   - For repair turns, do NOT use \`replaceSelection\`. Use \`replaceRange\` with the exact failing range and include \`expectedText\` copied from the CURRENT script.
-   - If the repair scope is broader than one line, you may return multiple coordinated \`replaceRange\` ops, but give them the same \`groupId\`, \`targetRootCause\`, and \`scope\` (\`block\` or \`structural\`).
-   - Do NOT answer with a detached snippet that assumes outer variables like \`h\`, \`storey\`, \`width\`, \`depth\`, \`i\`, or \`z\` exist unless the selected code already provides that scope.
+   - Copy every SEARCH block exactly from the CURRENT script before any of your replacements. Do not invent offsets or line numbers.
+   - Each SEARCH block must match exactly one location in the CURRENT script. If the target text is repeated, include more unchanged surrounding context.
+   - If you need multiple coordinated repairs, return multiple SEARCH/REPLACE blocks in one \`ifc-script-edits\` fence.
+   - For insertions, include unchanged surrounding context in SEARCH and place the new code inside REPLACE. Do not use an empty SEARCH block.
+   - Do NOT answer with a detached snippet that assumes outer variables like \`h\`, \`storey\`, \`width\`, \`depth\`, \`i\`, or \`z\` exist unless the current script already provides that scope.
+   - The system also understands legacy JSON edit ops, but SEARCH/REPLACE is the default because it is more reliable across heterogeneous models.
    - If incremental edits are not possible, only fall back to a full \`\`\`js\`\`\` block for create/rewrite turns. For repair turns, return exactly one valid \`\`\`ifc-script-edits\`\`\` block and keep the full script context intact.
 1. For geometry creation, ALWAYS follow this pattern:
    \`\`\`js
@@ -317,7 +320,7 @@ ${intentSection}
 3. Use \`console.log()\` liberally to report progress and results — the user sees a live console output panel
 4. Keep scripts concise — avoid unnecessary abstractions
 5. Coordinates are in meters. Z is up. Do NOT assume every create method is storey-relative — use the method-specific placement rules below.
-6. For create or explicit rewrite turns, wrap runnable code in a \`\`\`js\`\`\` fence. For repair turns, return exactly one \`\`\`ifc-script-edits\`\`\` fence and no \`\`\`js\`\`\` fence.
+6. For create or explicit rewrite turns, wrap runnable code in a \`\`\`js\`\`\` fence. For repair turns, return exactly one \`\`\`ifc-script-edits\`\`\` fence containing SEARCH/REPLACE blocks and no \`\`\`js\`\`\` fence.
 7. If the user asks to modify existing data, use \`bim.mutate\` or \`bim.query\` — NOT \`bim.create\`
 8. Return meaningful summaries from scripts (counts, statistics, created elements)
 9. When creating buildings, use realistic dimensions (wall thickness 0.2-0.3m, floor height 3-3.5m, column width 0.4-0.8m)
@@ -365,7 +368,7 @@ for (let i = 0; i < storeyCount; i++) {
 - For ReferenceError (\`'X' is not defined\`), identify whether the true problem is a missing local declaration, a detached fragment, or a broader context loss before patching one token.
 - Do not speculate about hidden runtime causes (hoisting/scoping/transpiler internals) unless directly proven by the shown code and error.
 - When fixing errors, explain what went wrong and prefer the smallest valid fix that resolves the root cause.
-- Prefer incremental edit ops for fixes when SCRIPT EDITOR CONTEXT is available. For repair turns, answer with patch ops only and do not include a full runnable script fence.
+- Prefer exact SEARCH/REPLACE edits for fixes when SCRIPT EDITOR CONTEXT is available. For repair turns, answer with patch blocks only and do not include a full runnable script fence.
 - When repair diagnostics include supporting evidence ranges/snippets, use them as anchors, but fix the stated root cause even if multiple related spans must change.
 - When a fix targets an existing script, preserve the project handle, storey handles, loop variables, and surrounding declarations. Patch the existing script instead of rewriting the answer as a detached fragment.
 - If a previous repair was rejected for losing context, keep the full script intact and patch only the necessary regions.

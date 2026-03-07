@@ -97,7 +97,7 @@ export function validateScriptReplacementCandidate(params: {
   if (params.intent === 'repair' && params.source === 'code_block_fallback') {
     return buildReplacementDiagnostic(
       'unsafe_full_replacement',
-      'Repair turns must not replace the whole script from a plain `js` block. Return localized `ifc-script-edits` against the current revision instead.',
+      'Repair turns must not replace the whole script from a plain `js` block. Return localized SEARCH/REPLACE edits inside one `ifc-script-edits` fence against the current revision instead.',
       baseData,
       detachedDiagnostics,
     );
@@ -106,7 +106,7 @@ export function validateScriptReplacementCandidate(params: {
   if (params.intent === 'repair' && params.source === 'replaceAll') {
     return buildReplacementDiagnostic(
       'unsafe_full_replacement',
-      'Repair turns cannot use `replaceAll` unless the system explicitly allows a full rewrite.',
+      'Repair turns cannot use `replaceAll` unless the system explicitly allows a full rewrite. Use localized SEARCH/REPLACE edits instead.',
       baseData,
       detachedDiagnostics,
     );
