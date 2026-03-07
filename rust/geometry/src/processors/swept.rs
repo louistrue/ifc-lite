@@ -5,7 +5,7 @@
 //! Swept geometry processors - SweptDiskSolid and RevolvedAreaSolid.
 
 use crate::{
-    profiles::ProfileProcessor,
+    profiles::{segments_for_radius, ProfileProcessor},
     Error, Mesh, Point3, Result, Vector3,
 };
 use ifc_lite_core::{DecodedEntity, EntityDecoder, IfcSchema, IfcType};
@@ -16,12 +16,21 @@ use crate::router::GeometryProcessor;
 /// Handles IfcSweptDiskSolid - sweeps a circular profile along a curve
 pub struct SweptDiskSolidProcessor {
     profile_processor: ProfileProcessor,
+    deflection: f64,
 }
 
 impl SweptDiskSolidProcessor {
     pub fn new(schema: IfcSchema) -> Self {
         Self {
             profile_processor: ProfileProcessor::new(schema),
+            deflection: 0.001,
+        }
+    }
+
+    pub fn with_deflection(schema: IfcSchema, deflection: f64) -> Self {
+        Self {
+            profile_processor: ProfileProcessor::with_deflection(schema, deflection),
+            deflection,
         }
     }
 }
@@ -66,7 +75,7 @@ impl GeometryProcessor for SweptDiskSolidProcessor {
         }
 
         // Generate tube mesh by sweeping circle along curve
-        let segments = 24; // Number of segments around the circle
+        let segments = segments_for_radius(radius, self.deflection);
         let mut positions = Vec::new();
         let mut indices = Vec::new();
 
@@ -183,6 +192,12 @@ impl RevolvedAreaSolidProcessor {
     pub fn new(schema: IfcSchema) -> Self {
         Self {
             profile_processor: ProfileProcessor::new(schema),
+        }
+    }
+
+    pub fn with_deflection(schema: IfcSchema, deflection: f64) -> Self {
+        Self {
+            profile_processor: ProfileProcessor::with_deflection(schema, deflection),
         }
     }
 }

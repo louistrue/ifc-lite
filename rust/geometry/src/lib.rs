@@ -85,8 +85,8 @@ pub mod void_index;
 pub use nalgebra::{Point2, Point3, Vector2, Vector3};
 
 pub use bool2d::{
-    compute_signed_area, ensure_ccw, ensure_cw, is_valid_contour, point_in_contour,
-    subtract_2d, subtract_multiple_2d, union_contours,
+    compute_signed_area, ensure_ccw, ensure_cw, is_valid_contour, point_in_contour, subtract_2d,
+    subtract_multiple_2d, union_contours,
 };
 pub use csg::{calculate_normals, ClippingProcessor, Plane, Triangle};
 pub use error::{Error, Result};
@@ -99,7 +99,7 @@ pub use processors::{
     SweptDiskSolidProcessor, TriangulatedFaceSetProcessor,
 };
 pub use profile::{Profile2D, Profile2DWithVoids, ProfileType, VoidInfo};
-pub use profiles::ProfileProcessor;
+pub use profiles::{segments_for_radius, ProfileProcessor};
 pub use router::{GeometryProcessor, GeometryRouter};
 pub use transform::{
     apply_rtc_offset, parse_axis2_placement_3d, parse_axis2_placement_3d_from_id,

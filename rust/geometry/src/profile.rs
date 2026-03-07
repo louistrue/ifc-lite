@@ -107,7 +107,12 @@ pub struct VoidInfo {
 
 impl VoidInfo {
     /// Create a new void info
-    pub fn new(contour: Vec<Point2<f64>>, depth_start: f64, depth_end: f64, is_through: bool) -> Self {
+    pub fn new(
+        contour: Vec<Point2<f64>>,
+        depth_start: f64,
+        depth_end: f64,
+        is_through: bool,
+    ) -> Self {
         Self {
             contour,
             depth_start,
@@ -283,8 +288,8 @@ pub fn calculate_circle_segments(radius: f64) -> usize {
     // Smaller circles need fewer segments
     let segments = (radius.sqrt() * 8.0).ceil() as usize;
 
-    // Clamp between 8 and 32 segments (reduced for performance)
-    segments.clamp(8, 32)
+    // Clamp between 6 and 32 segments (reduced for performance)
+    segments.clamp(6, 32)
 }
 
 #[cfg(test)]
@@ -359,9 +364,9 @@ mod tests {
 
     #[test]
     fn test_circle_segments() {
-        assert_eq!(calculate_circle_segments(1.0), 8); // sqrt(1)*8=8, clamped to min 8
+        assert_eq!(calculate_circle_segments(1.0), 8); // sqrt(1)*8=8
         assert_eq!(calculate_circle_segments(4.0), 16); // sqrt(4)*8=16
         assert!(calculate_circle_segments(100.0) <= 32); // Max clamp at 32
-        assert!(calculate_circle_segments(0.1) >= 8); // Min clamp
+        assert!(calculate_circle_segments(0.1) >= 6); // Min clamp
     }
 }

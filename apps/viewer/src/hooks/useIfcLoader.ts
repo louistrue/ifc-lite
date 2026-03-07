@@ -18,7 +18,7 @@ import { GeometryProcessor, GeometryQuality, type MeshData, type CoordinateInfo 
 import { buildSpatialIndex } from '@ifc-lite/spatial';
 import { type GeometryData, loadGLBToMeshData } from '@ifc-lite/cache';
 
-import { SERVER_URL, USE_SERVER, CACHE_SIZE_THRESHOLD, CACHE_MAX_SOURCE_SIZE, getDynamicBatchConfig } from '../utils/ifcConfig.js';
+import { SERVER_URL, USE_SERVER, CACHE_SIZE_THRESHOLD, CACHE_MAX_SOURCE_SIZE, getDynamicBatchConfig, getViewerCurveDeflection } from '../utils/ifcConfig.js';
 import {
   calculateMeshBounds,
   createCoordinateInfo,
@@ -296,7 +296,8 @@ export function useIfcLoader() {
 
       // Initialize geometry processor first (WASM init is fast if already loaded)
       const geometryProcessor = new GeometryProcessor({
-        quality: GeometryQuality.Balanced
+        quality: GeometryQuality.Balanced,
+        curveDeflection: getViewerCurveDeflection(),
       });
       await geometryProcessor.init();
 

@@ -33,6 +33,7 @@ export interface InstancedStreamingStats {
 
 export interface ParseMeshesAsyncOptions {
   batchSize?: number;
+  deflection?: number;
   // NOTE: WASM automatically defers style building for faster first frame
   onBatch?: (meshes: MeshDataJs[], progress: StreamingProgress) => void;
   onComplete?: (stats: StreamingStats) => void;
@@ -41,6 +42,7 @@ export interface ParseMeshesAsyncOptions {
 
 export interface ParseMeshesInstancedAsyncOptions {
   batchSize?: number;
+  deflection?: number;
   onBatch?: (geometries: InstancedGeometry[], progress: StreamingProgress) => void;
   onComplete?: (stats: InstancedStreamingStats) => void;
 }
