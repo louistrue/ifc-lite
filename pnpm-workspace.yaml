@@ -2,3 +2,8 @@ packages:
   - 'packages/*'
   - 'apps/*'
   - 'examples/*'
+
+onlyBuiltDependencies:
+  - '@clerk/shared'
+  - '@swc/core'
+  - 'esbuild'
