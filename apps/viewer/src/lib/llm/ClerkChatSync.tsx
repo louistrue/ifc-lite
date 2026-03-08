@@ -13,20 +13,20 @@ import { useViewerStore } from '@/store';
 export function ClerkChatSync() {
   const { isLoaded, isSignedIn, userId, getToken, has } = useAuth();
   const setChatAuthToken = useViewerStore((s) => s.setChatAuthToken);
-  const setChatHasPro = useViewerStore((s) => s.setChatHasPro);
-  const setChatStorageUserId = useViewerStore((s) => s.setChatStorageUserId);
+  const switchChatUserContext = useViewerStore((s) => s.switchChatUserContext);
+  const currentChatUserId = useViewerStore((s) => s.chatStorageUserId);
 
   useEffect(() => {
     if (!isLoaded) return;
 
     if (!isSignedIn) {
-      setChatStorageUserId(null);
+      switchChatUserContext(null, false, {
+        clearPersistedCurrent: currentChatUserId !== null,
+        restoreMessages: false,
+      });
       setChatAuthToken(null);
-      setChatHasPro(false);
       return;
     }
-
-    setChatStorageUserId(userId ?? null);
 
     let cancelled = false;
 
@@ -35,14 +35,21 @@ export function ClerkChatSync() {
         const token = await getToken({ skipCache: true });
         const proPlan = has?.({ plan: 'pro' }) ?? false;
         const proFeature = has?.({ feature: 'pro_models' }) ?? false;
+        const nextHasPro = proPlan || proFeature;
         if (!cancelled) {
+          switchChatUserContext(userId ?? null, nextHasPro, {
+            clearPersistedCurrent: currentChatUserId !== null && currentChatUserId !== userId,
+            restoreMessages: true,
+          });
           setChatAuthToken(token ?? null);
-          setChatHasPro(proPlan || proFeature);
         }
       } catch {
         if (!cancelled) {
+          switchChatUserContext(userId ?? null, false, {
+            clearPersistedCurrent: currentChatUserId !== null && currentChatUserId !== userId,
+            restoreMessages: true,
+          });
           setChatAuthToken(null);
-          setChatHasPro(false);
         }
       }
     };
@@ -56,7 +63,7 @@ export function ClerkChatSync() {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [getToken, has, isLoaded, isSignedIn, setChatAuthToken, setChatHasPro, setChatStorageUserId, userId]);
+  }, [currentChatUserId, getToken, has, isLoaded, isSignedIn, setChatAuthToken, switchChatUserContext, userId]);
 
   return null;
 }

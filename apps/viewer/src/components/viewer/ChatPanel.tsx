@@ -74,6 +74,9 @@ const MIN_INPUT_BUDGET = 8_000;
 const MAX_RECENT_MESSAGES = 48;
 const SUMMARY_SNIPPET_LEN = 240;
 const MAX_INLINE_IMAGE_DATA_URL_CHARS = 1_200_000;
+const MAX_ATTACHMENTS_PER_MESSAGE = 6;
+const MAX_TEXT_ATTACHMENT_BYTES = 512_000;
+const MAX_IMAGE_ATTACHMENT_BYTES = 8_000_000;
 
 interface ChatSendOptions {
   continuationBase?: string;
@@ -757,6 +760,14 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
         commitAssistantTurn();
       },
     });
+    if (abortController.signal.aborted) {
+      commitAssistantTurn();
+      const currentState = useViewerStore.getState();
+      if (currentState.chatAbortController === abortController) {
+        setChatStatus('idle');
+        setChatAbortController(null);
+      }
+    }
   }, [
     status, activeModel, attachments, authToken,
     addMessage, setChatStatus, updateStreaming, finalizeAssistant,
@@ -879,15 +890,28 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
     const model = getModelById(activeModel);
     const supportsImages = model?.supportsImages ?? false;
     const supportsFileAttachments = model?.supportsFileAttachments ?? true;
+    let remainingSlots = Math.max(0, MAX_ATTACHMENTS_PER_MESSAGE - attachments.length);
 
     for (const file of Array.from(files)) {
+      if (remainingSlots <= 0) {
+        setChatError(`You can attach up to ${MAX_ATTACHMENTS_PER_MESSAGE} files per message.`);
+        break;
+      }
       // Handle image files
       if (file.type.startsWith('image/')) {
         if (!supportsImages) {
           setChatError('Selected model does not support image input. Switch model to attach images.');
           continue;
         }
+        if (file.size > MAX_IMAGE_ATTACHMENT_BYTES) {
+          setChatError(`Image attachments must be smaller than ${Math.round(MAX_IMAGE_ATTACHMENT_BYTES / 1_000_000)} MB.`);
+          continue;
+        }
         const base64 = await imageFileToCompressedBase64(file);
+        if (base64.length > MAX_INLINE_IMAGE_DATA_URL_CHARS) {
+          setChatError('Image attachment is still too large after compression. Please use a smaller image.');
+          continue;
+        }
         const attachment: FileAttachment = {
           name: file.name,
           type: 'image/jpeg',
@@ -896,12 +920,17 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
           isImage: true,
         };
         addAttachment(attachment);
+        remainingSlots -= 1;
         continue;
       }
       // Only accept text-based files
       if (!file.name.match(/\.(csv|json|txt|tsv)$/i)) continue;
       if (!supportsFileAttachments) {
         setChatError('Selected model does not support file attachments. Switch model to attach files.');
+        continue;
+      }
+      if (file.size > MAX_TEXT_ATTACHMENT_BYTES) {
+        setChatError(`Text attachments must be smaller than ${Math.round(MAX_TEXT_ATTACHMENT_BYTES / 1024)} KB.`);
         continue;
       }
       const text = await file.text();
@@ -917,8 +946,9 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
         attachment.csvData = rows;
       }
       addAttachment(attachment);
+      remainingSlots -= 1;
     }
-  }, [activeModel, addAttachment, setChatError]);
+  }, [activeModel, addAttachment, attachments.length, setChatError]);
 
   const handleFileUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;

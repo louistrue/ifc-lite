@@ -8,6 +8,28 @@ import { buildErrorFeedbackContent } from './chatSlice.js';
 import { create } from 'zustand';
 import { createChatSlice, type ChatSlice } from './chatSlice.js';
 import { createPatchDiagnostic, createPreflightDiagnostic } from '../../lib/llm/script-diagnostics.js';
+import { DEFAULT_FREE_MODEL, DEFAULT_PRO_MODEL } from '../../lib/llm/models.js';
+
+function withMockLocalStorage(fn: () => void) {
+  const original = globalThis.localStorage;
+  const store = new Map<string, string>();
+  Object.defineProperty(globalThis, 'localStorage', {
+    configurable: true,
+    value: {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => { store.set(key, value); },
+      removeItem: (key: string) => { store.delete(key); },
+    },
+  });
+  try {
+    fn();
+  } finally {
+    Object.defineProperty(globalThis, 'localStorage', {
+      configurable: true,
+      value: original,
+    });
+  }
+}
 
 test('buildErrorFeedbackContent includes revision and diagnostics for patch conflicts', () => {
   const prompt = buildErrorFeedbackContent(
@@ -191,4 +213,55 @@ test('clearChatMessages resets streaming state as well as persisted messages', (
   assert.equal(useChatStore.getState().chatStatus, 'idle');
   assert.equal(useChatStore.getState().chatStreamingContent, '');
   assert.equal(useChatStore.getState().chatAbortController, null);
+  assert.equal(abortController.signal.aborted, true);
+  assert.deepEqual(useChatStore.getState().chatAttachments, []);
+});
+
+test('switchChatUserContext restores per-user history and coerces disallowed models', () => {
+  withMockLocalStorage(() => {
+    globalThis.localStorage.setItem('ifc-lite-chat-model:user-a', DEFAULT_PRO_MODEL.id);
+    globalThis.localStorage.setItem('ifc-lite-chat-messages:user-a', JSON.stringify([
+      {
+        id: 'persisted-a',
+        role: 'user',
+        content: 'hello from A',
+        createdAt: 1,
+      },
+    ]));
+    globalThis.localStorage.setItem('ifc-lite-chat-model:user-b', DEFAULT_FREE_MODEL.id);
+    globalThis.localStorage.setItem('ifc-lite-chat-messages:user-b', JSON.stringify([
+      {
+        id: 'persisted-b',
+        role: 'assistant',
+        content: 'hello from B',
+        createdAt: 2,
+      },
+    ]));
+
+    const useChatStore = create<ChatSlice>()((...args) => createChatSlice(...args));
+    useChatStore.getState().switchChatUserContext('user-a', true, { restoreMessages: true });
+
+    assert.equal(useChatStore.getState().chatActiveModel, DEFAULT_PRO_MODEL.id);
+    assert.equal(useChatStore.getState().chatMessages[0]?.id, 'persisted-a');
+
+    useChatStore.getState().switchChatUserContext('user-b', false, {
+      clearPersistedCurrent: true,
+      restoreMessages: true,
+    });
+
+    assert.equal(useChatStore.getState().chatActiveModel, DEFAULT_FREE_MODEL.id);
+    assert.equal(useChatStore.getState().chatMessages[0]?.id, 'persisted-b');
+    assert.equal(globalThis.localStorage.getItem('ifc-lite-chat-messages:user-a'), null);
+  });
+});
+
+test('setChatHasPro falls back to a free model when entitlement is removed', () => {
+  const useChatStore = create<ChatSlice>()((...args) => createChatSlice(...args));
+  useChatStore.getState().setChatHasPro(true);
+  useChatStore.getState().setChatActiveModel(DEFAULT_PRO_MODEL.id);
+
+  useChatStore.getState().setChatHasPro(false);
+
+  assert.equal(useChatStore.getState().chatHasPro, false);
+  assert.equal(useChatStore.getState().chatActiveModel, DEFAULT_FREE_MODEL.id);
 });

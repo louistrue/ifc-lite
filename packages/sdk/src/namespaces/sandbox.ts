@@ -17,6 +17,8 @@
  * ```
  */
 
+import { RemoteBackend } from '../transport/remote-backend.js';
+
 // ============================================================================
 // Types
 // ============================================================================
@@ -26,14 +28,16 @@ export interface SandboxPermissions {
   query?: boolean;
   /** Allow mutation operations (default: false) */
   mutate?: boolean;
-  /** Allow viewer operations (default: false) */
+  /** Allow viewer operations (default: true) */
   viewer?: boolean;
-  /** Allow export operations (default: false) */
+  /** Allow export operations (default: true) */
   export?: boolean;
   /** Allow model operations (default: true) */
   model?: boolean;
   /** Allow lens operations (default: true) */
   lens?: boolean;
+  /** Allow uploaded file access (default: true) */
+  files?: boolean;
 }
 
 export interface SandboxLimits {
@@ -56,11 +60,9 @@ export interface ScriptResult {
   /** Return value of the script */
   value: unknown;
   /** Captured console.log output */
-  logs: Array<{ level: 'log' | 'warn' | 'error' | 'info'; args: unknown[] }>;
+  logs: Array<{ level: 'log' | 'warn' | 'error' | 'info'; args: unknown[]; timestamp: number }>;
   /** Execution time in ms */
   durationMs: number;
-  /** Whether the script timed out (present only when timeout occurred) */
-  timedOut?: boolean;
 }
 
 // ============================================================================
@@ -74,6 +76,12 @@ async function loadSandbox(): Promise<Record<string, unknown>> {
 
 type AnyFn = (...args: unknown[]) => unknown;
 
+function isTransportBackedContext(bimContext: unknown): boolean {
+  if (!bimContext || typeof bimContext !== 'object') return false;
+  const candidate = bimContext as { _backend?: unknown };
+  return candidate._backend instanceof RemoteBackend;
+}
+
 // ============================================================================
 // SandboxNamespace
 // ============================================================================
@@ -86,6 +94,12 @@ export class SandboxNamespace {
 
   constructor(bimContext?: unknown) {
     this.bimContext = bimContext ?? null;
+  }
+
+  private assertSupported(): void {
+    if (isTransportBackedContext(this.bimContext)) {
+      throw new Error('bim.sandbox is not supported for transport-backed contexts. Use a local backend context instead.');
+    }
   }
 
   // --------------------------------------------------------------------------
@@ -102,6 +116,7 @@ export class SandboxNamespace {
    * @returns The sandbox instance (call dispose() when done)
    */
   async create(config?: SandboxConfig): Promise<unknown> {
+    this.assertSupported();
     const mod = await loadSandbox();
     const sandbox = await (mod.createSandbox as AnyFn)(this.bimContext, config);
     this.activeSandbox = sandbox;
@@ -113,6 +128,7 @@ export class SandboxNamespace {
    * Creates a sandbox if none exists yet.
    */
   async eval(script: string, config?: SandboxConfig): Promise<ScriptResult> {
+    this.assertSupported();
     if (!this.activeSandbox) {
       await this.create(config);
     }
@@ -129,6 +145,7 @@ export class SandboxNamespace {
    * Evaluate TypeScript code (transpiles to JS first, then runs).
    */
   async evalTypeScript(tsCode: string, config?: SandboxConfig): Promise<ScriptResult> {
+    this.assertSupported();
     const mod = await loadSandbox();
     const jsCode = await (mod.transpileTypeScript as (ts: string) => Promise<string>)(tsCode);
     return this.eval(jsCode, config);

@@ -181,3 +181,17 @@ export function requiresPro(modelId: string): boolean {
   const model = getModelById(modelId);
   return model?.tier === 'pro';
 }
+
+export function getDefaultModelForEntitlement(hasPro: boolean): LLMModel {
+  return hasPro ? DEFAULT_PRO_MODEL : DEFAULT_FREE_MODEL;
+}
+
+export function coerceModelForEntitlement(modelId: string | null | undefined, hasPro: boolean): string {
+  if (modelId) {
+    const model = getModelById(modelId);
+    if (model && (!requiresPro(modelId) || hasPro)) {
+      return modelId;
+    }
+  }
+  return getDefaultModelForEntitlement(hasPro).id;
+}

@@ -9,7 +9,7 @@
 
 import type { StateCreator } from 'zustand';
 import type { ChatMessage, ChatRepairRequest, ChatStatus, CodeExecResult, FileAttachment } from '../../lib/llm/types.js';
-import { DEFAULT_FREE_MODEL } from '../../lib/llm/models.js';
+import { coerceModelForEntitlement, DEFAULT_FREE_MODEL } from '../../lib/llm/models.js';
 import { extractCodeBlocks } from '../../lib/llm/code-extractor.js';
 import type { ScriptDiagnostic } from '../../lib/llm/script-diagnostics.js';
 import { formatDiagnosticsForPrompt, getPrimaryRootCause, groupDiagnosticsByRootCause } from '../../lib/llm/script-diagnostics.js';
@@ -22,6 +22,10 @@ const MAX_MESSAGES = 200;
 
 function getModelStorageKey(userId: string | null): string {
   return userId ? `${MODEL_STORAGE_KEY}:${userId}` : MODEL_STORAGE_KEY;
+}
+
+function getMessagesStorageKey(userId: string | null): string {
+  return userId ? `${MESSAGES_STORAGE_KEY}:${userId}` : `${MESSAGES_STORAGE_KEY}:anonymous`;
 }
 
 export interface ChatSlice {
@@ -80,8 +84,12 @@ export interface ChatSlice {
   setChatHasPro: (hasPro: boolean) => void;
   /** Update usage info from server response headers */
   setChatUsage: (usage: ChatUsage | null) => void;
-  /** Set user ID for per-user model persistence and restore that user's last model. */
-  setChatStorageUserId: (userId: string | null) => void;
+  /** Switch the active chat user/session context. */
+  switchChatUserContext: (
+    userId: string | null,
+    hasPro: boolean,
+    options?: { clearPersistedCurrent?: boolean; restoreMessages?: boolean },
+  ) => void;
 }
 
 export interface ChatUsage {
@@ -187,9 +195,9 @@ function loadStoredPanelVisible(): boolean {
 }
 
 /** Load persisted messages from localStorage. */
-function loadStoredMessages(): ChatMessage[] {
+function loadStoredMessages(userId: string | null): ChatMessage[] {
   try {
-    const raw = localStorage.getItem(MESSAGES_STORAGE_KEY);
+    const raw = localStorage.getItem(getMessagesStorageKey(userId));
     if (!raw) return [];
     const parsed = JSON.parse(raw) as Array<Record<string, unknown>>;
     return parsed.map((m) => ({
@@ -210,7 +218,7 @@ function loadStoredMessages(): ChatMessage[] {
 }
 
 /** Persist messages to localStorage. */
-function persistMessages(messages: ChatMessage[]) {
+function persistMessages(messages: ChatMessage[], userId: string | null) {
   try {
     // Only keep last 50 messages in storage to avoid quota issues
     const toStore = messages.slice(-50).map((m) => ({
@@ -223,14 +231,14 @@ function persistMessages(messages: ChatMessage[]) {
       // Serialize Map as array of entries
       execResults: m.execResults ? Array.from(m.execResults.entries()) : undefined,
     }));
-    localStorage.setItem(MESSAGES_STORAGE_KEY, JSON.stringify(toStore));
+    localStorage.setItem(getMessagesStorageKey(userId), JSON.stringify(toStore));
   } catch { /* quota exceeded — ignore */ }
 }
 
 export const createChatSlice: StateCreator<ChatSlice, [], [], ChatSlice> = (set, get) => ({
   // Initial state
   chatPanelVisible: loadStoredPanelVisible(),
-  chatMessages: loadStoredMessages(),
+  chatMessages: loadStoredMessages(null),
   chatStatus: 'idle',
   chatStreamingContent: '',
   chatActiveModel: loadStoredModel(null),
@@ -264,7 +272,7 @@ export const createChatSlice: StateCreator<ChatSlice, [], [], ChatSlice> = (set,
       messages.splice(0, messages.length - MAX_MESSAGES);
     }
     set({ chatMessages: messages, chatError: null });
-    persistMessages(messages);
+    persistMessages(messages, get().chatStorageUserId);
   },
 
   updateLastAssistantMessage: (content) => {
@@ -291,7 +299,7 @@ export const createChatSlice: StateCreator<ChatSlice, [], [], ChatSlice> = (set,
       chatStatus: 'idle',
       chatAbortController: null,
     });
-    persistMessages(messages);
+    persistMessages(messages, get().chatStorageUserId);
     return id;
   },
 
@@ -300,11 +308,12 @@ export const createChatSlice: StateCreator<ChatSlice, [], [], ChatSlice> = (set,
   setChatStreamingContent: (chatStreamingContent) => set({ chatStreamingContent }),
 
   setChatActiveModel: (chatActiveModel) => {
+    const nextModel = coerceModelForEntitlement(chatActiveModel, get().chatHasPro);
     try {
       const key = getModelStorageKey(get().chatStorageUserId);
-      localStorage.setItem(key, chatActiveModel);
+      localStorage.setItem(key, nextModel);
     } catch { /* ignore */ }
-    set({ chatActiveModel });
+    set({ chatActiveModel: nextModel });
   },
 
   setChatAutoExecute: (chatAutoExecute) => {
@@ -324,7 +333,7 @@ export const createChatSlice: StateCreator<ChatSlice, [], [], ChatSlice> = (set,
       return { ...msg, execResults };
     });
     set({ chatMessages: messages });
-    persistMessages(messages);
+    persistMessages(messages, get().chatStorageUserId);
   },
 
   addChatAttachment: (attachment) => {
@@ -338,17 +347,19 @@ export const createChatSlice: StateCreator<ChatSlice, [], [], ChatSlice> = (set,
   clearChatAttachments: () => set({ chatAttachments: [] }),
 
   clearChatMessages: () => {
+    get().chatAbortController?.abort();
     set({
       chatMessages: [],
       chatStatus: 'idle',
       chatStreamingContent: '',
       chatError: null,
       chatAbortController: null,
+      chatAttachments: [],
       chatPendingPrompt: null,
       chatPendingRepairRequest: null,
       chatViewportScreenshot: null,
     });
-    try { localStorage.removeItem(MESSAGES_STORAGE_KEY); } catch { /* ignore */ }
+    try { localStorage.removeItem(getMessagesStorageKey(get().chatStorageUserId)); } catch { /* ignore */ }
   },
 
   queueChatPrompt: (chatPendingPrompt) => set({ chatPendingPrompt }),
@@ -363,16 +374,46 @@ export const createChatSlice: StateCreator<ChatSlice, [], [], ChatSlice> = (set,
 
   setChatAuthToken: (chatAuthToken) => set({ chatAuthToken }),
 
-  setChatHasPro: (chatHasPro) => set({ chatHasPro }),
+  setChatHasPro: (chatHasPro) => {
+    const nextModel = coerceModelForEntitlement(get().chatActiveModel, chatHasPro);
+    try {
+      const key = getModelStorageKey(get().chatStorageUserId);
+      localStorage.setItem(key, nextModel);
+    } catch { /* ignore */ }
+    set({ chatHasPro, chatActiveModel: nextModel });
+  },
 
   setChatUsage: (chatUsage) => set({ chatUsage }),
 
-  setChatStorageUserId: (chatStorageUserId) => {
-    const currentModel = get().chatActiveModel;
-    const restoredModel = loadStoredModel(chatStorageUserId, currentModel);
+  switchChatUserContext: (chatStorageUserId, chatHasPro, options) => {
+    const state = get();
+    state.chatAbortController?.abort();
+    if (options?.clearPersistedCurrent) {
+      try {
+        localStorage.removeItem(getMessagesStorageKey(state.chatStorageUserId));
+      } catch { /* ignore */ }
+    }
+    const restoredModel = coerceModelForEntitlement(
+      loadStoredModel(chatStorageUserId, state.chatActiveModel),
+      chatHasPro,
+    );
+    const restoredMessages = options?.restoreMessages === false
+      ? []
+      : loadStoredMessages(chatStorageUserId);
     set({
       chatStorageUserId,
+      chatHasPro,
       chatActiveModel: restoredModel,
+      chatMessages: restoredMessages,
+      chatStatus: 'idle',
+      chatStreamingContent: '',
+      chatError: null,
+      chatAbortController: null,
+      chatAttachments: [],
+      chatPendingPrompt: null,
+      chatPendingRepairRequest: null,
+      chatViewportScreenshot: null,
+      chatUsage: null,
     });
   },
 
@@ -388,7 +429,7 @@ export const createChatSlice: StateCreator<ChatSlice, [], [], ChatSlice> = (set,
       messages.splice(0, messages.length - MAX_MESSAGES);
     }
     set({ chatMessages: messages, chatError: null });
-    persistMessages(messages);
+    persistMessages(messages, get().chatStorageUserId);
   },
 });
 

@@ -4,7 +4,7 @@
 
 import { describe, it, expect, vi } from 'vitest';
 import { BimContext, createBimContext } from './context.js';
-import type { BimBackend } from './types.js';
+import type { BimBackend, Transport } from './types.js';
 
 /** Create a mock typed BimBackend */
 function createMockBackend() {
@@ -143,6 +143,17 @@ describe('BimContext', () => {
     const bim = createBimContext({ backend });
 
     expect(typeof bim.on).toBe('function');
+  });
+
+  it('fails explicitly when sandbox is used with a transport-backed context', async () => {
+    const transport: Transport = {
+      subscribe: vi.fn(() => () => {}),
+    };
+    const bim = createBimContext({ transport });
+
+    await expect(bim.sandbox.eval('bim.model.list()')).rejects.toThrow(
+      'bim.sandbox is not supported for transport-backed contexts',
+    );
   });
 });
 

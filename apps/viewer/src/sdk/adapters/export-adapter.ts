@@ -6,7 +6,7 @@ import type { StoreApi } from './types.js';
 import type { EntityRef, EntityData, PropertySetData, QuantitySetData, ExportBackendMethods } from '@ifc-lite/sdk';
 import { EntityNode } from '@ifc-lite/query';
 import { StepExporter, type StepExportOptions } from '@ifc-lite/export';
-import { getModelForRef } from './model-compat.js';
+import { getModelForRef, LEGACY_MODEL_ID } from './model-compat.js';
 import { applyAttributeMutationsToEntityData, getMutationViewForModel } from './mutation-view.js';
 
 /** Options for CSV export */
@@ -77,6 +77,28 @@ function normalizeRefs(raw: unknown[]): EntityRef[] {
     }
     return { modelId: r.modelId as string, expressId: r.expressId as number };
   });
+}
+
+export function resolveVisibilityFilterSets(
+  state: StoreApi['getState'] extends () => infer T ? T : never,
+  modelId: string,
+  selectedExpressIds: Set<number>,
+  entityCount: number,
+): { visibleOnly: boolean; hiddenEntityIds: Set<number>; isolatedEntityIds: Set<number> | null } {
+  const shouldLimitToSelection = selectedExpressIds.size < entityCount;
+  const isLegacyModel = state.models.size === 0 && (modelId === LEGACY_MODEL_ID || modelId === 'legacy');
+  const modelHidden = state.hiddenEntitiesByModel.get(modelId) ?? (isLegacyModel ? state.hiddenEntities : undefined);
+  const modelIsolated = state.isolatedEntitiesByModel.get(modelId) ?? (isLegacyModel ? state.isolatedEntities : null);
+
+  return {
+    visibleOnly: shouldLimitToSelection,
+    hiddenEntityIds: shouldLimitToSelection
+      ? new Set<number>()
+      : new Set<number>(modelHidden ?? []),
+    isolatedEntityIds: shouldLimitToSelection
+      ? selectedExpressIds
+      : modelIsolated,
+  };
 }
 
 /**
@@ -318,17 +340,15 @@ export function createExportAdapter(store: StoreApi): ExportBackendMethods {
 
       const options = candidateOptions;
       const selectedExpressIds = new Set(refs.map(ref => ref.expressId));
-      const modelHidden = state.hiddenEntitiesByModel.get(modelId);
-      const modelIsolated = state.isolatedEntitiesByModel.get(modelId) ?? null;
-
-      const shouldLimitToSelection = selectedExpressIds.size < model.ifcDataStore.entityCount;
-      const visibleOnly = options.visibleOnly === true || shouldLimitToSelection;
-      const hiddenEntityIds = shouldLimitToSelection
-        ? new Set<number>()
-        : new Set<number>(modelHidden ?? []);
-      const isolatedEntityIds = shouldLimitToSelection
-        ? selectedExpressIds
-        : modelIsolated;
+      const visibilityFilters = resolveVisibilityFilterSets(
+        state,
+        modelId,
+        selectedExpressIds,
+        model.ifcDataStore.entityCount,
+      );
+      const visibleOnly = options.visibleOnly === true || visibilityFilters.visibleOnly;
+      const hiddenEntityIds = visibleOnly ? visibilityFilters.hiddenEntityIds : new Set<number>();
+      const isolatedEntityIds = visibleOnly ? visibilityFilters.isolatedEntityIds : null;
 
       const exporter = new StepExporter(
         model.ifcDataStore,

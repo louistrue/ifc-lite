@@ -100,11 +100,27 @@ function parseUsageFromHeaders(headers: Headers): UsageInfo | null {
   return null;
 }
 
+export function drainSseBuffer(buffer: string, flush: boolean = false): { events: string[]; remainder: string } {
+  if (flush) {
+    const trimmed = buffer.trim();
+    return {
+      events: trimmed ? trimmed.split('\n\n').filter(Boolean) : [],
+      remainder: '',
+    };
+  }
+  const parts = buffer.split('\n\n');
+  return {
+    events: parts.slice(0, -1).filter(Boolean),
+    remainder: parts.at(-1) ?? '',
+  };
+}
+
 /**
  * Fetch current usage snapshot without sending a chat message.
  * Used for instant UI hydration and periodic refresh.
  */
 export async function fetchUsageSnapshot(proxyUrl: string, authToken?: string | null): Promise<UsageInfo | null> {
+  const isDev = Boolean((import.meta as unknown as { env?: Record<string, unknown> }).env?.DEV);
   const headers: Record<string, string> = {};
   if (authToken) {
     headers['Authorization'] = `Bearer ${authToken}`;
@@ -112,7 +128,7 @@ export async function fetchUsageSnapshot(proxyUrl: string, authToken?: string | 
 
   const snapshotUrl = `${proxyUrl}${proxyUrl.includes('?') ? '&' : '?'}usage=1`;
   const appSnapshotUrl = '/api/chat?usage=1';
-  const canFallbackToAppProxy = snapshotUrl !== appSnapshotUrl;
+  const canFallbackToAppProxy = isDev && snapshotUrl !== appSnapshotUrl;
   const fetchSnapshot = (url: string) => fetch(url, { method: 'GET', headers });
 
   let response: Response;
@@ -148,6 +164,7 @@ export async function fetchUsageSnapshot(proxyUrl: string, authToken?: string | 
  */
 export async function streamChat(options: StreamOptions): Promise<void> {
   const { proxyUrl, model, messages, system, authToken, signal, onChunk, onComplete, onError, onUsageInfo, onFinishReason } = options;
+  const isDev = Boolean((import.meta as unknown as { env?: Record<string, unknown> }).env?.DEV);
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -163,7 +180,7 @@ export async function streamChat(options: StreamOptions): Promise<void> {
     body: requestBody,
     signal,
   });
-  const canFallbackToAppProxy = proxyUrl !== '/api/chat';
+  const canFallbackToAppProxy = isDev && proxyUrl !== '/api/chat';
 
   let response: Response;
   try {
@@ -280,10 +297,10 @@ export async function streamChat(options: StreamOptions): Promise<void> {
 
       buffer += decoder.decode(value, { stream: true });
 
-      const events = buffer.split('\n\n');
-      buffer = events.pop() ?? '';
+      const drained = drainSseBuffer(buffer);
+      buffer = drained.remainder;
 
-      for (const event of events) {
+      for (const event of drained.events) {
         for (const line of event.split('\n')) {
           if (!line.startsWith('data: ')) continue;
           const data = line.slice(6);
@@ -317,6 +334,43 @@ export async function streamChat(options: StreamOptions): Promise<void> {
           } catch {
             // Skip malformed SSE lines
           }
+        }
+      }
+    }
+    buffer += decoder.decode();
+    const drained = drainSseBuffer(buffer, true);
+    for (const event of drained.events) {
+      for (const line of event.split('\n')) {
+        if (!line.startsWith('data: ')) continue;
+        const data = line.slice(6);
+
+        if (data === '[DONE]') continue;
+
+        try {
+          const parsed = JSON.parse(data) as {
+            __ifcLiteUsage?: UsageInfo;
+            choices?: Array<{
+              delta?: { content?: string };
+              finish_reason?: string | null;
+            }>;
+          };
+
+          if (parsed.__ifcLiteUsage && onUsageInfo) {
+            onUsageInfo(parsed.__ifcLiteUsage);
+            continue;
+          }
+
+          const content = parsed.choices?.[0]?.delta?.content;
+          if (content) {
+            fullText += content;
+            onChunk(content);
+          }
+          const chunkFinishReason = parsed.choices?.[0]?.finish_reason;
+          if (chunkFinishReason) {
+            finishReason = chunkFinishReason;
+          }
+        } catch {
+          // Skip malformed SSE lines
         }
       }
     }
