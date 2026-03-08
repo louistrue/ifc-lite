@@ -271,6 +271,46 @@ body {
   background-color: var(--hierarchy-hover-bg) !important;
 }
 
+/* Panel container query for compact tabs */
+.panel-container {
+  container-type: inline-size;
+}
+
+/* By default show text, hide icons */
+.panel-compact-icon {
+  display: none;
+}
+.panel-compact-text {
+  display: inline;
+}
+
+/* When panel is narrow, show icons and hide text */
+@container (max-width: 200px) {
+  .panel-compact-icon {
+    display: inline;
+  }
+  .panel-compact-text {
+    display: none;
+  }
+
+  .panel-action-button {
+    width: 1.75rem;
+    padding-left: 0;
+    padding-right: 0;
+    justify-content: center;
+  }
+}
+
+@container (max-width: 240px) {
+  .properties-tabs-list .panel-compact-icon {
+    display: inline;
+  }
+
+  .properties-tabs-list .panel-compact-text {
+    display: none;
+  }
+}
+
 /* Tab triggers */
 .tab-trigger {
   background-color: transparent !important;
@@ -281,6 +321,62 @@ body {
   background-color: var(--tab-active-bg) !important;
   color: var(--tab-active-text) !important;
   font-weight: 700;
+}
+
+/* Properties panel tabs: keep tab semantics, but use a clearer segmented active state */
+.properties-tabs-list {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  height: 2.75rem;
+  padding: 0;
+  justify-content: stretch;
+  background-color: var(--tabs-bg) !important;
+  border-bottom: 2px solid var(--tabs-border);
+  border-radius: 0 !important;
+}
+
+.properties-tab-trigger {
+  gap: 0.375rem;
+  height: 100%;
+  padding: 0 0.625rem;
+  border-top: 3px solid transparent;
+  border-right: 1px solid var(--tabs-border);
+  border-bottom: 0;
+  border-left: 0;
+  border-radius: 0 !important;
+  background-color: color-mix(in srgb, var(--tabs-bg) 82%, white 18%) !important;
+  color: var(--tab-text) !important;
+  font-weight: 600;
+  line-height: 1;
+  box-shadow: none !important;
+  transition: background-color 120ms ease, color 120ms ease, border-color 120ms ease, transform 120ms ease;
+}
+
+.properties-tab-trigger:first-child {
+  border-left: 1px solid var(--tabs-border);
+}
+
+.properties-tab-trigger:hover {
+  background-color: color-mix(in srgb, var(--tab-active-bg) 90%, white 10%) !important;
+  color: var(--tab-active-text) !important;
+}
+
+.properties-tab-trigger[data-state="active"] {
+  background-color: var(--tab-active-bg) !important;
+  color: var(--tab-active-text) !important;
+  border-top-color: var(--color-primary) !important;
+  transform: translateY(2px);
+  box-shadow: none !important;
+}
+
+.properties-tab-trigger[data-state="active"] .panel-compact-icon,
+.properties-tab-trigger[data-state="active"] .panel-compact-text {
+  color: inherit !important;
+}
+
+.properties-tab-trigger[data-state="active"] .panel-compact-icon {
+  color: var(--color-primary) !important;
 }
 
 /* Quantity cards - cyan accent */

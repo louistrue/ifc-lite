@@ -11,12 +11,15 @@ export type NodeType =
   | 'IfcBuilding'         // Building node
   | 'IfcBuildingStorey'   // Storey node
   | 'type-group'          // IFC class grouping header (e.g., "IfcWall (47)")
+  | 'ifc-type'            // IFC type entity node (e.g., "IfcWallType/W01")
   | 'element';            // Individual element
 
 export interface TreeNode {
   id: string;  // Unique ID for the node (can be composite)
   /** Express IDs this node represents (for elements/storeys) */
   expressIds: number[];
+  /** Structured entity expressId for selectable non-element nodes (for example IFC type entities) */
+  entityExpressId?: number;
   /** Model IDs this node belongs to */
   modelIds: string[];
   name: string;

@@ -172,6 +172,10 @@ const PROPERTY_ENTITY_TYPES = new Set([
     'IFCQUANTITYCOUNT', 'IFCQUANTITYWEIGHT', 'IFCQUANTITYTIME',
 ]);
 
+function isIfcTypeLikeEntity(typeUpper: string): boolean {
+    return typeUpper.endsWith('TYPE') || typeUpper.endsWith('STYLE');
+}
+
 /**
  * Detect the IFC schema version from the STEP FILE_SCHEMA header.
  * Scans the first 2000 bytes for FILE_SCHEMA(('IFC2X3')), FILE_SCHEMA(('IFC4')), etc.
@@ -223,13 +227,14 @@ export class ColumnarParser {
             byType: new Map<string, number[]>(),
         };
 
-        // First pass: collect spatial, geometry, relationship, and property refs for targeted parsing
+        // First pass: collect spatial, geometry, relationship, property, and type refs for targeted parsing
         const spatialRefs: EntityRef[] = [];
         const geometryRefs: EntityRef[] = [];
         const relationshipRefs: EntityRef[] = [];
         const propertyRelRefs: EntityRef[] = [];
         const propertyEntityRefs: EntityRef[] = [];
         const associationRelRefs: EntityRef[] = [];
+        const typeObjectRefs: EntityRef[] = [];
 
         for (const ref of entityRefs) {
             // Build entity index
@@ -255,6 +260,8 @@ export class ColumnarParser {
                 propertyEntityRefs.push(ref);
             } else if (ASSOCIATION_REL_TYPES.has(typeUpper)) {
                 associationRelRefs.push(ref);
+            } else if (isIfcTypeLikeEntity(typeUpper)) {
+                typeObjectRefs.push(ref);
             }
         }
 
@@ -281,6 +288,19 @@ export class ColumnarParser {
         // IFC entities with geometry have GlobalId at attribute[0] and Name at attribute[2]
         options.onProgress?.({ phase: 'parsing geometry globalIds', percent: 12 });
         for (const ref of geometryRefs) {
+            const entity = extractor.extractEntity(ref);
+            if (entity) {
+                const attrs = entity.attributes || [];
+                const globalId = typeof attrs[0] === 'string' ? attrs[0] : '';
+                const name = typeof attrs[2] === 'string' ? attrs[2] : '';
+                parsedEntityData.set(ref.expressId, { globalId, name });
+            }
+        }
+
+        // Parse type objects (IfcWallType, IfcDoorType, etc.) for GlobalId and Name
+        // Type objects derive from IfcRoot: attrs[0]=GlobalId, attrs[2]=Name
+        // Needed for IDS validation against type entities
+        for (const ref of typeObjectRefs) {
             const entity = extractor.extractEntity(ref);
             if (entity) {
                 const attrs = entity.attributes || [];
@@ -438,7 +458,7 @@ export class ColumnarParser {
             
             // Skip non-relevant entities (geometric primitives, etc.)
             const hasGeometry = GEOMETRY_TYPES.has(typeUpper);
-            const isType = typeUpper.endsWith('TYPE');
+            const isType = isIfcTypeLikeEntity(typeUpper);
             const isSpatial = SPATIAL_TYPES.has(typeUpper);
             const isRelevant = hasGeometry || isType || isSpatial || 
                 RELEVANT_ENTITY_PREFIXES.has(typeUpper) ||
@@ -1454,6 +1474,52 @@ export function extractTypePropertiesOnDemand(
         typeId,
         properties: allPsets,
     };
+}
+
+/**
+ * Extract properties from a type entity's own HasPropertySets attribute.
+ * Used when the type entity itself is selected (e.g., via "By Type" tree).
+ * Returns the type's own property sets from attribute index 5 + any via IfcRelDefinesByProperties.
+ */
+export function extractTypeEntityOwnProperties(
+    store: IfcDataStore,
+    typeEntityId: number
+): Array<{ name: string; globalId?: string; properties: Array<{ name: string; type: number; value: PropertyValue }> }> {
+    const ref = store.entityIndex.byId.get(typeEntityId);
+    if (!ref || !store.source?.length) return [];
+
+    const extractor = new EntityExtractor(store.source);
+    const typeEntity = extractor.extractEntity(ref);
+    if (!typeEntity) return [];
+
+    const allPsets: Array<{ name: string; globalId?: string; properties: Array<{ name: string; type: number; value: PropertyValue }> }> = [];
+    const seenPsetNames = new Set<string>();
+
+    // Source 1: HasPropertySets attribute (index 5 for IfcTypeObject subtypes)
+    const hasPropertySets = typeEntity.attributes?.[5];
+    if (Array.isArray(hasPropertySets)) {
+        const psetIds = hasPropertySets.filter((id): id is number => typeof id === 'number');
+        const psets = extractPsetsFromIds(store, extractor, psetIds);
+        for (const pset of psets) {
+            seenPsetNames.add(pset.name);
+            allPsets.push(pset);
+        }
+    }
+
+    // Source 2: onDemandPropertyMap (IFC4: via IFCRELDEFINESBYPROPERTIES)
+    if (store.onDemandPropertyMap) {
+        const typePsetIds = store.onDemandPropertyMap.get(typeEntityId);
+        if (typePsetIds && typePsetIds.length > 0) {
+            const psets = extractPsetsFromIds(store, extractor, typePsetIds);
+            for (const pset of psets) {
+                if (!seenPsetNames.has(pset.name)) {
+                    allPsets.push(pset);
+                }
+            }
+        }
+    }
+
+    return allPsets;
 }
 
 /**

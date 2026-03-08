@@ -11,6 +11,7 @@
 
 import type { IfcDataStore } from '@ifc-lite/parser';
 import {
+  EntityExtractor,
   generateHeader,
   getAttributeNames,
   serializeValue,
@@ -88,12 +89,14 @@ export class StepExporter {
   private dataStore: IfcDataStore;
   private mutationView: MutablePropertyView | null;
   private nextExpressId: number;
+  private entityExtractor: EntityExtractor | null;
 
   constructor(dataStore: IfcDataStore, mutationView?: MutablePropertyView) {
     this.dataStore = dataStore;
     this.mutationView = mutationView || null;
     // Start new IDs after the highest existing ID
     this.nextExpressId = this.findMaxExpressId() + 1;
+    this.entityExtractor = dataStore.source ? new EntityExtractor(dataStore.source) : null;
   }
 
   /**
@@ -125,6 +128,10 @@ export class StepExporter {
     const modifiedAttributes = new Map<number, Map<string, string>>();
     const newPropertySets: Array<{ entityId: number; psets: PropertySet[] }> = [];
     const newQuantitySets: Array<{ entityId: number; qsets: QuantitySet[] }> = [];
+    const typeOwnedPsetNamesByEntity = new Map<number, Set<string>>();
+    const typeOwnedPsetIdsByEntity = new Map<number, number[]>();
+    const rewrittenEntityIds = new Set<number>();
+    const rewrittenEntityLines = new Map<number, string>();
 
     // Track property set IDs and relationship IDs to skip
     const skipPropertySetIds = new Set<number>();
@@ -170,6 +177,7 @@ export class StepExporter {
         // Get the FULL mutated property sets for this entity (merged base + mutations)
         const allPsets = this.mutationView.getForEntity(entityId);
         const relevantPsets = allPsets.filter(pset => psetNames.has(pset.name));
+        const relDefinedPsetNames = new Set<string>();
 
         if (relevantPsets.length > 0) {
           newPropertySets.push({ entityId, psets: relevantPsets });
@@ -187,6 +195,9 @@ export class StepExporter {
             if (relatedEntities.includes(entityId) && relatedPsetId) {
               // Check if this pset is one we're modifying
               const psetName = this.getPropertySetName(relatedPsetId);
+              if (psetName) {
+                relDefinedPsetNames.add(psetName);
+              }
               if (psetName && psetNames.has(psetName)) {
                 skipRelationshipIds.add(relId);
                 skipPropertySetIds.add(relatedPsetId);
@@ -197,6 +208,34 @@ export class StepExporter {
                 }
               }
             }
+          }
+        }
+
+        if (this.isTypeEntity(entityId)) {
+          const typeOwnedPsetIds = this.getTypeOwnedHasPropertySetIds(entityId);
+          const typeOwnedAffected = new Set<string>();
+
+          for (const psetId of typeOwnedPsetIds) {
+            const psetName = this.getPropertySetName(psetId);
+            if (!psetName || !psetNames.has(psetName)) continue;
+            typeOwnedAffected.add(psetName);
+            skipPropertySetIds.add(psetId);
+            const propIds = this.getPropertyIdsInSet(psetId);
+            for (const propId of propIds) {
+              skipPropertySetIds.add(propId);
+            }
+          }
+
+          for (const psetName of psetNames) {
+            if (!relDefinedPsetNames.has(psetName)) {
+              typeOwnedAffected.add(psetName);
+            }
+          }
+
+          if (typeOwnedAffected.size > 0) {
+            typeOwnedPsetNamesByEntity.set(entityId, typeOwnedAffected);
+            typeOwnedPsetIdsByEntity.set(entityId, typeOwnedPsetIds);
+            rewrittenEntityIds.add(entityId);
           }
         }
       }
@@ -297,6 +336,11 @@ export class StepExporter {
           continue;
         }
 
+        // Skip type entities whose HasPropertySets attribute will be rewritten
+        if (rewrittenEntityIds.has(expressId)) {
+          continue;
+        }
+
         // Skip if we're only doing geometry or specific types
         const entityType = entityRef.type.toUpperCase();
 
@@ -328,9 +372,40 @@ export class StepExporter {
 
     // Generate new property entities for mutations (these REPLACE the skipped ones)
     for (const { entityId, psets } of newPropertySets) {
-      const newEntities = this.generatePropertySetEntities(entityId, psets);
+      const newEntities = this.generatePropertySetEntities(
+        entityId,
+        psets,
+        typeOwnedPsetNamesByEntity.get(entityId)
+      );
       entities.push(...newEntities.lines);
       newEntityCount += newEntities.count;
+
+      const typeOwnedPsetNames = typeOwnedPsetNamesByEntity.get(entityId);
+      if (typeOwnedPsetNames && typeOwnedPsetNames.size > 0) {
+        const rewritten = this.rewriteTypeEntityHasPropertySets(
+          entityId,
+          typeOwnedPsetIdsByEntity.get(entityId) ?? [],
+          typeOwnedPsetNames,
+          newEntities.generatedTypeOwnedPsetIds
+        );
+        if (rewritten) {
+          rewrittenEntityLines.set(entityId, rewritten);
+        }
+      }
+    }
+
+    // Handle type-owned pset deletions with no replacement pset content
+    for (const [entityId, typeOwnedPsetNames] of typeOwnedPsetNamesByEntity) {
+      if (rewrittenEntityLines.has(entityId)) continue;
+      const rewritten = this.rewriteTypeEntityHasPropertySets(
+        entityId,
+        typeOwnedPsetIdsByEntity.get(entityId) ?? [],
+        typeOwnedPsetNames,
+        new Map()
+      );
+      if (rewritten) {
+        rewrittenEntityLines.set(entityId, rewritten);
+      }
     }
 
     // Generate new quantity entities for mutations
@@ -338,6 +413,10 @@ export class StepExporter {
       const newEntities = this.generateQuantitySetEntities(entityId, qsets);
       entities.push(...newEntities.lines);
       newEntityCount += newEntities.count;
+    }
+
+    for (const rewrittenLine of rewrittenEntityLines.values()) {
+      entities.push(rewrittenLine);
     }
 
     // Assemble final file
@@ -371,10 +450,12 @@ export class StepExporter {
    */
   private generatePropertySetEntities(
     entityId: number,
-    psets: PropertySet[]
-  ): { lines: string[]; count: number } {
+    psets: PropertySet[],
+    typeOwnedPsetNames?: Set<string>
+  ): { lines: string[]; count: number; generatedTypeOwnedPsetIds: Map<string, number> } {
     const lines: string[] = [];
     let count = 0;
+    const generatedTypeOwnedPsetIds = new Map<string, number>();
 
     for (const pset of psets) {
       const propertyIds: number[] = [];
@@ -404,17 +485,21 @@ export class StepExporter {
       const psetLine = `#${psetId}=IFCPROPERTYSET('${globalId}',$,'${this.escapeStepString(pset.name)}',$,(${propRefs}));`;
       lines.push(psetLine);
 
-      // Create IfcRelDefinesByProperties to link pset to entity
-      const relId = this.nextExpressId++;
-      count++;
+      if (typeOwnedPsetNames?.has(pset.name)) {
+        generatedTypeOwnedPsetIds.set(pset.name, psetId);
+      } else {
+        // Create IfcRelDefinesByProperties to link pset to entity
+        const relId = this.nextExpressId++;
+        count++;
 
-      const relGlobalId = this.generateGlobalId();
-      // #ID=IFCRELDEFINESBYPROPERTIES('GlobalId',$,$,$,(#entity),#pset);
-      const relLine = `#${relId}=IFCRELDEFINESBYPROPERTIES('${relGlobalId}',$,$,$,(#${entityId}),#${psetId});`;
-      lines.push(relLine);
+        const relGlobalId = this.generateGlobalId();
+        // #ID=IFCRELDEFINESBYPROPERTIES('GlobalId',$,$,$,(#entity),#pset);
+        const relLine = `#${relId}=IFCRELDEFINESBYPROPERTIES('${relGlobalId}',$,$,$,(#${entityId}),#${psetId});`;
+        lines.push(relLine);
+      }
     }
 
-    return { lines, count };
+    return { lines, count, generatedTypeOwnedPsetIds };
   }
 
   /**
@@ -835,6 +920,131 @@ export class StepExporter {
       ids.push(parseInt(m[1], 10));
     }
     return ids;
+  }
+
+  /**
+   * Check whether an entity is an IFC type object (e.g. IfcWallType).
+   */
+  private isTypeEntity(entityId: number): boolean {
+    const entityRef = this.dataStore.entityIndex.byId.get(entityId);
+    return entityRef?.type.toUpperCase().endsWith('TYPE') ?? false;
+  }
+
+  /**
+   * Get the full HasPropertySets ID list from a type entity.
+   * This preserves both property and quantity definitions already assigned there.
+   */
+  private getTypeOwnedHasPropertySetIds(entityId: number): number[] {
+    if (!this.entityExtractor) return [];
+    const entityRef = this.dataStore.entityIndex.byId.get(entityId);
+    if (!entityRef) return [];
+
+    const entity = this.entityExtractor.extractEntity(entityRef);
+    const hasPropertySets = entity?.attributes?.[5];
+    if (!Array.isArray(hasPropertySets)) return [];
+
+    return hasPropertySets.filter((value): value is number => typeof value === 'number');
+  }
+
+  /**
+   * Rewrite a type entity so its HasPropertySets attribute points to replacement psets.
+   */
+  private rewriteTypeEntityHasPropertySets(
+    entityId: number,
+    originalPsetIds: number[],
+    affectedPsetNames: Set<string>,
+    replacementPsetIds: Map<string, number>
+  ): string | null {
+    const rewrittenIds: number[] = [];
+    const usedReplacementNames = new Set<string>();
+
+    for (const psetId of originalPsetIds) {
+      const psetName = this.getPropertySetName(psetId);
+      if (psetName && affectedPsetNames.has(psetName)) {
+        const replacementId = replacementPsetIds.get(psetName);
+        if (replacementId !== undefined) {
+          rewrittenIds.push(replacementId);
+          usedReplacementNames.add(psetName);
+        }
+        continue;
+      }
+      rewrittenIds.push(psetId);
+    }
+
+    for (const [psetName, psetId] of replacementPsetIds) {
+      if (!usedReplacementNames.has(psetName)) {
+        rewrittenIds.push(psetId);
+      }
+    }
+
+    const attrValue = rewrittenIds.length > 0
+      ? `(${rewrittenIds.map(id => `#${id}`).join(',')})`
+      : '$';
+
+    return this.replaceEntityAttribute(entityId, 5, attrValue);
+  }
+
+  /**
+   * Replace a single top-level STEP attribute in an entity line.
+   */
+  private replaceEntityAttribute(entityId: number, attrIndex: number, replacement: string): string | null {
+    const entityRef = this.dataStore.entityIndex.byId.get(entityId);
+    if (!entityRef || !this.dataStore.source) return null;
+
+    const decoder = new TextDecoder();
+    const entityText = decoder.decode(
+      this.dataStore.source.subarray(entityRef.byteOffset, entityRef.byteOffset + entityRef.byteLength)
+    );
+
+    const match = entityText.match(/^(#\d+\s*=\s*\w+\()([\s\S]*)(\)\s*;)\s*$/);
+    if (!match) return null;
+
+    const [, prefix, attrsText, suffix] = match;
+    const attrs = this.splitTopLevelStepArguments(attrsText);
+    if (attrIndex >= attrs.length) return null;
+
+    attrs[attrIndex] = replacement;
+    return `${prefix}${attrs.join(',')}${suffix}`;
+  }
+
+  /**
+   * Split a STEP argument list on top-level commas while preserving nested syntax.
+   */
+  private splitTopLevelStepArguments(input: string): string[] {
+    const parts: string[] = [];
+    let current = '';
+    let depth = 0;
+    let inString = false;
+
+    for (let i = 0; i < input.length; i++) {
+      const char = input[i];
+
+      if (char === "'") {
+        current += char;
+        if (inString && i + 1 < input.length && input[i + 1] === "'") {
+          current += input[i + 1];
+          i++;
+          continue;
+        }
+        inString = !inString;
+        continue;
+      }
+
+      if (!inString) {
+        if (char === '(') depth++;
+        else if (char === ')') depth--;
+        else if (char === ',' && depth === 0) {
+          parts.push(current);
+          current = '';
+          continue;
+        }
+      }
+
+      current += char;
+    }
+
+    parts.push(current);
+    return parts;
   }
 }
 

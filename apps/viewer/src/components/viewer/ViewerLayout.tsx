@@ -191,7 +191,7 @@ export function ViewerLayout() {
                     if (collapsed !== leftPanelCollapsed) setLeftPanelCollapsed(collapsed);
                   }}
                 >
-                  <div className="h-full w-full overflow-hidden">
+                  <div className="h-full w-full overflow-hidden panel-container">
                     <HierarchyPanel />
                   </div>
                 </Panel>
@@ -220,7 +220,7 @@ export function ViewerLayout() {
                     if (collapsed !== rightPanelCollapsed) setRightPanelCollapsed(collapsed);
                   }}
                 >
-                  <div className="h-full w-full overflow-hidden">
+                  <div className="h-full w-full overflow-hidden panel-container">
                     {lensPanelVisible ? (
                       <LensPanel onClose={() => setLensPanelVisible(false)} />
                     ) : idsPanelVisible ? (
