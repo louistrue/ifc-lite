@@ -289,16 +289,37 @@ function matchesExpectedAudience(claims: AuthClaims, config: ChatConfig): boolea
   return audiences.some((aud) => config.clerkAudiences.has(aud));
 }
 
-function matchesExpectedAuthorizedParty(claims: AuthClaims, config: ChatConfig): boolean {
+function matchesExpectedAuthorizedParty(
+  claims: AuthClaims,
+  config: ChatConfig,
+  requestOrigin?: string | null,
+  requestUrl?: string | URL,
+): boolean {
   if (config.clerkAuthorizedParties.size === 0) return true;
-  return typeof claims.azp === 'string' && config.clerkAuthorizedParties.has(claims.azp);
+  if (typeof claims.azp !== 'string') return false;
+  if (config.clerkAuthorizedParties.has(claims.azp)) return true;
+
+  if (!requestOrigin || !requestUrl) return false;
+
+  try {
+    const originUrl = new URL(requestOrigin);
+    const targetUrl = new URL(requestUrl);
+    return claims.azp === originUrl.origin && originUrl.origin === targetUrl.origin;
+  } catch {
+    return false;
+  }
 }
 
-function areClaimsAllowed(claims: AuthClaims, config: ChatConfig): boolean {
+function areClaimsAllowed(
+  claims: AuthClaims,
+  config: ChatConfig,
+  requestOrigin?: string | null,
+  requestUrl?: string | URL,
+): boolean {
   if (config.clerkAllowedIssuers.size === 0) return false;
   if (!claims.iss || !config.clerkAllowedIssuers.has(normalizeIssuer(claims.iss))) return false;
   if (!matchesExpectedAudience(claims, config)) return false;
-  if (!matchesExpectedAuthorizedParty(claims, config)) return false;
+  if (!matchesExpectedAuthorizedParty(claims, config, requestOrigin, requestUrl)) return false;
   return true;
 }
 
@@ -348,6 +369,8 @@ export async function verifyToken(
   token: string | undefined,
   config: ChatConfig,
   fetchImpl: typeof fetch = fetch,
+  requestOrigin?: string | null,
+  requestUrl?: string | URL,
 ): Promise<AuthClaims | null> {
   if (!token) return null;
 
@@ -355,7 +378,7 @@ export async function verifyToken(
     const parts = token.split('.');
     if (parts.length !== 3) return null;
     const payload = JSON.parse(base64UrlDecode(parts[1])) as AuthClaims;
-    if (!areClaimsAllowed(payload, config)) return null;
+    if (!areClaimsAllowed(payload, config, requestOrigin, requestUrl)) return null;
 
     let valid = false;
     if (config.clerkJwtKey) {
@@ -598,7 +621,7 @@ export function createChatHandler(config: ChatConfig, deps: ChatHandlerDeps) {
 
     const authHeader = getHeader(req.headers, 'authorization');
     const token = authHeader?.replace(/^Bearer\s+/i, '') || undefined;
-    const claims = await verifyToken(token, config, deps.fetchImpl);
+    const claims = await verifyToken(token, config, deps.fetchImpl, requestOrigin, url);
     if (token && !claims) {
       return corsResponse(config, 401, requestOrigin, url, {
         error: 'Authentication invalid or expired. Please sign in again.',

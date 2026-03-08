@@ -171,6 +171,33 @@ test('verifyToken rejects tokens from a foreign Clerk issuer even with a valid s
   assert.equal(claims, null);
 });
 
+test('verifyToken accepts preview authorized parties when azp matches the same-origin request URL', async () => {
+  const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
+  const publicPem = publicKey.export({ type: 'spki', format: 'pem' }).toString();
+  const privatePem = privateKey.export({ type: 'pkcs8', format: 'pem' }).toString();
+  const previewOrigin = 'https://ifc-lite-preview.vercel.app';
+  const token = createJwt({
+    sub: 'user_123',
+    iss: 'https://issuer.example',
+    azp: previewOrigin,
+    exp: Math.ceil(Date.now() / 1000) + 3600,
+    plan: 'pro',
+  }, privatePem);
+
+  const claims = await verifyToken(
+    token,
+    createConfig({
+      clerkJwtKey: publicPem,
+      clerkAuthorizedParties: new Set(['https://ifc-lite.com']),
+    }),
+    fetch,
+    previewOrigin,
+    `${previewOrigin}/api/chat?usage=1`,
+  );
+
+  assert.equal(claims?.sub, 'user_123');
+});
+
 test('chat handler rejects disallowed origins before provider work begins', async () => {
   const usageStore = new MemoryUsageStore();
   let fetchCalls = 0;
