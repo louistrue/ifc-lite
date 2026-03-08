@@ -227,7 +227,7 @@ Build and run the native desktop application:
 
 ```bash
 # Clone the repository
-git clone https://github.com/louistrue/ifc-lite.git
+GIT_LFS_SKIP_SMUDGE=1 git clone https://github.com/louistrue/ifc-lite.git
 cd ifc-lite
 
 # Install dependencies
@@ -244,6 +244,12 @@ pnpm build
 pnpm build:windows   # Windows (.exe, .msi)
 pnpm build:macos     # macOS (.app, .dmg)
 pnpm build:linux     # Linux (.deb, .AppImage)
+```
+
+If you need large IFC benchmark fixtures, fetch only the specific files you plan to use:
+
+```bash
+git lfs pull --include="tests/models/ara3d/AC20-FZK-Haus.ifc"
 ```
 
 !!! note "Prerequisites for Desktop Build"
@@ -271,7 +277,7 @@ pnpm build:linux     # Linux (.deb, .AppImage)
 
 ```bash
 # Clone the repository
-git clone https://github.com/louistrue/ifc-lite.git
+GIT_LFS_SKIP_SMUDGE=1 git clone https://github.com/louistrue/ifc-lite.git
 cd ifc-lite
 
 # Install dependencies

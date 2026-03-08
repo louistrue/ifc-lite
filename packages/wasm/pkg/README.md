@@ -145,9 +145,15 @@ Ready-to-run projects in the [`examples/`](examples/) folder:
 We welcome contributions! No Rust toolchain needed, WASM comes pre-built.
 
 ```bash
-git clone https://github.com/louistrue/ifc-lite.git
+GIT_LFS_SKIP_SMUDGE=1 git clone https://github.com/louistrue/ifc-lite.git
 cd ifc-lite
 pnpm install && pnpm build && pnpm dev   # opens viewer at localhost:5173
+```
+
+If you need benchmark fixtures, fetch only the files you plan to use:
+
+```bash
+git lfs pull --include="tests/models/ara3d/AC20-FZK-Haus.ifc"
 ```
 
 See the [Contributing Guide](docs/contributing/setup.md) and [Release Process](RELEASE.md) for details.

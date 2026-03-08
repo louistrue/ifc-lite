@@ -16,7 +16,7 @@ Geometry processing is up to 5x faster overall (median 2.18x across test files, 
 
 ### Viewer Benchmark Baseline (2026-02-21)
 
-Measured locally with `pnpm test:benchmark:viewer` on an M1 MacBook Pro:
+Measured locally with the viewer benchmark suite on an M1 MacBook Pro. The two largest fixtures are optional stress tests and should be fetched on demand:
 
 | Model | Size | First Geometry | Total Time | Meshes |
 |-------|------|----------------|------------|--------|
@@ -79,8 +79,12 @@ For large files or team scenarios, the server processes everything in parallel a
 You can run the benchmarks on your own hardware:
 
 ```bash
-pnpm --filter viewer build && pnpm test:benchmark:viewer
+pnpm --filter viewer build
+git lfs pull --include="tests/models/ara3d/AC20-FZK-Haus.ifc"
+VIEWER_BENCHMARK_FILES="tests/models/ara3d/AC20-FZK-Haus.ifc" pnpm test:benchmark:viewer
 ```
+
+For large stress fixtures such as `BWK-BIM` and `Holter Tower`, fetch those files explicitly with `git lfs pull --include=...` before running the benchmark suite.
 
 Results are saved to `tests/benchmark/benchmark-results/` with automatic regression detection. See the [benchmark README](https://github.com/louistrue/ifc-lite/tree/main/tests/benchmark) for details on test models, metrics, and CI integration.
 

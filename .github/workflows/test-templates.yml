@@ -21,6 +21,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          lfs: false
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v2
