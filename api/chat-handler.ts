@@ -60,6 +60,16 @@ export interface ChatHandlerDeps {
   now: () => number;
 }
 
+type HeaderBag = Headers | Record<string, string | string[] | undefined> | undefined;
+
+type HandlerRequest = Request | {
+  method?: string;
+  url?: string;
+  headers?: HeaderBag;
+  json?: () => Promise<unknown>;
+  body?: unknown;
+};
+
 interface JwtHeader {
   alg?: string;
   kid?: string;
@@ -429,15 +439,40 @@ async function hashValue(value: string): Promise<string> {
   return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-function getRequestUrl(req: Request, config: ChatConfig): URL {
-  const host = req.headers.get('x-forwarded-host') ?? req.headers.get('host');
-  const proto = req.headers.get('x-forwarded-proto') ?? 'https';
-  const fallbackBase = host ? `${proto}://${host}` : config.appUrl;
-  return new URL(req.url, fallbackBase);
+function getHeader(headers: HeaderBag, name: string): string | null {
+  if (!headers) return null;
+  if (headers instanceof Headers) {
+    return headers.get(name);
+  }
+  const value = headers[name] ?? headers[name.toLowerCase()] ?? headers[name.toUpperCase()];
+  if (Array.isArray(value)) return value[0] ?? null;
+  return typeof value === 'string' ? value : null;
 }
 
-export async function getAnonymousUserId(req: Request): Promise<string> {
-  const forwarded = req.headers.get('x-forwarded-for') ?? req.headers.get('x-real-ip') ?? req.headers.get('cf-connecting-ip');
+function getRequestUrl(req: HandlerRequest, config: ChatConfig): URL {
+  const host = getHeader(req.headers, 'x-forwarded-host') ?? getHeader(req.headers, 'host');
+  const proto = getHeader(req.headers, 'x-forwarded-proto') ?? 'https';
+  const fallbackBase = host ? `${proto}://${host}` : config.appUrl;
+  return new URL(req.url ?? '/api/chat', fallbackBase);
+}
+
+async function readJsonBody<T>(req: HandlerRequest): Promise<T> {
+  if (typeof req.json === 'function') {
+    return await req.json() as T;
+  }
+  if (typeof req.body === 'string') {
+    return JSON.parse(req.body) as T;
+  }
+  if (req.body !== undefined) {
+    return req.body as T;
+  }
+  throw new Error('Invalid JSON body');
+}
+
+export async function getAnonymousUserId(req: HandlerRequest): Promise<string> {
+  const forwarded = getHeader(req.headers, 'x-forwarded-for')
+    ?? getHeader(req.headers, 'x-real-ip')
+    ?? getHeader(req.headers, 'cf-connecting-ip');
   const ip = forwarded?.split(',')[0]?.trim();
   if (!ip) return 'anonymous';
   const fingerprint = await hashValue(ip);
@@ -445,10 +480,10 @@ export async function getAnonymousUserId(req: Request): Promise<string> {
 }
 
 export function createChatHandler(config: ChatConfig, deps: ChatHandlerDeps) {
-  return async function handler(req: Request): Promise<Response> {
+  return async function handler(req: HandlerRequest): Promise<Response> {
     const supportEmail = 'louis@ltplus.com';
     const url = getRequestUrl(req, config);
-    const requestOrigin = req.headers.get('origin');
+    const requestOrigin = getHeader(req.headers, 'origin');
     const isDev = process.env.NODE_ENV !== 'production';
     const isUsageSnapshotRequest = req.method === 'GET' && url.searchParams.get('usage') === '1';
 
@@ -468,7 +503,7 @@ export function createChatHandler(config: ChatConfig, deps: ChatHandlerDeps) {
       });
     }
 
-    const authHeader = req.headers.get('authorization');
+    const authHeader = getHeader(req.headers, 'authorization');
     const token = authHeader?.replace(/^Bearer\s+/i, '') || undefined;
     const claims = await verifyToken(token, config, deps.fetchImpl);
     if (token && !claims) {
@@ -502,7 +537,7 @@ export function createChatHandler(config: ChatConfig, deps: ChatHandlerDeps) {
       system?: string;
     };
     try {
-      body = await req.json() as typeof body;
+      body = await readJsonBody<typeof body>(req);
     } catch {
       return corsResponse(config, 400, requestOrigin, { error: 'Invalid JSON body' }, undefined, isDev);
     }

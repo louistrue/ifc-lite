@@ -247,6 +247,40 @@ test('chat handler accepts preview-style relative request URLs for usage snapsho
   assert.equal(response.headers.get('X-Usage-Limit'), '3');
 });
 
+test('chat handler accepts Vercel-style plain-object headers and body for POST requests', async () => {
+  const usageStore = new MemoryUsageStore();
+  const handler = createChatHandler(createConfig(), {
+    fetchImpl: async () => new Response(new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('data: {"choices":[{"delta":{"content":"ok"}}]}\n\n'));
+        controller.close();
+      },
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'text/event-stream' },
+    }),
+    usageStore,
+    now: () => Date.now(),
+  });
+
+  const request = {
+    method: 'POST',
+    url: '/api/chat',
+    headers: {
+      host: 'preview.example',
+      origin: 'https://app.example',
+      'content-type': 'application/json',
+      'x-forwarded-proto': 'https',
+      'x-forwarded-for': '203.0.113.10',
+    },
+    body: { model: 'openai/gpt-free', messages: [{ role: 'user', content: 'hi' }] },
+  } as Request;
+
+  const response = await handler(request);
+
+  assert.equal(response.status, 200);
+});
+
 test('loadChatConfig supports explicit Clerk issuer and audience config', () => {
   const config = loadChatConfig({
     LLM_API_BASE: 'https://provider.example',
