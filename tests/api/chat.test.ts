@@ -294,6 +294,32 @@ test('chat handler accepts preview-style relative request URLs for usage snapsho
   assert.equal(response.headers.get('X-Usage-Limit'), '3');
 });
 
+test('chat handler accepts same-origin preview requests even when APP_URL points at production', async () => {
+  const usageStore = new MemoryUsageStore();
+  const handler = createChatHandler(createConfig({
+    appUrl: 'https://ifc-lite.com',
+    allowedOrigins: [],
+  }), {
+    fetchImpl: async () => new Response('unused', { status: 500 }),
+    usageStore,
+    now: () => Date.now(),
+  });
+
+  const response = await handler({
+    method: 'GET',
+    url: '/api/chat?usage=1',
+    headers: {
+      host: 'ifc-lite-preview.vercel.app',
+      origin: 'https://ifc-lite-preview.vercel.app',
+      'x-forwarded-proto': 'https',
+      'x-forwarded-for': '203.0.113.10',
+    },
+  } as unknown as Request);
+
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get('Access-Control-Allow-Origin'), 'https://ifc-lite-preview.vercel.app');
+});
+
 test('chat handler accepts Vercel-style plain-object headers and body for POST requests', async () => {
   const usageStore = new MemoryUsageStore();
   const handler = createChatHandler(createConfig(), {

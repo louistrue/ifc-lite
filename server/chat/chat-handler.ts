@@ -404,6 +404,27 @@ function summarizeUserId(userId: string): string {
 
 export function isOriginAllowed(config: ChatConfig, requestOrigin: string | null, isDev: boolean): boolean {
   if (!requestOrigin) return true;
+  return isOriginAllowedForUrl(config, requestOrigin, config.appUrl, isDev);
+}
+
+function isOriginAllowedForUrl(
+  config: ChatConfig,
+  requestOrigin: string | null,
+  requestUrl: string | URL,
+  isDev: boolean,
+): boolean {
+  if (!requestOrigin) return true;
+
+  try {
+    const requestOriginUrl = new URL(requestOrigin);
+    const targetUrl = new URL(requestUrl);
+    if (requestOriginUrl.origin === targetUrl.origin) {
+      return true;
+    }
+  } catch {
+    return false;
+  }
+
   if (requestOrigin === config.appUrl) return true;
   if (config.allowedOrigins.includes(requestOrigin)) return true;
 
@@ -422,16 +443,26 @@ export function isOriginAllowed(config: ChatConfig, requestOrigin: string | null
   return false;
 }
 
-function getAllowedOrigin(config: ChatConfig, requestOrigin: string | null, isDev: boolean): string {
-  if (requestOrigin && isOriginAllowed(config, requestOrigin, isDev)) {
+function getAllowedOrigin(
+  config: ChatConfig,
+  requestOrigin: string | null,
+  requestUrl: string | URL,
+  isDev: boolean,
+): string {
+  if (requestOrigin && isOriginAllowedForUrl(config, requestOrigin, requestUrl, isDev)) {
     return requestOrigin;
   }
   return config.appUrl;
 }
 
-function getCorsHeaders(config: ChatConfig, requestOrigin: string | null, isDev: boolean): Record<string, string> {
+function getCorsHeaders(
+  config: ChatConfig,
+  requestOrigin: string | null,
+  requestUrl: string | URL,
+  isDev: boolean,
+): Record<string, string> {
   return {
-    'Access-Control-Allow-Origin': getAllowedOrigin(config, requestOrigin, isDev),
+    'Access-Control-Allow-Origin': getAllowedOrigin(config, requestOrigin, requestUrl, isDev),
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     'Access-Control-Expose-Headers': 'X-Credits-Used, X-Credits-Limit, X-Credits-Pct, X-Credits-Reset, X-Credits-Billable, X-Usage-Used, X-Usage-Limit, X-Usage-Pct, X-Usage-Reset',
@@ -443,13 +474,14 @@ function corsResponse(
   config: ChatConfig,
   status: number,
   requestOrigin: string | null,
+  requestUrl: string | URL,
   body?: object,
   extra?: Record<string, string>,
   isDev: boolean = process.env.NODE_ENV !== 'production',
 ): Response {
   return new Response(body ? JSON.stringify(body) : null, {
     status,
-    headers: { ...getCorsHeaders(config, requestOrigin, isDev), 'Content-Type': 'application/json', ...extra },
+    headers: { ...getCorsHeaders(config, requestOrigin, requestUrl, isDev), 'Content-Type': 'application/json', ...extra },
   });
 }
 
@@ -549,18 +581,18 @@ export function createChatHandler(config: ChatConfig, deps: ChatHandlerDeps) {
     const isUsageSnapshotRequest = req.method === 'GET' && url.searchParams.get('usage') === '1';
 
     if (req.method === 'OPTIONS') {
-      if (!isOriginAllowed(config, requestOrigin, isDev)) {
+      if (!isOriginAllowedForUrl(config, requestOrigin, url, isDev)) {
         return new Response(null, { status: 403 });
       }
-      return new Response(null, { status: 200, headers: getCorsHeaders(config, requestOrigin, isDev) });
+      return new Response(null, { status: 200, headers: getCorsHeaders(config, requestOrigin, url, isDev) });
     }
     if (req.method !== 'POST' && !isUsageSnapshotRequest) {
-      return corsResponse(config, 405, requestOrigin, { error: 'Method not allowed' }, undefined, isDev);
+      return corsResponse(config, 405, requestOrigin, url, { error: 'Method not allowed' }, undefined, isDev);
     }
-    if (!isOriginAllowed(config, requestOrigin, isDev)) {
+    if (!isOriginAllowedForUrl(config, requestOrigin, url, isDev)) {
       return new Response(JSON.stringify({ error: 'Origin not allowed', code: 'origin_not_allowed' }), {
         status: 403,
-        headers: { 'Content-Type': 'application/json' },
+        headers: { ...getCorsHeaders(config, requestOrigin, url, isDev), 'Content-Type': 'application/json' },
       });
     }
 
@@ -568,7 +600,7 @@ export function createChatHandler(config: ChatConfig, deps: ChatHandlerDeps) {
     const token = authHeader?.replace(/^Bearer\s+/i, '') || undefined;
     const claims = await verifyToken(token, config, deps.fetchImpl);
     if (token && !claims) {
-      return corsResponse(config, 401, requestOrigin, {
+      return corsResponse(config, 401, requestOrigin, url, {
         error: 'Authentication invalid or expired. Please sign in again.',
         code: 'auth_invalid',
       }, undefined, isDev);
@@ -591,18 +623,19 @@ export function createChatHandler(config: ChatConfig, deps: ChatHandlerDeps) {
           config,
           200,
           requestOrigin,
+          url,
           { usage: snapshot },
           buildUsageHeaders(snapshot),
           isDev,
         );
       } catch (error) {
         if (isTimeoutError(error)) {
-          return corsResponse(config, 504, requestOrigin, {
+          return corsResponse(config, 504, requestOrigin, url, {
             error: 'Usage service timed out while loading your chat quota.',
             code: 'usage_store_timeout',
           }, undefined, isDev);
         }
-        return corsResponse(config, 502, requestOrigin, {
+        return corsResponse(config, 502, requestOrigin, url, {
           error: 'Usage service failed while loading your chat quota.',
           code: 'usage_store_error',
         }, undefined, isDev);
@@ -617,15 +650,15 @@ export function createChatHandler(config: ChatConfig, deps: ChatHandlerDeps) {
     try {
       body = await readJsonBody<typeof body>(req);
     } catch {
-      return corsResponse(config, 400, requestOrigin, { error: 'Invalid JSON body' }, undefined, isDev);
+      return corsResponse(config, 400, requestOrigin, url, { error: 'Invalid JSON body' }, undefined, isDev);
     }
 
     if (!body?.messages || !body?.model) {
-      return corsResponse(config, 400, requestOrigin, { error: 'Missing messages or model' }, undefined, isDev);
+      return corsResponse(config, 400, requestOrigin, url, { error: 'Missing messages or model' }, undefined, isDev);
     }
 
     if (!isAllowedModel(config, body.model)) {
-      return corsResponse(config, 400, requestOrigin, {
+      return corsResponse(config, 400, requestOrigin, url, {
         error: `Model not allowed: ${body.model}. Check LLM_*_MODELS env configuration.`,
         code: 'model_not_allowed',
         model: body.model,
@@ -634,7 +667,7 @@ export function createChatHandler(config: ChatConfig, deps: ChatHandlerDeps) {
     }
 
     if (userTier === 'free' && isPaidModel(config, body.model)) {
-      return corsResponse(config, 403, requestOrigin, {
+      return corsResponse(config, 403, requestOrigin, url, {
         error: 'Upgrade to Pro to use this model',
         code: 'plan_required',
         upgrade: true,
@@ -660,7 +693,7 @@ export function createChatHandler(config: ChatConfig, deps: ChatHandlerDeps) {
         );
         usageSnapshot = consumed.snapshot;
         if (!consumed.allowed) {
-          return corsResponse(config, 429, requestOrigin, {
+          return corsResponse(config, 429, requestOrigin, url, {
             error: 'You\'ve reached your daily limit. Upgrade to Pro for more.',
             type: 'request_cap',
             code: 'quota_exceeded',
@@ -679,7 +712,7 @@ export function createChatHandler(config: ChatConfig, deps: ChatHandlerDeps) {
         );
         usageSnapshot = { ...reserved.snapshot, billable: true };
         if (!reserved.allowed) {
-          return corsResponse(config, 429, requestOrigin, {
+          return corsResponse(config, 429, requestOrigin, url, {
             error: `Monthly credits used up. Need more? Reach out at ${supportEmail}.`,
             type: 'credits',
             code: 'credits_exhausted',
@@ -696,12 +729,12 @@ export function createChatHandler(config: ChatConfig, deps: ChatHandlerDeps) {
       }
     } catch (error) {
       if (isTimeoutError(error)) {
-        return corsResponse(config, 504, requestOrigin, {
+        return corsResponse(config, 504, requestOrigin, url, {
           error: 'Usage service timed out while preparing the request.',
           code: 'usage_store_timeout',
         }, undefined, isDev);
       }
-      return corsResponse(config, 502, requestOrigin, {
+      return corsResponse(config, 502, requestOrigin, url, {
         error: 'Usage service failed while preparing the request.',
         code: 'usage_store_error',
       }, undefined, isDev);
@@ -747,12 +780,12 @@ export function createChatHandler(config: ChatConfig, deps: ChatHandlerDeps) {
     } catch (error) {
       await safeReleaseCredits(deps, userId, reservedCredits, config);
       if (isTimeoutError(error)) {
-        return corsResponse(config, 504, requestOrigin, {
+        return corsResponse(config, 504, requestOrigin, url, {
           error: 'Provider request timed out before a response was received.',
           code: 'provider_timeout',
         }, undefined, isDev);
       }
-      return corsResponse(config, 502, requestOrigin, {
+      return corsResponse(config, 502, requestOrigin, url, {
         error: 'Provider request failed before a response was received.',
         code: 'provider_unreachable',
         providerMessage: error instanceof Error ? error.message : String(error),
@@ -772,7 +805,7 @@ export function createChatHandler(config: ChatConfig, deps: ChatHandlerDeps) {
       }
 
       if (upstream.status === 429) {
-        return corsResponse(config, 429, requestOrigin, {
+        return corsResponse(config, 429, requestOrigin, url, {
           error: `Provider rate limit reached for model ${body.model}. Please retry shortly or switch models.`,
           type: 'provider_rate_limit',
           code: 'provider_rate_limited',
@@ -785,7 +818,7 @@ export function createChatHandler(config: ChatConfig, deps: ChatHandlerDeps) {
         const providerMessage = typeof providerBody === 'object' && providerBody !== null
           ? (providerBody as { error?: { message?: string } }).error?.message
           : undefined;
-        return corsResponse(config, 502, requestOrigin, {
+        return corsResponse(config, 502, requestOrigin, url, {
           error: `Model "${body.model}" is currently unavailable from provider routing.`,
           code: 'provider_model_not_found',
           model: body.model,
@@ -795,7 +828,7 @@ export function createChatHandler(config: ChatConfig, deps: ChatHandlerDeps) {
       }
 
       if (upstream.status === 402) {
-        return corsResponse(config, 502, requestOrigin, {
+        return corsResponse(config, 502, requestOrigin, url, {
           error: 'Service temporarily unavailable. Please try again later.',
         }, undefined, isDev);
       }
@@ -804,7 +837,7 @@ export function createChatHandler(config: ChatConfig, deps: ChatHandlerDeps) {
         ? (providerBody as { error?: { message?: string } }).error?.message
         : undefined;
 
-      return corsResponse(config, upstream.status, requestOrigin, {
+      return corsResponse(config, upstream.status, requestOrigin, url, {
         error: `Request failed (${upstream.status}) for model ${body.model}.`,
         code: 'provider_error',
         model: body.model,
@@ -815,7 +848,7 @@ export function createChatHandler(config: ChatConfig, deps: ChatHandlerDeps) {
 
     if (!upstream.body) {
       await safeReleaseCredits(deps, userId, reservedCredits, config);
-      return corsResponse(config, 502, requestOrigin, { error: 'No response body' }, undefined, isDev);
+      return corsResponse(config, 502, requestOrigin, url, { error: 'No response body' }, undefined, isDev);
     }
 
     const finalUsageSnapshot = { ...usageSnapshot, billable: billableRequest };
@@ -852,7 +885,7 @@ export function createChatHandler(config: ChatConfig, deps: ChatHandlerDeps) {
     return new Response(readable, {
       status: 200,
       headers: {
-        ...getCorsHeaders(config, requestOrigin, isDev),
+        ...getCorsHeaders(config, requestOrigin, url, isDev),
         ...usageHeaders,
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
