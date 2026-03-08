@@ -7,6 +7,9 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import type { LLMModel } from './types.js';
 
+const viewerEnvUrl = new URL('../../../.env.local', import.meta.url);
+const VERIFY_OPENROUTER_MODELS = process.env.IFC_LITE_VERIFY_OPENROUTER_MODELS === '1';
+
 function parseEnvValue(envText: string, key: string): string {
   const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const match = envText.match(new RegExp(`^${escapedKey}=(.*)$`, 'm'));
@@ -21,10 +24,27 @@ function parseCsvList(raw: string): string[] {
     .filter(Boolean);
 }
 
-test('registry free models match configured env list', async () => {
-  const envText = await readFile('.env.local', 'utf8');
-  const configuredFreeModels = parseCsvList(parseEnvValue(envText, 'VITE_LLM_FREE_MODELS'));
-  assert.ok(configuredFreeModels.length > 0, 'VITE_LLM_FREE_MODELS must define at least one model');
+async function readConfiguredFreeModels(): Promise<string[] | null> {
+  const envOverride = process.env.VITE_LLM_FREE_MODELS ?? process.env.LLM_FREE_MODELS;
+  if (typeof envOverride === 'string' && envOverride.trim().length > 0) {
+    return parseCsvList(envOverride);
+  }
+
+  try {
+    const envText = await readFile(viewerEnvUrl, 'utf8');
+    const configuredFreeModels = parseCsvList(parseEnvValue(envText, 'VITE_LLM_FREE_MODELS'));
+    return configuredFreeModels.length > 0 ? configuredFreeModels : null;
+  } catch {
+    return null;
+  }
+}
+
+test('registry free models match configured env list', async (t) => {
+  const configuredFreeModels = await readConfiguredFreeModels();
+  if (!configuredFreeModels) {
+    t.skip('Viewer LLM env is not configured in this environment.');
+    return;
+  }
 
   process.env.VITE_LLM_FREE_MODELS = configuredFreeModels.join(',');
   process.env.VITE_LLM_PRO_MODELS_LOW = '';
@@ -61,10 +81,17 @@ test('model capabilities follow override env lists', async () => {
   assert.equal(devstral.supportsFileAttachments, false);
 });
 
-test('each configured free model exists in OpenRouter catalog', async () => {
-  const envText = await readFile('.env.local', 'utf8');
-  const configuredFreeModels = parseCsvList(parseEnvValue(envText, 'VITE_LLM_FREE_MODELS'));
-  assert.ok(configuredFreeModels.length > 0, 'VITE_LLM_FREE_MODELS must define at least one model');
+test('each configured free model exists in OpenRouter catalog', async (t) => {
+  if (!VERIFY_OPENROUTER_MODELS) {
+    t.skip('Set IFC_LITE_VERIFY_OPENROUTER_MODELS=1 to run the live OpenRouter catalog check.');
+    return;
+  }
+
+  const configuredFreeModels = await readConfiguredFreeModels();
+  if (!configuredFreeModels) {
+    t.skip('Viewer LLM env is not configured in this environment.');
+    return;
+  }
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 10_000);
