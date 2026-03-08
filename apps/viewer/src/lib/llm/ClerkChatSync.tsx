@@ -15,6 +15,7 @@ export function ClerkChatSync() {
   const setChatAuthToken = useViewerStore((s) => s.setChatAuthToken);
   const switchChatUserContext = useViewerStore((s) => s.switchChatUserContext);
   const currentChatUserId = useViewerStore((s) => s.chatStorageUserId);
+  const currentChatHasPro = useViewerStore((s) => s.chatHasPro);
 
   useEffect(() => {
     if (!isLoaded) return;
@@ -37,19 +38,23 @@ export function ClerkChatSync() {
         const proFeature = has?.({ feature: 'pro_models' }) ?? false;
         const nextHasPro = proPlan || proFeature;
         if (!cancelled) {
-          switchChatUserContext(userId ?? null, nextHasPro, {
-            clearPersistedCurrent: currentChatUserId !== null && currentChatUserId !== userId,
-            restoreMessages: true,
-          });
-          setChatAuthToken(token ?? null);
+          // Avoid resetting chat usage/messages on routine token refreshes for
+          // the same signed-in user. Only switch context when identity or
+          // entitlement actually changes.
+          if (currentChatUserId !== (userId ?? null) || currentChatHasPro !== nextHasPro) {
+            switchChatUserContext(userId ?? null, nextHasPro, {
+              clearPersistedCurrent: currentChatUserId !== null && currentChatUserId !== userId,
+              restoreMessages: true,
+            });
+          }
+          if (token) {
+            setChatAuthToken(token);
+          }
         }
       } catch {
         if (!cancelled) {
-          switchChatUserContext(userId ?? null, false, {
-            clearPersistedCurrent: currentChatUserId !== null && currentChatUserId !== userId,
-            restoreMessages: true,
-          });
-          setChatAuthToken(null);
+          // Preserve the current signed-in chat context on transient token
+          // refresh failures. Explicit sign-out is handled above.
         }
       }
     };
@@ -63,7 +68,7 @@ export function ClerkChatSync() {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [currentChatUserId, getToken, has, isLoaded, isSignedIn, setChatAuthToken, switchChatUserContext, userId]);
+  }, [currentChatHasPro, currentChatUserId, getToken, has, isLoaded, isSignedIn, setChatAuthToken, switchChatUserContext, userId]);
 
   return null;
 }
