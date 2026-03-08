@@ -1,5 +1,12 @@
 # @ifc-lite/embed-sdk
 
+## 1.14.2
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @ifc-lite/embed-protocol@1.14.2
+
 ## 1.14.1
 
 ### Patch Changes

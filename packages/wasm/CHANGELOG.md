@@ -1,5 +1,7 @@
 # @ifc-lite/wasm
 
+## 1.14.2
+
 ## 1.14.1
 
 ### Patch Changes
