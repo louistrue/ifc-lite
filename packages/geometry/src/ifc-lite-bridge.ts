@@ -12,6 +12,8 @@ import init, { IfcAPI, MeshCollection, MeshDataJs, InstancedMeshCollection, Inst
 export type { MeshCollection, MeshDataJs, InstancedMeshCollection, InstancedGeometry, InstanceData, SymbolicRepresentationCollection, SymbolicPolyline, SymbolicCircle };
 
 const log = createLogger('Geometry');
+const FATAL_WASM_RELOAD_REQUIRED_MESSAGE = 'IFC-Lite WASM cannot recover from a fatal runtime error within the same document lifetime. Reload the page or recreate the worker process before calling init() again.';
+let fatalWasmRuntimeError: Error | null = null;
 
 export interface StreamingProgress {
   percent: number;
@@ -53,12 +55,20 @@ export class IfcLiteBridge {
     return error instanceof WebAssembly.RuntimeError;
   }
 
+  private markFatalWasmRuntimeError(): void {
+    fatalWasmRuntimeError = new Error(FATAL_WASM_RELOAD_REQUIRED_MESSAGE);
+    this.reset();
+  }
+
   /**
    * Initialize IFC-Lite WASM
    * The WASM binary is automatically resolved from the same location as the JS module
    */
   async init(): Promise<void> {
     if (this.initialized) return;
+    if (fatalWasmRuntimeError) {
+      throw fatalWasmRuntimeError;
+    }
 
     try {
       // Initialize WASM module - wasm-bindgen automatically resolves the WASM URL
@@ -72,14 +82,18 @@ export class IfcLiteBridge {
       log.error('Failed to initialize WASM geometry engine', error, {
         operation: 'init',
       });
-      // Reset state so re-initialization can be attempted.
-      this.reset();
+      if (this.isWasmRuntimeError(error)) {
+        this.markFatalWasmRuntimeError();
+      } else {
+        this.reset();
+      }
       throw error;
     }
   }
 
   /**
-   * Reset WASM state after a crash. Allows re-initialization.
+   * Reset the JS wrapper state.
+   * This does not reload wasm-bindgen's module singleton after a fatal WASM panic.
    */
   reset(): void {
     this.initialized = false;
@@ -103,9 +117,8 @@ export class IfcLiteBridge {
         operation: 'parseMeshes',
         data: { contentLength: content.length },
       });
-      // WASM panics corrupt module state - reset so next attempt re-initializes
       if (this.isWasmRuntimeError(error)) {
-        this.reset();
+        this.markFatalWasmRuntimeError();
       }
       throw error;
     }
@@ -130,7 +143,7 @@ export class IfcLiteBridge {
         data: { contentLength: content.length },
       });
       if (this.isWasmRuntimeError(error)) {
-        this.reset();
+        this.markFatalWasmRuntimeError();
       }
       throw error;
     }
@@ -153,7 +166,7 @@ export class IfcLiteBridge {
         data: { contentLength: content.length },
       });
       if (this.isWasmRuntimeError(error)) {
-        this.reset();
+        this.markFatalWasmRuntimeError();
       }
       throw error;
     }
@@ -177,7 +190,7 @@ export class IfcLiteBridge {
         data: { contentLength: content.length },
       });
       if (this.isWasmRuntimeError(error)) {
-        this.reset();
+        this.markFatalWasmRuntimeError();
       }
       throw error;
     }
@@ -201,7 +214,7 @@ export class IfcLiteBridge {
         data: { contentLength: content.length },
       });
       if (this.isWasmRuntimeError(error)) {
-        this.reset();
+        this.markFatalWasmRuntimeError();
       }
       throw error;
     }

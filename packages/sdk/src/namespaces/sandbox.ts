@@ -90,7 +90,7 @@ function isTransportBackedContext(bimContext: unknown): boolean {
 export class SandboxNamespace {
   private bimContext: unknown;
   private activeSandbox: unknown | null = null;
-  private evalInProgress = false;
+  private lifecycleQueue: Promise<void> = Promise.resolve();
 
   constructor(bimContext?: unknown) {
     this.bimContext = bimContext ?? null;
@@ -100,6 +100,24 @@ export class SandboxNamespace {
     if (isTransportBackedContext(this.bimContext)) {
       throw new Error('bim.sandbox is not supported for transport-backed contexts. Use a local backend context instead.');
     }
+  }
+
+  private runLifecycleOperation<T>(operation: () => Promise<T>): Promise<T> {
+    const result = this.lifecycleQueue.then(operation, operation);
+    this.lifecycleQueue = result.then(() => undefined, () => undefined);
+    return result;
+  }
+
+  private async createSandboxInstance(config?: SandboxConfig): Promise<unknown> {
+    const mod = await loadSandbox();
+    return (mod.createSandbox as AnyFn)(this.bimContext, config);
+  }
+
+  private disposeActiveSandbox(): void {
+    if (!this.activeSandbox) return;
+    const sandbox = this.activeSandbox as { dispose: () => void };
+    this.activeSandbox = null;
+    sandbox.dispose();
   }
 
   // --------------------------------------------------------------------------
@@ -116,11 +134,13 @@ export class SandboxNamespace {
    * @returns The sandbox instance (call dispose() when done)
    */
   async create(config?: SandboxConfig): Promise<unknown> {
-    this.assertSupported();
-    const mod = await loadSandbox();
-    const sandbox = await (mod.createSandbox as AnyFn)(this.bimContext, config);
-    this.activeSandbox = sandbox;
-    return sandbox;
+    return this.runLifecycleOperation(async () => {
+      this.assertSupported();
+      this.disposeActiveSandbox();
+      const sandbox = await this.createSandboxInstance(config);
+      this.activeSandbox = sandbox;
+      return sandbox;
+    });
   }
 
   /**
@@ -128,17 +148,14 @@ export class SandboxNamespace {
    * Creates a sandbox if none exists yet.
    */
   async eval(script: string, config?: SandboxConfig): Promise<ScriptResult> {
-    this.assertSupported();
-    if (!this.activeSandbox) {
-      await this.create(config);
-    }
-    const sandbox = this.activeSandbox as { eval: (s: string) => Promise<ScriptResult> };
-    this.evalInProgress = true;
-    try {
-      return await sandbox.eval(script);
-    } finally {
-      this.evalInProgress = false;
-    }
+    return this.runLifecycleOperation(async () => {
+      this.assertSupported();
+      if (!this.activeSandbox) {
+        this.activeSandbox = await this.createSandboxInstance(config);
+      }
+      const sandbox = this.activeSandbox as { eval: (s: string) => Promise<ScriptResult> };
+      return sandbox.eval(script);
+    });
   }
 
   /**
@@ -153,14 +170,9 @@ export class SandboxNamespace {
 
   /** Dispose the active sandbox and free WASM resources. */
   async dispose(): Promise<void> {
-    if (this.evalInProgress) {
-      throw new Error('Cannot dispose sandbox while eval() is in progress');
-    }
-    if (this.activeSandbox) {
-      const sandbox = this.activeSandbox as { dispose: () => void };
-      this.activeSandbox = null;
-      sandbox.dispose();
-    }
+    return this.runLifecycleOperation(async () => {
+      this.disposeActiveSandbox();
+    });
   }
 
   // --------------------------------------------------------------------------

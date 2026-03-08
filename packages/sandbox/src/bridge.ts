@@ -19,7 +19,7 @@ import type { QuickJSContext, QuickJSHandle } from 'quickjs-emscripten';
 import type { BimContext } from '@ifc-lite/sdk';
 import type { SandboxPermissions, LogEntry } from './types.js';
 import { DEFAULT_PERMISSIONS } from './types.js';
-import { buildSchemaNamespaces } from './bridge-schema.js';
+import { buildSchemaNamespaces, disposeSchemaNamespaceSession, type BridgeCallContext } from './bridge-schema.js';
 
 /**
  * Build the `bim` API object inside the QuickJS VM.
@@ -29,7 +29,8 @@ export function buildBridge(
   vm: QuickJSContext,
   sdk: BimContext,
   permissions: SandboxPermissions = {},
-): { logs: LogEntry[] } {
+  context: BridgeCallContext,
+): { logs: LogEntry[]; dispose: () => void } {
   const perms = { ...DEFAULT_PERMISSIONS, ...permissions } as Required<SandboxPermissions>;
   const logs: LogEntry[] = [];
 
@@ -40,12 +41,17 @@ export function buildBridge(
   const bimHandle = vm.newObject();
 
   // All namespaces are schema-driven (model, query, viewer, mutate, lens, export)
-  buildSchemaNamespaces(vm, bimHandle, sdk, perms);
+  buildSchemaNamespaces(vm, bimHandle, sdk, perms, context);
 
   vm.setProp(vm.global, 'bim', bimHandle);
   bimHandle.dispose();
 
-  return { logs };
+  return {
+    logs,
+    dispose: () => {
+      disposeSchemaNamespaceSession(context);
+    },
+  };
 }
 
 // ── Console ──────────────────────────────────────────────────

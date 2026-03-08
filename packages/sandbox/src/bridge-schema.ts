@@ -26,21 +26,45 @@ import type { SandboxPermissions } from './types.js';
 
 /** Simple registry for IfcCreator instances managed by the sandbox */
 const creatorRegistry = (() => {
-  let nextHandle = 1;
-  const creators = new Map<number, IfcCreator>();
+  const nextHandleBySession = new Map<string, number>();
+  const creatorsBySession = new Map<string, Map<number, IfcCreator>>();
+
+  function getSessionCreators(sessionId: string): Map<number, IfcCreator> {
+    let sessionCreators = creatorsBySession.get(sessionId);
+    if (!sessionCreators) {
+      sessionCreators = new Map<number, IfcCreator>();
+      creatorsBySession.set(sessionId, sessionCreators);
+    }
+    return sessionCreators;
+  }
+
   return {
-    register(creator: IfcCreator): number {
-      const handle = nextHandle++;
-      creators.set(handle, creator);
+    registerForSession(sessionId: string, creator: IfcCreator): number {
+      const handle = nextHandleBySession.get(sessionId) ?? 1;
+      nextHandleBySession.set(sessionId, handle + 1);
+      getSessionCreators(sessionId).set(handle, creator);
       return handle;
     },
-    get(handle: number): IfcCreator {
-      const creator = creators.get(handle);
+
+    getForSession(sessionId: string, handle: number): IfcCreator {
+      const creator = creatorsBySession.get(sessionId)?.get(handle);
       if (!creator) throw new Error(`Invalid creator handle: ${handle}`);
       return creator;
     },
-    remove(handle: number): void {
-      creators.delete(handle);
+
+    removeForSession(sessionId: string, handle: number): void {
+      const sessionCreators = creatorsBySession.get(sessionId);
+      if (!sessionCreators) return;
+      sessionCreators.delete(handle);
+      if (sessionCreators.size === 0) {
+        creatorsBySession.delete(sessionId);
+        nextHandleBySession.delete(sessionId);
+      }
+    },
+
+    removeSession(sessionId: string): void {
+      creatorsBySession.delete(sessionId);
+      nextHandleBySession.delete(sessionId);
     },
   };
 })();
@@ -119,7 +143,7 @@ export interface MethodSchema {
   /** TypeScript return type for generated declarations (default: inferred from returns) */
   tsReturn?: string;
   /** Execute the SDK call and return a native JS value */
-  call: (sdk: BimContext, args: unknown[]) => unknown;
+  call: (sdk: BimContext, args: unknown[], context: BridgeCallContext) => unknown;
   /** How to marshal the return value */
   returns: ReturnType;
   /** Shared semantic contract for prompts, validation, and repair hints */
@@ -135,6 +159,10 @@ export interface NamespaceSchema {
   permission: keyof SandboxPermissions;
   /** Methods in this namespace */
   methods: MethodSchema[];
+}
+
+export interface BridgeCallContext {
+  sandboxSessionId: string;
 }
 
 // ============================================================================
@@ -205,10 +233,11 @@ function mapNamedProperties(
  * Patterns (all prepend a `handle` arg for the creator registry):
  *   'storey-params'  — (storeyId: number, params: object) → number
  *   'element-params' — (elementId: number, params: object) → number | void
+ *   'single-dump'    — (params: object) → number
  *   'no-args'        — () → value  (e.g. getWorldPlacementId)
  *   'special'        — handled individually (project, toIfc, setColor)
  */
-type MethodPattern = 'storey-params' | 'element-params' | 'no-args' | 'special';
+type MethodPattern = 'storey-params' | 'element-params' | 'single-dump' | 'no-args' | 'special';
 
 /** Methods with non-standard signatures that need hand-written wiring */
 const SPECIAL_METHODS = new Set([
@@ -243,7 +272,13 @@ const ALLOWED_METHODS = new Set([
 
 /** Methods that take (elementId, def) instead of (storeyId, params) */
 const ELEMENT_METHODS = new Set([
+  'addIfcWallDoor', 'addIfcWallWindow',
   'addIfcPropertySet', 'addIfcElementQuantity', 'addIfcMaterial',
+]);
+
+/** Methods that take a single params object after the handle */
+const SINGLE_DUMP_METHODS = new Set([
+  'createProfile',
 ]);
 
 /** Methods with zero args (just need the handle) */
@@ -254,6 +289,7 @@ const ZERO_ARG_METHODS = new Set([
 function classifyMethod(name: string, _fn: Function): MethodPattern {
   if (SPECIAL_METHODS.has(name)) return 'special';
   if (ZERO_ARG_METHODS.has(name)) return 'no-args';
+  if (SINGLE_DUMP_METHODS.has(name)) return 'single-dump';
   if (ELEMENT_METHODS.has(name)) return 'element-params';
   return 'storey-params';
 }
@@ -537,10 +573,10 @@ function buildCreateMethods(): MethodSchema[] {
     paramNames: ['params'],
     tsParamTypes: ['{ Name?: string; Description?: string; Schema?: string; LengthUnit?: string; Author?: string; Organization?: string }'],
     tsReturn: 'number',
-    call: (_sdk, args) => {
+    call: (_sdk, args, context) => {
       const params = (args[0] ?? {}) as Record<string, unknown>;
       const creator = new IfcCreator(params as any);
-      return creatorRegistry.register(creator);
+      return creatorRegistry.registerForSession(context.sandboxSessionId, creator);
     },
     returns: 'value',
     llmSemantics: CREATE_METHOD_SEMANTICS.project,
@@ -553,13 +589,13 @@ function buildCreateMethods(): MethodSchema[] {
     args: ['number'],
     paramNames: ['handle'],
     tsReturn: '{ content: string; entities: Array<{ expressId: number; type: string; Name?: string }>; stats: { entityCount: number; fileSize: number } }',
-    call: (_sdk, args) => {
+    call: (_sdk, args, context) => {
       const handle = args[0] as number;
       try {
-        const creator = creatorRegistry.get(handle);
+        const creator = creatorRegistry.getForSession(context.sandboxSessionId, handle);
         return creator.toIfc();
       } finally {
-        creatorRegistry.remove(handle);
+        creatorRegistry.removeForSession(context.sandboxSessionId, handle);
       }
     },
     returns: 'value',
@@ -573,8 +609,8 @@ function buildCreateMethods(): MethodSchema[] {
     args: ['number', 'number', 'string', 'dump'],
     paramNames: ['handle', 'elementId', 'name', 'rgb'],
     tsReturn: 'void',
-    call: (_sdk, args) => {
-      const creator = creatorRegistry.get(args[0] as number);
+    call: (_sdk, args, context) => {
+      const creator = creatorRegistry.getForSession(context.sandboxSessionId, args[0] as number);
       creator.setColor(args[1] as number, args[2] as string, args[3] as [number, number, number]);
     },
     returns: 'void',
@@ -601,8 +637,8 @@ function buildCreateMethods(): MethodSchema[] {
             args: ['number', 'dump'],
             paramNames: ['handle', 'params'],
             tsReturn: 'number',
-            call: (_sdk, args) => {
-              const creator = creatorRegistry.get(args[0] as number);
+            call: (_sdk, args, context) => {
+              const creator = creatorRegistry.getForSession(context.sandboxSessionId, args[0] as number);
               return (creator as any)[name](args[1]);
             },
             returns: 'value',
@@ -616,8 +652,8 @@ function buildCreateMethods(): MethodSchema[] {
             args: ['number', 'number', 'dump'],
             paramNames: ['handle', 'storeyId', 'params'],
             tsReturn: 'number',
-            call: (_sdk, args) => {
-              const creator = creatorRegistry.get(args[0] as number);
+            call: (_sdk, args, context) => {
+              const creator = creatorRegistry.getForSession(context.sandboxSessionId, args[0] as number);
               return (creator as any)[name](args[1], args[2]);
             },
             returns: 'value',
@@ -634,11 +670,27 @@ function buildCreateMethods(): MethodSchema[] {
           args: ['number', 'number', 'dump'],
           paramNames: ['handle', name === 'addIfcWallDoor' || name === 'addIfcWallWindow' ? 'wallId' : 'elementId', 'params'],
           tsReturn: name === 'addIfcMaterial' ? 'void' : 'number',
-          call: (_sdk, args) => {
-            const creator = creatorRegistry.get(args[0] as number);
+          call: (_sdk, args, context) => {
+            const creator = creatorRegistry.getForSession(context.sandboxSessionId, args[0] as number);
             return (creator as any)[name](args[1], args[2]);
           },
           returns: name === 'addIfcMaterial' ? 'void' : 'value',
+          llmSemantics: CREATE_METHOD_SEMANTICS[name],
+        });
+        break;
+
+      case 'single-dump':
+        methods.push({
+          name,
+          doc: methodDoc(name),
+          args: ['number', 'dump'],
+          paramNames: ['handle', 'profile'],
+          tsReturn: 'number',
+          call: (_sdk, args, context) => {
+            const creator = creatorRegistry.getForSession(context.sandboxSessionId, args[0] as number);
+            return (creator as any)[name](args[1]);
+          },
+          returns: 'value',
           llmSemantics: CREATE_METHOD_SEMANTICS[name],
         });
         break;
@@ -650,8 +702,8 @@ function buildCreateMethods(): MethodSchema[] {
           args: ['number'],
           paramNames: ['handle'],
           tsReturn: 'number',
-          call: (_sdk, args) => {
-            const creator = creatorRegistry.get(args[0] as number);
+          call: (_sdk, args, context) => {
+            const creator = creatorRegistry.getForSession(context.sandboxSessionId, args[0] as number);
             return (creator as any)[name]();
           },
           returns: 'value',
@@ -1469,10 +1521,11 @@ export function buildSchemaNamespaces(
   bimHandle: QuickJSHandle,
   sdk: BimContext,
   permissions: Required<SandboxPermissions>,
+  context: BridgeCallContext,
 ): void {
   for (const schema of NAMESPACE_SCHEMAS) {
     if (!permissions[schema.permission]) continue;
-    buildNamespace(vm, bimHandle, sdk, schema);
+    buildNamespace(vm, bimHandle, sdk, schema, context);
   }
 }
 
@@ -1481,6 +1534,7 @@ function buildNamespace(
   bimHandle: QuickJSHandle,
   sdk: BimContext,
   schema: NamespaceSchema,
+  context: BridgeCallContext,
 ): void {
   const nsHandle = vm.newObject();
 
@@ -1490,7 +1544,7 @@ function buildNamespace(
       const nativeArgs = unmarshalArgs(vm, handles, method.args);
 
       // Call the SDK
-      const result = method.call(sdk, nativeArgs);
+      const result = method.call(sdk, nativeArgs, context);
 
       // Marshal return value
       return marshalReturn(vm, result, method.returns);
@@ -1501,6 +1555,10 @@ function buildNamespace(
 
   vm.setProp(bimHandle, schema.name, nsHandle);
   nsHandle.dispose();
+}
+
+export function disposeSchemaNamespaceSession(context: BridgeCallContext): void {
+  creatorRegistry.removeSession(context.sandboxSessionId);
 }
 
 /** Unmarshal QuickJS handles to native JS values based on arg schema */
