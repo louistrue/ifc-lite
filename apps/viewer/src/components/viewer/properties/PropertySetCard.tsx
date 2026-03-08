@@ -7,7 +7,7 @@
  */
 
 import { Sparkles, PenLine, Building2 } from 'lucide-react';
-import { PropertyEditor } from '../PropertyEditor';
+import { PropertyEditor, type PropertyEditScope } from '../PropertyEditor';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Badge } from '@/components/ui/badge';
@@ -21,9 +21,10 @@ export interface PropertySetCardProps {
   enableEditing?: boolean;
   /** Whether this property set is inherited from the type entity */
   isTypeProperty?: boolean;
+  typeEditScope?: PropertyEditScope;
 }
 
-export function PropertySetCard({ pset, modelId, entityId, enableEditing, isTypeProperty }: PropertySetCardProps) {
+export function PropertySetCard({ pset, modelId, entityId, enableEditing, isTypeProperty, typeEditScope }: PropertySetCardProps) {
   // Check if any property in this set is mutated
   const hasMutations = pset.properties.some(p => p.isMutated);
   const isNewPset = pset.isNewPset;
@@ -129,6 +130,7 @@ export function PropertySetCard({ pset, modelId, entityId, enableEditing, isType
                       psetName={pset.name}
                       propName={prop.name}
                       currentValue={prop.value}
+                      editScope={typeEditScope}
                     />
                   ) : (
                     <span className={`font-mono select-all break-words ${isMutated ? 'text-purple-900 dark:text-purple-100 font-semibold' : 'text-zinc-900 dark:text-zinc-100'}`}>
