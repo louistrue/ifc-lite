@@ -429,6 +429,13 @@ async function hashValue(value: string): Promise<string> {
   return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
+function getRequestUrl(req: Request, config: ChatConfig): URL {
+  const host = req.headers.get('x-forwarded-host') ?? req.headers.get('host');
+  const proto = req.headers.get('x-forwarded-proto') ?? 'https';
+  const fallbackBase = host ? `${proto}://${host}` : config.appUrl;
+  return new URL(req.url, fallbackBase);
+}
+
 export async function getAnonymousUserId(req: Request): Promise<string> {
   const forwarded = req.headers.get('x-forwarded-for') ?? req.headers.get('x-real-ip') ?? req.headers.get('cf-connecting-ip');
   const ip = forwarded?.split(',')[0]?.trim();
@@ -440,7 +447,7 @@ export async function getAnonymousUserId(req: Request): Promise<string> {
 export function createChatHandler(config: ChatConfig, deps: ChatHandlerDeps) {
   return async function handler(req: Request): Promise<Response> {
     const supportEmail = 'louis@ltplus.com';
-    const url = new URL(req.url);
+    const url = getRequestUrl(req, config);
     const requestOrigin = req.headers.get('origin');
     const isDev = process.env.NODE_ENV !== 'production';
     const isUsageSnapshotRequest = req.method === 'GET' && url.searchParams.get('usage') === '1';

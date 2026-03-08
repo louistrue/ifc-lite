@@ -222,6 +222,31 @@ test('anonymous usage is isolated per forwarded IP fingerprint', async () => {
   assert.notEqual(anonIds[0], anonIds[1]);
 });
 
+test('chat handler accepts preview-style relative request URLs for usage snapshots', async () => {
+  const usageStore = new MemoryUsageStore();
+  const handler = createChatHandler(createConfig(), {
+    fetchImpl: async () => new Response('unused', { status: 500 }),
+    usageStore,
+    now: () => Date.now(),
+  });
+
+  const request = {
+    method: 'GET',
+    url: '/api/chat?usage=1',
+    headers: new Headers({
+      host: 'preview.example',
+      'x-forwarded-proto': 'https',
+      origin: 'https://app.example',
+      'x-forwarded-for': '203.0.113.10',
+    }),
+  } as Request;
+
+  const response = await handler(request);
+
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get('X-Usage-Limit'), '3');
+});
+
 test('loadChatConfig supports explicit Clerk issuer and audience config', () => {
   const config = loadChatConfig({
     LLM_API_BASE: 'https://provider.example',
