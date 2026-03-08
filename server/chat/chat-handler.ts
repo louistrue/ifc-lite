@@ -316,8 +316,13 @@ function areClaimsAllowed(
   requestOrigin?: string | null,
   requestUrl?: string | URL,
 ): boolean {
-  if (config.clerkAllowedIssuers.size === 0) return false;
-  if (!claims.iss || !config.clerkAllowedIssuers.has(normalizeIssuer(claims.iss))) return false;
+  // When a pinned public key is configured, signature verification is already
+  // bound to this Clerk instance, so issuer allowlisting remains optional.
+  if (config.clerkAllowedIssuers.size > 0) {
+    if (!claims.iss || !config.clerkAllowedIssuers.has(normalizeIssuer(claims.iss))) return false;
+  } else if (!config.clerkJwtKey) {
+    return false;
+  }
   if (!matchesExpectedAudience(claims, config)) return false;
   if (!matchesExpectedAuthorizedParty(claims, config, requestOrigin, requestUrl)) return false;
   return true;

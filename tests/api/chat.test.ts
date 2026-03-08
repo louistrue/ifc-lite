@@ -198,6 +198,32 @@ test('verifyToken accepts preview authorized parties when azp matches the same-o
   assert.equal(claims?.sub, 'user_123');
 });
 
+test('verifyToken accepts valid signed tokens when only CLERK_JWT_KEY is configured', async () => {
+  const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
+  const publicPem = publicKey.export({ type: 'spki', format: 'pem' }).toString();
+  const privatePem = privateKey.export({ type: 'pkcs8', format: 'pem' }).toString();
+  const token = createJwt({
+    sub: 'user_123',
+    iss: 'https://delicate-rooster-48.clerk.accounts.dev',
+    azp: 'https://ifc-lite-gmp7k6jeg-louistrues-projects.vercel.app',
+    exp: Math.ceil(Date.now() / 1000) + 3600,
+    plan: 'pro',
+  }, privatePem);
+
+  const claims = await verifyToken(
+    token,
+    createConfig({
+      clerkJwtKey: publicPem,
+      clerkAllowedIssuers: new Set(),
+    }),
+    fetch,
+    'https://ifc-lite-gmp7k6jeg-louistrues-projects.vercel.app',
+    'https://ifc-lite-gmp7k6jeg-louistrues-projects.vercel.app/api/chat?usage=1',
+  );
+
+  assert.equal(claims?.sub, 'user_123');
+});
+
 test('chat handler rejects disallowed origins before provider work begins', async () => {
   const usageStore = new MemoryUsageStore();
   let fetchCalls = 0;
@@ -345,6 +371,47 @@ test('chat handler accepts same-origin preview requests even when APP_URL points
 
   assert.equal(response.status, 200);
   assert.equal(response.headers.get('Access-Control-Allow-Origin'), 'https://ifc-lite-preview.vercel.app');
+});
+
+test('chat handler accepts signed preview usage requests with only CLERK_JWT_KEY configured', async () => {
+  const usageStore = new MemoryUsageStore();
+  const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
+  const publicPem = publicKey.export({ type: 'spki', format: 'pem' }).toString();
+  const privatePem = privateKey.export({ type: 'pkcs8', format: 'pem' }).toString();
+  const previewOrigin = 'https://ifc-lite-gmp7k6jeg-louistrues-projects.vercel.app';
+  const token = createJwt({
+    sub: 'user_123',
+    iss: 'https://delicate-rooster-48.clerk.accounts.dev',
+    azp: previewOrigin,
+    exp: Math.ceil(Date.now() / 1000) + 3600,
+    plan: 'pro',
+  }, privatePem);
+
+  const handler = createChatHandler(createConfig({
+    appUrl: 'https://ifc-lite.com',
+    clerkJwtKey: publicPem,
+    clerkAllowedIssuers: new Set(),
+    clerkAuthorizedParties: new Set(['https://ifc-lite.com']),
+  }), {
+    fetchImpl: async () => new Response('unused', { status: 500 }),
+    usageStore,
+    now: () => Date.now(),
+  });
+
+  const response = await handler({
+    method: 'GET',
+    url: '/api/chat?usage=1',
+    headers: {
+      host: 'ifc-lite-gmp7k6jeg-louistrues-projects.vercel.app',
+      origin: previewOrigin,
+      authorization: `Bearer ${token}`,
+      'x-forwarded-proto': 'https',
+    },
+  } as unknown as Request);
+
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get('Access-Control-Allow-Origin'), previewOrigin);
+  assert.equal(response.headers.get('X-Credits-Limit'), '10');
 });
 
 test('chat handler accepts Vercel-style plain-object headers and body for POST requests', async () => {
