@@ -15,7 +15,7 @@ import {
   type UsageReservationResult,
   type UsageSnapshot,
   type UsageTier,
-} from './chat-handler.js';
+} from '../../server/chat/chat-handler.js';
 
 function createConfig(overrides: Partial<ChatConfig> = {}): ChatConfig {
   return {
@@ -35,6 +35,18 @@ function createConfig(overrides: Partial<ChatConfig> = {}): ChatConfig {
     clerkAuthorizedParties: new Set(),
     ...overrides,
   };
+}
+
+function createSseResponse(chunk: string = 'ok'): Response {
+  return new Response(new ReadableStream({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode(`data: {"choices":[{"delta":{"content":"${chunk}"}}]}\n\n`));
+      controller.close();
+    },
+  }), {
+    status: 200,
+    headers: { 'Content-Type': 'text/event-stream' },
+  });
 }
 
 class MemoryUsageStore implements ChatUsageStore {
@@ -81,6 +93,49 @@ class MemoryUsageStore implements ChatUsageStore {
     const entry = this.ensure(userId);
     entry.pro = Math.max(0, entry.pro - credits);
     this.releasedCredits += credits;
+  }
+}
+
+class SingleReadUsageStore implements ChatUsageStore {
+  snapshotReads = 0;
+
+  async getUsageSnapshot(): Promise<UsageSnapshot> {
+    this.snapshotReads += 1;
+    if (this.snapshotReads > 1) {
+      throw new Error('unexpected post-stream usage lookup');
+    }
+    return { type: 'requests', used: 0, limit: 3, pct: 0, resetAt: 1_700_000_000 };
+  }
+
+  async consumeFreeRequest(): Promise<UsageReservationResult> {
+    return {
+      allowed: true,
+      snapshot: { type: 'requests', used: 1, limit: 3, pct: 33, resetAt: 1_700_000_000 },
+    };
+  }
+
+  async reserveProCredits(): Promise<UsageReservationResult> {
+    throw new Error('not used');
+  }
+
+  async releaseProCredits(): Promise<void> {}
+}
+
+class HangingUsageStore implements ChatUsageStore {
+  async getUsageSnapshot(): Promise<UsageSnapshot> {
+    return await new Promise<UsageSnapshot>(() => {});
+  }
+
+  async consumeFreeRequest(): Promise<UsageReservationResult> {
+    return await new Promise<UsageReservationResult>(() => {});
+  }
+
+  async reserveProCredits(): Promise<UsageReservationResult> {
+    return await new Promise<UsageReservationResult>(() => {});
+  }
+
+  async releaseProCredits(): Promise<void> {
+    return await new Promise<void>(() => {});
   }
 }
 
@@ -185,15 +240,7 @@ test('chat handler returns a structured provider_unreachable error and refunds r
 test('anonymous usage is isolated per forwarded IP fingerprint', async () => {
   const usageStore = new MemoryUsageStore();
   const handler = createChatHandler(createConfig(), {
-    fetchImpl: async () => new Response(new ReadableStream({
-      start(controller) {
-        controller.enqueue(new TextEncoder().encode('data: {"choices":[{"delta":{"content":"ok"}}]}\n\n'));
-        controller.close();
-      },
-    }), {
-      status: 200,
-      headers: { 'Content-Type': 'text/event-stream' },
-    }),
+    fetchImpl: async () => createSseResponse(),
     usageStore,
     now: () => Date.now(),
   });
@@ -239,7 +286,7 @@ test('chat handler accepts preview-style relative request URLs for usage snapsho
       origin: 'https://app.example',
       'x-forwarded-for': '203.0.113.10',
     }),
-  } as Request;
+  } as unknown as Request;
 
   const response = await handler(request);
 
@@ -250,15 +297,7 @@ test('chat handler accepts preview-style relative request URLs for usage snapsho
 test('chat handler accepts Vercel-style plain-object headers and body for POST requests', async () => {
   const usageStore = new MemoryUsageStore();
   const handler = createChatHandler(createConfig(), {
-    fetchImpl: async () => new Response(new ReadableStream({
-      start(controller) {
-        controller.enqueue(new TextEncoder().encode('data: {"choices":[{"delta":{"content":"ok"}}]}\n\n'));
-        controller.close();
-      },
-    }), {
-      status: 200,
-      headers: { 'Content-Type': 'text/event-stream' },
-    }),
+    fetchImpl: async () => createSseResponse(),
     usageStore,
     now: () => Date.now(),
   });
@@ -274,11 +313,77 @@ test('chat handler accepts Vercel-style plain-object headers and body for POST r
       'x-forwarded-for': '203.0.113.10',
     },
     body: { model: 'openai/gpt-free', messages: [{ role: 'user', content: 'hi' }] },
-  } as Request;
+  } as unknown as Request;
 
   const response = await handler(request);
 
   assert.equal(response.status, 200);
+});
+
+test('chat handler completes streaming without a post-stream usage lookup', async () => {
+  const usageStore = new SingleReadUsageStore();
+  const handler = createChatHandler(createConfig(), {
+    fetchImpl: async () => createSseResponse('streamed'),
+    usageStore,
+    now: () => Date.now(),
+  });
+
+  const response = await handler(new Request('https://app.example/api/chat', {
+    method: 'POST',
+    headers: {
+      origin: 'https://app.example',
+      'content-type': 'application/json',
+      'x-forwarded-for': '203.0.113.10',
+    },
+    body: JSON.stringify({ model: 'openai/gpt-free', messages: [{ role: 'user', content: 'hi' }] }),
+  }));
+
+  const body = await response.text();
+
+  assert.equal(response.status, 200);
+  assert.equal(usageStore.snapshotReads, 1);
+  assert.match(body, /streamed/);
+  assert.match(body, /__ifcLiteUsage/);
+});
+
+test('chat handler returns a timeout when usage snapshot loading hangs', async () => {
+  const handler = createChatHandler(createConfig(), {
+    fetchImpl: async () => createSseResponse(),
+    usageStore: new HangingUsageStore(),
+    now: () => Date.now(),
+  });
+
+  const response = await handler({
+    method: 'GET',
+    url: '/api/chat?usage=1',
+    headers: { host: 'preview.example', origin: 'https://app.example' },
+  } as unknown as Request);
+
+  const body = await response.json() as { code?: string };
+  assert.equal(response.status, 504);
+  assert.equal(body.code, 'usage_store_timeout');
+});
+
+test('chat handler returns a timeout when the provider never responds', async () => {
+  const handler = createChatHandler(createConfig(), {
+    fetchImpl: async () => await new Promise<Response>(() => {}),
+    usageStore: new MemoryUsageStore(),
+    now: () => Date.now(),
+  });
+
+  const response = await handler(new Request('https://app.example/api/chat', {
+    method: 'POST',
+    headers: {
+      origin: 'https://app.example',
+      'content-type': 'application/json',
+      'x-forwarded-for': '203.0.113.10',
+    },
+    body: JSON.stringify({ model: 'openai/gpt-free', messages: [{ role: 'user', content: 'hi' }] }),
+  }));
+
+  const body = await response.json() as { code?: string };
+  assert.equal(response.status, 504);
+  assert.equal(body.code, 'provider_timeout');
 });
 
 test('loadChatConfig supports explicit Clerk issuer and audience config', () => {

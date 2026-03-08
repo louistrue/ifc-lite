@@ -60,9 +60,9 @@ export interface ChatHandlerDeps {
   now: () => number;
 }
 
-type HeaderBag = Headers | Record<string, string | string[] | undefined> | undefined;
+export type HeaderBag = Headers | Record<string, string | string[] | undefined> | undefined;
 
-type HandlerRequest = Request | {
+export type HandlerRequest = Request | {
   method?: string;
   url?: string;
   headers?: HeaderBag;
@@ -79,6 +79,45 @@ type ClerkJwk = JsonWebKey & { kid?: string };
 
 const jwksCache = new Map<string, { keys: ClerkJwk[]; expiresAt: number }>();
 const JWKS_TTL_MS = 5 * 60 * 1000;
+const USAGE_STORE_TIMEOUT_MS = 8_000;
+const PROVIDER_FETCH_TIMEOUT_MS = 20_000;
+
+class ChatHandlerTimeoutError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ChatHandlerTimeoutError';
+  }
+}
+
+function withTimeout<T>(
+  promise: Promise<T>,
+  ms: number,
+  message: string,
+  onTimeout?: () => void,
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timeoutId = setTimeout(() => {
+      onTimeout?.();
+      reject(new ChatHandlerTimeoutError(message));
+    }, ms);
+
+    promise.then(
+      (value) => {
+        clearTimeout(timeoutId);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timeoutId);
+        reject(error);
+      },
+    );
+  });
+}
+
+function isTimeoutError(error: unknown): boolean {
+  return error instanceof Error
+    && (error.name === 'ChatHandlerTimeoutError' || error.name === 'UsageStoreTimeoutError');
+}
 
 export function requireEnv(key: string, env: Record<string, string | undefined> = process.env): string {
   const val = env[key]?.trim();
@@ -479,6 +518,28 @@ export async function getAnonymousUserId(req: HandlerRequest): Promise<string> {
   return `anon:${fingerprint.slice(0, 24)}`;
 }
 
+async function safeReleaseCredits(
+  deps: ChatHandlerDeps,
+  userId: string,
+  credits: number,
+  config: ChatConfig,
+): Promise<void> {
+  if (credits <= 0) return;
+  try {
+    await withTimeout(
+      deps.usageStore.releaseProCredits(userId, credits),
+      USAGE_STORE_TIMEOUT_MS,
+      'Usage store timed out while releasing reserved credits.',
+    );
+  } catch (error) {
+    debugCredits(config, 'release_failed', {
+      userId: summarizeUserId(userId),
+      credits,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
 export function createChatHandler(config: ChatConfig, deps: ChatHandlerDeps) {
   return async function handler(req: HandlerRequest): Promise<Response> {
     const supportEmail = 'louis@ltplus.com';
@@ -520,15 +581,32 @@ export function createChatHandler(config: ChatConfig, deps: ChatHandlerDeps) {
     const userId = claims?.sub ?? await getAnonymousUserId(req);
 
     if (isUsageSnapshotRequest) {
-      const snapshot = await deps.usageStore.getUsageSnapshot(userId, userTier);
-      return corsResponse(
-        config,
-        200,
-        requestOrigin,
-        { usage: snapshot },
-        buildUsageHeaders(snapshot),
-        isDev,
-      );
+      try {
+        const snapshot = await withTimeout(
+          deps.usageStore.getUsageSnapshot(userId, userTier),
+          USAGE_STORE_TIMEOUT_MS,
+          'Usage store timed out while loading usage.',
+        );
+        return corsResponse(
+          config,
+          200,
+          requestOrigin,
+          { usage: snapshot },
+          buildUsageHeaders(snapshot),
+          isDev,
+        );
+      } catch (error) {
+        if (isTimeoutError(error)) {
+          return corsResponse(config, 504, requestOrigin, {
+            error: 'Usage service timed out while loading your chat quota.',
+            code: 'usage_store_timeout',
+          }, undefined, isDev);
+        }
+        return corsResponse(config, 502, requestOrigin, {
+          error: 'Usage service failed while loading your chat quota.',
+          code: 'usage_store_error',
+        }, undefined, isDev);
+      }
     }
 
     let body: {
@@ -564,42 +642,69 @@ export function createChatHandler(config: ChatConfig, deps: ChatHandlerDeps) {
     }
 
     const billableRequest = userTier === 'pro' && !isFreeModel(config, body.model);
-    let usageSnapshot = await deps.usageStore.getUsageSnapshot(userId, userTier);
+    let usageSnapshot: UsageSnapshot;
     let reservedCredits = 0;
 
-    if (userTier === 'free') {
-      const consumed = await deps.usageStore.consumeFreeRequest(userId);
-      usageSnapshot = consumed.snapshot;
-      if (!consumed.allowed) {
-        return corsResponse(config, 429, requestOrigin, {
-          error: 'You\'ve reached your daily limit. Upgrade to Pro for more.',
-          type: 'request_cap',
-          code: 'quota_exceeded',
-          limit: config.freeDailyLimit,
-          resetAt: consumed.snapshot.resetAt * 1000,
-        }, {
-          'Retry-After': String(Math.max(1, consumed.snapshot.resetAt - Math.ceil(deps.now() / 1000))),
-          ...buildUsageHeaders(consumed.snapshot),
-        }, isDev);
+    try {
+      usageSnapshot = await withTimeout(
+        deps.usageStore.getUsageSnapshot(userId, userTier),
+        USAGE_STORE_TIMEOUT_MS,
+        'Usage store timed out while loading usage.',
+      );
+
+      if (userTier === 'free') {
+        const consumed = await withTimeout(
+          deps.usageStore.consumeFreeRequest(userId),
+          USAGE_STORE_TIMEOUT_MS,
+          'Usage store timed out while reserving a free request.',
+        );
+        usageSnapshot = consumed.snapshot;
+        if (!consumed.allowed) {
+          return corsResponse(config, 429, requestOrigin, {
+            error: 'You\'ve reached your daily limit. Upgrade to Pro for more.',
+            type: 'request_cap',
+            code: 'quota_exceeded',
+            limit: config.freeDailyLimit,
+            resetAt: consumed.snapshot.resetAt * 1000,
+          }, {
+            'Retry-After': String(Math.max(1, consumed.snapshot.resetAt - Math.ceil(deps.now() / 1000))),
+            ...buildUsageHeaders(consumed.snapshot),
+          }, isDev);
+        }
+      } else if (billableRequest) {
+        const reserved = await withTimeout(
+          deps.usageStore.reserveProCredits(userId, 1),
+          USAGE_STORE_TIMEOUT_MS,
+          'Usage store timed out while reserving pro credits.',
+        );
+        usageSnapshot = { ...reserved.snapshot, billable: true };
+        if (!reserved.allowed) {
+          return corsResponse(config, 429, requestOrigin, {
+            error: `Monthly credits used up. Need more? Reach out at ${supportEmail}.`,
+            type: 'credits',
+            code: 'credits_exhausted',
+            creditsUsed: reserved.snapshot.used,
+            creditsLimit: config.proMonthlyCredits,
+            resetAt: reserved.snapshot.resetAt * 1000,
+            contactEmail: supportEmail,
+          }, {
+            'Retry-After': String(Math.max(1, reserved.snapshot.resetAt - Math.ceil(deps.now() / 1000))),
+            ...buildUsageHeaders(usageSnapshot),
+          }, isDev);
+        }
+        reservedCredits = 1;
       }
-    } else if (billableRequest) {
-      const reserved = await deps.usageStore.reserveProCredits(userId, 1);
-      usageSnapshot = { ...reserved.snapshot, billable: true };
-      if (!reserved.allowed) {
-        return corsResponse(config, 429, requestOrigin, {
-          error: `Monthly credits used up. Need more? Reach out at ${supportEmail}.`,
-          type: 'credits',
-          code: 'credits_exhausted',
-          creditsUsed: reserved.snapshot.used,
-          creditsLimit: config.proMonthlyCredits,
-          resetAt: reserved.snapshot.resetAt * 1000,
-          contactEmail: supportEmail,
-        }, {
-          'Retry-After': String(Math.max(1, reserved.snapshot.resetAt - Math.ceil(deps.now() / 1000))),
-          ...buildUsageHeaders(usageSnapshot),
-        }, isDev);
+    } catch (error) {
+      if (isTimeoutError(error)) {
+        return corsResponse(config, 504, requestOrigin, {
+          error: 'Usage service timed out while preparing the request.',
+          code: 'usage_store_timeout',
+        }, undefined, isDev);
       }
-      reservedCredits = 1;
+      return corsResponse(config, 502, requestOrigin, {
+        error: 'Usage service failed while preparing the request.',
+        code: 'usage_store_error',
+      }, undefined, isDev);
     }
 
     const upstreamMessages = body.system
@@ -616,25 +721,36 @@ export function createChatHandler(config: ChatConfig, deps: ChatHandlerDeps) {
 
     let upstream: Response;
     try {
-      upstream = await deps.fetchImpl(`${config.apiBase}/chat/completions`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${config.apiKey}`,
-          'Content-Type': 'application/json',
-          'HTTP-Referer': config.appUrl,
-          'X-Title': 'ifc-lite',
-        },
-        body: JSON.stringify({
-          model: body.model,
-          messages: upstreamMessages,
-          stream: true,
-          temperature: 0.3,
-          max_tokens: 8192,
+      const controller = new AbortController();
+      upstream = await withTimeout(
+        deps.fetchImpl(`${config.apiBase}/chat/completions`, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${config.apiKey}`,
+            'Content-Type': 'application/json',
+            'HTTP-Referer': config.appUrl,
+            'X-Title': 'ifc-lite',
+          },
+          body: JSON.stringify({
+            model: body.model,
+            messages: upstreamMessages,
+            stream: true,
+            temperature: 0.3,
+            max_tokens: 8192,
+          }),
+          signal: controller.signal,
         }),
-      });
+        PROVIDER_FETCH_TIMEOUT_MS,
+        'Provider request timed out before a response was received.',
+        () => controller.abort(),
+      );
     } catch (error) {
-      if (reservedCredits > 0) {
-        await deps.usageStore.releaseProCredits(userId, reservedCredits);
+      await safeReleaseCredits(deps, userId, reservedCredits, config);
+      if (isTimeoutError(error)) {
+        return corsResponse(config, 504, requestOrigin, {
+          error: 'Provider request timed out before a response was received.',
+          code: 'provider_timeout',
+        }, undefined, isDev);
       }
       return corsResponse(config, 502, requestOrigin, {
         error: 'Provider request failed before a response was received.',
@@ -644,9 +760,7 @@ export function createChatHandler(config: ChatConfig, deps: ChatHandlerDeps) {
     }
 
     if (!upstream.ok) {
-      if (reservedCredits > 0) {
-        await deps.usageStore.releaseProCredits(userId, reservedCredits);
-      }
+      await safeReleaseCredits(deps, userId, reservedCredits, config);
 
       let providerErrorText = '';
       let providerBody: unknown = null;
@@ -700,42 +814,39 @@ export function createChatHandler(config: ChatConfig, deps: ChatHandlerDeps) {
     }
 
     if (!upstream.body) {
-      if (reservedCredits > 0) {
-        await deps.usageStore.releaseProCredits(userId, reservedCredits);
-      }
+      await safeReleaseCredits(deps, userId, reservedCredits, config);
       return corsResponse(config, 502, requestOrigin, { error: 'No response body' }, undefined, isDev);
     }
 
-    const usageHeaders = buildUsageHeaders({ ...usageSnapshot, billable: billableRequest });
+    const finalUsageSnapshot = { ...usageSnapshot, billable: billableRequest };
+    const usageHeaders = buildUsageHeaders(finalUsageSnapshot);
     const sseEncoder = new TextEncoder();
 
     const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>({
       transform(chunk, controller) {
         controller.enqueue(chunk);
       },
-      async flush(controller) {
-        const snapshot = await deps.usageStore.getUsageSnapshot(userId, userTier);
+      flush(controller) {
         const usageEvent = JSON.stringify({
-          __ifcLiteUsage: {
-            ...snapshot,
-            billable: billableRequest,
-          },
+          __ifcLiteUsage: finalUsageSnapshot,
         });
         debugCredits(config, 'usage_event_emitted', {
           userId: summarizeUserId(userId),
-          usageType: snapshot.type,
-          usageUsed: snapshot.used,
-          usageLimit: snapshot.limit,
-          pct: snapshot.pct,
+          usageType: finalUsageSnapshot.type,
+          usageUsed: finalUsageSnapshot.used,
+          usageLimit: finalUsageSnapshot.limit,
+          pct: finalUsageSnapshot.pct,
           billable: billableRequest,
         });
         controller.enqueue(sseEncoder.encode(`data: ${usageEvent}\n\n`));
       },
     });
 
-    upstream.body.pipeTo(writable).catch(async () => {
-      // Billing is reserved before streaming starts, so stream errors do not
-      // silently skip usage accounting. Swallow to preserve response shutdown.
+    upstream.body.pipeTo(writable).catch((error) => {
+      debugCredits(config, 'stream_pipe_failed', {
+        userId: summarizeUserId(userId),
+        error: error instanceof Error ? error.message : String(error),
+      });
     });
 
     return new Response(readable, {
