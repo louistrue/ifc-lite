@@ -33,6 +33,17 @@ describe('IfcCreator', () => {
     expect(result.entities.some(e => e.type === 'IfcBuildingStorey')).toBe(true);
   });
 
+  it('throws when adding an element to an unknown storey', () => {
+    const creator = new IfcCreator();
+
+    expect(() => creator.addIfcWall(9999, {
+      Start: [0, 0, 0],
+      End: [5, 0, 0],
+      Thickness: 0.2,
+      Height: 3,
+    })).toThrow(/Unknown storeyId/);
+  });
+
   it('creates a wall with geometry', () => {
     const creator = new IfcCreator();
     const storey = creator.addIfcBuildingStorey({ Name: 'GF', Elevation: 0 });

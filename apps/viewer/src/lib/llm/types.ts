@@ -110,6 +110,7 @@ export interface ChatRepairRequest {
 }
 
 export interface FileAttachment {
+  id: string;
   name: string;
   type: string;
   size: number;

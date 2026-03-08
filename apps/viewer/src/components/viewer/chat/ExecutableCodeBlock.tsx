@@ -98,6 +98,7 @@ export const ExecutableCodeBlock = memo(function ExecutableCodeBlock({
   const [consoleOpen, setConsoleOpen] = useState(true);
   const consoleEndRef = useRef<HTMLDivElement>(null);
   const autoExecTriggered = useRef(false);
+  const copiedResetTimerRef = useRef<number | null>(null);
 
   const handleRun = useCallback(async () => {
     setCodeExecResult(messageId, block.index, { status: 'running' });
@@ -149,7 +150,7 @@ export const ExecutableCodeBlock = memo(function ExecutableCodeBlock({
   useEffect(() => {
     if (result?.status === 'running' && !autoExecTriggered.current) {
       autoExecTriggered.current = true;
-      handleRun();
+      void handleRun();
     }
     // Reset the flag when result goes back to idle / new result
     if (result?.status !== 'running') {
@@ -157,16 +158,35 @@ export const ExecutableCodeBlock = memo(function ExecutableCodeBlock({
     }
   }, [result?.status, handleRun]);
 
+  useEffect(() => () => {
+    if (copiedResetTimerRef.current !== null) {
+      window.clearTimeout(copiedResetTimerRef.current);
+    }
+  }, []);
+
   // Auto-scroll console to bottom when new logs appear
   useEffect(() => {
     consoleEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }, [result?.logs?.length, result?.status]);
 
-  const handleCopy = useCallback(() => {
-    navigator.clipboard.writeText(block.code);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  }, [block.code]);
+  const handleCopy = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(block.code);
+      setCopied(true);
+      if (copiedResetTimerRef.current !== null) {
+        window.clearTimeout(copiedResetTimerRef.current);
+      }
+      copiedResetTimerRef.current = window.setTimeout(() => {
+        setCopied(false);
+        copiedResetTimerRef.current = null;
+      }, 2000);
+    } catch (error) {
+      setScriptError(
+        error instanceof Error ? error.message : 'Could not copy code block to clipboard.',
+        [],
+      );
+    }
+  }, [block.code, setScriptError]);
 
   const handleApplyToEditor = useCallback(() => {
     const state = useViewerStore.getState();

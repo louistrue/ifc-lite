@@ -69,6 +69,8 @@ export interface StreamOptions {
   onUsageInfo?: (usage: UsageInfo) => void;
 }
 
+const STREAM_REQUEST_TIMEOUT_MS = 45_000;
+
 function parseUsageFromHeaders(headers: Headers): UsageInfo | null {
   const creditsUsed = parseInt(headers.get('X-Credits-Used') ?? '0', 10);
   const creditsLimit = parseInt(headers.get('X-Credits-Limit') ?? '0', 10);
@@ -174,12 +176,35 @@ export async function streamChat(options: StreamOptions): Promise<void> {
   }
 
   const requestBody = JSON.stringify({ messages, model, system });
-  const fetchChat = (url: string) => fetch(url, {
-    method: 'POST',
-    headers,
-    body: requestBody,
-    signal,
-  });
+  const fetchChat = async (url: string) => {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(new Error('Chat request timed out. Please try again.')), STREAM_REQUEST_TIMEOUT_MS);
+    const abortFromParent = () => controller.abort(signal?.reason);
+    if (signal) {
+      if (signal.aborted) {
+        clearTimeout(timeoutId);
+        controller.abort(signal.reason);
+      } else {
+        signal.addEventListener('abort', abortFromParent, { once: true });
+      }
+    }
+    try {
+      return await fetch(url, {
+        method: 'POST',
+        headers,
+        body: requestBody,
+        signal: controller.signal,
+      });
+    } catch (error) {
+      if (controller.signal.aborted && !signal?.aborted && controller.signal.reason instanceof Error) {
+        throw controller.signal.reason;
+      }
+      throw error;
+    } finally {
+      clearTimeout(timeoutId);
+      signal?.removeEventListener('abort', abortFromParent);
+    }
+  };
   const canFallbackToAppProxy = isDev && proxyUrl !== '/api/chat';
 
   let response: Response;

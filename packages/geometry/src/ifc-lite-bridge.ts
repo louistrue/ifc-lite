@@ -72,9 +72,8 @@ export class IfcLiteBridge {
       log.error('Failed to initialize WASM geometry engine', error, {
         operation: 'init',
       });
-      // Reset state so re-initialization can be attempted
-      this.initialized = false;
-      this.ifcApi = null;
+      // Reset state so re-initialization can be attempted.
+      this.reset();
       throw error;
     }
   }

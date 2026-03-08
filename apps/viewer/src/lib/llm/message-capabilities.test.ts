@@ -9,6 +9,7 @@ import { buildStreamMessagesForModel, filterAttachmentsForModel } from './messag
 
 function makeImageAttachment(name: string): FileAttachment {
   return {
+    id: `img:${name}`,
     name,
     type: 'image/png',
     size: 100,
@@ -19,6 +20,7 @@ function makeImageAttachment(name: string): FileAttachment {
 
 function makeFileAttachment(name: string): FileAttachment {
   return {
+    id: `file:${name}`,
     name,
     type: 'text/csv',
     size: 20,

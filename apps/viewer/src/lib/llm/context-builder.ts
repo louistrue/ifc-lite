@@ -220,16 +220,16 @@ export function getModelContext(): ModelContext {
  * Simple parser that handles quoted fields with commas.
  */
 export function parseCSV(text: string): { columns: string[]; rows: Record<string, string>[] } {
-  const lines = text.split('\n').filter((l) => l.trim().length > 0);
-  if (lines.length === 0) return { columns: [], rows: [] };
+  const records = splitCSVRecords(text).filter((record) => record.trim().length > 0);
+  if (records.length === 0) return { columns: [], rows: [] };
 
   // Parse header
-  const columns = parseCSVLine(lines[0]);
+  const columns = parseCSVLine(records[0]);
 
   // Parse rows
   const rows: Record<string, string>[] = [];
-  for (let i = 1; i < lines.length; i++) {
-    const values = parseCSVLine(lines[i]);
+  for (let i = 1; i < records.length; i++) {
+    const values = parseCSVLine(records[i]);
     const row: Record<string, string> = {};
     for (let j = 0; j < columns.length; j++) {
       row[columns[j]] = values[j] ?? '';
@@ -238,6 +238,38 @@ export function parseCSV(text: string): { columns: string[]; rows: Record<string
   }
 
   return { columns, rows };
+}
+
+function splitCSVRecords(text: string): string[] {
+  const normalized = text.replace(/\r\n?/g, '\n');
+  const records: string[] = [];
+  let current = '';
+  let inQuotes = false;
+
+  for (let i = 0; i < normalized.length; i++) {
+    const char = normalized[i];
+    if (char === '"') {
+      if (inQuotes && normalized[i + 1] === '"') {
+        current += '""';
+        i++;
+        continue;
+      }
+      inQuotes = !inQuotes;
+      current += char;
+      continue;
+    }
+    if (char === '\n' && !inQuotes) {
+      records.push(current);
+      current = '';
+      continue;
+    }
+    current += char;
+  }
+
+  if (current.length > 0) {
+    records.push(current);
+  }
+  return records;
 }
 
 /** Parse a single CSV line, handling quoted fields */

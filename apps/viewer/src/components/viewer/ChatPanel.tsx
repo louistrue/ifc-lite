@@ -78,6 +78,10 @@ const MAX_ATTACHMENTS_PER_MESSAGE = 6;
 const MAX_TEXT_ATTACHMENT_BYTES = 512_000;
 const MAX_IMAGE_ATTACHMENT_BYTES = 8_000_000;
 
+function createAttachmentId(): string {
+  return crypto.randomUUID();
+}
+
 interface ChatSendOptions {
   continuationBase?: string;
   intent?: ScriptMutationIntent;
@@ -519,8 +523,6 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
       });
     }
 
-    if (attachments.length > 0) clearAttachments();
-
     const abortController = new AbortController();
     setChatAbortController(abortController);
     useViewerStore.getState().beginAssistantScriptTurn();
@@ -547,6 +549,13 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
       applyFailureError: null as string | null,
       applyFailureDiagnostic: null as ReturnType<typeof useViewerStore.getState>['scriptLastDiagnostics'][number] | null,
     };
+    let pendingAttachmentsCleared = attachments.length === 0;
+
+    const clearPendingAttachmentsOnce = () => {
+      if (pendingAttachmentsCleared) return;
+      clearAttachments();
+      pendingAttachmentsCleared = true;
+    };
 
     const rollbackAssistantTurnIfNeeded = () => {
       if (responseEditState.rolledBack || !responseEditState.appliedAny) return;
@@ -570,6 +579,7 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
       authToken,
       signal: abortController.signal,
       onChunk: (chunk) => {
+        clearPendingAttachmentsOnce();
         accumulated += chunk;
         if (!responseEditState.applyFailed && responseEditState.intent !== 'repair') {
           const parsed = extractScriptEditOps(accumulated, editParseOptions);
@@ -604,6 +614,7 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
         updateStreaming(accumulated);
       },
       onComplete: (fullText) => {
+        clearPendingAttachmentsOnce();
         const normalizedText = continuationBase
           ? stripContinuationOverlap(continuationBase, fullText)
           : fullText;
@@ -897,56 +908,62 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
         setChatError(`You can attach up to ${MAX_ATTACHMENTS_PER_MESSAGE} files per message.`);
         break;
       }
-      // Handle image files
-      if (file.type.startsWith('image/')) {
-        if (!supportsImages) {
-          setChatError('Selected model does not support image input. Switch model to attach images.');
+      try {
+        // Handle image files
+        if (file.type.startsWith('image/')) {
+          if (!supportsImages) {
+            setChatError('Selected model does not support image input. Switch model to attach images.');
+            continue;
+          }
+          if (file.size > MAX_IMAGE_ATTACHMENT_BYTES) {
+            setChatError(`Image attachments must be smaller than ${Math.round(MAX_IMAGE_ATTACHMENT_BYTES / 1_000_000)} MB.`);
+            continue;
+          }
+          const base64 = await imageFileToCompressedBase64(file);
+          if (base64.length > MAX_INLINE_IMAGE_DATA_URL_CHARS) {
+            setChatError('Image attachment is still too large after compression. Please use a smaller image.');
+            continue;
+          }
+          const attachment: FileAttachment = {
+            id: createAttachmentId(),
+            name: file.name,
+            type: 'image/jpeg',
+            size: Math.round((base64.length * 3) / 4),
+            imageBase64: base64,
+            isImage: true,
+          };
+          addAttachment(attachment);
+          remainingSlots -= 1;
           continue;
         }
-        if (file.size > MAX_IMAGE_ATTACHMENT_BYTES) {
-          setChatError(`Image attachments must be smaller than ${Math.round(MAX_IMAGE_ATTACHMENT_BYTES / 1_000_000)} MB.`);
+        // Only accept text-based files
+        if (!file.name.match(/\.(csv|json|txt|tsv)$/i)) continue;
+        if (!supportsFileAttachments) {
+          setChatError('Selected model does not support file attachments. Switch model to attach files.');
           continue;
         }
-        const base64 = await imageFileToCompressedBase64(file);
-        if (base64.length > MAX_INLINE_IMAGE_DATA_URL_CHARS) {
-          setChatError('Image attachment is still too large after compression. Please use a smaller image.');
+        if (file.size > MAX_TEXT_ATTACHMENT_BYTES) {
+          setChatError(`Text attachments must be smaller than ${Math.round(MAX_TEXT_ATTACHMENT_BYTES / 1024)} KB.`);
           continue;
         }
+        const text = await file.text();
         const attachment: FileAttachment = {
+          id: createAttachmentId(),
           name: file.name,
-          type: 'image/jpeg',
-          size: Math.round((base64.length * 3) / 4),
-          imageBase64: base64,
-          isImage: true,
+          type: file.type || 'text/plain',
+          size: file.size,
+          textContent: text,
         };
+        if (file.name.endsWith('.csv') || file.name.endsWith('.tsv')) {
+          const { columns, rows } = parseCSV(text);
+          attachment.csvColumns = columns;
+          attachment.csvData = rows;
+        }
         addAttachment(attachment);
         remainingSlots -= 1;
-        continue;
+      } catch (error) {
+        setChatError(`Could not read ${file.name}: ${error instanceof Error ? error.message : String(error)}`);
       }
-      // Only accept text-based files
-      if (!file.name.match(/\.(csv|json|txt|tsv)$/i)) continue;
-      if (!supportsFileAttachments) {
-        setChatError('Selected model does not support file attachments. Switch model to attach files.');
-        continue;
-      }
-      if (file.size > MAX_TEXT_ATTACHMENT_BYTES) {
-        setChatError(`Text attachments must be smaller than ${Math.round(MAX_TEXT_ATTACHMENT_BYTES / 1024)} KB.`);
-        continue;
-      }
-      const text = await file.text();
-      const attachment: FileAttachment = {
-        name: file.name,
-        type: file.type || 'text/plain',
-        size: file.size,
-        textContent: text,
-      };
-      if (file.name.endsWith('.csv') || file.name.endsWith('.tsv')) {
-        const { columns, rows } = parseCSV(text);
-        attachment.csvColumns = columns;
-        attachment.csvData = rows;
-      }
-      addAttachment(attachment);
-      remainingSlots -= 1;
     }
   }, [activeModel, addAttachment, attachments.length, setChatError]);
 
@@ -1245,7 +1262,7 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
         <div className="px-2 py-1 border-t flex flex-wrap gap-1">
           {attachments.map((a) => (
             <span
-              key={a.name}
+              key={a.id}
               className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-muted text-xs"
             >
               {a.isImage ? (
@@ -1265,7 +1282,7 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
               {a.name}
               <button
                 className="ml-0.5 hover:text-destructive"
-                onClick={() => removeAttachment(a.name)}
+                onClick={() => removeAttachment(a.id)}
               >
                 <X className="h-3 w-3" />
               </button>

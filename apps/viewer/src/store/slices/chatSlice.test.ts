@@ -265,3 +265,61 @@ test('setChatHasPro falls back to a free model when entitlement is removed', () 
   assert.equal(useChatStore.getState().chatHasPro, false);
   assert.equal(useChatStore.getState().chatActiveModel, DEFAULT_FREE_MODEL.id);
 });
+
+test('removeChatAttachment only removes the targeted attachment id', () => {
+  const useChatStore = create<ChatSlice>()((...args) => createChatSlice(...args));
+  useChatStore.getState().addChatAttachment({
+    id: 'a-1',
+    name: 'duplicate.csv',
+    type: 'text/csv',
+    size: 12,
+    textContent: 'a,b\n1,2',
+  });
+  useChatStore.getState().addChatAttachment({
+    id: 'a-2',
+    name: 'duplicate.csv',
+    type: 'text/csv',
+    size: 12,
+    textContent: 'a,b\n3,4',
+  });
+
+  useChatStore.getState().removeChatAttachment('a-1');
+
+  assert.deepEqual(
+    useChatStore.getState().chatAttachments.map((attachment) => attachment.id),
+    ['a-2'],
+  );
+});
+
+test('switchChatUserContext ignores malformed persisted messages', () => {
+  withMockLocalStorage(() => {
+    globalThis.localStorage.setItem('ifc-lite-chat-messages:user-a', JSON.stringify([
+      {
+        id: 'valid',
+        role: 'user',
+        content: 'hello',
+        createdAt: 1,
+        attachments: [
+          { id: 'att-1', name: 'ok.csv', type: 'text/csv', size: 20, textContent: 'a,b\n1,2' },
+          { name: 'missing-id.csv', type: 'text/csv', size: 20 },
+        ],
+      },
+      {
+        id: 123,
+        role: 'assistant',
+        content: 'bad',
+        createdAt: 2,
+      },
+    ]));
+
+    const useChatStore = create<ChatSlice>()((...args) => createChatSlice(...args));
+    useChatStore.getState().switchChatUserContext('user-a', false, { restoreMessages: true });
+
+    assert.equal(useChatStore.getState().chatMessages.length, 1);
+    assert.equal(useChatStore.getState().chatMessages[0]?.id, 'valid');
+    assert.deepEqual(
+      useChatStore.getState().chatMessages[0]?.attachments?.map((attachment) => attachment.id),
+      ['att-1'],
+    );
+  });
+});

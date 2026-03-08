@@ -156,6 +156,7 @@ test('system prompt adapts task focus for repair turns', () => {
 test('system prompt explains uploaded file runtime access', () => {
   const prompt = buildSystemPrompt(undefined, [
     {
+      id: 'entities-1',
       name: 'entities-1.csv',
       type: 'text/csv',
       size: 256,

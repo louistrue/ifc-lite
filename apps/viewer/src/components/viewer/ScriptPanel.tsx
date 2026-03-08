@@ -149,7 +149,13 @@ export function ScriptPanel({ onClose }: ScriptPanelProps) {
 
   // Open chat by default when script panel mounts
   useEffect(() => {
-    setChatPanelVisible(true);
+    try {
+      if (localStorage.getItem('ifc-lite-chat-panel-visible') === null) {
+        setChatPanelVisible(true);
+      }
+    } catch {
+      setChatPanelVisible(true);
+    }
     return () => { cleanupChatDragRef.current?.(); };
   }, [setChatPanelVisible]);
 

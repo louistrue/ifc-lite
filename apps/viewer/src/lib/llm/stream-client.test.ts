@@ -56,3 +56,42 @@ test('streamChat processes the final SSE event even without trailing blank line'
     globalThis.fetch = originalFetch;
   }
 });
+
+test('streamChat surfaces request timeout errors', async () => {
+  const originalFetch = globalThis.fetch;
+  const originalSetTimeout = globalThis.setTimeout;
+  const originalClearTimeout = globalThis.clearTimeout;
+  let timeoutCallback: () => void = () => {
+    throw new Error('timeout callback not registered');
+  };
+
+  globalThis.setTimeout = (((fn: TimerHandler) => {
+    timeoutCallback = fn as () => void;
+    return 1 as unknown as ReturnType<typeof setTimeout>;
+  }) as unknown) as typeof setTimeout;
+  globalThis.clearTimeout = (() => undefined) as typeof clearTimeout;
+  globalThis.fetch = async (_input, init) => new Promise<Response>((_resolve, reject) => {
+    init?.signal?.addEventListener('abort', () => {
+      reject(init.signal?.reason ?? new Error('aborted'));
+    }, { once: true });
+  });
+
+  try {
+    let capturedMessage: string | null = null;
+    const promise = streamChat({
+      proxyUrl: '/api/chat',
+      model: 'openai/gpt-free',
+      messages: [{ role: 'user', content: 'hi' }],
+      onChunk: () => undefined,
+      onComplete: () => undefined,
+      onError: (error) => { capturedMessage = error.message; },
+    });
+    timeoutCallback();
+    await promise;
+    assert.equal(capturedMessage, 'Chat request timed out. Please try again.');
+  } finally {
+    globalThis.fetch = originalFetch;
+    globalThis.setTimeout = originalSetTimeout;
+    globalThis.clearTimeout = originalClearTimeout;
+  }
+});

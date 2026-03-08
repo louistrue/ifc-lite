@@ -67,7 +67,7 @@ export interface ChatSlice {
   setChatAbortController: (controller: AbortController | null) => void;
   setCodeExecResult: (messageId: string, blockIndex: number, result: CodeExecResult) => void;
   addChatAttachment: (attachment: FileAttachment) => void;
-  removeChatAttachment: (name: string) => void;
+  removeChatAttachment: (attachmentId: string) => void;
   clearChatAttachments: () => void;
   clearChatMessages: () => void;
   queueChatPrompt: (prompt: string) => void;
@@ -200,18 +200,7 @@ function loadStoredMessages(userId: string | null): ChatMessage[] {
     const raw = localStorage.getItem(getMessagesStorageKey(userId));
     if (!raw) return [];
     const parsed = JSON.parse(raw) as Array<Record<string, unknown>>;
-    return parsed.map((m) => ({
-      id: m.id as string,
-      role: m.role as ChatMessage['role'],
-      content: m.content as string,
-      createdAt: m.createdAt as number,
-      codeBlocks: m.codeBlocks as ChatMessage['codeBlocks'],
-      attachments: m.attachments as ChatMessage['attachments'],
-      // Re-hydrate execResults from serialized array of entries
-      execResults: m.execResults
-        ? new Map(m.execResults as Array<[number, CodeExecResult]>)
-        : undefined,
-    }));
+    return trimChatMessages(parsed.flatMap(deserializeStoredMessage));
   } catch {
     return [];
   }
@@ -221,7 +210,7 @@ function loadStoredMessages(userId: string | null): ChatMessage[] {
 function persistMessages(messages: ChatMessage[], userId: string | null) {
   try {
     // Only keep last 50 messages in storage to avoid quota issues
-    const toStore = messages.slice(-50).map((m) => ({
+    const toStore = trimChatMessages(messages).slice(-50).map((m) => ({
       id: m.id,
       role: m.role,
       content: m.content,
@@ -233,6 +222,51 @@ function persistMessages(messages: ChatMessage[], userId: string | null) {
     }));
     localStorage.setItem(getMessagesStorageKey(userId), JSON.stringify(toStore));
   } catch { /* quota exceeded — ignore */ }
+}
+
+function trimChatMessages(messages: ChatMessage[]): ChatMessage[] {
+  if (messages.length <= MAX_MESSAGES) return messages;
+  return messages.slice(-MAX_MESSAGES);
+}
+
+function deserializeStoredMessage(value: Record<string, unknown>): ChatMessage[] {
+  const id = typeof value.id === 'string' ? value.id : null;
+  const role = value.role;
+  const content = typeof value.content === 'string' ? value.content : null;
+  const createdAt = typeof value.createdAt === 'number' ? value.createdAt : null;
+  if (!id || content === null || createdAt === null || !isValidRole(role)) {
+    return [];
+  }
+  const attachments = Array.isArray(value.attachments)
+    ? value.attachments.filter(isValidAttachment)
+    : undefined;
+  const execResults = Array.isArray(value.execResults)
+    ? new Map((value.execResults as Array<[number, CodeExecResult]>).filter(
+      (entry): entry is [number, CodeExecResult] => Array.isArray(entry) && typeof entry[0] === 'number',
+    ))
+    : undefined;
+  return [{
+    id,
+    role,
+    content,
+    createdAt,
+    codeBlocks: value.codeBlocks as ChatMessage['codeBlocks'],
+    attachments: attachments && attachments.length > 0 ? attachments : undefined,
+    execResults,
+  }];
+}
+
+function isValidRole(value: unknown): value is ChatMessage['role'] {
+  return value === 'user' || value === 'assistant' || value === 'system';
+}
+
+function isValidAttachment(value: unknown): value is FileAttachment {
+  if (!value || typeof value !== 'object') return false;
+  const attachment = value as Record<string, unknown>;
+  return typeof attachment.id === 'string'
+    && typeof attachment.name === 'string'
+    && typeof attachment.type === 'string'
+    && typeof attachment.size === 'number';
 }
 
 export const createChatSlice: StateCreator<ChatSlice, [], [], ChatSlice> = (set, get) => ({
@@ -267,10 +301,7 @@ export const createChatSlice: StateCreator<ChatSlice, [], [], ChatSlice> = (set,
   },
 
   addChatMessage: (message) => {
-    const messages = [...get().chatMessages, message];
-    if (messages.length > MAX_MESSAGES) {
-      messages.splice(0, messages.length - MAX_MESSAGES);
-    }
+    const messages = trimChatMessages([...get().chatMessages, message]);
     set({ chatMessages: messages, chatError: null });
     persistMessages(messages, get().chatStorageUserId);
   },
@@ -289,10 +320,7 @@ export const createChatSlice: StateCreator<ChatSlice, [], [], ChatSlice> = (set,
       createdAt: Date.now(),
       codeBlocks: codeBlocks.length > 0 ? codeBlocks : undefined,
     };
-    const messages = [...get().chatMessages, message];
-    if (messages.length > MAX_MESSAGES) {
-      messages.splice(0, messages.length - MAX_MESSAGES);
-    }
+    const messages = trimChatMessages([...get().chatMessages, message]);
     set({
       chatMessages: messages,
       chatStreamingContent: '',
@@ -340,8 +368,8 @@ export const createChatSlice: StateCreator<ChatSlice, [], [], ChatSlice> = (set,
     set({ chatAttachments: [...get().chatAttachments, attachment] });
   },
 
-  removeChatAttachment: (name) => {
-    set({ chatAttachments: get().chatAttachments.filter((a) => a.name !== name) });
+  removeChatAttachment: (attachmentId) => {
+    set({ chatAttachments: get().chatAttachments.filter((a) => a.id !== attachmentId) });
   },
 
   clearChatAttachments: () => set({ chatAttachments: [] }),
@@ -424,10 +452,7 @@ export const createChatSlice: StateCreator<ChatSlice, [], [], ChatSlice> = (set,
       content: buildErrorFeedbackContent(code, error),
       createdAt: Date.now(),
     };
-    const messages = [...get().chatMessages, feedbackMessage];
-    if (messages.length > MAX_MESSAGES) {
-      messages.splice(0, messages.length - MAX_MESSAGES);
-    }
+    const messages = trimChatMessages([...get().chatMessages, feedbackMessage]);
     set({ chatMessages: messages, chatError: null });
     persistMessages(messages, get().chatStorageUserId);
   },

@@ -17,7 +17,7 @@ export function UpgradePage() {
   }, []);
 
   const navigateBack = () => {
-    window.history.pushState({}, '', returnTo);
+    window.history.replaceState({}, '', returnTo);
     window.dispatchEvent(new PopStateEvent('popstate'));
   };
 
