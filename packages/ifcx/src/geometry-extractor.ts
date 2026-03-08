@@ -54,7 +54,7 @@ export function extractGeometry(
 
   function traverseNode(
     node: ComposedNode,
-    inheritedContext: { expressId: number; ifcType?: string } | null,
+    inheritedContext: GeometryContext | null,
     parentTransform: Float32Array | null,
     lineage: ComposedNode[],
     path: Set<string>
@@ -64,7 +64,7 @@ export function extractGeometry(
     const nextLineage = [...lineage, node];
 
     const mesh = node.attributes.get(ATTR.MESH) as UsdMesh | undefined;
-    if (mesh && context && !isInvisible(nextLineage)) {
+    if (mesh && context && !context.isTypeDefinition && !isInvisible(nextLineage)) {
       const meshData = convertUsdMesh(mesh, context.expressId, context.ifcType, transform);
       applyPresentation(meshData, nextLineage);
       meshes.push(meshData);
@@ -82,11 +82,17 @@ export function extractGeometry(
 /**
  * Resolve the nearest entity context for mesh association.
  */
+type GeometryContext = {
+  expressId: number;
+  ifcType?: string;
+  isTypeDefinition: boolean;
+};
+
 function resolveContext(
   node: ComposedNode,
-  context: { expressId: number; ifcType?: string } | null,
+  context: GeometryContext | null,
   pathToId: Map<string, number>
-): { expressId: number; ifcType?: string } | null {
+): GeometryContext | null {
   const ifcClass = node.attributes.get(ATTR.CLASS) as { code?: string } | undefined;
   if (!ifcClass?.code) return context;
 
@@ -98,6 +104,7 @@ function resolveContext(
   return {
     expressId,
     ifcType: ifcClass.code,
+    isTypeDefinition: isIfcTypeDefinition(node),
   };
 }
 
@@ -242,6 +249,13 @@ function applyTransform(x: number, y: number, z: number, m: Float32Array): [numb
   ];
 }
 
+
+function isIfcTypeDefinition(node: ComposedNode): boolean {
+  const customData = node.attributes.get('customdata') as { originalStepInstance?: string } | undefined;
+  const originalStepInstance = customData?.originalStepInstance;
+  if (typeof originalStepInstance !== 'string') return false;
+  return /=[A-Za-z0-9_]*Type\(/.test(originalStepInstance);
+}
 
 function isInvisible(lineage: ComposedNode[]): boolean {
   for (let i = lineage.length - 1; i >= 0; i--) {
