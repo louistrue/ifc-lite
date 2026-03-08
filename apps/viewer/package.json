@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "NODE_OPTIONS='--max-old-space-size=4096' bash -c '(tsc || true) && vite build'",
     "preview": "vite preview",
-    "test": "tsx --test \"src/**/*.test.ts\"",
+    "test": "tsx --test $(find src -type f \\( -name '*.test.ts' -o -name '*.test.tsx' \\) | sort)",
     "check:templates": "tsc -p src/lib/scripts/templates/tsconfig.json --noEmit"
   },
   "dependencies": {
