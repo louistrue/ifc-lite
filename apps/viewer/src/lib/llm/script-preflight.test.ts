@@ -271,6 +271,81 @@ for (let x = 0; x < width; x += 3) {
   assert.ok(detached.every((diagnostic) => diagnostic.evidence?.length));
 });
 
+test('preflight does not flag destructured loop bindings in complete rewrite scripts as detached snippets', () => {
+  const diagnostics = validateScriptPreflightDetailed(`
+const h = bim.create.project({ Name: "3-Story House" });
+
+const storyHeight = 3.0;
+const floorThickness = 0.3;
+const wallThickness = 0.25;
+const roofThickness = 0.25;
+const windowWidth = 1.2;
+const windowHeight = 1.5;
+const windowSillHeight = 0.9;
+
+const s0 = bim.create.addIfcBuildingStorey(h, { Name: "Ground Floor", Elevation: 0 });
+const s1 = bim.create.addIfcBuildingStorey(h, { Name: "First Floor", Elevation: storyHeight });
+const s2 = bim.create.addIfcBuildingStorey(h, { Name: "Second Floor", Elevation: storyHeight * 2 });
+
+for (const [i, storey] of [s0, s1, s2].entries()) {
+  bim.create.addIfcWall(h, storey, {
+    Name: "North Wall Level " + i,
+    Start: [0, 0, 0],
+    End: [10, 0, 0],
+    Height: storyHeight,
+    Thickness: wallThickness,
+    Openings: [
+      {
+        Position: [2.5, 0, windowSillHeight],
+        Width: windowWidth,
+        Height: windowHeight
+      }
+    ]
+  });
+}
+
+bim.create.addIfcGableRoof(h, s2, {
+  Name: "Gable Roof",
+  Position: [0, 0, storyHeight],
+  Width: 10,
+  Depth: 8,
+  Thickness: roofThickness,
+  Slope: 30 * Math.PI / 180,
+  Overhang: 0.5
+});
+
+const result = bim.create.toIfc(h);
+bim.model.loadIfc(result.content, "3-story-house-with-windows.ifc");
+`);
+
+  const detached = diagnostics.filter((diagnostic) => diagnostic.code === 'detached_snippet_scope');
+  assert.equal(detached.length, 0);
+});
+
+test('preflight does not flag object destructuring or arrow params as detached snippets', () => {
+  const diagnostics = validateScriptPreflightDetailed(`
+const h = bim.create.project({ Name: "Facade" });
+const storey = bim.create.addIfcBuildingStorey(h, { Name: "Level 0", Elevation: 0 });
+const footprint = { width: 10, depth: 8 };
+const { width, depth } = footprint;
+const buildWall = (z) => {
+  bim.create.addIfcWall(h, storey, {
+    Start: [0, 0, z],
+    End: [width, 0, z],
+    Height: 3,
+    Thickness: 0.25,
+  });
+};
+buildWall(0);
+
+const result = bim.create.toIfc(h);
+bim.model.loadIfc(result.content, "facade.ifc");
+`);
+
+  const detached = diagnostics.filter((diagnostic) => diagnostic.code === 'detached_snippet_scope');
+  assert.equal(detached.length, 0);
+});
+
 test('preflight rejects unsupported rotation keys on windows', () => {
   const code = `
 const h = bim.create.project({ Name: "Rotated Window" });

@@ -70,3 +70,59 @@ for (let x = 0; x < width; x += 3) {
   assert.equal(result.ok, false);
   assert.equal(result.diagnostic?.code, 'destructive_partial_rewrite');
 });
+
+test('replacement validator allows complete rewrites that use destructured loop bindings', () => {
+  const result = validateScriptReplacementCandidate({
+    previousContent: FULL_TOWER_SCRIPT,
+    candidateContent: `
+const h = bim.create.project({ Name: "3-Story House" });
+
+const storyHeight = 3.0;
+const floorThickness = 0.3;
+const wallThickness = 0.25;
+const roofThickness = 0.25;
+const windowWidth = 1.2;
+const windowHeight = 1.5;
+const windowSillHeight = 0.9;
+
+const s0 = bim.create.addIfcBuildingStorey(h, { Name: "Ground Floor", Elevation: 0 });
+const s1 = bim.create.addIfcBuildingStorey(h, { Name: "First Floor", Elevation: storyHeight });
+const s2 = bim.create.addIfcBuildingStorey(h, { Name: "Second Floor", Elevation: storyHeight * 2 });
+
+for (const [i, storey] of [s0, s1, s2].entries()) {
+  bim.create.addIfcWall(h, storey, {
+    Name: "North Wall Level " + i,
+    Start: [0, 0, 0],
+    End: [10, 0, 0],
+    Height: storyHeight,
+    Thickness: wallThickness,
+    Openings: [
+      {
+        Position: [2.5, 0, windowSillHeight],
+        Width: windowWidth,
+        Height: windowHeight
+      }
+    ]
+  });
+}
+
+bim.create.addIfcGableRoof(h, s2, {
+  Name: "Gable Roof",
+  Position: [0, 0, storyHeight],
+  Width: 10,
+  Depth: 8,
+  Thickness: roofThickness,
+  Slope: 30 * Math.PI / 180,
+  Overhang: 0.5
+});
+
+const result = bim.create.toIfc(h);
+bim.model.loadIfc(result.content, "3-story-house-with-windows.ifc");
+`,
+    intent: 'explicit_rewrite',
+    source: 'manual_replace_all',
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.detachedDiagnostics.length, 0);
+});

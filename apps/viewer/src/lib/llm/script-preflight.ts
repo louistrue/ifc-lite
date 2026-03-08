@@ -289,6 +289,334 @@ function getLineSnippet(code: string, offset: number): string {
   return code.slice(lineStart, lineEnd).trimEnd();
 }
 
+function isIdentifierStart(char: string): boolean {
+  return /[A-Za-z_$]/.test(char);
+}
+
+function isIdentifierPart(char: string): boolean {
+  return /[A-Za-z0-9_$]/.test(char);
+}
+
+function isIdentifierBoundary(code: string, index: number): boolean {
+  if (index < 0 || index >= code.length) return true;
+  return !isIdentifierPart(code[index]);
+}
+
+function skipStringLiteral(code: string, start: number): number {
+  const quote = code[start];
+  let index = start + 1;
+  while (index < code.length) {
+    const char = code[index];
+    if (char === '\\') {
+      index += 2;
+      continue;
+    }
+    if (quote === '`' && char === '$' && code[index + 1] === '{') {
+      const expressionEnd = scanToMatching(code, index + 1, '{', '}');
+      if (expressionEnd < 0) return code.length;
+      index = expressionEnd + 1;
+      continue;
+    }
+    if (char === quote) return index + 1;
+    index++;
+  }
+  return code.length;
+}
+
+function skipTrivia(code: string, start: number): number {
+  let index = start;
+  while (index < code.length) {
+    const char = code[index];
+    const next = code[index + 1];
+    if (/\s/.test(char)) {
+      index++;
+      continue;
+    }
+    if (char === '/' && next === '/') {
+      index += 2;
+      while (index < code.length && code[index] !== '\n') index++;
+      continue;
+    }
+    if (char === '/' && next === '*') {
+      index += 2;
+      while (index < code.length && !(code[index] === '*' && code[index + 1] === '/')) index++;
+      index = Math.min(code.length, index + 2);
+      continue;
+    }
+    break;
+  }
+  return index;
+}
+
+function readIdentifier(code: string, start: number): { value: string; end: number } | null {
+  const index = skipTrivia(code, start);
+  const char = code[index];
+  if (!char || !isIdentifierStart(char)) return null;
+  let end = index + 1;
+  while (end < code.length && isIdentifierPart(code[end])) end++;
+  return { value: code.slice(index, end), end };
+}
+
+function scanExpressionUntil(code: string, start: number, terminators: Set<string>): number {
+  let index = start;
+  let parenDepth = 0;
+  let bracketDepth = 0;
+  let braceDepth = 0;
+
+  while (index < code.length) {
+    index = skipTrivia(code, index);
+    if (index >= code.length) break;
+    const char = code[index];
+
+    if (char === '"' || char === '\'' || char === '`') {
+      index = skipStringLiteral(code, index);
+      continue;
+    }
+
+    if (char === '(') parenDepth++;
+    else if (char === ')') {
+      if (parenDepth === 0 && bracketDepth === 0 && braceDepth === 0 && terminators.has(char)) return index;
+      parenDepth = Math.max(0, parenDepth - 1);
+    } else if (char === '[') bracketDepth++;
+    else if (char === ']') {
+      if (parenDepth === 0 && bracketDepth === 0 && braceDepth === 0 && terminators.has(char)) return index;
+      bracketDepth = Math.max(0, bracketDepth - 1);
+    } else if (char === '{') braceDepth++;
+    else if (char === '}') {
+      if (parenDepth === 0 && bracketDepth === 0 && braceDepth === 0 && terminators.has(char)) return index;
+      braceDepth = Math.max(0, braceDepth - 1);
+    } else if (parenDepth === 0 && bracketDepth === 0 && braceDepth === 0 && terminators.has(char)) {
+      return index;
+    }
+
+    index++;
+  }
+
+  return index;
+}
+
+function collectBindingsFromPattern(pattern: string, target: Set<string>): void {
+  const code = pattern.trim();
+  if (!code) return;
+
+  function parsePattern(start: number, terminators: Set<string>): number {
+    let index = skipTrivia(code, start);
+    if (index >= code.length) return index;
+
+    if (code.startsWith('...', index)) {
+      return parsePattern(index + 3, terminators);
+    }
+
+    const char = code[index];
+    if (char === '[') {
+      index++;
+      while (index < code.length) {
+        index = skipTrivia(code, index);
+        if (index >= code.length || code[index] === ']') return index + 1;
+        if (code[index] === ',') {
+          index++;
+          continue;
+        }
+        index = parsePattern(index, new Set([',', ']']));
+        index = skipTrivia(code, index);
+        if (code[index] === '=') {
+          index = scanExpressionUntil(code, index + 1, new Set([',', ']']));
+        }
+        index = skipTrivia(code, index);
+        if (code[index] === ',') index++;
+      }
+      return index;
+    }
+
+    if (char === '{') {
+      index++;
+      while (index < code.length) {
+        index = skipTrivia(code, index);
+        if (index >= code.length || code[index] === '}') return index + 1;
+        if (code[index] === ',') {
+          index++;
+          continue;
+        }
+        if (code.startsWith('...', index)) {
+          index = parsePattern(index + 3, new Set([',', '}']));
+        } else {
+          if (code[index] === '[') {
+            index = scanToMatching(code, index, '[', ']');
+            index = index < 0 ? code.length : index + 1;
+          } else if (code[index] === '"' || code[index] === '\'' || code[index] === '`') {
+            index = skipStringLiteral(code, index);
+          } else {
+            const key = readIdentifier(code, index);
+            if (key) {
+              index = key.end;
+              const afterKey = skipTrivia(code, index);
+              if (code[afterKey] === ':') {
+                index = parsePattern(afterKey + 1, new Set([',', '}', '=']));
+              } else {
+                target.add(key.value);
+                index = afterKey;
+              }
+            } else {
+              index++;
+            }
+          }
+        }
+
+        index = skipTrivia(code, index);
+        if (code[index] === '=') {
+          index = scanExpressionUntil(code, index + 1, new Set([',', '}']));
+        }
+        index = skipTrivia(code, index);
+        if (code[index] === ',') index++;
+      }
+      return index;
+    }
+
+    const identifier = readIdentifier(code, index);
+    if (identifier) {
+      target.add(identifier.value);
+      return identifier.end;
+    }
+
+    return scanExpressionUntil(code, index, terminators);
+  }
+
+  parsePattern(0, new Set());
+}
+
+function collectDeclaredIdentifiers(code: string): Set<string> {
+  const declared = new Set<string>();
+
+  const collectCommaSeparatedPatterns = (body: string) => {
+    splitTopLevelItems(body).forEach((item) => {
+      const trimmed = item.trim();
+      if (!trimmed) return;
+      const equalsIndex = scanExpressionUntil(trimmed, 0, new Set(['=']));
+      const pattern = equalsIndex < trimmed.length ? trimmed.slice(0, equalsIndex) : trimmed;
+      collectBindingsFromPattern(pattern, declared);
+    });
+  };
+
+  const collectFunctionLikeBindings = (expression: string) => {
+    const trimmed = expression.trim();
+    if (!trimmed) return;
+
+    if (trimmed.startsWith('function') && isIdentifierBoundary(trimmed, 'function'.length)) {
+      let cursor = skipTrivia(trimmed, 'function'.length);
+      const name = readIdentifier(trimmed, cursor);
+      if (name) {
+        cursor = name.end;
+      }
+      cursor = skipTrivia(trimmed, cursor);
+      if (trimmed[cursor] === '(') {
+        const close = scanToMatching(trimmed, cursor, '(', ')');
+        if (close >= 0) {
+          collectCommaSeparatedPatterns(trimmed.slice(cursor + 1, close));
+        }
+      }
+      return;
+    }
+
+    if (trimmed[0] === '(') {
+      const close = scanToMatching(trimmed, 0, '(', ')');
+      const afterClose = close >= 0 ? skipTrivia(trimmed, close + 1) : 0;
+      if (close >= 0 && trimmed.startsWith('=>', afterClose)) {
+        collectCommaSeparatedPatterns(trimmed.slice(1, close));
+      }
+      return;
+    }
+
+    const param = readIdentifier(trimmed, 0);
+    const afterParam = param ? skipTrivia(trimmed, param.end) : 0;
+    if (param && trimmed.startsWith('=>', afterParam)) {
+      declared.add(param.value);
+    }
+  };
+
+  const collectVariableDeclaration = (start: number): number => {
+    let index = skipTrivia(code, start);
+
+    while (index < code.length) {
+      const declaratorEnd = scanExpressionUntil(code, index, new Set([',', ';', ')']));
+      const declarator = code.slice(index, declaratorEnd);
+      const ofOrInMatch = declarator.match(/^(.*?)(?=\s+\b(?:of|in)\b)/s);
+      const bindingSegment = ofOrInMatch ? ofOrInMatch[1] : declarator;
+      const equalsIndex = scanExpressionUntil(bindingSegment, 0, new Set(['=']));
+      const pattern = equalsIndex < bindingSegment.length ? bindingSegment.slice(0, equalsIndex) : bindingSegment;
+      collectBindingsFromPattern(pattern, declared);
+      if (equalsIndex < bindingSegment.length) {
+        collectFunctionLikeBindings(bindingSegment.slice(equalsIndex + 1));
+      }
+
+      index = skipTrivia(code, declaratorEnd);
+      if (code[index] !== ',') return declaratorEnd;
+      index++;
+      index = skipTrivia(code, index);
+    }
+
+    return index;
+  };
+
+  for (let index = 0; index < code.length;) {
+    index = skipTrivia(code, index);
+    if (index >= code.length) break;
+
+    const char = code[index];
+    if (char === '"' || char === '\'' || char === '`') {
+      index = skipStringLiteral(code, index);
+      continue;
+    }
+
+    const variableKeyword = ['const', 'let', 'var'].find((keyword) =>
+      code.startsWith(keyword, index)
+      && isIdentifierBoundary(code, index - 1)
+      && isIdentifierBoundary(code, index + keyword.length),
+    );
+    if (variableKeyword) {
+      index = collectVariableDeclaration(index + variableKeyword.length);
+      continue;
+    }
+
+    if (code.startsWith('function', index)
+      && isIdentifierBoundary(code, index - 1)
+      && isIdentifierBoundary(code, index + 'function'.length)) {
+      let cursor = skipTrivia(code, index + 'function'.length);
+      const name = readIdentifier(code, cursor);
+      if (name) {
+        declared.add(name.value);
+        cursor = name.end;
+      }
+      cursor = skipTrivia(code, cursor);
+      if (code[cursor] === '(') {
+        const close = scanToMatching(code, cursor, '(', ')');
+        if (close >= 0) {
+          collectCommaSeparatedPatterns(code.slice(cursor + 1, close));
+          index = close + 1;
+          continue;
+        }
+      }
+    }
+
+    if (code.startsWith('catch', index)
+      && isIdentifierBoundary(code, index - 1)
+      && isIdentifierBoundary(code, index + 'catch'.length)) {
+      let cursor = skipTrivia(code, index + 'catch'.length);
+      if (code[cursor] === '(') {
+        const close = scanToMatching(code, cursor, '(', ')');
+        if (close >= 0) {
+          collectBindingsFromPattern(code.slice(cursor + 1, close), declared);
+          index = close + 1;
+          continue;
+        }
+      }
+    }
+
+    index++;
+  }
+
+  return declared;
+}
+
 function validateKnownBimMethods(code: string): string[] {
   const errors: string[] = [];
   const byNamespace = new Map<string, Set<string>>();
@@ -588,13 +916,9 @@ function validateWorldPlacementPatterns(code: string): PreflightScriptDiagnostic
   return diagnostics;
 }
 
-function hasDeclarationLike(code: string, identifier: string): boolean {
-  const escaped = identifier.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return new RegExp(String.raw`(?:const|let|var)\s+${escaped}\b|\bfunction\b[^(]*\([^)]*\b${escaped}\b[^)]*\)|\([^)]*\b${escaped}\b[^)]*\)\s*=>`).test(code);
-}
-
 function validateDetachedSnippetScope(code: string): PreflightScriptDiagnostic[] {
   const diagnostics: PreflightScriptDiagnostic[] = [];
+  const declared = collectDeclaredIdentifiers(code);
 
   const maybePushIdentifierDiagnostic = (identifier: string, message: string) => {
     const match = new RegExp(String.raw`\b${identifier}\b`).exec(code);
@@ -616,16 +940,16 @@ function validateDetachedSnippetScope(code: string): PreflightScriptDiagnostic[]
     ));
   };
 
-  if (/\bbim\.create\.[A-Za-z]+\(\s*h\s*,/.test(code) && !hasDeclarationLike(code, 'h') && !/bim\.create\.project\(/.test(code)) {
+  if (/\bbim\.create\.[A-Za-z]+\(\s*h\s*,/.test(code) && !declared.has('h') && !/bim\.create\.project\(/.test(code)) {
     maybePushIdentifierDiagnostic('h', 'Detached snippet risk: BIM create calls reference `h`, but no project handle is declared in this script. Preserve the surrounding full script or recreate the project/context explicitly.');
   }
 
-  if (/\bbim\.create\.[A-Za-z]+\(\s*h\s*,\s*storey\b/.test(code) && !hasDeclarationLike(code, 'storey') && !/addIfcBuildingStorey\(/.test(code)) {
+  if (/\bbim\.create\.[A-Za-z]+\(\s*h\s*,\s*storey\b/.test(code) && !declared.has('storey') && !/addIfcBuildingStorey\(/.test(code)) {
     maybePushIdentifierDiagnostic('storey', 'Detached snippet risk: BIM create calls reference `storey`, but no storey handle is declared in this script. Preserve the surrounding loop/context instead of returning a standalone fragment.');
   }
 
   for (const identifier of ['width', 'depth', 'i', 'z']) {
-    if (new RegExp(String.raw`\b${identifier}\b`).test(code) && !hasDeclarationLike(code, identifier)) {
+    if (new RegExp(String.raw`\b${identifier}\b`).test(code) && !declared.has(identifier)) {
       maybePushIdentifierDiagnostic(identifier, `Detached snippet risk: script references \`${identifier}\` without declaring it locally. If this is a fix for an existing script, patch the full script in place instead of returning an isolated fragment.`);
     }
   }
