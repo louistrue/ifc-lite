@@ -62,23 +62,33 @@ test('system prompt includes selected entity IFC context when provided', () => {
   const prompt = buildSystemPrompt({
     models: [{ name: 'Tower', entityCount: 500 }],
     typeCounts: { IfcWall: 120 },
-    selectedCount: 1,
+    selectedCount: 2,
     selectedEntities: [
       {
         modelName: 'Tower',
         name: 'Facade Panel A',
         type: 'IfcCurtainWall',
+        selectionKind: 'occurrence',
         storeyName: 'Level 10',
         storeyElevation: 31.5,
         propertySets: ['Pset_CurtainWallCommon'],
+        typePropertySets: ['Pset_CurtainWallTypeCommon'],
         quantitySets: ['Qto_CurtainWallBaseQuantities'],
         materialName: 'Aluminium',
         classifications: ['A-123'],
       },
+      {
+        modelName: 'Tower',
+        name: 'Exterior Wall Type',
+        type: 'IfcWallType',
+        selectionKind: 'type',
+        propertySets: ['Pset_WallCommon'],
+        classifications: ['A-WALL'],
+      },
     ],
   });
-  assert.match(prompt, /1 entities currently selected in the viewer/);
-  assert.match(prompt, /Selected entities: Tower: IfcCurtainWall "Facade Panel A", storey=Level 10@31.5m, psets=Pset_CurtainWallCommon, qsets=Qto_CurtainWallBaseQuantities, material=Aluminium, classifications=A-123/);
+  assert.match(prompt, /2 entities currently selected in the viewer/);
+  assert.match(prompt, /Selected entities: Tower: IfcCurtainWall "Facade Panel A", kind=occurrence, storey=Level 10@31.5m, psets=Pset_CurtainWallCommon, typePsets=Pset_CurtainWallTypeCommon, qsets=Qto_CurtainWallBaseQuantities, material=Aluminium, classifications=A-123 \| Tower: IfcWallType "Exterior Wall Type", kind=type, psets=Pset_WallCommon, classifications=A-WALL/);
 });
 
 test('system prompt includes method-specific create contract guidance', () => {
@@ -95,6 +105,10 @@ test('system prompt includes method-specific create contract guidance', () => {
   assert.match(prompt, /Materials are usually NOT ordinary property-set values/);
   assert.match(prompt, /Prefer `bim\.query\.classifications\(entity\)` over guessing ad-hoc classification properties/);
   assert.match(prompt, /const material = bim\.query\.materials\(wall\);/);
+  assert.match(prompt, /Distinguish occurrence vs type edits: occurrence\/entity-specific changes belong on the occurrence; shared defaults and inherited type properties belong on the related `Ifc\.\.\.Type` entity/);
+  assert.match(prompt, /If CURRENT MODEL STATE marks a selection as `kind=type`, treat it as a type object and avoid describing it as one physical placed occurrence/);
+  assert.match(prompt, /inspect `bim\.query\.typeProperties\(entity\)` before editing inherited values; mutate the type entity when the intent is to change all occurrences that share that type/);
+  assert.match(prompt, /IFC export preserves edits to type-owned property sets when you export after applying mutations/);
   assert.match(prompt, /addIfcDoor` and `addIfcWindow`: these create standalone world-aligned elements/);
   assert.match(prompt, /If doors or windows appear rotated 90° relative to a wall/);
   assert.match(prompt, /If repeated elements appear only at one level/);
@@ -158,6 +172,9 @@ test('system prompt explains uploaded file runtime access', () => {
   assert.match(prompt, /Do not use `fetch\(\)` for chat attachments/);
   assert.match(prompt, /Attachment-driven model edit \(common workflow\)/);
   assert.match(prompt, /bim\.mutate\.setAttribute\(entity, "Description", byGuid\[guid\]\)/);
+  assert.match(prompt, /Type-level edit/);
+  assert.match(prompt, /const typeProps = bim\.query\.typeProperties\(wall\);/);
+  assert.match(prompt, /bim\.mutate\.setProperty\(typeProps\.type, "Pset_WallCommon", "Reference", "EXT"\)/);
   assert.match(prompt, /bim\.export\.ifc\(entities, \{ filename: "updated\.ifc", includeMutations: true \}\)/);
   assert.match(prompt, /Text preview:/);
 });

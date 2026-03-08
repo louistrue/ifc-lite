@@ -33,10 +33,12 @@ export interface ModelContext {
     modelName?: string;
     name: string;
     type: string;
+    selectionKind?: 'occurrence' | 'type';
     globalId?: string;
     storeyName?: string;
     storeyElevation?: number;
     propertySets?: string[];
+    typePropertySets?: string[];
     quantitySets?: string[];
     materialName?: string;
     classifications?: string[];
@@ -327,7 +329,11 @@ ${intentSection}
 7. If the user asks to modify existing data, use \`bim.mutate\` or \`bim.query\` — NOT \`bim.create\`
    - Use \`bim.mutate.setAttribute(entity, "Description", "...")\` for root IFC attributes like \`Name\`, \`Description\`, \`ObjectType\`, or \`Tag\`
    - Use \`bim.mutate.setProperty(entity, "Pset_Name", "PropName", value)\` only for IfcPropertySet or quantity data
+   - Distinguish occurrence vs type edits: occurrence/entity-specific changes belong on the occurrence; shared defaults and inherited type properties belong on the related \`Ifc...Type\` entity
+   - If CURRENT MODEL STATE marks a selection as \`kind=type\`, treat it as a type object and avoid describing it as one physical placed occurrence
+   - When an occurrence is selected, inspect \`bim.query.typeProperties(entity)\` before editing inherited values; mutate the type entity when the intent is to change all occurrences that share that type
    - For IFC export after mutations, call \`bim.export.ifc(bim.query.all(), { filename: "updated.ifc" })\` or pass the exact entity list you want to export
+   - IFC export preserves edits to type-owned property sets when you export after applying mutations
    - Never fake IFC export with \`bim.export.download("", ...)\` and never use CSV/JSON exports as a sync trigger
    - Common attachment workflow: load rows with \`bim.files.csv(name)\`, build a lookup/map, apply mutations in one pass over \`bim.query.all()\`, then optionally export with \`bim.export.ifc(...)\`
    - If the user only wants to inspect edits in the viewer, do NOT force export; the viewer should show the edits immediately after mutation
@@ -526,6 +532,15 @@ console.log("Found", slabs.length, "slabs");
 const csv = bim.export.csv(slabs, { columns: ["Name", "Type", "GlobalId"] });
 bim.export.download(csv, "slabs.csv", "text/csv");
 console.log("Exported CSV with", slabs.length, "rows");
+\`\`\`
+
+### Type-level edit
+\`\`\`js
+const wall = bim.query.selection()[0];
+const typeProps = bim.query.typeProperties(wall);
+if (wall && typeProps) {
+  bim.mutate.setProperty(typeProps.type, "Pset_WallCommon", "Reference", "EXT");
+}
 \`\`\``;
 
   prompt += `
@@ -597,12 +612,14 @@ if (!rows) {
     if (modelContext.selectedEntities && modelContext.selectedEntities.length > 0) {
       prompt += `\nSelected entities: ${modelContext.selectedEntities.map((entity) => {
         const prefix = entity.modelName ? `${entity.modelName}: ` : '';
+        const kind = entity.selectionKind ? `, kind=${entity.selectionKind}` : '';
         const storey = entity.storeyName ? `, storey=${entity.storeyName}${entity.storeyElevation !== undefined ? `@${entity.storeyElevation}m` : ''}` : '';
         const psets = entity.propertySets && entity.propertySets.length > 0 ? `, psets=${entity.propertySets.join('/')}` : '';
+        const typePsets = entity.typePropertySets && entity.typePropertySets.length > 0 ? `, typePsets=${entity.typePropertySets.join('/')}` : '';
         const qsets = entity.quantitySets && entity.quantitySets.length > 0 ? `, qsets=${entity.quantitySets.join('/')}` : '';
         const material = entity.materialName ? `, material=${entity.materialName}` : '';
         const classifications = entity.classifications && entity.classifications.length > 0 ? `, classifications=${entity.classifications.join('/')}` : '';
-        return `${prefix}${entity.type} "${entity.name}"${storey}${psets}${qsets}${material}${classifications}`;
+        return `${prefix}${entity.type} "${entity.name}"${kind}${storey}${psets}${typePsets}${qsets}${material}${classifications}`;
       }).join(' | ')}`;
     }
   }

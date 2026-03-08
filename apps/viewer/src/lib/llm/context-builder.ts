@@ -11,7 +11,14 @@
 import { useViewerStore } from '@/store';
 import type { ModelContext } from './system-prompt.js';
 import { IfcTypeEnum, type SpatialNode, type SpatialHierarchy } from '@ifc-lite/data';
-import { extractPropertiesOnDemand, extractQuantitiesOnDemand, extractMaterialsOnDemand, extractClassificationsOnDemand } from '@ifc-lite/parser';
+import {
+  extractClassificationsOnDemand,
+  extractMaterialsOnDemand,
+  extractPropertiesOnDemand,
+  extractQuantitiesOnDemand,
+  extractTypeEntityOwnProperties,
+  extractTypePropertiesOnDemand,
+} from '@ifc-lite/parser';
 import { resolveEntityRef } from '@/store/resolveEntityRef';
 
 let cachedTypeCountsFingerprint = '';
@@ -96,6 +103,10 @@ function getStoreForModel(
   return { store: model?.ifcDataStore ?? null, modelName: model?.name ?? modelId };
 }
 
+function uniqueStrings(values: Array<string | undefined>): string[] {
+  return Array.from(new Set(values.filter((value): value is string => Boolean(value))));
+}
+
 function collectSelectedEntities(state: ReturnType<typeof useViewerStore.getState>): NonNullable<ModelContext['selectedEntities']> {
   const refs = state.selectedEntities.length > 0
     ? state.selectedEntities
@@ -117,9 +128,16 @@ function collectSelectedEntities(state: ReturnType<typeof useViewerStore.getStat
 
     const rawPsets = extractPropertiesOnDemand(store, ref.expressId) as Array<{ name?: string; Name?: string }> | undefined;
     const rawQsets = extractQuantitiesOnDemand(store, ref.expressId) as Array<{ name?: string; Name?: string }> | undefined;
+    const typeOwnPsets = extractTypeEntityOwnProperties(store, ref.expressId);
+    const inheritedTypeProps = extractTypePropertiesOnDemand(store, ref.expressId);
     const rawMaterial = extractMaterialsOnDemand(store, ref.expressId);
     const rawClassifications = extractClassificationsOnDemand(store, ref.expressId);
-    const propertySets = (rawPsets ?? []).map((pset) => pset.name ?? pset.Name).filter((value): value is string => Boolean(value)).slice(0, 6);
+    const instancePropertySets = uniqueStrings((rawPsets ?? []).map((pset) => pset.name ?? pset.Name));
+    const ownTypePropertySets = uniqueStrings(typeOwnPsets.map((pset) => pset.name));
+    const inheritedTypePropertySets = uniqueStrings((inheritedTypeProps?.properties ?? []).map((pset) => pset.name));
+    const selectionKind = ownTypePropertySets.length > 0 ? 'type' : 'occurrence';
+    const propertySets = (selectionKind === 'type' ? ownTypePropertySets : instancePropertySets).slice(0, 6);
+    const typePropertySets = (selectionKind === 'type' ? [] : inheritedTypePropertySets).slice(0, 6);
     const quantitySets = (rawQsets ?? []).map((qset) => qset.name ?? qset.Name).filter((value): value is string => Boolean(value)).slice(0, 6);
     const materialName = rawMaterial?.name ?? rawMaterial?.materials?.[0];
     const classifications = rawClassifications
@@ -131,10 +149,12 @@ function collectSelectedEntities(state: ReturnType<typeof useViewerStore.getStat
       modelName,
       name,
       type,
+      selectionKind,
       globalId: store.entities.getGlobalId?.(ref.expressId),
       storeyName,
       storeyElevation,
       propertySets,
+      typePropertySets,
       quantitySets,
       materialName,
       classifications,
