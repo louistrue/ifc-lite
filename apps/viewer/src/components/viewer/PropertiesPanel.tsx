@@ -46,6 +46,44 @@ import { RelationshipsCard } from './properties/RelationshipsCard';
 import type { PropertySet, QuantitySet } from './properties/encodingUtils';
 import { BsddCard } from './properties/BsddCard';
 
+type DisplayProperty = { name: string; value: unknown; isMutated: boolean };
+type DisplayPropertySet = {
+  name: string;
+  properties: DisplayProperty[];
+  isNewPset: boolean;
+  source?: PropertySet['source'];
+};
+
+function mergePropertySetLists(base: DisplayPropertySet[], incoming: DisplayPropertySet[]): DisplayPropertySet[] {
+  const merged = base.map(pset => ({
+    ...pset,
+    properties: [...pset.properties],
+  }));
+  const psetMap = new Map(merged.map(pset => [pset.name, pset]));
+
+  for (const incomingPset of incoming) {
+    const existing = psetMap.get(incomingPset.name);
+    if (!existing) {
+      const copy = {
+        ...incomingPset,
+        properties: [...incomingPset.properties],
+      };
+      merged.push(copy);
+      psetMap.set(copy.name, copy);
+      continue;
+    }
+
+    const existingPropMap = new Map(existing.properties.map(prop => [prop.name, prop]));
+    for (const prop of incomingPset.properties) {
+      if (!existingPropMap.has(prop.name)) {
+        existing.properties.push(prop as DisplayProperty);
+      }
+    }
+  }
+
+  return merged;
+}
+
 export function PropertiesPanel() {
   const selectedEntityId = useViewerStore((s) => s.selectedEntityId);
   const selectedEntity = useViewerStore((s) => s.selectedEntity);
@@ -375,15 +413,16 @@ export function PropertiesPanel() {
 
     // For type entities, also extract HasPropertySets (attribute[5]) since they
     // aren't linked via IfcRelDefinesByProperties and thus not in onDemandPropertyMap
-    if (isTypeEntity && result.length === 0 && expressId) {
+    if (isTypeEntity && expressId) {
       const dataStore = (activeDataStore ?? ifcDataStore) as IfcDataStore | null;
       if (dataStore) {
         const typeOwnProps = extractTypeEntityOwnProperties(dataStore, expressId);
-        result = typeOwnProps.map(pset => ({
+        const mappedTypeOwn = typeOwnProps.map(pset => ({
           name: pset.name,
           properties: pset.properties.map(p => ({ name: p.name, value: p.value, isMutated: false })),
           isNewPset: false,
         }));
+        result = mergePropertySetLists(result, mappedTypeOwn);
       }
     }
 

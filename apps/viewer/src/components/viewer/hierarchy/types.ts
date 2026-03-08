@@ -18,6 +18,8 @@ export interface TreeNode {
   id: string;  // Unique ID for the node (can be composite)
   /** Express IDs this node represents (for elements/storeys) */
   expressIds: number[];
+  /** Structured entity expressId for selectable non-element nodes (for example IFC type entities) */
+  entityExpressId?: number;
   /** Model IDs this node belongs to */
   modelIds: string[];
   name: string;

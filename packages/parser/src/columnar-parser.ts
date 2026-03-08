@@ -172,6 +172,10 @@ const PROPERTY_ENTITY_TYPES = new Set([
     'IFCQUANTITYCOUNT', 'IFCQUANTITYWEIGHT', 'IFCQUANTITYTIME',
 ]);
 
+function isIfcTypeLikeEntity(typeUpper: string): boolean {
+    return typeUpper.endsWith('TYPE') || typeUpper.endsWith('STYLE');
+}
+
 /**
  * Detect the IFC schema version from the STEP FILE_SCHEMA header.
  * Scans the first 2000 bytes for FILE_SCHEMA(('IFC2X3')), FILE_SCHEMA(('IFC4')), etc.
@@ -256,7 +260,7 @@ export class ColumnarParser {
                 propertyEntityRefs.push(ref);
             } else if (ASSOCIATION_REL_TYPES.has(typeUpper)) {
                 associationRelRefs.push(ref);
-            } else if (typeUpper.endsWith('TYPE')) {
+            } else if (isIfcTypeLikeEntity(typeUpper)) {
                 typeObjectRefs.push(ref);
             }
         }
@@ -454,7 +458,7 @@ export class ColumnarParser {
             
             // Skip non-relevant entities (geometric primitives, etc.)
             const hasGeometry = GEOMETRY_TYPES.has(typeUpper);
-            const isType = typeUpper.endsWith('TYPE');
+            const isType = isIfcTypeLikeEntity(typeUpper);
             const isSpatial = SPATIAL_TYPES.has(typeUpper);
             const isRelevant = hasGeometry || isType || isSpatial || 
                 RELEVANT_ENTITY_PREFIXES.has(typeUpper) ||

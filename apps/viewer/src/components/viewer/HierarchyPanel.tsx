@@ -39,6 +39,7 @@ export function HierarchyPanel() {
   const setSelectedEntityIds = useViewerStore((s) => s.setSelectedEntityIds);
   const setSelectedEntity = useViewerStore((s) => s.setSelectedEntity);
   const setSelectedEntities = useViewerStore((s) => s.setSelectedEntities);
+  const toGlobalId = useViewerStore((s) => s.toGlobalId);
   const setSelectedModelId = useViewerStore((s) => s.setSelectedModelId);
   const selectedStoreys = useViewerStore((s) => s.selectedStoreys);
   const setStoreySelection = useViewerStore((s) => s.setStoreySelection);
@@ -213,17 +214,15 @@ export function HierarchyPanel() {
     // IFC type entity nodes (e.g. IfcWallType/W01) - select type entity for property panel + isolate instances
     if (node.type === 'ifc-type') {
       const modelId = node.modelIds[0];
-      // The type entity expressId is encoded in the node id: "ifctype-{modelId}-{expressId}"
-      const typeExpressId = parseInt(node.id.split('-').pop()!, 10);
+      const typeExpressId = node.entityExpressId;
+      if (!typeExpressId) return;
 
       // Clear multi-selection first (before setting new selection, since
       // setSelectedEntityIds([]) resets selectedEntityId to null)
       setSelectedEntityIds([]);
 
       if (modelId && modelId !== 'legacy') {
-        const model = models.get(modelId);
-        const globalId = typeExpressId + (model?.idOffset ?? 0);
-        setSelectedEntityId(globalId);
+        setSelectedEntityId(toGlobalId(modelId, typeExpressId));
         setSelectedEntity({ modelId, expressId: typeExpressId });
         setActiveModel(modelId);
       } else {
@@ -343,7 +342,7 @@ export function HierarchyPanel() {
         setSelectedEntity(resolveEntityRef(elementId));
       }
     }
-  }, [selectedStoreys, setStoreysSelection, clearStoreySelection, setSelectedEntityId, setSelectedEntityIds, setSelectedEntity, setSelectedEntities, setActiveModel, toggleExpand, unifiedStoreys, models, isolateEntities, getNodeElements, setHierarchyBasketSelection]);
+  }, [selectedStoreys, setStoreysSelection, clearStoreySelection, setSelectedEntityId, setSelectedEntityIds, setSelectedEntity, setSelectedEntities, setActiveModel, toggleExpand, unifiedStoreys, models, isolateEntities, getNodeElements, setHierarchyBasketSelection, toGlobalId]);
 
   // Compute selection and visibility state for a node
   const computeNodeState = useCallback((node: TreeNode): { isSelected: boolean; nodeHidden: boolean; modelVisible?: boolean } => {
@@ -357,10 +356,12 @@ export function HierarchyPanel() {
           ? selectedEntityId === node.expressIds[0]
           : node.type === 'ifc-type'
             ? (() => {
-                const typeExpressId = parseInt(node.id.split('-').pop()!, 10);
+                const typeExpressId = node.entityExpressId;
+                if (!typeExpressId) return false;
                 const mId = node.modelIds[0];
-                const m = mId && mId !== 'legacy' ? models.get(mId) : null;
-                const gId = typeExpressId + (m?.idOffset ?? 0);
+                const gId = mId && mId !== 'legacy'
+                  ? toGlobalId(mId, typeExpressId)
+                  : typeExpressId;
                 return selectedEntityId === gId;
               })()
             : false;

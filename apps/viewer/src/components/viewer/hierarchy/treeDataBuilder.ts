@@ -478,6 +478,7 @@ export function buildIfcTypeTree(
 
       for (const instId of instanceIds) {
         const instGlobalId = instId + idOffset;
+        if (geometricIds && geometricIds.size > 0 && !geometricIds.has(instGlobalId)) continue;
         const instName = dataStore.entities.getName(instId) || `#${instId}`;
         instances.push({ expressId: instId, globalId: instGlobalId, name: instName, modelId });
       }
@@ -549,6 +550,7 @@ export function buildIfcTypeTree(
         nodes.push({
           id: typeNodeId,
           expressIds: instanceGlobalIds,
+          entityExpressId: typeEntry.typeExpressId,
           modelIds: [typeEntry.modelId],
           name: `${typeEntry.typeName}${suffix}`,
           type: 'ifc-type',
