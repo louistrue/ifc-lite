@@ -19,6 +19,7 @@ export function getNodeType(ifcType: IfcTypeEnum): NodeType {
     case IfcTypeEnum.IfcSite: return 'IfcSite';
     case IfcTypeEnum.IfcBuilding: return 'IfcBuilding';
     case IfcTypeEnum.IfcBuildingStorey: return 'IfcBuildingStorey';
+    case IfcTypeEnum.IfcSpace: return 'IfcSpace';
     default: return 'element';
   }
 }
@@ -117,6 +118,8 @@ function buildSpatialNodes(
   let elements: number[] = [];
   if (nodeType === 'IfcBuildingStorey') {
     elements = (dataStore.spatialHierarchy?.byStorey.get(spatialNode.expressId) as number[]) || [];
+  } else if (nodeType === 'IfcSpace') {
+    elements = (dataStore.spatialHierarchy?.bySpace.get(spatialNode.expressId) as number[]) || [];
   }
 
   // Check if has children
@@ -131,6 +134,7 @@ function buildSpatialNodes(
   nodes.push({
     id: nodeId,
     expressIds: [spatialNode.expressId],
+    globalIds: [spatialNode.expressId + idOffset],
     modelIds: [modelId],
     name: (spatialNode.name && spatialNode.name.toLowerCase() !== 'unknown')
       ? spatialNode.name
@@ -140,7 +144,7 @@ function buildSpatialNodes(
     hasChildren,
     isExpanded: isNodeExpanded,
     isVisible: true, // Visibility computed lazily during render
-    elementCount: nodeType === 'IfcBuildingStorey' ? elements.length : undefined,
+    elementCount: nodeType === 'IfcBuildingStorey' || nodeType === 'IfcSpace' ? elements.length : undefined,
     storeyElevation: spatialNode.elevation,
     // Store idOffset for lazy visibility computation
     _idOffset: idOffset,
@@ -157,7 +161,7 @@ function buildSpatialNodes(
     }
 
     // For storeys (single-model only), add elements
-    if (!stopAtBuilding && nodeType === 'IfcBuildingStorey' && elements.length > 0) {
+    if (!stopAtBuilding && (nodeType === 'IfcBuildingStorey' || nodeType === 'IfcSpace') && elements.length > 0) {
       for (const elementId of elements) {
         const globalId = elementId + idOffset;
         const entityType = dataStore.entities?.getTypeName(elementId) || 'Unknown';
@@ -165,10 +169,12 @@ function buildSpatialNodes(
 
         nodes.push({
           id: `element-${modelId}-${elementId}`,
-          expressIds: [globalId],  // Store global ID for visibility operations
+          expressIds: [elementId],
+          globalIds: [globalId],
           modelIds: [modelId],
           name: entityName,
           type: 'element',
+          ifcType: entityType,
           depth: depth + 1,
           hasChildren: false,
           isExpanded: false,
@@ -200,6 +206,7 @@ export function buildTreeData(
       nodes.push({
         id: storeyNodeId,
         expressIds: allStoreyIds,
+        globalIds: unified.storeys.map((s) => s.storeyId + (models.get(s.modelId)?.idOffset ?? 0)),
         modelIds: unified.storeys.map(s => s.modelId),
         name: unified.name,
         type: 'unified-storey',
@@ -225,6 +232,7 @@ export function buildTreeData(
           nodes.push({
             id: contribNodeId,
             expressIds: [storey.storeyId],
+            globalIds: [storey.storeyId + offset],
             modelIds: [storey.modelId],
             name: modelName,
             type: 'model-header',
@@ -246,10 +254,12 @@ export function buildTreeData(
 
               nodes.push({
                 id: `element-${storey.modelId}-${elementId}`,
-                expressIds: [globalId],  // Store global ID for visibility operations
+                expressIds: [elementId],
+                globalIds: [globalId],
                 modelIds: [storey.modelId],
                 name: entityName,
                 type: 'element',
+                ifcType: entityType,
                 depth: 2,
                 hasChildren: false,
                 isExpanded: false,
@@ -265,6 +275,7 @@ export function buildTreeData(
     nodes.push({
       id: 'models-header',
       expressIds: [],
+      globalIds: [],
       modelIds: [],
       name: 'Models',
       type: 'model-header',
@@ -283,6 +294,7 @@ export function buildTreeData(
       nodes.push({
         id: modelNodeId,
         expressIds: [],
+        globalIds: [],
         modelIds: [modelId],
         name: model.name,
         type: 'model-header',
@@ -399,10 +411,12 @@ export function buildTypeTree(
 
     nodes.push({
       id: groupNodeId,
-      expressIds: groupGlobalIds,
+      expressIds: entities.map((e) => e.expressId),
+      globalIds: groupGlobalIds,
       modelIds: [],
       name: typeName,
       type: 'type-group',
+      ifcType: typeName,
       depth: 0,
       hasChildren: entities.length > 0,
       isExpanded,
@@ -417,10 +431,12 @@ export function buildTypeTree(
         const suffix = isMultiModel ? ` [${models.get(entity.modelId)?.name || entity.modelId}]` : '';
         nodes.push({
           id: `element-${entity.modelId}-${entity.expressId}`,
-          expressIds: [entity.globalId],
+          expressIds: [entity.expressId],
+          globalIds: [entity.globalId],
           modelIds: [entity.modelId],
           name: entity.name + suffix,
           type: 'element',
+          ifcType: typeName,
           depth: 1,
           hasChildren: false,
           isExpanded: false,

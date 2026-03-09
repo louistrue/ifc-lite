@@ -285,27 +285,42 @@ export function HierarchyPanel() {
           setStoreysSelection(storeyIds);
         }
       }
+    } else if (node.type === 'IfcSpace') {
+      const spaceId = node.expressIds[0];
+      const modelId = node.modelIds[0];
+      const globalId = node.globalIds[0] ?? spaceId;
+
+      setSelectedEntityIds([]);
+
+      if (modelId && modelId !== 'legacy') {
+        setSelectedEntityId(globalId);
+        setSelectedEntity({ modelId, expressId: spaceId });
+        setActiveModel(modelId);
+      } else {
+        setSelectedEntityId(globalId);
+        setSelectedEntity({ modelId: 'legacy', expressId: spaceId });
+      }
+
+      if (node.hasChildren) {
+        toggleExpand(node.id);
+      }
     } else if (node.type === 'element') {
       // Element click - select it
-      const elementId = node.expressIds[0];  // Original expressId
+      const elementId = node.expressIds[0];
       const modelId = node.modelIds[0];
+      const globalId = node.globalIds[0] ?? elementId;
 
       // Clear multi-selection (e.g. from a prior type-group click) so only
       // this single element is highlighted, matching Viewport pick behavior
       setSelectedEntityIds([]);
 
       if (modelId !== 'legacy') {
-        // Multi-model: need to convert to globalId for renderer
-        const model = models.get(modelId);
-        const globalId = elementId + (model?.idOffset ?? 0);
         setSelectedEntityId(globalId);
         setSelectedEntity({ modelId, expressId: elementId });
         setActiveModel(modelId);
       } else {
-        // Legacy single-model: expressId = globalId (offset is 0)
-        setSelectedEntityId(elementId);
-        // Also set selectedEntity for property panel (was missing, causing blank panel)
-        setSelectedEntity(resolveEntityRef(elementId));
+        setSelectedEntityId(globalId);
+        setSelectedEntity(resolveEntityRef(globalId));
       }
     }
   }, [selectedStoreys, setStoreysSelection, clearStoreySelection, setSelectedEntityId, setSelectedEntityIds, setSelectedEntity, setSelectedEntities, setActiveModel, toggleExpand, unifiedStoreys, models, isolateEntities, getNodeElements, setHierarchyBasketSelection]);
@@ -317,15 +332,15 @@ export function HierarchyPanel() {
       ? node.expressIds.some(id => selectedStoreys.has(id))
       : node.type === 'IfcBuildingStorey'
         ? selectedStoreys.has(node.expressIds[0])
-        : node.type === 'element'
-          ? selectedEntityId === node.expressIds[0]
+        : node.type === 'IfcSpace' || node.type === 'element'
+          ? selectedEntityId === (node.globalIds[0] ?? node.expressIds[0])
           : false;
 
     // Compute visibility inline - for elements check directly, for storeys use getNodeElements
     let nodeHidden = false;
     if (node.type === 'element') {
-      nodeHidden = hiddenEntities.has(node.expressIds[0]);
-    } else if (node.type === 'IfcBuildingStorey' || node.type === 'unified-storey' ||
+      nodeHidden = hiddenEntities.has(node.globalIds[0] ?? node.expressIds[0]);
+    } else if (node.type === 'IfcBuildingStorey' || node.type === 'IfcSpace' || node.type === 'unified-storey' ||
                node.type === 'type-group' ||
                (node.type === 'model-header' && node.id.startsWith('contrib-'))) {
       const elements = getNodeElements(node);

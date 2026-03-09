@@ -10,17 +10,22 @@ export type NodeType =
   | 'IfcSite'             // Site node
   | 'IfcBuilding'         // Building node
   | 'IfcBuildingStorey'   // Storey node
+  | 'IfcSpace'            // Space node
   | 'type-group'          // IFC class grouping header (e.g., "IfcWall (47)")
   | 'element';            // Individual element
 
 export interface TreeNode {
   id: string;  // Unique ID for the node (can be composite)
-  /** Express IDs this node represents (for elements/storeys) */
+  /** Local express IDs this node represents */
   expressIds: number[];
+  /** Federated global IDs for selection/visibility operations */
+  globalIds: number[];
   /** Model IDs this node belongs to */
   modelIds: string[];
   name: string;
   type: NodeType;
+  /** Actual IFC class for element rows and type groups */
+  ifcType?: string;
   depth: number;
   hasChildren: boolean;
   isExpanded: boolean;

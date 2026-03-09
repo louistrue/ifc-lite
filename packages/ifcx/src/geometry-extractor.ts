@@ -45,9 +45,19 @@ export function extractGeometry(
 ): MeshData[] {
   const meshes: MeshData[] = [];
   const roots = findTraversalRoots(composed);
+  const traversalSeeds = roots.length > 0 ? [...roots] : [...composed.values()];
+  const seededPaths = new Set(traversalSeeds.map((node) => node.path));
+  const visited = new Set<string>();
 
-  for (const root of roots) {
-    traverseNode(root, null, null, [], new Set([root.path]));
+  for (const [path, node] of composed) {
+    if (!seededPaths.has(path)) {
+      traversalSeeds.push(node);
+      seededPaths.add(path);
+    }
+  }
+
+  for (const root of traversalSeeds) {
+    traverseNode(root, null, null, [], new Set([root.path]), visited);
   }
 
   return meshes;
@@ -57,8 +67,12 @@ export function extractGeometry(
     inheritedContext: GeometryContext | null,
     parentTransform: Float32Array | null,
     lineage: ComposedNode[],
-    path: Set<string>
+    path: Set<string>,
+    visited: Set<string>
   ): void {
+    if (visited.has(node.path)) return;
+    visited.add(node.path);
+
     const context = resolveContext(node, inheritedContext, pathToId);
     const transform = combineTransforms(getNodeTransform(node), parentTransform);
     const nextLineage = [...lineage, node];
@@ -74,7 +88,7 @@ export function extractGeometry(
       if (path.has(child.path)) continue;
       const childPath = new Set(path);
       childPath.add(child.path);
-      traverseNode(child, context, transform, nextLineage, childPath);
+      traverseNode(child, context, transform, nextLineage, childPath, visited);
     }
   }
 }
@@ -94,8 +108,6 @@ function resolveContext(
   pathToId: Map<string, number>
 ): GeometryContext | null {
   const ifcClass = node.attributes.get(ATTR.CLASS) as { code?: string } | undefined;
-  if (!ifcClass?.code) return context;
-
   const expressId = pathToId.get(node.path);
   if (expressId === undefined) {
     return context;
@@ -103,7 +115,7 @@ function resolveContext(
 
   return {
     expressId,
-    ifcType: ifcClass.code,
+    ifcType: ifcClass?.code,
     isTypeDefinition: isIfcTypeDefinition(node),
   };
 }

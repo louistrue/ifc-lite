@@ -215,7 +215,7 @@ export function useHierarchyTree({ models, ifcDataStore, isMultiModel, geometryR
   const getNodeElements = useCallback((node: TreeNode): number[] => {
     if (node.type === 'type-group') {
       // GlobalIds are pre-stored on the node during tree construction — O(1)
-      return node.expressIds;
+      return node.globalIds;
     }
     if (node.type === 'unified-storey') {
       // Get all elements from all models for this unified storey
@@ -252,8 +252,23 @@ export function useHierarchyTree({ models, ifcDataStore, isMultiModel, geometryR
         const offset = model.idOffset ?? 0;
         return localIds.map(id => id + offset);
       }
+    } else if (node.type === 'IfcSpace') {
+      const spaceId = node.expressIds[0];
+      const modelId = node.modelIds[0];
+
+      if (ifcDataStore?.spatialHierarchy) {
+        const elements = ifcDataStore.spatialHierarchy.bySpace.get(spaceId) ?? [];
+        return [spaceId, ...(elements as number[])];
+      }
+
+      const model = models.get(modelId);
+      if (model?.ifcDataStore?.spatialHierarchy) {
+        const offset = model.idOffset ?? 0;
+        const localIds = (model.ifcDataStore.spatialHierarchy.bySpace.get(spaceId) as number[]) || [];
+        return [spaceId + offset, ...localIds.map((id) => id + offset)];
+      }
     } else if (node.type === 'element') {
-      return node.expressIds;
+      return node.globalIds;
     }
     // Spatial containers (Project, Site, Building) and top-level models don't have direct element visibility toggle
     return [];

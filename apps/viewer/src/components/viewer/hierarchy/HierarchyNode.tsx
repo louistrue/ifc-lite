@@ -67,7 +67,8 @@ export function HierarchyNode({
   onRemoveModel,
   onModelHeaderClick,
 }: HierarchyNodeProps) {
-  const Icon = TYPE_ICONS[node.type] || TYPE_ICONS.default;
+  const resolvedType = node.ifcType || node.type;
+  const Icon = TYPE_ICONS[resolvedType] || TYPE_ICONS[node.type] || TYPE_ICONS.default;
 
   // Model header nodes (for visibility control and expansion)
   if (node.type === 'model-header' && node.id.startsWith('model-')) {
@@ -260,18 +261,24 @@ export function HierarchyNode({
             <Icon className="h-3.5 w-3.5 shrink-0 text-zinc-500 dark:text-zinc-400" />
           </TooltipTrigger>
           <TooltipContent>
-            <p className="text-xs">{node.type}</p>
+            <p className="text-xs">{resolvedType}</p>
           </TooltipContent>
         </Tooltip>
 
         {/* Name */}
         <span className={cn(
           'flex-1 text-sm truncate ml-1.5',
-          isSpatialContainer(node.type) || node.type === 'IfcBuildingStorey' || node.type === 'unified-storey' || node.type === 'type-group'
+          isSpatialContainer(node.type) || node.type === 'IfcBuildingStorey' || node.type === 'IfcSpace' || node.type === 'unified-storey' || node.type === 'type-group'
             ? 'font-medium text-zinc-900 dark:text-zinc-100'
             : 'text-zinc-700 dark:text-zinc-300',
           nodeHidden && 'line-through decoration-zinc-400 dark:decoration-zinc-600'
         )}>{node.name}</span>
+
+        {node.ifcType && node.type === 'element' && (
+          <span className="text-[10px] font-mono text-zinc-400 dark:text-zinc-500 truncate max-w-[90px]">
+            {node.ifcType}
+          </span>
+        )}
 
         {/* Storey Elevation */}
         {node.storeyElevation !== undefined && (
