@@ -148,6 +148,7 @@ function buildSpatialNode(
   const ifcClass = node.attributes.get(ATTR.CLASS) as IfcClass | undefined;
   const expressId = pathToId.get(node.path) ?? 0;
   const typeEnum = IfcTypeEnumFromString(ifcClass?.code ?? '');
+  const elementIds = new Set<number>();
 
   const spatialNode: SpatialNode = {
     expressId,
@@ -172,16 +173,16 @@ function buildSpatialNode(
     if (childClass && SPATIAL_TYPES.has(childClass.code)) {
       // Spatial child - recurse
       spatialNode.children.push(buildSpatialNode(child, pathToId));
-    } else if (childClass) {
-      // Element - add to elements list
-      const childId = pathToId.get(child.path);
-      if (childId !== undefined) {
-        spatialNode.elements.push(childId);
+    } else {
+      collectElementIds(child, pathToId, elementIds, new Set());
+      if (ifcClass?.code === 'IfcSpace') {
+        collectSpaceBoundaryElementIds(child, pathToId, elementIds);
       }
     }
     // Geometry-only children (Body, Axis, etc.) are skipped
   }
 
+  spatialNode.elements = [...elementIds];
   return spatialNode;
 }
 
@@ -221,17 +222,17 @@ function populateMaps(
   // Add elements to appropriate maps
   for (const elementId of node.elements) {
     if (currentStorey !== null) {
-      byStorey.get(currentStorey)?.push(elementId);
+      pushUnique(byStorey, currentStorey, elementId);
       elementToStorey.set(elementId, currentStorey);
     }
     if (currentBuilding !== null) {
-      byBuilding.get(currentBuilding)?.push(elementId);
+      pushUnique(byBuilding, currentBuilding, elementId);
     }
     if (currentSite !== null) {
-      bySite.get(currentSite)?.push(elementId);
+      pushUnique(bySite, currentSite, elementId);
     }
     if (node.type === IfcTypeEnum.IfcSpace) {
-      bySpace.get(node.expressId)?.push(elementId);
+      pushUnique(bySpace, node.expressId, elementId);
     }
   }
 
@@ -279,6 +280,57 @@ function createEmptyHierarchy(): SpatialHierarchy {
     getContainingSpace: () => null,
     getPath: () => [],
   };
+}
+
+function collectElementIds(
+  node: ComposedNode,
+  pathToId: Map<string, number>,
+  elementIds: Set<number>,
+  visited: Set<string>
+): void {
+  if (visited.has(node.path)) return;
+  visited.add(node.path);
+
+  const ifcClass = node.attributes.get(ATTR.CLASS) as IfcClass | undefined;
+  if (ifcClass?.code) {
+    if (SPATIAL_TYPES.has(ifcClass.code)) return;
+    const elementId = pathToId.get(node.path);
+    if (elementId !== undefined) {
+      elementIds.add(elementId);
+    }
+  }
+
+  for (const child of node.children.values()) {
+    collectElementIds(child, pathToId, elementIds, visited);
+  }
+}
+
+function collectSpaceBoundaryElementIds(
+  node: ComposedNode,
+  pathToId: Map<string, number>,
+  elementIds: Set<number>
+): void {
+  const boundary = node.attributes.get(ATTR.SPACE_BOUNDARY) as {
+    relatedelement?: { ref?: string };
+  } | undefined;
+  const relatedElementPath = boundary?.relatedelement?.ref;
+  if (!relatedElementPath) return;
+
+  const elementId = pathToId.get(relatedElementPath);
+  if (elementId !== undefined) {
+    elementIds.add(elementId);
+  }
+}
+
+function pushUnique(map: Map<number, number[]>, key: number, value: number): void {
+  const list = map.get(key);
+  if (!list) {
+    map.set(key, [value]);
+    return;
+  }
+  if (!list.includes(value)) {
+    list.push(value);
+  }
 }
 
 /**

@@ -84,4 +84,51 @@ describe('extractGeometry', () => {
     assert.strictEqual(meshes[0].expressId, 7);
     assert.strictEqual(meshes[0].ifcType, undefined);
   });
+
+  it('emits shared inherited mesh geometry for each non-type instance context', () => {
+    const root = createNode('root');
+    root.attributes.set(ATTR.CLASS, { code: 'IfcWall' });
+
+    const typeDefinition = createNode('window-type');
+    typeDefinition.attributes.set(ATTR.CLASS, { code: 'IfcWindowType' });
+    typeDefinition.attributes.set('customdata', {
+      originalStepInstance: '#10=IFCWINDOWTYPE()',
+    });
+
+    const windowA = createNode('window-a');
+    windowA.attributes.set(ATTR.CLASS, { code: 'IfcWindow' });
+
+    const windowB = createNode('window-b');
+    windowB.attributes.set(ATTR.CLASS, { code: 'IfcWindow' });
+
+    const sharedBody = createNode('window-body');
+    sharedBody.attributes.set(ATTR.MESH, createMesh());
+
+    attachChild(root, typeDefinition, 'Type');
+    attachChild(typeDefinition, sharedBody, 'Body');
+    attachChild(root, windowA, 'WindowA');
+    attachChild(root, windowB, 'WindowB');
+    windowA.children.set('Body', sharedBody);
+    windowB.children.set('Body', sharedBody);
+
+    const composed = new Map<string, ComposedNode>([
+      [root.path, root],
+      [typeDefinition.path, typeDefinition],
+      [windowA.path, windowA],
+      [windowB.path, windowB],
+      [sharedBody.path, sharedBody],
+    ]);
+    const pathToId = new Map([
+      [root.path, 1],
+      [typeDefinition.path, 10],
+      [windowA.path, 11],
+      [windowB.path, 12],
+    ]);
+
+    const meshes = extractGeometry(composed, pathToId);
+
+    assert.strictEqual(meshes.length, 2);
+    assert.deepStrictEqual(meshes.map((mesh) => mesh.expressId).sort((a, b) => a - b), [11, 12]);
+    assert.deepStrictEqual(meshes.map((mesh) => mesh.ifcType).sort(), ['IfcWindow', 'IfcWindow']);
+  });
 });

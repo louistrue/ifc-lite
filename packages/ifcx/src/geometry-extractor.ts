@@ -44,20 +44,10 @@ export function extractGeometry(
   pathToId: Map<string, number>
 ): MeshData[] {
   const meshes: MeshData[] = [];
-  const roots = findTraversalRoots(composed);
-  const traversalSeeds = roots.length > 0 ? [...roots] : [...composed.values()];
-  const seededPaths = new Set(traversalSeeds.map((node) => node.path));
-  const visited = new Set<string>();
-
-  for (const [path, node] of composed) {
-    if (!seededPaths.has(path)) {
-      traversalSeeds.push(node);
-      seededPaths.add(path);
-    }
-  }
+  const traversalSeeds = findTraversalSeeds(composed);
 
   for (const root of traversalSeeds) {
-    traverseNode(root, null, null, [], new Set([root.path]), visited);
+    traverseNode(root, null, null, [], new Set([root.path]));
   }
 
   return meshes;
@@ -67,12 +57,8 @@ export function extractGeometry(
     inheritedContext: GeometryContext | null,
     parentTransform: Float32Array | null,
     lineage: ComposedNode[],
-    path: Set<string>,
-    visited: Set<string>
+    path: Set<string>
   ): void {
-    if (visited.has(node.path)) return;
-    visited.add(node.path);
-
     const context = resolveContext(node, inheritedContext, pathToId);
     const transform = combineTransforms(getNodeTransform(node), parentTransform);
     const nextLineage = [...lineage, node];
@@ -88,7 +74,7 @@ export function extractGeometry(
       if (path.has(child.path)) continue;
       const childPath = new Set(path);
       childPath.add(child.path);
-      traverseNode(child, context, transform, nextLineage, childPath, visited);
+      traverseNode(child, context, transform, nextLineage, childPath);
     }
   }
 }
@@ -230,8 +216,42 @@ function findTraversalRoots(composed: Map<string, ComposedNode>): ComposedNode[]
     }
   }
 
-  const roots = [...composed.values()].filter(node => !childPaths.has(node.path));
-  return roots.length > 0 ? roots : [...composed.values()];
+  return [...composed.values()].filter((node) => !childPaths.has(node.path));
+}
+
+function findTraversalSeeds(composed: Map<string, ComposedNode>): ComposedNode[] {
+  const seeds: ComposedNode[] = [];
+  const reachable = new Set<string>();
+  const roots = findTraversalRoots(composed);
+
+  for (const root of roots) {
+    seeds.push(root);
+    markReachable(root, reachable, new Set([root.path]));
+  }
+
+  for (const node of composed.values()) {
+    if (reachable.has(node.path)) continue;
+    seeds.push(node);
+    markReachable(node, reachable, new Set([node.path]));
+  }
+
+  return seeds;
+}
+
+function markReachable(
+  node: ComposedNode,
+  reachable: Set<string>,
+  path: Set<string>
+): void {
+  if (reachable.has(node.path)) return;
+  reachable.add(node.path);
+
+  for (const child of node.children.values()) {
+    if (path.has(child.path)) continue;
+    const childPath = new Set(path);
+    childPath.add(child.path);
+    markReachable(child, reachable, childPath);
+  }
 }
 
 /**
@@ -266,7 +286,7 @@ function isIfcTypeDefinition(node: ComposedNode): boolean {
   const customData = node.attributes.get('customdata') as { originalStepInstance?: string } | undefined;
   const originalStepInstance = customData?.originalStepInstance;
   if (typeof originalStepInstance !== 'string') return false;
-  return /=[A-Za-z0-9_]*Type\(/.test(originalStepInstance);
+  return /=[A-Za-z0-9_]*Type\(/i.test(originalStepInstance);
 }
 
 function isInvisible(lineage: ComposedNode[]): boolean {
