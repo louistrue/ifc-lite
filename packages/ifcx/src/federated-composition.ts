@@ -405,7 +405,6 @@ function composeNode(
       const childPre = preComposed.get(resolvedChildPath);
       if (childPre) {
         const child = composeNode(resolvedChildPath, preComposed, composed, visiting, layers, pathIndex);
-        child.parent = node;
         node.children.set(name, child);
       }
     }
@@ -433,7 +432,7 @@ function findRoots(composed: Map<string, ComposedNodeWithSources>): ComposedNode
   // Roots are nodes not referenced as children
   const roots: ComposedNodeWithSources[] = [];
   for (const node of composed.values()) {
-    if (!childPaths.has(node.path) && !node.parent) {
+    if (!childPaths.has(node.path)) {
       roots.push(node);
     }
   }

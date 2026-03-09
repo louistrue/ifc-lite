@@ -149,7 +149,6 @@ function composeNode(
   for (const [name, childPath] of Object.entries(pre.children)) {
     if (childPath) {
       const child = composeNode(childPath, preComposed, composed, new Set(visited));
-      child.parent = node;
       node.children.set(name, child);
     }
   }
@@ -187,8 +186,12 @@ export function findRoots(composed: Map<string, ComposedNode>): ComposedNode[] {
  */
 export function getDescendants(node: ComposedNode): ComposedNode[] {
   const descendants: ComposedNode[] = [];
+  const visited = new Set<string>();
 
   function traverse(n: ComposedNode): void {
+    if (visited.has(n.path)) return;
+    visited.add(n.path);
+
     for (const child of n.children.values()) {
       descendants.push(child);
       traverse(child);
@@ -197,19 +200,4 @@ export function getDescendants(node: ComposedNode): ComposedNode[] {
 
   traverse(node);
   return descendants;
-}
-
-/**
- * Get the path from root to a node.
- */
-export function getPathToRoot(node: ComposedNode): ComposedNode[] {
-  const path: ComposedNode[] = [node];
-  let current = node.parent;
-
-  while (current) {
-    path.unshift(current);
-    current = current.parent;
-  }
-
-  return path;
 }

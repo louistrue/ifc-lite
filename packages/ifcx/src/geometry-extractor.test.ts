@@ -16,7 +16,6 @@ function createNode(path: string): ComposedNode {
 }
 
 function attachChild(parent: ComposedNode, child: ComposedNode, key: string): void {
-  child.parent = parent;
   parent.children.set(key, child);
 }
 

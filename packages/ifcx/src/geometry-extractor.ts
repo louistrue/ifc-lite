@@ -14,6 +14,7 @@
 
 import type { ComposedNode, UsdMesh, UsdTransform } from './types.js';
 import { ATTR } from './types.js';
+import { getNodeLineage, type TraversalFrame, walkComposedFrames } from './traversal.js';
 
 /**
  * MeshData interface compatible with @ifc-lite/geometry
@@ -44,39 +45,28 @@ export function extractGeometry(
   pathToId: Map<string, number>
 ): MeshData[] {
   const meshes: MeshData[] = [];
-  const traversalSeeds = findTraversalSeeds(composed);
+  const contextByFrame = new WeakMap<TraversalFrame, GeometryContext | null>();
+  const transformByFrame = new WeakMap<TraversalFrame, Float32Array | null>();
 
-  for (const root of traversalSeeds) {
-    traverseNode(root, null, null, [], new Set([root.path]));
-  }
+  walkComposedFrames(composed, (frame) => {
+    const inheritedContext = frame.parent ? contextByFrame.get(frame.parent) ?? null : null;
+    const parentTransform = frame.parent ? transformByFrame.get(frame.parent) ?? null : null;
+    const context = resolveContext(frame.node, inheritedContext, pathToId);
+    const transform = combineTransforms(getNodeTransform(frame.node), parentTransform);
+    const lineage = getNodeLineage(frame);
 
-  return meshes;
+    contextByFrame.set(frame, context);
+    transformByFrame.set(frame, transform);
 
-  function traverseNode(
-    node: ComposedNode,
-    inheritedContext: GeometryContext | null,
-    parentTransform: Float32Array | null,
-    lineage: ComposedNode[],
-    path: Set<string>
-  ): void {
-    const context = resolveContext(node, inheritedContext, pathToId);
-    const transform = combineTransforms(getNodeTransform(node), parentTransform);
-    const nextLineage = [...lineage, node];
-
-    const mesh = node.attributes.get(ATTR.MESH) as UsdMesh | undefined;
-    if (mesh && context && !context.isTypeDefinition && !isInvisible(nextLineage)) {
+    const mesh = frame.node.attributes.get(ATTR.MESH) as UsdMesh | undefined;
+    if (mesh && context && !context.isTypeDefinition && !isInvisible(lineage)) {
       const meshData = convertUsdMesh(mesh, context.expressId, context.ifcType, transform);
-      applyPresentation(meshData, nextLineage);
+      applyPresentation(meshData, lineage);
       meshes.push(meshData);
     }
+  });
 
-    for (const child of node.children.values()) {
-      if (path.has(child.path)) continue;
-      const childPath = new Set(path);
-      childPath.add(child.path);
-      traverseNode(child, context, transform, nextLineage, childPath);
-    }
-  }
+  return meshes;
 }
 
 /**
@@ -203,55 +193,6 @@ function combineTransforms(
   if (!nodeTransform) return parentTransform;
   if (!parentTransform) return nodeTransform;
   return multiplyMatrices(nodeTransform, parentTransform);
-}
-
-/**
- * Find traversal roots for the composed graph.
- */
-function findTraversalRoots(composed: Map<string, ComposedNode>): ComposedNode[] {
-  const childPaths = new Set<string>();
-  for (const node of composed.values()) {
-    for (const child of node.children.values()) {
-      childPaths.add(child.path);
-    }
-  }
-
-  return [...composed.values()].filter((node) => !childPaths.has(node.path));
-}
-
-function findTraversalSeeds(composed: Map<string, ComposedNode>): ComposedNode[] {
-  const seeds: ComposedNode[] = [];
-  const reachable = new Set<string>();
-  const roots = findTraversalRoots(composed);
-
-  for (const root of roots) {
-    seeds.push(root);
-    markReachable(root, reachable, new Set([root.path]));
-  }
-
-  for (const node of composed.values()) {
-    if (reachable.has(node.path)) continue;
-    seeds.push(node);
-    markReachable(node, reachable, new Set([node.path]));
-  }
-
-  return seeds;
-}
-
-function markReachable(
-  node: ComposedNode,
-  reachable: Set<string>,
-  path: Set<string>
-): void {
-  if (reachable.has(node.path)) return;
-  reachable.add(node.path);
-
-  for (const child of node.children.values()) {
-    if (path.has(child.path)) continue;
-    const childPath = new Set(path);
-    childPath.add(child.path);
-    markReachable(child, reachable, childPath);
-  }
 }
 
 /**
