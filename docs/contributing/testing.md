@@ -479,10 +479,32 @@ jobs:
 Use a tiered fixture approach so release pipelines stay reliable when Git LFS quota is constrained:
 
 1. Keep release and docs workflows on `actions/checkout` with `lfs: false`.
-2. Keep small smoke-test fixtures in Git (non-LFS) and run them on every PR and release.
+2. Keep smoke-test fixtures small and cheap to access so normal PR and release validation never needs a broad LFS pull.
 3. Run heavy IFC corpus tests (large geometry/benchmark sets) in dedicated manual or scheduled workflows.
 4. For heavy workflows, fetch only required fixtures with `git lfs pull --include="<paths>"` instead of downloading all LFS objects.
 5. Add caching and checksums for downloaded fixture bundles when using external artifact storage.
+
+### Fixture Tiers
+
+- **Smoke fixtures**: Small files required for normal development, package tests, and release verification. These should stay cheap to access and should not require broad LFS pulls.
+- **Benchmark fixtures**: Medium-sized files used for targeted performance checks. Fetch them on demand with `git lfs pull --include="<paths>"`.
+- **Stress fixtures**: Giant files such as full-building streaming tests. Treat these as rare opt-in assets and never assume they are present in a fresh clone.
+
+### Recommended Clone Flow
+
+```bash
+GIT_LFS_SKIP_SMUDGE=1 git clone https://github.com/louistrue/ifc-lite.git
+cd ifc-lite
+pnpm install
+```
+
+Then fetch only the fixtures needed for the task at hand:
+
+```bash
+git lfs pull --include="tests/models/ara3d/AC20-FZK-Haus.ifc"
+```
+
+For future giant IFC corpora, prefer external artifact storage plus checksums over adding more always-available Git LFS fixtures to the repo.
 
 ## Next Steps
 

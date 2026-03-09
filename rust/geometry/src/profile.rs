@@ -72,6 +72,9 @@ impl Profile2D {
         // Convert to Point2 array
         let mut points = Vec::with_capacity(vertices.len() / 2);
         for i in (0..vertices.len()).step_by(2) {
+            if i + 1 >= vertices.len() {
+                break;
+            }
             points.push(Point2::new(vertices[i], vertices[i + 1]));
         }
 

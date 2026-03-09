@@ -235,6 +235,9 @@ impl FacetedBrepProcessor {
 
         // Add triangle indices
         for i in (0..tri_indices.len()).step_by(3) {
+            if i + 2 >= tri_indices.len() {
+                break;
+            }
             indices.push(tri_indices[i] as u32);
             indices.push(tri_indices[i + 1] as u32);
             indices.push(tri_indices[i + 2] as u32);

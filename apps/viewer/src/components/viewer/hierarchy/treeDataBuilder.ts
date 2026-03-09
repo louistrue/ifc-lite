@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-import { IfcTypeEnum, type SpatialNode } from '@ifc-lite/data';
+import { IfcTypeEnum, EntityFlags, RelationshipType, type SpatialNode } from '@ifc-lite/data';
 import type { IfcDataStore } from '@ifc-lite/parser';
 import type { FederatedModel } from '@/store';
 import type { TreeNode, NodeType, StoreyData, UnifiedStorey } from './types';
@@ -129,7 +129,8 @@ function buildSpatialNodes(
   );
   const hasChildren = stopAtBuilding
     ? (nodeType !== 'IfcBuilding' && hasNonStoreyChildren)
-    : (spatialNode.children?.length > 0) || (nodeType === 'IfcBuildingStorey' && elements.length > 0);
+    : (spatialNode.children?.length > 0) ||
+      ((nodeType === 'IfcBuildingStorey' || nodeType === 'IfcSpace') && elements.length > 0);
 
   nodes.push({
     id: nodeId,
@@ -442,6 +443,164 @@ export function buildTypeTree(
           isExpanded: false,
           isVisible: true,
         });
+      }
+    }
+  }
+
+  return nodes;
+}
+
+/** Build tree data grouped by IFC type entities (IfcWallType, IfcDoorType, etc.).
+ *  Shows each type entity as a parent node with its typed instances (occurrences) as children.
+ *  Uses IfcRelDefinesByType relationships to find type→occurrence mappings.
+ *  Entities without a type are grouped under an "Untyped" section per IFC class. */
+export function buildIfcTypeTree(
+  models: Map<string, FederatedModel>,
+  ifcDataStore: IfcDataStore | null | undefined,
+  expandedNodes: Set<string>,
+  isMultiModel: boolean,
+  geometricIds?: Set<number>,
+): TreeNode[] {
+  // Collect type entities and their typed instances
+  interface TypeEntry {
+    typeExpressId: number;
+    typeName: string;      // e.g. "W01"
+    typeClassName: string;  // e.g. "IfcWallType"
+    modelId: string;
+    globalId: number;
+    instances: Array<{ expressId: number; globalId: number; name: string; modelId: string }>;
+  }
+
+  // Group by type class name (e.g. "IfcWallType") → individual types
+  const typeClassGroups = new Map<string, TypeEntry[]>();
+
+  const processDataStore = (dataStore: IfcDataStore, modelId: string, idOffset: number) => {
+    if (!dataStore.relationships) return;
+
+    // Find all type entities (entities with IS_TYPE flag)
+    for (let i = 0; i < dataStore.entities.count; i++) {
+      const flags = dataStore.entities.flags[i];
+      if (!(flags & EntityFlags.IS_TYPE)) continue;
+
+      const expressId = dataStore.entities.expressId[i];
+      const typeClassName = dataStore.entities.getTypeName(expressId);
+
+      // Skip relationship entities and non-product types
+      if (typeClassName.startsWith('IfcRel') || typeClassName === 'Unknown') continue;
+      const typeName = dataStore.entities.getName(expressId) || `#${expressId}`;
+
+      // Get instances via DefinesByType (forward: type → occurrences)
+      const instanceIds = dataStore.relationships.getRelated(expressId, RelationshipType.DefinesByType, 'forward');
+      const instances: TypeEntry['instances'] = [];
+
+      for (const instId of instanceIds) {
+        const instGlobalId = instId + idOffset;
+        if (geometricIds && geometricIds.size > 0 && !geometricIds.has(instGlobalId)) continue;
+        const instName = dataStore.entities.getName(instId) || `#${instId}`;
+        instances.push({ expressId: instId, globalId: instGlobalId, name: instName, modelId });
+      }
+
+      const entry: TypeEntry = {
+        typeExpressId: expressId,
+        typeName,
+        typeClassName,
+        modelId,
+        globalId: expressId + idOffset,
+        instances,
+      };
+
+      if (!typeClassGroups.has(typeClassName)) {
+        typeClassGroups.set(typeClassName, []);
+      }
+      typeClassGroups.get(typeClassName)!.push(entry);
+    }
+  };
+
+  if (models.size > 0) {
+    for (const [modelId, model] of models) {
+      if (model.ifcDataStore) {
+        processDataStore(model.ifcDataStore, modelId, model.idOffset ?? 0);
+      }
+    }
+  } else if (ifcDataStore) {
+    processDataStore(ifcDataStore, 'legacy', 0);
+  }
+
+  const nodes: TreeNode[] = [];
+
+  // Sort type class groups alphabetically
+  const sortedClassNames = Array.from(typeClassGroups.keys()).sort();
+
+  for (const className of sortedClassNames) {
+    const types = typeClassGroups.get(className)!;
+    const classNodeId = `typeclass-${className}`;
+    const isClassExpanded = expandedNodes.has(classNodeId);
+
+    // Total instances across all types in this class
+    const totalInstances = types.reduce((sum, t) => sum + t.instances.length, 0);
+    // Collect all instance globalIds for visibility/isolation
+    const allInstanceGlobalIds = types.flatMap(t => t.instances.map(i => i.globalId));
+
+    nodes.push({
+      id: classNodeId,
+      expressIds: types.flatMap(t => t.instances.map(i => i.expressId)),
+      globalIds: allInstanceGlobalIds,
+      modelIds: [],
+      name: className,
+      type: 'type-group',
+      ifcType: className,
+      depth: 0,
+      hasChildren: types.length > 0,
+      isExpanded: isClassExpanded,
+      isVisible: true,
+      elementCount: totalInstances,
+    });
+
+    if (isClassExpanded) {
+      // Sort types by name
+      types.sort((a, b) => a.typeName.localeCompare(b.typeName));
+
+      for (const typeEntry of types) {
+        const typeNodeId = `ifctype-${typeEntry.modelId}-${typeEntry.typeExpressId}`;
+        const isTypeExpanded = expandedNodes.has(typeNodeId);
+        const instanceGlobalIds = typeEntry.instances.map(i => i.globalId);
+        const suffix = isMultiModel ? ` [${models.get(typeEntry.modelId)?.name || typeEntry.modelId}]` : '';
+
+        nodes.push({
+          id: typeNodeId,
+          expressIds: typeEntry.instances.map(i => i.expressId),
+          globalIds: instanceGlobalIds,
+          entityExpressId: typeEntry.typeExpressId,
+          modelIds: [typeEntry.modelId],
+          name: `${typeEntry.typeName}${suffix}`,
+          type: 'ifc-type',
+          ifcType: typeEntry.typeClassName,
+          depth: 1,
+          hasChildren: typeEntry.instances.length > 0,
+          isExpanded: isTypeExpanded,
+          isVisible: true,
+          elementCount: typeEntry.instances.length,
+        });
+
+        if (isTypeExpanded) {
+          typeEntry.instances.sort((a, b) => a.name.localeCompare(b.name));
+          for (const inst of typeEntry.instances) {
+            const instSuffix = isMultiModel ? ` [${models.get(inst.modelId)?.name || inst.modelId}]` : '';
+            nodes.push({
+              id: `element-${inst.modelId}-${inst.expressId}`,
+              expressIds: [inst.expressId],
+              globalIds: [inst.globalId],
+              modelIds: [inst.modelId],
+              name: inst.name + instSuffix,
+              type: 'element',
+              ifcType: typeEntry.typeClassName.replace(/Type$/, ''),
+              depth: 2,
+              hasChildren: false,
+              isExpanded: false,
+              isVisible: true,
+            });
+          }
+        }
       }
     }
   }

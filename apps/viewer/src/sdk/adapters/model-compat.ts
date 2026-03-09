@@ -42,7 +42,7 @@ export function getModelForRef(state: ViewerState, modelId: string): ModelLike |
   if (model) return model;
 
   // Legacy single-model fallback
-  if (modelId === LEGACY_MODEL_ID && state.models.size === 0 && state.ifcDataStore) {
+  if ((modelId === LEGACY_MODEL_ID || modelId === 'legacy') && state.models.size === 0 && state.ifcDataStore) {
     return buildLegacyModel(state.ifcDataStore);
   }
 

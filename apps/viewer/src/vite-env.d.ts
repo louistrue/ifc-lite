@@ -11,6 +11,16 @@ interface ImportMetaEnv {
   readonly VITE_SERVER_URL?: string;
   /** Set to 'true' to route IFC loading through server instead of client-side WASM */
   readonly VITE_USE_SERVER?: string;
+  /** Comma-separated free-tier model IDs */
+  readonly VITE_LLM_FREE_MODELS?: string;
+  /** Comma-separated pro model IDs grouped by relative cost */
+  readonly VITE_LLM_PRO_MODELS_LOW?: string;
+  readonly VITE_LLM_PRO_MODELS_MEDIUM?: string;
+  readonly VITE_LLM_PRO_MODELS_HIGH?: string;
+  /** Comma-separated model IDs that support image inputs */
+  readonly VITE_LLM_IMAGE_MODELS?: string;
+  /** Comma-separated model IDs that support file attachment context */
+  readonly VITE_LLM_FILE_ATTACHMENT_MODELS?: string;
 }
 
 interface ImportMeta {

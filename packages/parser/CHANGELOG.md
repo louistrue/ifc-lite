@@ -1,5 +1,23 @@
 # @ifc-lite/parser
 
+## 1.14.3
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @ifc-lite/data@1.14.3
+  - @ifc-lite/ifcx@1.14.3
+
+## 1.14.2
+
+### Patch Changes
+
+- [#316](https://github.com/louistrue/ifc-lite/pull/316) [`740f7a7`](https://github.com/louistrue/ifc-lite/commit/740f7a7228413657d13014565d9e457f0e00e8a3) Thanks [@louistrue](https://github.com/louistrue)! - Improve IFC type detection for style-based IFC2X3 entities and keep type-owned property extraction consistent with mixed-source type metadata.
+
+- Updated dependencies []:
+  - @ifc-lite/data@1.14.2
+  - @ifc-lite/ifcx@1.14.2
+
 ## 1.14.1
 
 ### Patch Changes

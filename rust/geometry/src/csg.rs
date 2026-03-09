@@ -320,10 +320,19 @@ impl ClippingProcessor {
             FxHashMap::default();
         let normal_epsilon = 0.01; // Tolerance for normal comparison
 
+        let vertex_count = opening_mesh.positions.len() / 3;
         for i in (0..opening_mesh.indices.len()).step_by(3) {
+            if i + 2 >= opening_mesh.indices.len() {
+                break;
+            }
             let i0 = opening_mesh.indices[i] as usize;
             let i1 = opening_mesh.indices[i + 1] as usize;
             let i2 = opening_mesh.indices[i + 2] as usize;
+
+            // Bounds check vertex indices against positions
+            if i0 >= vertex_count || i1 >= vertex_count || i2 >= vertex_count {
+                continue;
+            }
 
             let v0 = Point3::new(
                 opening_mesh.positions[i0 * 3] as f64,
@@ -782,15 +791,24 @@ impl ClippingProcessor {
         
         // Distance threshold for "inside" detection
         let epsilon = min_dim * 0.01;
-        
+
         let mut cleaned = Mesh::new();
-        
+
         // Process each triangle
+        let vert_count = mesh.positions.len() / 3;
         for i in (0..mesh.indices.len()).step_by(3) {
+            if i + 2 >= mesh.indices.len() {
+                break;
+            }
             let i0 = mesh.indices[i] as usize;
             let i1 = mesh.indices[i + 1] as usize;
             let i2 = mesh.indices[i + 2] as usize;
-            
+
+            // Bounds check vertex indices
+            if i0 >= vert_count || i1 >= vert_count || i2 >= vert_count {
+                continue;
+            }
+
             // Get vertex positions
             let v0 = Point3::new(
                 mesh.positions[i0 * 3] as f64,
@@ -897,13 +915,22 @@ impl ClippingProcessor {
         open_max: Point3<f64>,
     ) -> Mesh {
         let mut cleaned = Mesh::new();
-        
+
         // Process each triangle
+        let vert_count = mesh.positions.len() / 3;
         for i in (0..mesh.indices.len()).step_by(3) {
+            if i + 2 >= mesh.indices.len() {
+                break;
+            }
             let i0 = mesh.indices[i] as usize;
             let i1 = mesh.indices[i + 1] as usize;
             let i2 = mesh.indices[i + 2] as usize;
-            
+
+            // Bounds check vertex indices
+            if i0 >= vert_count || i1 >= vert_count || i2 >= vert_count {
+                continue;
+            }
+
             // Get vertex positions
             let v0 = Point3::new(
                 mesh.positions[i0 * 3] as f64,
@@ -920,7 +947,7 @@ impl ClippingProcessor {
                 mesh.positions[i2 * 3 + 1] as f64,
                 mesh.positions[i2 * 3 + 2] as f64,
             );
-            
+
             // Calculate triangle bounding box
             let tri_min_x = v0.x.min(v1.x).min(v2.x);
             let tri_max_x = v0.x.max(v1.x).max(v2.x);
@@ -1184,10 +1211,19 @@ impl ClippingProcessor {
         let mut result = Mesh::new();
 
         // Process each triangle
+        let vert_count = mesh.positions.len() / 3;
         for i in (0..mesh.indices.len()).step_by(3) {
+            if i + 2 >= mesh.indices.len() {
+                break;
+            }
             let i0 = mesh.indices[i] as usize;
             let i1 = mesh.indices[i + 1] as usize;
             let i2 = mesh.indices[i + 2] as usize;
+
+            // Bounds check vertex indices
+            if i0 >= vert_count || i1 >= vert_count || i2 >= vert_count {
+                continue;
+            }
 
             // Get triangle vertices
             let v0 = Point3::new(

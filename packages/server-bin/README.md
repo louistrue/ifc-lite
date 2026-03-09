@@ -108,10 +108,12 @@ cd my-app
 docker compose up -d
 
 # Or build from source
-git clone https://github.com/louistrue/ifc-lite
+GIT_LFS_SKIP_SMUDGE=1 git clone https://github.com/louistrue/ifc-lite
 cd ifc-lite/apps/server
 cargo build --release
 ```
+
+If you later need large IFC benchmark fixtures from the monorepo, fetch only the specific files you plan to use instead of downloading all LFS objects.
 
 ## API Reference
 

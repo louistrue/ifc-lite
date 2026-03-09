@@ -12,11 +12,12 @@ import {
   getUnifiedStoreyElements as getUnifiedStoreyElementsFn,
   buildTreeData,
   buildTypeTree,
+  buildIfcTypeTree,
   filterNodes,
   splitNodes,
 } from './treeDataBuilder';
 
-export type GroupingMode = 'spatial' | 'type';
+export type GroupingMode = 'spatial' | 'type' | 'ifc-type';
 
 interface UseHierarchyTreeParams {
   models: Map<string, FederatedModel>;
@@ -182,6 +183,9 @@ export function useHierarchyTree({ models, ifcDataStore, isMultiModel, geometryR
       if (groupingMode === 'type') {
         return buildTypeTree(models, ifcDataStore, expandedNodes, isMultiModel, geometricIds);
       }
+      if (groupingMode === 'ifc-type') {
+        return buildIfcTypeTree(models, ifcDataStore, expandedNodes, isMultiModel, geometricIds);
+      }
       return buildTreeData(models, ifcDataStore, expandedNodes, isMultiModel, unifiedStoreys);
     },
     [models, ifcDataStore, expandedNodes, isMultiModel, unifiedStoreys, groupingMode, geometricIds]
@@ -211,9 +215,9 @@ export function useHierarchyTree({ models, ifcDataStore, isMultiModel, geometryR
     });
   }, []);
 
-  // Get all elements for a node (handles type groups, unified storeys, single storeys, model contributions, and elements)
+  // Get all elements for a node (handles type groups, ifc-type, unified storeys, single storeys, model contributions, and elements)
   const getNodeElements = useCallback((node: TreeNode): number[] => {
-    if (node.type === 'type-group') {
+    if (node.type === 'type-group' || node.type === 'ifc-type') {
       // GlobalIds are pre-stored on the node during tree construction — O(1)
       return node.globalIds;
     }

@@ -249,7 +249,7 @@ bim.create.addIfcElementQuantity(h, stairId, {
 
 const ff = bim.create.addIfcBuildingStorey(h, { Name: 'First Floor', Elevation: 3 });
 
-// Floor slab at z = 3 with stair opening
+// Floor slab — position is relative to storey elevation (3m)
 // Opening must be long enough for headroom (≥ 2.1 m) over the ascending stair.
 // At the slab level the stair is still rising, so the opening needs to extend
 // back far enough that a person standing on a lower step has full clearance.
@@ -258,7 +258,7 @@ const stairOpenLen = 4.2;                          // ~1.5 × run ensures headro
 const stairOpenY = stairRunEnd - stairOpenLen / 2; // center near arrival end
 const ffSlab = bim.create.addIfcSlab(h, ff, {
   Name: 'First Floor Slab', Description: 'Reinforced concrete floor slab', ObjectType: 'Floor:Concrete - 300mm',
-  Position: [0, 0, 2.7], Thickness: 0.3, Width: 5, Depth: 8,
+  Position: [0, 0, -0.3], Thickness: 0.3, Width: 5, Depth: 8,
   Openings: [
     { Name: 'Stair Opening', Width: stairW + 0.2, Height: stairOpenLen, Position: [stairW / 2, stairOpenY, 0] },
   ],
@@ -282,31 +282,31 @@ bim.create.addIfcPropertySet(h, ffSlab, {
   ],
 });
 
-// Second floor walls — same footprint, window on east instead of door
+// Second floor walls — same footprint, Z=0 relative to storey elevation
 const ffSouthWall = bim.create.addIfcWall(h, ff, {
   Name: 'South Wall', Description: 'Exterior south façade', ObjectType: 'Basic Wall:Exterior - 200mm',
-  Start: [0, 0, 3], End: [5, 0, 3], Thickness: 0.2, Height: 3,
+  Start: [0, 0, 0], End: [5, 0, 0], Thickness: 0.2, Height: 3,
   Openings: [
     { Name: 'W-03 Window', Width: 1.2, Height: 1.5, Position: [1.5, 0, 0.9] },
   ],
 });
 const ffEastWall = bim.create.addIfcWall(h, ff, {
   Name: 'East Wall', Description: 'Exterior east façade', ObjectType: 'Basic Wall:Exterior - 200mm',
-  Start: [5, 0, 3], End: [5, 8, 3], Thickness: 0.2, Height: 3,
+  Start: [5, 0, 0], End: [5, 8, 0], Thickness: 0.2, Height: 3,
   Openings: [
     { Name: 'W-04 Window', Width: 1.4, Height: 1.5, Position: [3, 0, 0.9] },
   ],
 });
 const ffNorthWall = bim.create.addIfcWall(h, ff, {
   Name: 'North Wall', Description: 'Exterior north façade', ObjectType: 'Basic Wall:Exterior - 200mm',
-  Start: [5, 8, 3], End: [0, 8, 3], Thickness: 0.2, Height: 3,
+  Start: [5, 8, 0], End: [0, 8, 0], Thickness: 0.2, Height: 3,
   Openings: [
     { Name: 'W-05 Window', Width: 1.4, Height: 1.5, Position: [1.8, 0, 0.9] },
   ],
 });
 const ffWestWall = bim.create.addIfcWall(h, ff, {
   Name: 'West Wall', Description: 'Exterior west façade', ObjectType: 'Basic Wall:Exterior - 200mm',
-  Start: [0, 8, 3], End: [0, 0, 3], Thickness: 0.2, Height: 3,
+  Start: [0, 8, 0], End: [0, 0, 0], Thickness: 0.2, Height: 3,
 });
 
 for (const wId of [ffSouthWall, ffEastWall, ffNorthWall, ffWestWall]) {
@@ -350,21 +350,21 @@ for (const [wId, wName, wLen] of [
   });
 }
 
-// Second floor columns
+// Second floor columns — Z=0 relative to storey elevation
 for (const [cName, cx, cy] of columnPositions) {
   const colId = bim.create.addIfcColumn(h, ff, {
     Name: cName, Description: 'Reinforced concrete column', ObjectType: 'Column:Concrete 300x300',
-    Position: [cx, cy, 3], Width: 0.3, Depth: 0.3, Height: 3,
+    Position: [cx, cy, 0], Width: 0.3, Depth: 0.3, Height: 3,
   });
   bim.create.setColor(h, colId, 'Concrete - Light', [0.72, 0.72, 0.74]);
   bim.create.addIfcMaterial(h, colId, { Name: 'Reinforced Concrete C30/37', Category: 'Concrete' });
 }
 
-// Second floor beams
+// Second floor beams — Z=3 relative to storey elevation (→ world Z=6)
 for (const [bName, bStart, bEnd] of beamDefs) {
   const beamId = bim.create.addIfcBeam(h, ff, {
     Name: bName, Description: 'Steel I-beam', ObjectType: 'Beam:IPE 200',
-    Start: [bStart[0], bStart[1], 6], End: [bEnd[0], bEnd[1], 6], Width: 0.2, Height: 0.4,
+    Start: [bStart[0], bStart[1], 3], End: [bEnd[0], bEnd[1], 3], Width: 0.2, Height: 0.4,
   });
   bim.create.setColor(h, beamId, 'Steel - Grey', [0.55, 0.55, 0.58]);
   bim.create.addIfcMaterial(h, beamId, { Name: 'Structural Steel S235', Category: 'Steel' });
@@ -378,7 +378,7 @@ for (const [bName, bStart, bEnd] of beamDefs) {
 
 const ROOF_W = 5;           // building width (X)
 const ROOF_D = 8;           // building depth (Y)
-const WALL_H = 6;           // wall-top elevation (2 storeys × 3 m)
+const WALL_H = 3;           // wall-top relative to first floor storey (elevation 3)
 const CROWN  = 1.8;         // rise above walls
 const NU     = 10;          // grid divisions along X
 const NV     = 16;          // grid divisions along Y

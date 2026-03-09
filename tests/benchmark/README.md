@@ -4,20 +4,34 @@ This directory contains performance benchmarks for IFC-Lite geometry processing 
 
 ## Quick Start
 
-### Run All Benchmarks
+### Run Default Benchmark
 
 ```bash
 # Build viewer first
 pnpm --filter viewer build
 
-# Run benchmarks (headed browser for accurate GPU timing)
-pnpm test:benchmark:viewer
+# Fetch one small fixture on demand
+git lfs pull --include="tests/models/ara3d/AC20-FZK-Haus.ifc"
+
+# Run a single small benchmark (headed browser for accurate GPU timing)
+VIEWER_BENCHMARK_FILES="tests/models/ara3d/AC20-FZK-Haus.ifc" pnpm test:benchmark:viewer
 ```
 
-### Run Specific Model
+### Run Additional Models
 
 ```bash
 VIEWER_BENCHMARK_FILES="tests/models/ara3d/AC20-FZK-Haus.ifc" pnpm test:benchmark:viewer
+```
+
+You can provide a comma-separated list, but only after pulling the exact fixtures you want to test.
+
+### Optional Stress Tests
+
+The largest fixtures are intentionally opt-in because they consume substantial Git LFS bandwidth:
+
+```bash
+git lfs pull --include="tests/models/various/O-S1-BWK-BIM architectural - BIM bouwkundig.ifc,tests/models/ara3d/ISSUE_053_20181220Holter_Tower_10.ifc"
+VIEWER_BENCHMARK_FILES="tests/models/various/O-S1-BWK-BIM architectural - BIM bouwkundig.ifc,tests/models/ara3d/ISSUE_053_20181220Holter_Tower_10.ifc" pnpm test:benchmark:viewer
 ```
 
 ### Check for Regressions
@@ -35,14 +49,17 @@ The benchmark suite includes 4 models covering different scenarios:
 |-------|------|---------|-------------|
 | **FZK-Haus** | 2.4MB | Cutout/boolean testing | Window/door openings must be visible |
 | **Snowdon Towers** | 8.3MB | Structural elements | Fast loading baseline |
-| **BWK-BIM** | 326.8MB | Large architectural | Stress test for streaming |
-| **Holter Tower** | 169.2MB | Complex geometry | Crash prevention (MAX_OPENINGS safeguard) |
+| **BWK-BIM** | 326.8MB | Large architectural | Optional stress test for streaming |
+| **Holter Tower** | 169.2MB | Complex geometry | Optional stress test for crash prevention (MAX_OPENINGS safeguard) |
+
+For day-to-day work, prefer `FZK-Haus` or `Snowdon Towers`. Reserve `BWK-BIM` and `Holter Tower` for intentional stress testing.
 
 ## Establishing Baseline
 
 1. **Run benchmarks on clean branch** (e.g., main):
    ```bash
-   pnpm benchmark:baseline
+   git lfs pull --include="tests/models/ara3d/AC20-FZK-Haus.ifc,tests/models/various/01_Snowdon_Towers_Sample_Structural(1).ifc"
+   VIEWER_BENCHMARK_FILES="tests/models/ara3d/AC20-FZK-Haus.ifc,tests/models/various/01_Snowdon_Towers_Sample_Structural(1).ifc" pnpm test:benchmark:viewer
    ```
 
 2. **Copy results to baseline.json**:
@@ -89,7 +106,8 @@ Baseline updated from local run on 2026-02-21:
 Viewer benchmark CI mode is available via:
 
 ```bash
-pnpm test:benchmark:viewer:ci
+git lfs pull --include="tests/models/ara3d/AC20-FZK-Haus.ifc"
+VIEWER_BENCHMARK_FILES="tests/models/ara3d/AC20-FZK-Haus.ifc" pnpm test:benchmark:viewer:ci
 ```
 
 This runs headless with software rendering (`--use-angle=swiftshader`) and is useful for reproducible CI-style timing checks.
@@ -97,7 +115,7 @@ This runs headless with software rendering (`--use-angle=swiftshader`) and is us
 ## Troubleshooting
 
 **Benchmarks fail with "No baseline available"**:
-- Run `pnpm benchmark:baseline` first to establish baseline
+- Fetch the fixtures you want to baseline, then run `VIEWER_BENCHMARK_FILES="..." pnpm test:benchmark:viewer` and copy the results into `baseline.json`
 
 **Performance regressions detected**:
 - Check if optimizations broke geometry (mesh count validation)

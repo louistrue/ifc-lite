@@ -114,7 +114,7 @@ println!("Parsed {} entities", result.entities.len());
 For contributing or running the full demo app:
 
 ```bash
-git clone https://github.com/louistrue/ifc-lite.git
+GIT_LFS_SKIP_SMUDGE=1 git clone https://github.com/louistrue/ifc-lite.git
 cd ifc-lite
 pnpm install && pnpm dev
 ```
@@ -122,6 +122,8 @@ pnpm install && pnpm dev
 Open http://localhost:5173 and load an IFC file.
 
 > **Note:** Requires Node.js 18+ and pnpm 8+. No Rust toolchain needed - WASM is pre-built.
+>
+> **Git LFS:** Large benchmark fixtures are intentionally not downloaded during clone. Pull only the files you need, for example `git lfs pull --include="tests/models/ara3d/AC20-FZK-Haus.ifc"`.
 > 
 > **📖 Full Guide**: See [Installation](docs/guide/installation.md) for detailed setup options including troubleshooting.
 
@@ -262,7 +264,7 @@ ifc-lite/
 For contributing to IFClite itself:
 
 ```bash
-git clone https://github.com/louistrue/ifc-lite.git
+GIT_LFS_SKIP_SMUDGE=1 git clone https://github.com/louistrue/ifc-lite.git
 cd ifc-lite
 pnpm install
 
@@ -322,7 +324,7 @@ We welcome contributions!
 
 ```bash
 # Fork and clone
-git clone https://github.com/YOUR_USERNAME/ifc-lite.git
+GIT_LFS_SKIP_SMUDGE=1 git clone https://github.com/YOUR_USERNAME/ifc-lite.git
 
 # Create a branch
 git checkout -b feature/my-feature

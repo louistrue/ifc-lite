@@ -35,7 +35,13 @@
 export { Sandbox, ScriptError, createSandbox } from './sandbox.js';
 export { buildBridge } from './bridge.js';
 export { NAMESPACE_SCHEMAS, marshalValue } from './bridge-schema.js';
-export type { NamespaceSchema, MethodSchema } from './bridge-schema.js';
+export type {
+  NamespaceSchema,
+  MethodSchema,
+  MethodSemanticContract,
+  MethodPlacementKind,
+  LlmTaskIntent,
+} from './bridge-schema.js';
 export { transpileTypeScript } from './transpile.js';
 
 export type {

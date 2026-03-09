@@ -30,7 +30,6 @@ import {
   executeBasketSaveView,
   executeBasketClear,
 } from '@/store/basket/basketCommands';
-import { activateBasketViewFromStore } from '@/store/basket/basketViewActivator';
 import { getSmartBasketInputFromStore, isBasketIsolationActiveFromStore } from '@/store/basketVisibleSet';
 
 export function BasketPresentationDock() {
@@ -118,6 +117,11 @@ export function BasketPresentationDock() {
     setPlayingAll(false);
   }, []);
 
+  const activateSavedView = useCallback(async (viewId: string) => {
+    const { activateBasketViewFromStore } = await import('@/store/basket/basketViewActivator');
+    activateBasketViewFromStore(viewId);
+  }, []);
+
   const startPlayAll = useCallback(async (loop = false) => {
     if (playingAll || basketViews.length === 0) return;
     stopPlayRef.current = false;
@@ -129,7 +133,7 @@ export function BasketPresentationDock() {
       do {
         for (const view of orderedViews) {
           if (stopPlayRef.current) break;
-          activateBasketViewFromStore(view.id);
+          await activateSavedView(view.id);
           const transitionMs = toTransitionMs(view.transitionMs);
           await wait(transitionMs + 180);
         }
@@ -138,7 +142,7 @@ export function BasketPresentationDock() {
       loopPlayRef.current = false;
       setPlayingAll(false);
     }
-  }, [basketViews, playingAll, toTransitionMs, wait]);
+  }, [activateSavedView, basketViews, playingAll, toTransitionMs, wait]);
 
   const setViewTransitionDuration = useCallback((viewId: string, currentTransitionMs: number | null) => {
     const defaultSeconds = currentTransitionMs && currentTransitionMs > 0
@@ -299,7 +303,7 @@ export function BasketPresentationDock() {
                     type="button"
                     onClick={() => {
                       if (editingViewId) return;
-                      activateBasketViewFromStore(view.id);
+                      void activateSavedView(view.id);
                     }}
                     className={cn(
                       'h-full w-full rounded-md border bg-card text-left overflow-hidden transition-colors',

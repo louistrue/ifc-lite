@@ -19,6 +19,9 @@
       "@ifc-lite/ids": ["../../packages/ids/src"],
       "@ifc-lite/ifcx": ["../../packages/ifcx/src"],
       "@ifc-lite/mutations": ["../../packages/mutations/src"],
+      "@ifc-lite/sandbox/schema": ["../../packages/sandbox/src/bridge-schema.ts"],
+      "@ifc-lite/sdk": ["../../packages/sdk/src"],
+      "@ifc-lite/sandbox": ["../../packages/sandbox/src"],
       "@ifc-lite/embed-protocol": ["../../packages/embed-protocol/src"]
     }
   },

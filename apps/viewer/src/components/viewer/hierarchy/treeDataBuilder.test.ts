@@ -100,6 +100,7 @@ describe('buildTreeData', () => {
     assert.deepStrictEqual(spaceNode.expressIds, [5]);
     assert.deepStrictEqual(spaceNode.globalIds, [105]);
     assert.strictEqual(spaceNode.elementCount, 1);
+    assert.strictEqual(spaceNode.hasChildren, true);
 
     const windowNode = nodes.find((node) => node.id === 'element-model-1-7');
     assert.ok(windowNode);

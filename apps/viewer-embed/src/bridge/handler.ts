@@ -158,15 +158,14 @@ async function handleCommand(type: InboundCommandType, data: unknown, requestId?
 
     case 'SELECT_BY_GUID': {
       const payload = data as InboundPayloads['SELECT_BY_GUID'];
-      // Search all models for matching GlobalId attributes
       const resolved: number[] = [];
       for (const [, model] of state.models) {
         const ds = model.ifcDataStore;
         if (!ds?.entities) continue;
-        for (let i = 0; i < ds.entities.count; i++) {
-          const attrs = ds.entities.getAttributes?.(i);
-          if (attrs && payload.guids.includes(String(attrs.GlobalId))) {
-            resolved.push(i + model.idOffset);
+        for (const guid of payload.guids) {
+          const expressId = ds.entities.getExpressIdByGlobalId(guid);
+          if (expressId >= 0) {
+            resolved.push(expressId + model.idOffset);
           }
         }
       }
@@ -297,14 +296,20 @@ async function handleCommand(type: InboundCommandType, data: unknown, requestId?
       }
       const model = state.models.get(lookup.modelId);
       const ds = model?.ifcDataStore;
-      const attrs = ds?.entities?.getAttributes?.(lookup.expressId);
+      const entities = ds?.entities;
       if (requestId) {
         emitToParent(createResponse(requestId, {
           expressId: lookup.expressId,
-          ifcType: attrs?.type,
-          name: attrs?.Name,
-          globalId: attrs?.GlobalId,
-          attributes: attrs || {},
+          ifcType: entities?.getTypeName(lookup.expressId),
+          name: entities?.getName(lookup.expressId),
+          globalId: entities?.getGlobalId(lookup.expressId),
+          attributes: {
+            GlobalId: entities?.getGlobalId(lookup.expressId) ?? '',
+            Name: entities?.getName(lookup.expressId) ?? '',
+            Description: entities?.getDescription(lookup.expressId) ?? '',
+            ObjectType: entities?.getObjectType(lookup.expressId) ?? '',
+            Type: entities?.getTypeName(lookup.expressId) ?? '',
+          },
           propertySets: [],
           quantitySets: [],
         }));
