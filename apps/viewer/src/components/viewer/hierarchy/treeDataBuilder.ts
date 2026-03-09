@@ -24,6 +24,57 @@ export function getNodeType(ifcType: IfcTypeEnum): NodeType {
   }
 }
 
+function collectDescendantSpaceElements(
+  spatialNode: SpatialNode,
+  hierarchy: IfcDataStore['spatialHierarchy'],
+  cache: Map<number, Set<number>>
+): Set<number> {
+  const cached = cache.get(spatialNode.expressId);
+  if (cached) return cached;
+
+  const elementIds = new Set<number>();
+
+  for (const child of spatialNode.children || []) {
+    if (getNodeType(child.type) === 'IfcSpace') {
+      for (const elementId of hierarchy?.bySpace.get(child.expressId) ?? []) {
+        elementIds.add(elementId);
+      }
+    }
+
+    for (const elementId of collectDescendantSpaceElements(child, hierarchy, cache)) {
+      elementIds.add(elementId);
+    }
+  }
+
+  cache.set(spatialNode.expressId, elementIds);
+  return elementIds;
+}
+
+function getSpatialNodeElements(
+  spatialNode: SpatialNode,
+  dataStore: IfcDataStore,
+  nodeType: NodeType,
+  descendantSpaceCache: Map<number, Set<number>>
+): number[] {
+  if (nodeType === 'IfcSpace') {
+    return (dataStore.spatialHierarchy?.bySpace.get(spatialNode.expressId) as number[]) || [];
+  }
+
+  if (nodeType !== 'IfcBuildingStorey') {
+    return [];
+  }
+
+  const storeyElements =
+    (dataStore.spatialHierarchy?.byStorey.get(spatialNode.expressId) as number[]) || [];
+  const descendantSpaceElements = collectDescendantSpaceElements(
+    spatialNode,
+    dataStore.spatialHierarchy,
+    descendantSpaceCache
+  );
+
+  return storeyElements.filter((elementId) => !descendantSpaceElements.has(elementId));
+}
+
 /** Build unified storey data for multi-model mode */
 export function buildUnifiedStoreys(models: Map<string, FederatedModel>): UnifiedStorey[] {
   if (models.size <= 1) return [];
@@ -103,7 +154,8 @@ function buildSpatialNodes(
   stopAtBuilding: boolean,
   idOffset: number,
   expandedNodes: Set<string>,
-  nodes: TreeNode[]
+  nodes: TreeNode[],
+  descendantSpaceCache: Map<number, Set<number>>
 ): void {
   const nodeId = `${parentNodeId}-${spatialNode.expressId}`;
   const nodeType = getNodeType(spatialNode.type);
@@ -114,13 +166,7 @@ function buildSpatialNodes(
     return;
   }
 
-  // For storeys, get elements from byStorey map
-  let elements: number[] = [];
-  if (nodeType === 'IfcBuildingStorey') {
-    elements = (dataStore.spatialHierarchy?.byStorey.get(spatialNode.expressId) as number[]) || [];
-  } else if (nodeType === 'IfcSpace') {
-    elements = (dataStore.spatialHierarchy?.bySpace.get(spatialNode.expressId) as number[]) || [];
-  }
+  const elements = getSpatialNodeElements(spatialNode, dataStore, nodeType, descendantSpaceCache);
 
   // Check if has children
   // In stopAtBuilding mode, buildings have no children (storeys shown separately)
@@ -158,7 +204,18 @@ function buildSpatialNodes(
       : spatialNode.children || [];
 
     for (const child of sortedChildren) {
-      buildSpatialNodes(child, modelId, dataStore, depth + 1, nodeId, stopAtBuilding, idOffset, expandedNodes, nodes);
+      buildSpatialNodes(
+        child,
+        modelId,
+        dataStore,
+        depth + 1,
+        nodeId,
+        stopAtBuilding,
+        idOffset,
+        expandedNodes,
+        nodes,
+        descendantSpaceCache
+      );
     }
 
     // For storeys (single-model only), add elements
@@ -308,6 +365,7 @@ export function buildTreeData(
 
       // If expanded, show Project -> Site -> Building (stop at building, no storeys)
       if (isModelExpanded && model.ifcDataStore?.spatialHierarchy?.project) {
+        const descendantSpaceCache = new Map<number, Set<number>>();
         buildSpatialNodes(
           model.ifcDataStore.spatialHierarchy.project,
           modelId,
@@ -317,7 +375,8 @@ export function buildTreeData(
           true,  // stopAtBuilding = true
           model.idOffset ?? 0,
           expandedNodes,
-          nodes
+          nodes,
+          descendantSpaceCache
         );
       }
     }
@@ -325,6 +384,7 @@ export function buildTreeData(
     // Single model: show full spatial hierarchy (including storeys)
     const [modelId, model] = Array.from(models.entries())[0];
     if (model.ifcDataStore?.spatialHierarchy?.project) {
+      const descendantSpaceCache = new Map<number, Set<number>>();
       buildSpatialNodes(
         model.ifcDataStore.spatialHierarchy.project,
         modelId,
@@ -334,11 +394,13 @@ export function buildTreeData(
         false,  // stopAtBuilding = false (show full hierarchy)
         model.idOffset ?? 0,
         expandedNodes,
-        nodes
+        nodes,
+        descendantSpaceCache
       );
     }
   } else if (ifcDataStore?.spatialHierarchy?.project) {
     // Legacy single-model mode (no offset)
+    const descendantSpaceCache = new Map<number, Set<number>>();
     buildSpatialNodes(
       ifcDataStore.spatialHierarchy.project,
       'legacy',
@@ -348,7 +410,8 @@ export function buildTreeData(
       false,
       0,
       expandedNodes,
-      nodes
+      nodes,
+      descendantSpaceCache
     );
   }
 

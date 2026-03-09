@@ -33,7 +33,7 @@ function createDataStore(): IfcDataStore {
 
   const spatialHierarchy: SpatialHierarchy = {
     project: projectNode,
-    byStorey: new Map([[4, [6]]]),
+    byStorey: new Map([[4, [6, 7]]]),
     byBuilding: new Map(),
     bySite: new Map(),
     bySpace: new Map([[5, [7]]]),
@@ -82,7 +82,7 @@ function createModel(): FederatedModel {
 }
 
 describe('buildTreeData', () => {
-  it('keeps IfcSpace as a spatial node and expands bySpace children', () => {
+  it('keeps IfcSpace as a spatial node, expands bySpace children, and avoids storey duplicates', () => {
     const models = new Map<string, FederatedModel>([['model-1', createModel()]]);
     const expandedNodes = new Set([
       'root-1',
@@ -93,6 +93,10 @@ describe('buildTreeData', () => {
     ]);
 
     const nodes = buildTreeData(models, null, expandedNodes, false, []);
+
+    const storeyNode = nodes.find((node) => node.id === 'root-1-2-3-4');
+    assert.ok(storeyNode);
+    assert.strictEqual(storeyNode.elementCount, 1);
 
     const spaceNode = nodes.find((node) => node.id === 'root-1-2-3-4-5');
     assert.ok(spaceNode);
@@ -109,5 +113,8 @@ describe('buildTreeData', () => {
     assert.deepStrictEqual(windowNode.expressIds, [7]);
     assert.deepStrictEqual(windowNode.globalIds, [107]);
     assert.strictEqual(windowNode.name, 'IfcWindow #7');
+
+    assert.strictEqual(nodes.filter((node) => node.id === 'element-model-1-6').length, 1);
+    assert.strictEqual(nodes.filter((node) => node.id === 'element-model-1-7').length, 1);
   });
 });
