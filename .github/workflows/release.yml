@@ -69,7 +69,7 @@ jobs:
         id: get-version
         if: steps.changesets.outputs.published == 'true'
         run: |
-          # Read version from root package.json (sync-versions.js keeps this in sync)
+          # Read the root release version (sync-versions.js keeps it aligned to the highest released workspace package version)
           VERSION=$(node -p "require('./package.json').version")
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
 

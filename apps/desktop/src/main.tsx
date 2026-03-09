@@ -12,9 +12,10 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 
-// Import the shared viewer app and styles
+// Import the shared viewer app
 import App from '@/App';
-import '@/index.css';
+// Import desktop's own CSS (includes @source directive for Tailwind content scanning)
+import './index.css';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

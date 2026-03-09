@@ -5,6 +5,12 @@
 @import "tailwindcss";
 @source "../../viewer/src";
 
+/* Override Tailwind v4's default media-query dark variant so all dark: utilities
+   respond to the .dark class on <html> instead of prefers-color-scheme.
+   Without this, toggling light mode while the OS is in dark mode leaves all
+   dark: Tailwind utilities active, creating a mixed dark/light UI. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 /* ═══════════════════════════════════════════════════════════════════════════
    TOKYO NIGHT THEME - Dark Stormy Cyberpunk Vibes
    ═══════════════════════════════════════════════════════════════════════════ */
@@ -188,8 +194,14 @@ body {
   color: var(--tokyo-comment) !important;
 }
 
-.dark .text-zinc-200 {
+.dark .text-zinc-200,
+.dark .text-zinc-300 {
   color: var(--tokyo-fg-dark) !important;
+}
+
+.dark .text-zinc-700,
+.dark .text-zinc-800 {
+  color: var(--tokyo-fg) !important;
 }
 
 /* Primary accent */
@@ -303,6 +315,13 @@ body {
 .dark .bg-emerald-50\/50,
 .dark .bg-emerald-900\/10 {
   background-color: rgba(115, 218, 202, 0.05) !important;
+}
+
+/* Fix Radix ScrollArea viewport inner div: by default it uses display:table
+   which expands to content width, preventing text truncation in flex children.
+   Force block layout so width constraints cascade correctly. */
+[data-radix-scroll-area-viewport] > div {
+  display: block !important;
 }
 
 /* Custom scrollbar */

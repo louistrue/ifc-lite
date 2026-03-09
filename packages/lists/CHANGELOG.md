@@ -1,5 +1,13 @@
 # @ifc-lite/lists
 
+## 1.14.3
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @ifc-lite/data@1.14.3
+  - @ifc-lite/encoding@1.14.3
+
 ## 1.14.2
 
 ### Patch Changes

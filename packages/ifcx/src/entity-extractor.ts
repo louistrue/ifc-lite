@@ -9,11 +9,10 @@
 
 import type { ComposedNode, IfcClass } from './types.js';
 import { ATTR, BUILDING_ELEMENT_TYPES } from './types.js';
+import { buildReachableAttributeIndex, collectIncomingEdgeNames } from './traversal.js';
 import {
   StringTable,
   EntityTableBuilder,
-  IfcTypeEnumFromString,
-  EntityFlags,
 } from '@ifc-lite/data';
 import type { EntityTable } from '@ifc-lite/data';
 
@@ -37,6 +36,8 @@ export function extractEntities(
 ): EntityExtractionResult {
   const pathToId = new Map<string, number>();
   const idToPath = new Map<number, string>();
+  const incomingEdgeNames = collectIncomingEdgeNames(composed);
+  const geometryIndex = buildReachableAttributeIndex(composed, ATTR.MESH);
 
   // First pass: count entities to allocate builder
   let entityCount = 0;
@@ -54,28 +55,29 @@ export function extractEntities(
   for (const node of composed.values()) {
     const ifcClass = node.attributes.get(ATTR.CLASS) as IfcClass | undefined;
     if (!ifcClass) continue; // Skip non-IFC nodes (geometry-only, materials, etc.)
+    const typeCode = ifcClass.code ?? '';
 
     const expressId = nextExpressId++;
     pathToId.set(node.path, expressId);
     idToPath.set(expressId, node.path);
 
     // Extract name from attributes
-    const name = extractName(node) ?? node.path.slice(0, 8);
+    const name = extractName(node, incomingEdgeNames.get(node.path) ?? []) ?? node.path.slice(0, 8);
 
     // Check if has geometry
-    const hasGeometry = hasGeometryInSubtree(node);
+    const hasGeometry = geometryIndex.get(node.path) ?? false;
 
     // Check if this is a type definition
-    const isType = ifcClass.code.toUpperCase().endsWith('TYPE');
+    const isType = typeCode.toUpperCase().endsWith('TYPE');
 
     // Add entity to builder
     builder.add(
       expressId,
-      ifcClass.code,
+      typeCode,
       node.path, // Use path as GlobalId
       name,
       '', // description
-      ifcClass.code, // objectType
+      typeCode, // objectType
       hasGeometry,
       isType
     );
@@ -91,7 +93,7 @@ export function extractEntities(
 /**
  * Extract entity name from node attributes.
  */
-function extractName(node: ComposedNode): string | null {
+function extractName(node: ComposedNode, incomingEdgeNames: string[]): string | null {
   // Try direct IFC name attribute (written by IFCX exporter/writer)
   const ifcName = node.attributes.get('bsi::ifc::name');
   if (typeof ifcName === 'string') return ifcName;
@@ -106,40 +108,14 @@ function extractName(node: ComposedNode): string | null {
   const objectName = node.attributes.get('bsi::ifc::prop::ObjectName');
   if (typeof objectName === 'string') return objectName;
 
-  // Try to get name from the node's child key in parent
-  // (e.g., if parent has children: { "Wall_001": path }, use "Wall_001")
-  const parent = node.parent;
-  if (parent) {
-    for (const [key, child] of parent.children) {
-      if (child.path === node.path) {
-        // Use the child key as name if it's not just the path
-        if (key !== node.path && !key.match(/^[0-9a-f-]{36}$/i)) {
-          return key;
-        }
-      }
+  // Fall back to readable incoming edge names when the entity itself has no name.
+  for (const edgeName of incomingEdgeNames) {
+    if (edgeName !== node.path && !edgeName.match(/^[0-9a-f-]{36}$/i)) {
+      return edgeName;
     }
   }
 
   return null;
-}
-
-/**
- * Check if node or any of its children have geometry.
- */
-function hasGeometryInSubtree(node: ComposedNode): boolean {
-  // Check this node
-  if (node.attributes.has(ATTR.MESH)) {
-    return true;
-  }
-
-  // Check children
-  for (const child of node.children.values()) {
-    if (hasGeometryInSubtree(child)) {
-      return true;
-    }
-  }
-
-  return false;
 }
 
 /**

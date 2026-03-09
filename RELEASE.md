@@ -91,7 +91,7 @@ pnpm release
 Packages are versioned independently:
 
 - **Independent versioning**: `@ifc-lite/*` packages only bump when they have their own changeset or when Changesets propagates an internal dependency update
-- **Automatic sync**: `scripts/sync-versions.js` syncs `Cargo.toml` workspace version after npm version bumps
+- **Automatic sync**: `scripts/sync-versions.js` syncs the root package version, `Cargo.toml` workspace version, and internal Rust workspace dependency versions to the highest released workspace package version
 - **Dependency propagation**: `updateInternalDependencies: "patch"` keeps dependents aligned when an internal package version changes
 
 ## Secrets Required

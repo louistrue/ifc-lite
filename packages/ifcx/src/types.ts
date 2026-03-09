@@ -91,7 +91,6 @@ export interface ComposedNode {
   path: string;
   attributes: Map<string, unknown>;
   children: Map<string, ComposedNode>;
-  parent?: ComposedNode;
 }
 
 // ============================================================================

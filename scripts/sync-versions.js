@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 
 /**
- * Syncs all workspace package versions to the highest version found.
- * Run this after `changeset version` to keep all versions in sync.
+ * Syncs the root release version to the highest workspace version found.
+ * Run this after `changeset version` so the root package.json, Cargo
+ * workspace version, and internal Rust workspace dependency versions track
+ * the highest released workspace package.
  *
- * Finds the maximum semver across all non-private workspace packages,
- * then bumps everything (packages, root package.json, Cargo.toml) to that version.
- * Never downgrades — only bumps packages that are behind.
+ * This does not rewrite individual workspace package versions. Changesets
+ * owns those versions directly so packages can version independently.
  */
 
 import { readFileSync, writeFileSync, readdirSync, statSync } from 'fs';
@@ -51,7 +52,7 @@ function getWorkspacePackages() {
 function syncVersions() {
   const packagePaths = getWorkspacePackages();
 
-  // Find the highest version across all non-private workspace packages
+  // Find the highest version across all non-private workspace packages.
   let maxVersion = '0.0.0';
   for (const pkgPath of packagePaths) {
     const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'));
@@ -69,7 +70,7 @@ function syncVersions() {
   }
 
   const version = maxVersion;
-  console.log(`📦 Syncing all packages to version: ${version}`);
+  console.log(`📦 Syncing root release version to: ${version}`);
 
   // Update workspace Cargo.toml
   const cargoTomlPath = join(rootDir, 'Cargo.toml');
@@ -93,18 +94,6 @@ function syncVersions() {
     rootPackageJson.version = version;
     writeFileSync(rootPackageJsonPath, JSON.stringify(rootPackageJson, null, 2) + '\n');
     console.log(`✅ Updated root package.json version to ${version}`);
-  }
-
-  // Bump any lagging workspace packages (never downgrades)
-  for (const pkgPath of packagePaths) {
-    const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'));
-    if (pkg.private) continue;
-    if (compareSemver(pkg.version, version) >= 0) continue; // already at or above target
-
-    const oldVersion = pkg.version;
-    pkg.version = version;
-    writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n');
-    console.log(`✅ Updated ${pkg.name} from ${oldVersion} to ${version}`);
   }
 }
 

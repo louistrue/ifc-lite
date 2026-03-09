@@ -1,0 +1,179 @@
+/* This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
+
+import { describe, it } from 'node:test';
+import assert from 'node:assert';
+import { extractGeometry } from './geometry-extractor.js';
+import { ATTR, type ComposedNode, type UsdMesh } from './types.js';
+
+function createNode(path: string): ComposedNode {
+  return {
+    path,
+    attributes: new Map(),
+    children: new Map(),
+  };
+}
+
+function attachChild(parent: ComposedNode, child: ComposedNode, key: string): void {
+  parent.children.set(key, child);
+}
+
+function createMesh(): UsdMesh {
+  return {
+    points: [
+      [0, 0, 0],
+      [1, 0, 0],
+      [0, 1, 0],
+    ],
+    faceVertexIndices: [0, 1, 2],
+  };
+}
+
+describe('extractGeometry', () => {
+  it('traverses disconnected cycle components even when other roots exist', () => {
+    const root = createNode('root');
+    root.attributes.set(ATTR.CLASS, { code: 'IfcWall' });
+    root.attributes.set(ATTR.MESH, createMesh());
+
+    const cycleA = createNode('cycle-a');
+    cycleA.attributes.set(ATTR.CLASS, { code: 'IfcWindow' });
+
+    const cycleB = createNode('cycle-b');
+    cycleB.attributes.set(ATTR.CLASS, { code: 'IfcWindow' });
+    cycleB.attributes.set(ATTR.MESH, createMesh());
+
+    attachChild(cycleA, cycleB, 'b');
+    attachChild(cycleB, cycleA, 'a');
+
+    const composed = new Map<string, ComposedNode>([
+      [root.path, root],
+      [cycleA.path, cycleA],
+      [cycleB.path, cycleB],
+    ]);
+    const pathToId = new Map([
+      [root.path, 1],
+      [cycleA.path, 2],
+      [cycleB.path, 3],
+    ]);
+
+    const meshes = extractGeometry(composed, pathToId);
+
+    assert.strictEqual(meshes.length, 2);
+    assert.deepStrictEqual(meshes.map((mesh) => mesh.expressId).sort((a, b) => a - b), [1, 3]);
+  });
+
+  it('keeps geometry for entity ids whose class object has no code', () => {
+    const entity = createNode('entity');
+    entity.attributes.set(ATTR.CLASS, {});
+
+    const body = createNode('entity/body');
+    body.attributes.set(ATTR.MESH, createMesh());
+    attachChild(entity, body, 'Body');
+
+    const composed = new Map<string, ComposedNode>([
+      [entity.path, entity],
+      [body.path, body],
+    ]);
+    const pathToId = new Map([[entity.path, 7]]);
+
+    const meshes = extractGeometry(composed, pathToId);
+
+    assert.strictEqual(meshes.length, 1);
+    assert.strictEqual(meshes[0].expressId, 7);
+    assert.strictEqual(meshes[0].ifcType, undefined);
+  });
+
+  it('emits shared inherited mesh geometry for each non-type instance context', () => {
+    const root = createNode('root');
+    root.attributes.set(ATTR.CLASS, { code: 'IfcWall' });
+
+    const typeDefinition = createNode('window-type');
+    typeDefinition.attributes.set(ATTR.CLASS, { code: 'IfcWindowType' });
+    typeDefinition.attributes.set('customdata', {
+      originalStepInstance: '#10=IFCWINDOWTYPE()',
+    });
+
+    const windowA = createNode('window-a');
+    windowA.attributes.set(ATTR.CLASS, { code: 'IfcWindow' });
+
+    const windowB = createNode('window-b');
+    windowB.attributes.set(ATTR.CLASS, { code: 'IfcWindow' });
+
+    const sharedBody = createNode('window-body');
+    sharedBody.attributes.set(ATTR.MESH, createMesh());
+
+    attachChild(root, typeDefinition, 'Type');
+    attachChild(typeDefinition, sharedBody, 'Body');
+    attachChild(root, windowA, 'WindowA');
+    attachChild(root, windowB, 'WindowB');
+    windowA.children.set('Body', sharedBody);
+    windowB.children.set('Body', sharedBody);
+
+    const composed = new Map<string, ComposedNode>([
+      [root.path, root],
+      [typeDefinition.path, typeDefinition],
+      [windowA.path, windowA],
+      [windowB.path, windowB],
+      [sharedBody.path, sharedBody],
+    ]);
+    const pathToId = new Map([
+      [root.path, 1],
+      [typeDefinition.path, 10],
+      [windowA.path, 11],
+      [windowB.path, 12],
+    ]);
+
+    const meshes = extractGeometry(composed, pathToId);
+
+    assert.strictEqual(meshes.length, 2);
+    assert.deepStrictEqual(meshes.map((mesh) => mesh.expressId).sort((a, b) => a - b), [11, 12]);
+    assert.deepStrictEqual(meshes.map((mesh) => mesh.ifcType).sort(), ['IfcWindow', 'IfcWindow']);
+  });
+
+  it('preserves inherited type-definition state through classed helper descendants', () => {
+    const root = createNode('root');
+    root.attributes.set(ATTR.CLASS, { code: 'IfcWall' });
+
+    const typeDefinition = createNode('window-type');
+    typeDefinition.attributes.set(ATTR.CLASS, { code: 'IfcWindowType' });
+    typeDefinition.attributes.set('customdata', {
+      originalStepInstance: '#10=IFCWINDOWTYPE()',
+    });
+
+    const helper = createNode('representation');
+    helper.attributes.set(ATTR.CLASS, { code: 'IfcRepresentation' });
+
+    const meshNode = createNode('mesh');
+    meshNode.attributes.set(ATTR.MESH, createMesh());
+
+    const instance = createNode('window-instance');
+    instance.attributes.set(ATTR.CLASS, { code: 'IfcWindow' });
+
+    attachChild(root, typeDefinition, 'Type');
+    attachChild(root, instance, 'Window');
+    attachChild(typeDefinition, helper, 'Representation');
+    attachChild(helper, meshNode, 'Body');
+    instance.children.set('Representation', helper);
+
+    const composed = new Map<string, ComposedNode>([
+      [root.path, root],
+      [typeDefinition.path, typeDefinition],
+      [instance.path, instance],
+      [helper.path, helper],
+      [meshNode.path, meshNode],
+    ]);
+    const pathToId = new Map([
+      [root.path, 1],
+      [typeDefinition.path, 10],
+      [helper.path, 20],
+      [instance.path, 11],
+    ]);
+
+    const meshes = extractGeometry(composed, pathToId);
+
+    assert.strictEqual(meshes.length, 1);
+    assert.strictEqual(meshes[0].expressId, 20);
+    assert.strictEqual(meshes[0].ifcType, 'IfcRepresentation');
+  });
+});

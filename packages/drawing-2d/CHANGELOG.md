@@ -1,5 +1,12 @@
 # @ifc-lite/drawing-2d
 
+## 1.14.3
+
+### Patch Changes
+
+- Updated dependencies [[`041ddb4`](https://github.com/louistrue/ifc-lite/commit/041ddb4a40c7e23b08fb7b7ce42690a9cc9708a0)]:
+  - @ifc-lite/geometry@1.14.3
+
 ## 1.14.2
 
 ### Patch Changes
