@@ -72,6 +72,7 @@ import { ThemeSwitch } from './ThemeSwitch';
 import { toast } from '@/components/ui/toast';
 
 type Tool = 'select' | 'pan' | 'orbit' | 'walk' | 'measure' | 'section';
+type WorkspacePanel = 'script' | 'list' | 'bcf' | 'ids' | 'lens';
 
 // #region FIX: Move ToolButton OUTSIDE MainToolbar to prevent recreation on every render
 // This fixes Radix UI Tooltip's asChild prop becoming stale during re-renders
@@ -397,13 +398,25 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
     setRightPanelCollapsed,
   ]);
 
-  const activeWorkspacePanel =
-    scriptPanelVisible ? 'Script Editor' :
-    listPanelVisible ? 'Lists' :
-    bcfPanelVisible ? 'BCF Issues' :
-    idsPanelVisible ? 'IDS Validation' :
-    lensPanelVisible ? 'Lens Rules' :
-    null;
+  const activeWorkspacePanels = useMemo(() => {
+    const panels = new Set<WorkspacePanel>();
+    if (scriptPanelVisible) panels.add('script');
+    if (listPanelVisible) panels.add('list');
+    if (bcfPanelVisible) panels.add('bcf');
+    if (idsPanelVisible) panels.add('ids');
+    if (lensPanelVisible) panels.add('lens');
+    return panels;
+  }, [bcfPanelVisible, idsPanelVisible, lensPanelVisible, listPanelVisible, scriptPanelVisible]);
+
+  const workspacePanelLabel = useMemo(() => {
+    if (activeWorkspacePanels.size === 0) return null;
+    if (activeWorkspacePanels.size > 1) return 'Multiple Panels';
+    if (activeWorkspacePanels.has('script')) return 'Script Editor';
+    if (activeWorkspacePanels.has('list')) return 'Lists';
+    if (activeWorkspacePanels.has('bcf')) return 'BCF Issues';
+    if (activeWorkspacePanels.has('ids')) return 'IDS Validation';
+    return 'Lens Rules';
+  }, [activeWorkspacePanels]);
 
   const handleExportGLB = useCallback(() => {
     if (!geometryResult) return;
@@ -673,38 +686,54 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
           <TooltipTrigger asChild>
             <DropdownMenuTrigger asChild>
               <Button
-                variant={activeWorkspacePanel ? 'default' : 'ghost'}
+                variant={activeWorkspacePanels.size > 0 ? 'default' : 'ghost'}
                 size="icon-sm"
-                className={cn(activeWorkspacePanel && 'bg-primary text-primary-foreground')}
+                aria-label={workspacePanelLabel ? `Panels: ${workspacePanelLabel}` : 'Panels'}
+                className={cn(activeWorkspacePanels.size > 0 && 'bg-primary text-primary-foreground')}
               >
                 <Layout className="h-4 w-4" />
               </Button>
             </DropdownMenuTrigger>
           </TooltipTrigger>
-          <TooltipContent>{activeWorkspacePanel ? `Panels: ${activeWorkspacePanel}` : 'Panels'}</TooltipContent>
+          <TooltipContent>{workspacePanelLabel ? `Panels: ${workspacePanelLabel}` : 'Panels'}</TooltipContent>
         </Tooltip>
         <DropdownMenuContent align="start" className="w-56">
-          <DropdownMenuItem onClick={() => handleToggleBottomPanel('script')}>
+          <DropdownMenuCheckboxItem
+            checked={activeWorkspacePanels.has('script')}
+            onCheckedChange={() => handleToggleBottomPanel('script')}
+          >
             <FileCode2 className="h-4 w-4 mr-2" />
             Script Editor
-          </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => handleToggleBottomPanel('list')}>
+          </DropdownMenuCheckboxItem>
+          <DropdownMenuCheckboxItem
+            checked={activeWorkspacePanels.has('list')}
+            onCheckedChange={() => handleToggleBottomPanel('list')}
+          >
             <FileSpreadsheet className="h-4 w-4 mr-2" />
             Lists
-          </DropdownMenuItem>
+          </DropdownMenuCheckboxItem>
           <DropdownMenuSeparator />
-          <DropdownMenuItem onClick={() => handleToggleRightPanel('bcf')}>
+          <DropdownMenuCheckboxItem
+            checked={activeWorkspacePanels.has('bcf')}
+            onCheckedChange={() => handleToggleRightPanel('bcf')}
+          >
             <MessageSquare className="h-4 w-4 mr-2" />
             BCF Issues
-          </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => handleToggleRightPanel('ids')}>
+          </DropdownMenuCheckboxItem>
+          <DropdownMenuCheckboxItem
+            checked={activeWorkspacePanels.has('ids')}
+            onCheckedChange={() => handleToggleRightPanel('ids')}
+          >
             <ClipboardCheck className="h-4 w-4 mr-2" />
             IDS Validation
-          </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => handleToggleRightPanel('lens')}>
+          </DropdownMenuCheckboxItem>
+          <DropdownMenuCheckboxItem
+            checked={activeWorkspacePanels.has('lens')}
+            onCheckedChange={() => handleToggleRightPanel('lens')}
+          >
             <Palette className="h-4 w-4 mr-2" />
             Lens Rules
-          </DropdownMenuItem>
+          </DropdownMenuCheckboxItem>
         </DropdownMenuContent>
       </DropdownMenu>
 
