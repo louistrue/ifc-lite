@@ -195,9 +195,12 @@ export function generateIfcFromGraph(
       );
 
       /**
-       * Resolve opening X-offset along wall axis (m).
+       * Resolve opening X-offset along wall axis (m), measured from wall Start.
        * Uses explicit `wall_offset` property (mm) when set;
-       * otherwise projects the node's canvas position onto the wall axis.
+       * otherwise projects the node's *canvas* position (mm) onto the canvas
+       * axA→axB segment to obtain a parametric t ∈ [0,1], then maps to the IFC
+       * wall span.  This is correct whether or not buildingAxes overrides the
+       * IFC world coordinates (canvas positions are always consistent).
        */
       const resolveOffset = (o: BubbleGraphNode): number => {
         const raw = o.properties.wall_offset;
@@ -205,7 +208,15 @@ export function generateIfcFromGraph(
           const v = typeof raw === 'string' ? parseFloat(raw) : Number(raw);
           if (!isNaN(v)) return mm(v);
         }
-        return (mm(o.x) - wxA) * dirX + (mm(o.y) - wyA) * dirY;
+        // Project in canvas-mm space; map t → IFC distance from wall Start.
+        const cxA = axA.x, cyA = axA.y;
+        const cxB = axB.x, cyB = axB.y;
+        const cLen2 = (cxB - cxA) ** 2 + (cyB - cyA) ** 2;
+        if (cLen2 < 1e-12) return (wOS + wLen) / 2; // degenerate wall: use centre
+        const t = Math.max(0, Math.min(1,
+          ((o.x - cxA) * (cxB - cxA) + (o.y - cyA) * (cyB - cyA)) / cLen2,
+        ));
+        return wOS + t * wLen;
       };
 
       // Build WallParams.Openings (cuts the wall solid via IfcRelVoidsElement)
@@ -215,8 +226,9 @@ export function generateIfcFromGraph(
         const oH   = mm((o.properties.height      as number) ?? (o.type === 'window' ? 1200 : 2100));
         const sill = mm((o.properties.sill_height as number) ?? (o.type === 'window' ?  900 :    0));
         const dist = resolveOffset(o);
-        // Position = opening centre in wall-local frame [X along wall, Y through thickness, Z up]
-        openings.push({ Name: o.name, Width: oW, Height: oH, Position: [dist, 0, sill + oH / 2] });
+        // Position = [X along wall, 0, sill_height] — addWallOpening's profile
+        // extends from Y=0 to Y=Height relative to this origin, so sill marks the bottom.
+        openings.push({ Name: o.name, Width: oW, Height: oH, Position: [dist, 0, sill] });
       }
 
       creator.addIfcWall(storeyId, {
@@ -237,9 +249,10 @@ export function generateIfcFromGraph(
         const sill = mm((o.properties.sill_height as number) ?? (o.type === 'window' ?  900 :    0));
         const dist = resolveOffset(o);
 
-        // Centre of opening in world XY, then offset to bottom-left corner of box
-        const ocX = wxA + dist * dirX;
-        const ocY = wyA + dist * dirY;
+        // Centre of opening in world XY, then offset to bottom-left corner of box.
+        // dist is measured from wall Start (wStartX/wStartY), so use those as base.
+        const ocX = wStartX + dist * dirX;
+        const ocY = wStartY + dist * dirY;
         // Perpendicular (normal) to wall in XY plane
         const normX = -dirY;
         const normY =  dirX;
@@ -257,12 +270,14 @@ export function generateIfcFromGraph(
         });
       }
 
-      // Auto-beam on top of wall (runs from axA to axB at post-wall elevation)
+      // Auto-beam on top of wall.
+      // Place the beam so its TOP face sits at topElevM (storey ceiling):
+      // centre Z = bottomElevM + wallHeight + autoBeamH/2
       if (hasBeam) {
         creator.addIfcBeam(storeyId, {
           Name:   `BM-${wall.name}`,
-          Start:  [wStartX, wStartY, bottomElevM + wallHeight],
-          End:    [wEndX,   wEndY,   bottomElevM + wallHeight],
+          Start:  [wStartX, wStartY, bottomElevM + wallHeight + autoBeamH / 2],
+          End:    [wEndX,   wEndY,   bottomElevM + wallHeight + autoBeamH / 2],
           Width:  autoBeamW,
           Height: autoBeamH,
         });
@@ -307,10 +322,12 @@ export function generateIfcFromGraph(
       const bOZS = mm((beam.properties.offsetVerticalStart as number) ?? 0);
       const bOZE = mm((beam.properties.offsetVerticalEnd   as number) ?? 0);
 
+      // Place beam with its TOP face at topElevM (storey ceiling),
+      // centre Z = topElevM - beamHeight/2 (matches auto-beam convention).
       creator.addIfcBeam(storeyId, {
         Name:   beam.name,
-        Start:  [bxA - bOS * bdirX, byA - bOS * bdirY, topElevM + bOZS],
-        End:    [bxB + bOE * bdirX, byB + bOE * bdirY, topElevM + bOZE],
+        Start:  [bxA - bOS * bdirX, byA - bOS * bdirY, topElevM - beamHeight / 2 + bOZS],
+        End:    [bxB + bOE * bdirX, byB + bOE * bdirY, topElevM - beamHeight / 2 + bOZE],
         Width:  beamWidth,
         Height: beamHeight,
       });

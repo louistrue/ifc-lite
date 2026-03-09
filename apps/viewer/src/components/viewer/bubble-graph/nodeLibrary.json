@@ -112,8 +112,9 @@
       "color": "#0ea5e9",
       "description": "Window opening",
       "defaultProperties": {
-        "offset": "1.0",
-        "sill_height": "0.90"
+        "width": 1000,
+        "height": 1200,
+        "sill_height": 900
       }
     },
     {
@@ -123,8 +124,9 @@
       "color": "#f97316",
       "description": "Door opening",
       "defaultProperties": {
-        "offset": "1.0",
-        "height": "2.10"
+        "width": 900,
+        "height": 2100,
+        "sill_height": 0
       }
     },
     {
