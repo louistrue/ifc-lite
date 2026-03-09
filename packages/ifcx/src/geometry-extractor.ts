@@ -92,7 +92,7 @@ function resolveContext(
   return {
     expressId,
     ifcType: ifcClass?.code,
-    isTypeDefinition: isIfcTypeDefinition(node),
+    isTypeDefinition: (context?.isTypeDefinition ?? false) || isIfcTypeDefinition(node),
   };
 }
 

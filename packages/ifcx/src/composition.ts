@@ -193,7 +193,9 @@ export function getDescendants(node: ComposedNode): ComposedNode[] {
     visited.add(n.path);
 
     for (const child of n.children.values()) {
+      if (visited.has(child.path)) continue;
       descendants.push(child);
+      visited.add(child.path);
       traverse(child);
     }
   }

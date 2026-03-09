@@ -4,7 +4,7 @@
 
 import { IfcTypeEnum, EntityFlags, RelationshipType, type SpatialNode } from '@ifc-lite/data';
 import type { IfcDataStore } from '@ifc-lite/parser';
-import type { FederatedModel } from '@/store';
+import { useViewerStore, type FederatedModel } from '@/store';
 import type { TreeNode, NodeType, StoreyData, UnifiedStorey } from './types';
 
 /** Helper to create elevation key (with 0.5m tolerance for matching) */
@@ -22,6 +22,18 @@ export function getNodeType(ifcType: IfcTypeEnum): NodeType {
     case IfcTypeEnum.IfcSpace: return 'IfcSpace';
     default: return 'element';
   }
+}
+
+function resolveTreeGlobalId(
+  modelId: string,
+  expressId: number,
+  models: Map<string, FederatedModel>
+): number {
+  if (modelId === 'legacy' || !models.has(modelId)) {
+    return expressId;
+  }
+
+  return useViewerStore.getState().toGlobalId(modelId, expressId);
 }
 
 function collectDescendantSpaceElements(
@@ -134,11 +146,8 @@ export function getUnifiedStoreyElements(
   const allElements = new Array<number>(totalLength);
   let idx = 0;
   for (const storey of unifiedStorey.storeys) {
-    const model = models.get(storey.modelId);
-    const offset = model?.idOffset ?? 0;
-    // Direct assignment instead of spread for better performance
     for (const id of storey.elements) {
-      allElements[idx++] = id + offset;
+      allElements[idx++] = resolveTreeGlobalId(storey.modelId, id, models);
     }
   }
   return allElements;
@@ -148,6 +157,7 @@ export function getUnifiedStoreyElements(
 function buildSpatialNodes(
   spatialNode: SpatialNode,
   modelId: string,
+  models: Map<string, FederatedModel>,
   dataStore: IfcDataStore,
   depth: number,
   parentNodeId: string,
@@ -181,7 +191,7 @@ function buildSpatialNodes(
   nodes.push({
     id: nodeId,
     expressIds: [spatialNode.expressId],
-    globalIds: [spatialNode.expressId + idOffset],
+    globalIds: [resolveTreeGlobalId(modelId, spatialNode.expressId, models)],
     modelIds: [modelId],
     name: (spatialNode.name && spatialNode.name.toLowerCase() !== 'unknown')
       ? spatialNode.name
@@ -207,6 +217,7 @@ function buildSpatialNodes(
       buildSpatialNodes(
         child,
         modelId,
+        models,
         dataStore,
         depth + 1,
         nodeId,
@@ -221,7 +232,7 @@ function buildSpatialNodes(
     // For storeys (single-model only), add elements
     if (!stopAtBuilding && (nodeType === 'IfcBuildingStorey' || nodeType === 'IfcSpace') && elements.length > 0) {
       for (const elementId of elements) {
-        const globalId = elementId + idOffset;
+        const globalId = resolveTreeGlobalId(modelId, elementId, models);
         const entityType = dataStore.entities?.getTypeName(elementId) || 'Unknown';
         const entityName = dataStore.entities?.getName(elementId) || `${entityType} #${elementId}`;
 
@@ -290,7 +301,7 @@ export function buildTreeData(
           nodes.push({
             id: contribNodeId,
             expressIds: [storey.storeyId],
-            globalIds: [storey.storeyId + offset],
+            globalIds: [resolveTreeGlobalId(storey.modelId, storey.storeyId, models)],
             modelIds: [storey.modelId],
             name: modelName,
             type: 'model-header',
@@ -306,7 +317,7 @@ export function buildTreeData(
           if (contribExpanded) {
             const dataStore = model?.ifcDataStore;
             for (const elementId of storey.elements) {
-              const globalId = elementId + offset;
+              const globalId = resolveTreeGlobalId(storey.modelId, elementId, models);
               const entityType = dataStore?.entities?.getTypeName(elementId) || 'Unknown';
               const entityName = dataStore?.entities?.getName(elementId) || `${entityType} #${elementId}`;
 
@@ -369,6 +380,7 @@ export function buildTreeData(
         buildSpatialNodes(
           model.ifcDataStore.spatialHierarchy.project,
           modelId,
+          models,
           model.ifcDataStore,
           1,
           modelNodeId,
@@ -388,6 +400,7 @@ export function buildTreeData(
       buildSpatialNodes(
         model.ifcDataStore.spatialHierarchy.project,
         modelId,
+        models,
         model.ifcDataStore,
         0,
         'root',
@@ -404,6 +417,7 @@ export function buildTreeData(
     buildSpatialNodes(
       ifcDataStore.spatialHierarchy.project,
       'legacy',
+      models,
       ifcDataStore,
       0,
       'root',
@@ -431,10 +445,10 @@ export function buildTypeTree(
   // Collect entities grouped by IFC class across all models
   const typeGroups = new Map<string, Array<{ expressId: number; globalId: number; name: string; modelId: string }>>();
 
-  const processDataStore = (dataStore: IfcDataStore, modelId: string, idOffset: number) => {
+  const processDataStore = (dataStore: IfcDataStore, modelId: string) => {
     for (let i = 0; i < dataStore.entities.count; i++) {
       const expressId = dataStore.entities.expressId[i];
-      const globalId = expressId + idOffset;
+      const globalId = resolveTreeGlobalId(modelId, expressId, models);
 
       // Only include entities that have geometry
       if (geometricIds && geometricIds.size > 0 && !geometricIds.has(globalId)) continue;
@@ -453,11 +467,11 @@ export function buildTypeTree(
   if (models.size > 0) {
     for (const [modelId, model] of models) {
       if (model.ifcDataStore) {
-        processDataStore(model.ifcDataStore, modelId, model.idOffset ?? 0);
+        processDataStore(model.ifcDataStore, modelId);
       }
     }
   } else if (ifcDataStore) {
-    processDataStore(ifcDataStore, 'legacy', 0);
+    processDataStore(ifcDataStore, 'legacy');
   }
 
   // Sort types alphabetically
@@ -531,13 +545,13 @@ export function buildIfcTypeTree(
     typeClassName: string;  // e.g. "IfcWallType"
     modelId: string;
     globalId: number;
-    instances: Array<{ expressId: number; globalId: number; name: string; modelId: string }>;
+    instances: Array<{ expressId: number; globalId: number; name: string; modelId: string; ifcType: string }>;
   }
 
   // Group by type class name (e.g. "IfcWallType") → individual types
   const typeClassGroups = new Map<string, TypeEntry[]>();
 
-  const processDataStore = (dataStore: IfcDataStore, modelId: string, idOffset: number) => {
+  const processDataStore = (dataStore: IfcDataStore, modelId: string) => {
     if (!dataStore.relationships) return;
 
     // Find all type entities (entities with IS_TYPE flag)
@@ -557,10 +571,11 @@ export function buildIfcTypeTree(
       const instances: TypeEntry['instances'] = [];
 
       for (const instId of instanceIds) {
-        const instGlobalId = instId + idOffset;
+        const instGlobalId = resolveTreeGlobalId(modelId, instId, models);
         if (geometricIds && geometricIds.size > 0 && !geometricIds.has(instGlobalId)) continue;
         const instName = dataStore.entities.getName(instId) || `#${instId}`;
-        instances.push({ expressId: instId, globalId: instGlobalId, name: instName, modelId });
+        const instIfcType = dataStore.entities.getTypeName(instId) || 'Unknown';
+        instances.push({ expressId: instId, globalId: instGlobalId, name: instName, modelId, ifcType: instIfcType });
       }
 
       const entry: TypeEntry = {
@@ -568,7 +583,7 @@ export function buildIfcTypeTree(
         typeName,
         typeClassName,
         modelId,
-        globalId: expressId + idOffset,
+        globalId: resolveTreeGlobalId(modelId, expressId, models),
         instances,
       };
 
@@ -582,11 +597,11 @@ export function buildIfcTypeTree(
   if (models.size > 0) {
     for (const [modelId, model] of models) {
       if (model.ifcDataStore) {
-        processDataStore(model.ifcDataStore, modelId, model.idOffset ?? 0);
+        processDataStore(model.ifcDataStore, modelId);
       }
     }
   } else if (ifcDataStore) {
-    processDataStore(ifcDataStore, 'legacy', 0);
+    processDataStore(ifcDataStore, 'legacy');
   }
 
   const nodes: TreeNode[] = [];
@@ -656,7 +671,7 @@ export function buildIfcTypeTree(
               modelIds: [inst.modelId],
               name: inst.name + instSuffix,
               type: 'element',
-              ifcType: typeEntry.typeClassName.replace(/Type$/, ''),
+              ifcType: inst.ifcType,
               depth: 2,
               hasChildren: false,
               isExpanded: false,

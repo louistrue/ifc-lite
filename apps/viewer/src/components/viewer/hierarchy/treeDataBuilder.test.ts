@@ -6,7 +6,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert';
 import { IfcTypeEnum, type SpatialHierarchy, type SpatialNode } from '@ifc-lite/data';
 import type { IfcDataStore } from '@ifc-lite/parser';
-import type { FederatedModel } from '@/store';
+import { useViewerStore, type FederatedModel } from '@/store';
 import { buildTreeData } from './treeDataBuilder';
 
 function createSpatialNode(
@@ -65,7 +65,7 @@ function createDataStore(): IfcDataStore {
   } as unknown as IfcDataStore;
 }
 
-function createModel(): FederatedModel {
+function createModel(idOffset: number): FederatedModel {
   return {
     id: 'model-1',
     name: 'Model 1',
@@ -76,14 +76,20 @@ function createModel(): FederatedModel {
     schemaVersion: 'IFC4',
     loadedAt: 1,
     fileSize: 1,
-    idOffset: 100,
+    idOffset,
     maxExpressId: 7,
   };
 }
 
 describe('buildTreeData', () => {
   it('keeps IfcSpace as a spatial node, expands bySpace children, and avoids storey duplicates', () => {
-    const models = new Map<string, FederatedModel>([['model-1', createModel()]]);
+    useViewerStore.setState({ models: new Map() });
+    useViewerStore.getState().registerModelOffset('tree-test-padding', 99);
+    const idOffset = useViewerStore.getState().registerModelOffset('model-1', 7);
+    const model = createModel(idOffset);
+    useViewerStore.setState({ models: new Map([['model-1', model]]) });
+
+    const models = new Map<string, FederatedModel>([['model-1', model]]);
     const expandedNodes = new Set([
       'root-1',
       'root-1-2',

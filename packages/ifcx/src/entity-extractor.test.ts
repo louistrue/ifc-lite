@@ -46,14 +46,16 @@ describe('extractEntities', () => {
     wall.children.set('Kitchen Window', window);
 
     const strings = new StringTable();
-    const { entities } = extractEntities(new Map([
+    const { entities, pathToId } = extractEntities(new Map([
       [storey.path, storey],
       [wall.path, wall],
       [window.path, window],
     ]), strings);
 
-    assert.strictEqual(entities.getName(3), 'Kitchen Window');
-    assert.strictEqual(entities.getTypeName(3), 'IfcWindow');
+    const windowId = pathToId.get(window.path);
+    assert.ok(windowId !== undefined);
+    assert.strictEqual(entities.getName(windowId), 'Kitchen Window');
+    assert.strictEqual(entities.getTypeName(windowId), 'IfcWindow');
   });
 
   it('retains entity ids and geometry flags when class objects have no code', () => {
@@ -71,8 +73,8 @@ describe('extractEntities', () => {
     ]), strings);
 
     const expressId = pathToId.get(entity.path);
-    assert.strictEqual(expressId, 1);
-    assert.strictEqual(entities.hasGeometry(1), true);
-    assert.strictEqual(entities.getTypeName(1), 'Unknown');
+    assert.ok(expressId !== undefined);
+    assert.strictEqual(entities.hasGeometry(expressId), true);
+    assert.strictEqual(entities.getTypeName(expressId), 'Unknown');
   });
 });

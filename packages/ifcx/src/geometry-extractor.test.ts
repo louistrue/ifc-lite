@@ -130,4 +130,50 @@ describe('extractGeometry', () => {
     assert.deepStrictEqual(meshes.map((mesh) => mesh.expressId).sort((a, b) => a - b), [11, 12]);
     assert.deepStrictEqual(meshes.map((mesh) => mesh.ifcType).sort(), ['IfcWindow', 'IfcWindow']);
   });
+
+  it('preserves inherited type-definition state through classed helper descendants', () => {
+    const root = createNode('root');
+    root.attributes.set(ATTR.CLASS, { code: 'IfcWall' });
+
+    const typeDefinition = createNode('window-type');
+    typeDefinition.attributes.set(ATTR.CLASS, { code: 'IfcWindowType' });
+    typeDefinition.attributes.set('customdata', {
+      originalStepInstance: '#10=IFCWINDOWTYPE()',
+    });
+
+    const helper = createNode('representation');
+    helper.attributes.set(ATTR.CLASS, { code: 'IfcRepresentation' });
+
+    const meshNode = createNode('mesh');
+    meshNode.attributes.set(ATTR.MESH, createMesh());
+
+    const instance = createNode('window-instance');
+    instance.attributes.set(ATTR.CLASS, { code: 'IfcWindow' });
+
+    attachChild(root, typeDefinition, 'Type');
+    attachChild(root, instance, 'Window');
+    attachChild(typeDefinition, helper, 'Representation');
+    attachChild(helper, meshNode, 'Body');
+    instance.children.set('Representation', helper);
+
+    const composed = new Map<string, ComposedNode>([
+      [root.path, root],
+      [typeDefinition.path, typeDefinition],
+      [instance.path, instance],
+      [helper.path, helper],
+      [meshNode.path, meshNode],
+    ]);
+    const pathToId = new Map([
+      [root.path, 1],
+      [typeDefinition.path, 10],
+      [helper.path, 20],
+      [instance.path, 11],
+    ]);
+
+    const meshes = extractGeometry(composed, pathToId);
+
+    assert.strictEqual(meshes.length, 1);
+    assert.strictEqual(meshes[0].expressId, 20);
+    assert.strictEqual(meshes[0].ifcType, 'IfcRepresentation');
+  });
 });

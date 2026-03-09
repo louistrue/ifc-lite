@@ -174,6 +174,11 @@ function buildSpatialNode(
       // Spatial child - recurse
       spatialNode.children.push(buildSpatialNode(child, pathToId));
     } else {
+      if (ifcClass?.code === 'IfcSpace' && isSpaceBoundaryRelationshipClass(childClass?.code)) {
+        collectSpaceBoundaryElementIds(child, pathToId, elementIds);
+        continue;
+      }
+
       collectElementIds(child, pathToId, elementIds, new Set());
       if (ifcClass?.code === 'IfcSpace') {
         collectSpaceBoundaryElementIds(child, pathToId, elementIds);
@@ -293,7 +298,7 @@ function collectElementIds(
 
   const ifcClass = node.attributes.get(ATTR.CLASS) as IfcClass | undefined;
   if (ifcClass?.code) {
-    if (SPATIAL_TYPES.has(ifcClass.code)) return;
+    if (SPATIAL_TYPES.has(ifcClass.code) || isSpaceBoundaryRelationshipClass(ifcClass.code)) return;
     const elementId = pathToId.get(node.path);
     if (elementId !== undefined) {
       elementIds.add(elementId);
@@ -320,6 +325,10 @@ function collectSpaceBoundaryElementIds(
   if (elementId !== undefined) {
     elementIds.add(elementId);
   }
+}
+
+function isSpaceBoundaryRelationshipClass(typeCode: string | undefined): boolean {
+  return typeof typeCode === 'string' && typeCode.startsWith('IfcRelSpaceBoundary');
 }
 
 function pushUnique(map: Map<number, number[]>, key: number, value: number): void {
