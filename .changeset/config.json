@@ -5,9 +5,7 @@
     { "repo": "louistrue/ifc-lite" }
   ],
   "commit": false,
-  "fixed": [
-    ["@ifc-lite/*"]
-  ],
+  "fixed": [],
   "linked": [],
   "access": "public",
   "baseBranch": "main",
