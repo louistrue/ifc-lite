@@ -1,5 +1,16 @@
 # @ifc-lite/viewer
 
+## 1.14.4
+
+### Patch Changes
+
+- [#339](https://github.com/louistrue/ifc-lite/pull/339) [`691f8a5`](https://github.com/louistrue/ifc-lite/commit/691f8a57ad51c0649de0dbcd17f4b7ecd48e7da7) Thanks [@louistrue](https://github.com/louistrue)! - Expose the Script Editor from a new Panels menu and consolidate auxiliary panel toggles in the viewer toolbar.
+
+- Updated dependencies [[`ba9040c`](https://github.com/louistrue/ifc-lite/commit/ba9040c6ff3204f3a936dd2f481c4cd8a4e6f5b5)]:
+  - @ifc-lite/parser@2.0.0
+  - @ifc-lite/export@1.14.4
+  - @ifc-lite/query@1.14.4
+
 ## 1.14.3
 
 ### Patch Changes

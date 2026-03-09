@@ -1,5 +1,16 @@
 # @ifc-lite/desktop
 
+## 1.14.4
+
+### Patch Changes
+
+- [#318](https://github.com/louistrue/ifc-lite/pull/318) [`b7b54c9`](https://github.com/louistrue/ifc-lite/commit/b7b54c99d290e916923c73e4f19f7915577c9450) Thanks [@lwilks](https://github.com/lwilks)! - Fix desktop app builds and restore Tailwind-generated styling by aligning Vite globals, aliases, and desktop CSS sources.
+
+- Updated dependencies [[`ba9040c`](https://github.com/louistrue/ifc-lite/commit/ba9040c6ff3204f3a936dd2f481c4cd8a4e6f5b5)]:
+  - @ifc-lite/parser@2.0.0
+  - @ifc-lite/export@1.14.4
+  - @ifc-lite/query@1.14.4
+
 ## 1.14.3
 
 ### Patch Changes

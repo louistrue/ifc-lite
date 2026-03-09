@@ -1,5 +1,16 @@
 # @ifc-lite/parser
 
+## 2.0.0
+
+### Major Changes
+
+- [#336](https://github.com/louistrue/ifc-lite/pull/336) [`ba9040c`](https://github.com/louistrue/ifc-lite/commit/ba9040c6ff3204f3a936dd2f481c4cd8a4e6f5b5) Thanks [@louistrue](https://github.com/louistrue)! - Remove the legacy single-parent `ComposedNode.parent` field and `getPathToRoot()` export from the IFCX composition API. IFCX extraction now relies on explicit traversal frames instead of mutable parent pointers, and the build now verifies built `dist` output against the Hello Wall IFCX fixtures.
+
+### Patch Changes
+
+- Updated dependencies [[`ba9040c`](https://github.com/louistrue/ifc-lite/commit/ba9040c6ff3204f3a936dd2f481c4cd8a4e6f5b5), [`ba9040c`](https://github.com/louistrue/ifc-lite/commit/ba9040c6ff3204f3a936dd2f481c4cd8a4e6f5b5)]:
+  - @ifc-lite/ifcx@2.0.0
+
 ## 1.14.3
 
 ### Patch Changes
