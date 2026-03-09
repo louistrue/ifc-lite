@@ -26,7 +26,7 @@ On each release, the following are published automatically:
 
 ### Version Synchronization
 
-All packages use **fixed versioning** - when any package bumps, all bump to the same version. The `scripts/sync-versions.js` script keeps npm and Cargo.toml versions in sync.
+Packages version independently. Changesets still propagates internal dependency bumps, and `scripts/sync-versions.js` keeps npm and Cargo.toml versions aligned.
 
 ### Workflow
 

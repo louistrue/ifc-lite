@@ -20,7 +20,7 @@ pnpm changeset
 ```
 
 This will prompt you to:
-1. **Select packages** that changed (usually all linked packages will update together)
+1. **Select packages** that changed
 2. **Choose bump type**: `patch` (bug fix), `minor` (feature), or `major` (breaking change)
 3. **Write a description** of the changes (will appear in CHANGELOG.md)
 
@@ -88,11 +88,11 @@ pnpm release
 
 ## Version Synchronization
 
-All 18 npm packages and 3 Rust crates are kept at the **same version** via:
+Packages are versioned independently:
 
-- **Fixed versioning**: All `@ifc-lite/*` packages bump together (configured in `.changeset/config.json`)
+- **Independent versioning**: `@ifc-lite/*` packages only bump when they have their own changeset or when Changesets propagates an internal dependency update
 - **Automatic sync**: `scripts/sync-versions.js` syncs `Cargo.toml` workspace version after npm version bumps
-- **Exception**: `@ifc-lite/desktop` may lag behind temporarily (currently 1.1.7) and will be synced on the next version bump
+- **Dependency propagation**: `updateInternalDependencies: "patch"` keeps dependents aligned when an internal package version changes
 
 ## Secrets Required
 
@@ -117,7 +117,7 @@ The GitHub Actions workflow needs these secrets:
 **A:** The "Version Packages" PR won't include your changes. Add a changeset and push to main - the bot will update the PR.
 
 ### Q: Can I release a single package?
-**A:** No. All packages are linked and release together with the same version for consistency.
+**A:** Yes. Packages version independently, although Changesets will still bump dependents when internal package ranges need to stay aligned.
 
 ### Q: What if publishing fails?
 **A:** The workflow has built-in retry logic. Rust crates publish with 30s delays between each. If a version is already published, it's skipped safely.
