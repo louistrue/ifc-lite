@@ -26,7 +26,7 @@ On each release, the following are published automatically:
 
 ### Version Synchronization
 
-Packages version independently. Changesets still propagates internal dependency bumps, and `scripts/sync-versions.js` keeps npm and Cargo.toml versions aligned.
+Packages version independently. Changesets still propagates internal dependency bumps, and `scripts/sync-versions.js` keeps the root package version and Cargo.toml workspace version aligned with the highest released workspace package version.
 
 ### Workflow
 
