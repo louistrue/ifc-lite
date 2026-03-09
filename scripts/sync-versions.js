@@ -80,6 +80,11 @@ function syncVersions() {
     `$1${version}$2`
   );
 
+  cargoToml = cargoToml.replace(
+    /(ifc-lite-(?:core|geometry|wasm)\s*=\s*\{\s*version\s*=\s*")[^"]+(")/g,
+    `$1${version}$2`
+  );
+
   writeFileSync(cargoTomlPath, cargoToml);
   console.log(`✅ Updated Cargo.toml workspace version to ${version}`);
 
