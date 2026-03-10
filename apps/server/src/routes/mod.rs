@@ -7,3 +7,4 @@
 pub mod cache;
 pub mod health;
 pub mod parse;
+pub mod tiles;

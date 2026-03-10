@@ -131,6 +131,12 @@ async fn main() {
         .route("/api/v1/cache/{key}", get(routes::cache::get_cached))
         .route("/api/v1/cache/check/:hash", get(routes::parse::check_cache))
         .route("/api/v1/cache/geometry/:hash", get(routes::parse::get_cached_geometry))
+        // 3D Tiles endpoints
+        .route("/api/v1/tiles/federated/tileset.json", get(routes::tiles::get_federated_tileset))
+        .route("/api/v1/tiles/{model_key}/tileset.json", get(routes::tiles::get_tileset))
+        .route("/api/v1/tiles/{model_key}/zones.json", get(routes::tiles::get_zones))
+        .route("/api/v1/tiles/{model_key}/warm", post(routes::tiles::warm_tiles))
+        .route("/api/v1/tiles/{model_key}/{zone_id}/{ifc_class}", get(routes::tiles::get_tile_glb))
         // Middleware
         .layer(DefaultBodyLimit::max(config.max_file_size_mb * 1024 * 1024)) // Match max_file_size_mb
         .layer(CompressionLayer::new()) // Compress responses (gzip)

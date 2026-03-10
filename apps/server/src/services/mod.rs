@@ -6,11 +6,15 @@
 
 pub mod cache;
 pub mod data_model;
+pub mod glb_builder;
 pub mod parquet;
 pub mod parquet_data_model;
 pub mod parquet_optimized;
+pub mod parquet_reader;
 pub mod processor;
 pub mod streaming;
+pub mod tileset_builder;
+pub mod zone_reference;
 
 pub use cache::DiskCache;
 pub use data_model::{extract_data_model, DataModel};

@@ -62,13 +62,27 @@ pub fn serialize_to_parquet(meshes: &[MeshData]) -> Result<Bytes, ParquetError> 
         index_offset += mesh.indices.len() as u32;
     }
 
-    // Phase 2: Extract mesh metadata in parallel
+    // Phase 2: Extract mesh metadata in parallel (including per-mesh AABB in Y-up space)
     let metadata: Vec<_> = meshes
         .par_iter()
         .zip(vertex_offsets.par_iter())
         .zip(index_offsets.par_iter())
         .map(|((mesh, &v_start), &i_start)| {
             let vert_count = mesh.positions.len() / 3;
+            // Compute AABB in Y-up space (same transform as vertex data below)
+            let mut bbox_min = [f32::INFINITY; 3];
+            let mut bbox_max = [f32::NEG_INFINITY; 3];
+            for i in 0..vert_count {
+                let x = mesh.positions[i * 3];
+                let y = mesh.positions[i * 3 + 2];       // Y-up: new Y = old Z
+                let z = -mesh.positions[i * 3 + 1];      // Y-up: new Z = -old Y
+                bbox_min[0] = bbox_min[0].min(x);
+                bbox_min[1] = bbox_min[1].min(y);
+                bbox_min[2] = bbox_min[2].min(z);
+                bbox_max[0] = bbox_max[0].max(x);
+                bbox_max[1] = bbox_max[1].max(y);
+                bbox_max[2] = bbox_max[2].max(z);
+            }
             (
                 mesh.express_id,
                 mesh.ifc_type.as_str(),
@@ -77,6 +91,8 @@ pub fn serialize_to_parquet(meshes: &[MeshData]) -> Result<Bytes, ParquetError> 
                 i_start,
                 mesh.indices.len() as u32,
                 mesh.color,
+                bbox_min,
+                bbox_max,
             )
         })
         .collect();
@@ -92,8 +108,14 @@ pub fn serialize_to_parquet(meshes: &[MeshData]) -> Result<Bytes, ParquetError> 
     let mut color_g = Vec::with_capacity(mesh_count);
     let mut color_b = Vec::with_capacity(mesh_count);
     let mut color_a = Vec::with_capacity(mesh_count);
+    let mut bbox_min_x = Vec::with_capacity(mesh_count);
+    let mut bbox_min_y = Vec::with_capacity(mesh_count);
+    let mut bbox_min_z = Vec::with_capacity(mesh_count);
+    let mut bbox_max_x = Vec::with_capacity(mesh_count);
+    let mut bbox_max_y = Vec::with_capacity(mesh_count);
+    let mut bbox_max_z = Vec::with_capacity(mesh_count);
 
-    for (eid, itype, vstart, vcount, istart, icount, color) in metadata {
+    for (eid, itype, vstart, vcount, istart, icount, color, bmin, bmax) in metadata {
         express_ids.push(eid);
         ifc_types.push(itype);
         vertex_starts.push(vstart);
@@ -104,6 +126,12 @@ pub fn serialize_to_parquet(meshes: &[MeshData]) -> Result<Bytes, ParquetError> 
         color_g.push(color[1]);
         color_b.push(color[2]);
         color_a.push(color[3]);
+        bbox_min_x.push(bmin[0]);
+        bbox_min_y.push(bmin[1]);
+        bbox_min_z.push(bmin[2]);
+        bbox_max_x.push(bmax[0]);
+        bbox_max_y.push(bmax[1]);
+        bbox_max_z.push(bmax[2]);
     }
 
     // Phase 3: Extract vertex and index data in parallel chunks
@@ -194,6 +222,12 @@ pub fn serialize_to_parquet(meshes: &[MeshData]) -> Result<Bytes, ParquetError> 
         Field::new("color_g", DataType::Float32, false),
         Field::new("color_b", DataType::Float32, false),
         Field::new("color_a", DataType::Float32, false),
+        Field::new("bbox_min_x", DataType::Float32, false),
+        Field::new("bbox_min_y", DataType::Float32, false),
+        Field::new("bbox_min_z", DataType::Float32, false),
+        Field::new("bbox_max_x", DataType::Float32, false),
+        Field::new("bbox_max_y", DataType::Float32, false),
+        Field::new("bbox_max_z", DataType::Float32, false),
     ]));
 
     let vertex_schema = Arc::new(Schema::new(vec![
@@ -225,6 +259,12 @@ pub fn serialize_to_parquet(meshes: &[MeshData]) -> Result<Bytes, ParquetError> 
             Arc::new(Float32Array::from(color_g)),
             Arc::new(Float32Array::from(color_b)),
             Arc::new(Float32Array::from(color_a)),
+            Arc::new(Float32Array::from(bbox_min_x)),
+            Arc::new(Float32Array::from(bbox_min_y)),
+            Arc::new(Float32Array::from(bbox_min_z)),
+            Arc::new(Float32Array::from(bbox_max_x)),
+            Arc::new(Float32Array::from(bbox_max_y)),
+            Arc::new(Float32Array::from(bbox_max_z)),
         ],
     )?;
 

@@ -222,7 +222,7 @@ pub async fn parse_parquet_stream(
 
     // OPTIMIZATION: Check cache first and fast-path return if available
     // This avoids re-processing files that are already cached
-    let parquet_cache_key = format!("{}-parquet-v2", cache_key);
+    let parquet_cache_key = format!("{}-parquet-v3", cache_key);
     let metadata_cache_key = format!("{}-parquet-metadata-v2", cache_key);
 
     if let (Some(cached_parquet), Some(cached_metadata_json)) = (
@@ -371,7 +371,7 @@ pub async fn parse_parquet_stream(
                         combined_parquet.extend_from_slice(&0u32.to_le_bytes()); // data_model_len = 0
 
                         // Cache geometry (same format as non-streaming)
-                        let parquet_cache_key = format!("{}-parquet-v2", key);
+                        let parquet_cache_key = format!("{}-parquet-v3", key);
                         if let Err(e) = cache.set_bytes(&parquet_cache_key, &combined_parquet).await {
                             tracing::error!(error = %e, "Failed to cache geometry from stream");
                         } else {
@@ -546,7 +546,7 @@ pub async fn parse_parquet(
     let cache_key = DiskCache::generate_key(&data);
 
     // Check cache first (before any processing)
-    let parquet_cache_key = format!("{}-parquet-v2", cache_key);
+    let parquet_cache_key = format!("{}-parquet-v3", cache_key);
     let metadata_cache_key = format!("{}-parquet-metadata-v2", cache_key);
 
     if let (Some(cached_parquet), Some(cached_metadata_json)) = (
@@ -655,7 +655,7 @@ pub async fn parse_parquet(
     let metadata_json = serde_json::to_string(&metadata_header)?;
 
     // Cache the results for future requests
-    let parquet_cache_key = format!("{}-parquet-v2", cache_key_clone);
+    let parquet_cache_key = format!("{}-parquet-v3", cache_key_clone);
     let metadata_cache_key = format!("{}-parquet-metadata-v2", cache_key_clone);
     let combined_parquet_clone = combined_parquet.clone();
     let metadata_json_clone = metadata_json.clone();
@@ -836,7 +836,7 @@ pub async fn check_cache(
     State(state): State<AppState>,
     axum::extract::Path(hash): axum::extract::Path<String>,
 ) -> Result<Response, ApiError> {
-    let parquet_cache_key = format!("{}-parquet-v2", hash);
+    let parquet_cache_key = format!("{}-parquet-v3", hash);
     
     match state.cache.get_bytes(&parquet_cache_key).await? {
         Some(_) => {
@@ -870,7 +870,7 @@ pub async fn get_cached_geometry(
     State(state): State<AppState>,
     axum::extract::Path(hash): axum::extract::Path<String>,
 ) -> Result<Response, ApiError> {
-    let parquet_cache_key = format!("{}-parquet-v2", hash);
+    let parquet_cache_key = format!("{}-parquet-v3", hash);
     let metadata_cache_key = format!("{}-parquet-metadata-v2", hash);
     
     match (

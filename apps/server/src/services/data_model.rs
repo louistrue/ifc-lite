@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 /// Complete data model extracted from IFC file.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DataModel {
     /// Entity metadata for all entities.
     pub entities: Vec<EntityMetadata>,
