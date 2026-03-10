@@ -501,6 +501,22 @@ importers:
         specifier: ^7.0.0
         version: 7.3.1(@types/node@22.19.13)(jiti@2.6.1)(lightningcss@1.30.2)(tsx@4.21.0)
 
+  packages/3d-tiles:
+    dependencies:
+      '@ifc-lite/geometry':
+        specifier: workspace:^
+        version: link:../geometry
+      '@ifc-lite/spatial':
+        specifier: workspace:^
+        version: link:../spatial
+    devDependencies:
+      typescript:
+        specifier: ^5.3.0
+        version: 5.9.3
+      vitest:
+        specifier: ^1.6.0
+        version: 1.6.1(@types/node@20.19.28)(lightningcss@1.30.2)
+
   packages/bcf:
     dependencies:
       jszip:
