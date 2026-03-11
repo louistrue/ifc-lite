@@ -144,6 +144,7 @@ export const useViewerStore = create<ViewerState>()((...args) => ({
       // Visibility (legacy)
       hiddenEntities: new Set(),
       isolatedEntities: null,
+      classFilter: null,
       typeVisibility: {
         spaces: TYPE_VISIBILITY_DEFAULTS.SPACES,
         openings: TYPE_VISIBILITY_DEFAULTS.OPENINGS,

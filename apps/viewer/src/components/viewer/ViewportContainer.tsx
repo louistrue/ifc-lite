@@ -28,6 +28,7 @@ export function ViewportContainer() {
   const selectedStoreys = useViewerStore((s) => s.selectedStoreys);
   const typeVisibility = useViewerStore((s) => s.typeVisibility);
   const isolatedEntities = useViewerStore((s) => s.isolatedEntities);
+  const classFilter = useViewerStore((s) => s.classFilter);
   // Multi-model support: get all loaded models from store (for merged geometry)
   const storeModels = useViewerStore((s) => s.models);
   const resetViewerState = useViewerStore((s) => s.resetViewerState);
@@ -293,22 +294,25 @@ export function ViewportContainer() {
       }
     }
 
-    // Combine class isolation and storey isolation:
-    // - Both active → intersection (e.g., only columns on ground floor)
-    // - Only one active → use that one
-    // - Neither → null (show all)
-    if (isolatedEntities !== null && storeyIsolation !== null) {
-      const intersection = new Set<number>();
-      for (const id of isolatedEntities) {
-        if (storeyIsolation.has(id)) {
-          intersection.add(id);
-        }
-      }
-      return intersection;
-    }
+    // Collect all active filters and intersect them
+    const filters: Set<number>[] = [];
+    if (storeyIsolation !== null) filters.push(storeyIsolation);
+    if (classFilter !== null) filters.push(classFilter.ids);
+    if (isolatedEntities !== null) filters.push(isolatedEntities);
 
-    return isolatedEntities ?? storeyIsolation;
-  }, [storeModels, ifcDataStore, selectedStoreys, isolatedEntities]);
+    if (filters.length === 0) return null;
+    if (filters.length === 1) return filters[0];
+
+    // Intersect all active filters — start from smallest for efficiency
+    const sorted = filters.sort((a, b) => a.size - b.size);
+    const intersection = new Set<number>();
+    for (const id of sorted[0]) {
+      if (sorted.every(s => s.has(id))) {
+        intersection.add(id);
+      }
+    }
+    return intersection;
+  }, [storeModels, ifcDataStore, selectedStoreys, isolatedEntities, classFilter]);
 
   // Grid Pattern
   const GridPattern = () => (

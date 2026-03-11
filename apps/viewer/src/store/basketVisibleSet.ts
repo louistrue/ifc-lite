@@ -57,6 +57,7 @@ function visibilityFingerprint(state: ViewerStateSnapshot): string {
   return [
     digestNumberSet(state.hiddenEntities),
     state.isolatedEntities ? digestNumberSet(state.isolatedEntities) : 'none',
+    state.classFilter ? digestNumberSet(state.classFilter.ids) : 'none',
     digestNumberSet(state.lensHiddenIds),
     digestModelEntityMap(state.hiddenEntitiesByModel),
     digestModelEntityMap(state.isolatedEntitiesByModel),
@@ -393,23 +394,25 @@ function getVisibleGlobalIds(state: ViewerStateSnapshot): Set<number> {
     globalHidden.add(id);
   }
 
+  // Collect all active filter sets and intersect them
+  const filters: Set<number>[] = [];
   const storeyIsolation = computeStoreyIsolation(state);
-  const classIsolation = state.isolatedEntities;
+  if (storeyIsolation !== null) filters.push(storeyIsolation);
+  if (state.classFilter !== null) filters.push(state.classFilter.ids);
+  if (state.isolatedEntities !== null) filters.push(state.isolatedEntities);
 
-  // Combine class isolation and storey isolation:
-  // - Both active → intersection (e.g., only columns on ground floor)
-  // - Only one active → use that one
-  // - Neither → null (show all)
-  let globalIsolation: Set<number> | null;
-  if (classIsolation !== null && storeyIsolation !== null) {
+  let globalIsolation: Set<number> | null = null;
+  if (filters.length === 1) {
+    globalIsolation = filters[0];
+  } else if (filters.length > 1) {
+    // Intersect all active filters — start from smallest for efficiency
+    const sorted = filters.sort((a, b) => a.size - b.size);
     globalIsolation = new Set<number>();
-    for (const id of classIsolation) {
-      if (storeyIsolation.has(id)) {
+    for (const id of sorted[0]) {
+      if (sorted.every(s => s.has(id))) {
         globalIsolation.add(id);
       }
     }
-  } else {
-    globalIsolation = classIsolation ?? storeyIsolation;
   }
 
   const visible = new Set<number>();
