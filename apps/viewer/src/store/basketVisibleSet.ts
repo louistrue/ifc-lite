@@ -279,7 +279,7 @@ function getExpandedSelectionRefs(state: ViewerStateSnapshot): EntityRef[] {
  */
 function collectDescendantSpaceIds(node: SpatialNode): number[] {
   const spaceIds: number[] = [];
-  for (const child of node.children) {
+  for (const child of node.children || []) {
     if (child.type === IfcTypeEnum.IfcSpace) {
       spaceIds.push(child.expressId);
     }
