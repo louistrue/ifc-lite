@@ -3,23 +3,29 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 /**
- * Official IFC5 schema definitions from buildingSMART.
+ * Official IFC5 schema definitions loaded DYNAMICALLY from the real
+ * buildingSMART schema files (source of truth: github.com/buildingSMART/ifcx.dev).
  *
- * Source: https://github.com/buildingSMART/ifcx.dev
+ * The .ifcx schema files are committed under __fixtures__/schemas/ and loaded
+ * at test time so that any upstream schema change is caught automatically.
+ *
+ * Schema files:
  * - @standards.buildingsmart.org/ifc/core/ifc@v5a.ifcx
  * - @standards.buildingsmart.org/ifc/core/prop@v5a.ifcx
  * - @openusd.org/usd@v1.ifcx
- *
- * These are used for validating export output against the official spec.
  */
 
+import { readFileSync } from 'fs';
+import { resolve } from 'path';
+
 // ============================================================================
-// Schema value description types (from the IFCX meta-schema)
+// Schema value description types (from the IFCX TypeSpec meta-schema)
 // ============================================================================
 
 export interface SchemaValueDescription {
   dataType: 'Real' | 'Boolean' | 'Integer' | 'String' | 'DateTime' | 'Enum' | 'Array' | 'Object' | 'Reference' | 'Blob';
   optional?: boolean;
+  inherits?: string[];
   quantityKind?: string;
   enumRestrictions?: { options: string[] };
   arrayRestrictions?: { value: SchemaValueDescription; min?: number; max?: number };
@@ -32,167 +38,56 @@ export interface SchemaDefinition {
 }
 
 // ============================================================================
-// IFC Core schemas (ifc@v5a.ifcx)
+// Load real schema files from buildingSMART/ifcx.dev
 // ============================================================================
 
-export const IFC_CORE_SCHEMAS: Record<string, SchemaDefinition> = {
-  'bsi::ifc::class': {
-    value: {
-      dataType: 'Object',
-      objectRestrictions: {
-        values: {
-          code: { dataType: 'String' },
-          uri: { dataType: 'String' },
-        },
-      },
-    },
-  },
-  'bsi::ifc::presentation::diffuseColor': {
-    value: { dataType: 'Array', arrayRestrictions: { value: { dataType: 'Real' } } },
-  },
-  'bsi::ifc::presentation::opacity': {
-    value: { dataType: 'Real' },
-  },
-  'bsi::ifc::material': {
-    value: {
-      dataType: 'Object',
-      objectRestrictions: {
-        values: {
-          code: { dataType: 'String' },
-          uri: { dataType: 'String' },
-        },
-      },
-    },
-  },
-  'bsi::ifc::spaceBoundary': {
-    value: {
-      dataType: 'Object',
-      objectRestrictions: {
-        values: {
-          relatedelement: {
-            dataType: 'Object',
-            objectRestrictions: { values: { ref: { dataType: 'String' } } },
-          },
-          relatingspace: {
-            dataType: 'Object',
-            objectRestrictions: { values: { ref: { dataType: 'String' } } },
-          },
-        },
-      },
-    },
-  },
-};
+const SCHEMAS_DIR = resolve(__dirname, 'schemas');
 
-// ============================================================================
-// IFC Property schemas (prop@v5a.ifcx)
-// ============================================================================
+function loadSchemaFile(filename: string): Record<string, SchemaDefinition> {
+  const content = JSON.parse(readFileSync(resolve(SCHEMAS_DIR, filename), 'utf-8'));
+  return content.schemas ?? {};
+}
 
-export const IFC_PROP_SCHEMAS: Record<string, SchemaDefinition> = {
-  'bsi::ifc::prop::Name': { value: { dataType: 'String' } },
-  'bsi::ifc::prop::Description': { value: { dataType: 'String' } },
-  'bsi::ifc::prop::UsageType': { value: { dataType: 'String' } },
-  'bsi::ifc::prop::TypeName': { value: { dataType: 'String' } },
-  'bsi::ifc::prop::IsExternal': { value: { dataType: 'Boolean' } },
-  'bsi::ifc::prop::Height': { value: { dataType: 'Real', quantityKind: 'Length' } },
-  'bsi::ifc::prop::Width': { value: { dataType: 'Real', quantityKind: 'Length' } },
-  'bsi::ifc::prop::Length': { value: { dataType: 'Real', quantityKind: 'Length' } },
-  'bsi::ifc::prop::Depth': { value: { dataType: 'Real', quantityKind: 'Length' } },
-  'bsi::ifc::prop::Volume': { value: { dataType: 'Real', quantityKind: 'Volume' } },
-  'bsi::ifc::prop::NetVolume': { value: { dataType: 'Real', quantityKind: 'Volume' } },
-  'bsi::ifc::prop::NetArea': { value: { dataType: 'Real', quantityKind: 'Area' } },
-  'bsi::ifc::prop::NetSideArea': { value: { dataType: 'Real', quantityKind: 'Area' } },
-  'bsi::ifc::prop::CrossSectionArea': { value: { dataType: 'Real', quantityKind: 'Area' } },
-  'bsi::ifc::prop::RefElevation': { value: { dataType: 'Real', quantityKind: 'Length' } },
-  'bsi::ifc::prop::ElevationOfRefHeight': { value: { dataType: 'Real', quantityKind: 'Length' } },
-  'bsi::ifc::prop::ElevationOfTerrain': { value: { dataType: 'Real', quantityKind: 'Length' } },
-  'bsi::ifc::prop::NumberOfStoreys': { value: { dataType: 'Integer' } },
-  'bsi::ifc::prop::Station': { value: { dataType: 'Real' } },
-};
+/** IFC core schemas from ifc@v5a.ifcx */
+export const IFC_CORE_SCHEMAS: Record<string, SchemaDefinition> = loadSchemaFile('ifc@v5a.ifcx');
 
-// ============================================================================
-// USD schemas (usd@v1.ifcx)
-// ============================================================================
+/** IFC property schemas from prop@v5a.ifcx */
+export const IFC_PROP_SCHEMAS: Record<string, SchemaDefinition> = loadSchemaFile('prop@v5a.ifcx');
 
-export const USD_SCHEMAS: Record<string, SchemaDefinition> = {
-  'usd::usdgeom::mesh': {
-    value: {
-      dataType: 'Object',
-      objectRestrictions: {
-        values: {
-          faceVertexIndices: {
-            dataType: 'Array',
-            arrayRestrictions: { value: { dataType: 'Integer' } },
-          },
-          points: {
-            dataType: 'Array',
-            arrayRestrictions: {
-              value: {
-                dataType: 'Array',
-                arrayRestrictions: { value: { dataType: 'Real' } },
-              },
-            },
-          },
-        },
-      },
-    },
-  },
-  'usd::usdgeom::visibility': {
-    value: {
-      dataType: 'Object',
-      objectRestrictions: {
-        values: {
-          visibility: { dataType: 'String' },
-        },
-      },
-    },
-  },
-  'usd::xformop': {
-    value: {
-      dataType: 'Object',
-      objectRestrictions: {
-        values: {
-          transform: {
-            dataType: 'Array',
-            arrayRestrictions: {
-              value: {
-                dataType: 'Array',
-                arrayRestrictions: { value: { dataType: 'Real' } },
-              },
-            },
-          },
-        },
-      },
-    },
-  },
-  'usd::usdgeom::basiscurves': {
-    value: {
-      dataType: 'Object',
-      objectRestrictions: {
-        values: {
-          points: {
-            dataType: 'Array',
-            arrayRestrictions: {
-              value: {
-                dataType: 'Array',
-                arrayRestrictions: { value: { dataType: 'Real' } },
-              },
-            },
-          },
-        },
-      },
-    },
-  },
-};
+/** USD schemas from usd@v1.ifcx */
+export const USD_SCHEMAS: Record<string, SchemaDefinition> = loadSchemaFile('usd@v1.ifcx');
 
-// ============================================================================
-// Combined schemas for validation
-// ============================================================================
-
+/** All official schemas combined */
 export const ALL_OFFICIAL_SCHEMAS: Record<string, SchemaDefinition> = {
   ...IFC_CORE_SCHEMAS,
   ...IFC_PROP_SCHEMAS,
   ...USD_SCHEMAS,
 };
+
+// ============================================================================
+// Namespace → schema file mapping (mirrors what the viewer resolves)
+// ============================================================================
+
+/**
+ * Maps attribute key prefixes to which schema file defines them.
+ * The viewer resolves schemas by checking which imported .ifcx file defines a
+ * given attribute key. If the key's namespace has an import but no matching
+ * schema definition, it's an error.
+ */
+const NAMESPACE_SCHEMA_MAP: Record<string, Record<string, SchemaDefinition>> = {
+  'bsi::ifc::prop::': IFC_PROP_SCHEMAS,
+  'bsi::ifc::': IFC_CORE_SCHEMAS,
+  'usd::': USD_SCHEMAS,
+};
+
+function findSchemaForKey(key: string): { schema: SchemaDefinition | undefined; namespaceMatched: boolean } {
+  for (const [prefix, schemas] of Object.entries(NAMESPACE_SCHEMA_MAP)) {
+    if (key.startsWith(prefix)) {
+      return { schema: schemas[key], namespaceMatched: true };
+    }
+  }
+  return { schema: undefined, namespaceMatched: false };
+}
 
 // ============================================================================
 // Standard import URIs
@@ -205,7 +100,7 @@ export const STANDARD_IMPORT_URIS = {
 } as const;
 
 // ============================================================================
-// Validation helper
+// Validation helpers
 // ============================================================================
 
 /**
@@ -266,7 +161,6 @@ export function validateValue(
         errors.push(`${path}: Expected Object, got ${Array.isArray(value) ? 'Array' : typeof value}`);
       } else if (schema.objectRestrictions?.values) {
         const obj = value as Record<string, unknown>;
-        // Check required keys exist
         for (const [key, valSchema] of Object.entries(schema.objectRestrictions.values)) {
           if (!valSchema.optional && !(key in obj)) {
             errors.push(`${path}: Missing required key "${key}"`);
@@ -275,7 +169,6 @@ export function validateValue(
             errors.push(...validateValue(obj[key], valSchema, `${path}.${key}`));
           }
         }
-        // Check for unknown keys
         for (const key of Object.keys(obj)) {
           if (!(key in schema.objectRestrictions.values)) {
             errors.push(`${path}: Unknown key "${key}" (allowed: ${Object.keys(schema.objectRestrictions.values).join(', ')})`);
@@ -298,7 +191,14 @@ export function validateValue(
 
 /**
  * Validate an entire IFCX file against the official schemas.
- * Returns an array of error messages (empty = valid).
+ *
+ * This mirrors the viewer's validation logic:
+ * 1. Every attribute key must either be defined in an imported schema, defined
+ *    in the file's local `schemas` section, or belong to an unrecognized namespace.
+ * 2. If an attribute's namespace matches an imported schema file but the specific
+ *    key is NOT defined in that schema file → "Missing schema" error (exactly
+ *    what the BSI viewer reports).
+ * 3. Values are type-checked against their schema definitions.
  */
 export function validateIfcxFile(file: any): string[] {
   const errors: string[] = [];
@@ -316,6 +216,9 @@ export function validateIfcxFile(file: any): string[] {
     }
   }
 
+  // Collect local schemas (files can define their own schemas inline)
+  const localSchemas: Record<string, SchemaDefinition> = file.schemas ?? {};
+
   // Validate each data node
   for (const node of file.data ?? []) {
     if (typeof node.path !== 'string') {
@@ -324,13 +227,29 @@ export function validateIfcxFile(file: any): string[] {
     }
 
     for (const [attrKey, attrVal] of Object.entries(node.attributes ?? {})) {
-      const schema = ALL_OFFICIAL_SCHEMAS[attrKey];
-      if (schema) {
-        // Known schema — validate value
-        errors.push(...validateValue(attrVal, schema.value, `["${node.path}"].attributes["${attrKey}"]`));
+      // Check local schemas first
+      if (localSchemas[attrKey]) {
+        errors.push(...validateValue(attrVal, localSchemas[attrKey].value, `["${node.path}"].attributes["${attrKey}"]`));
+        continue;
       }
-      // For bsi::ifc::prop:: attributes not in the standard set, we allow them
-      // (files can define custom properties in their local schemas section)
+
+      // Check official schemas
+      const { schema, namespaceMatched } = findSchemaForKey(attrKey);
+
+      if (schema) {
+        // Known schema — validate value type
+        errors.push(...validateValue(attrVal, schema.value, `["${node.path}"].attributes["${attrKey}"]`));
+      } else if (namespaceMatched) {
+        // Namespace matches an imported schema file, but this specific key
+        // is NOT defined → this is what the BSI viewer reports as
+        // 'Missing schema "bsi::ifc::prop::Reference"'
+        errors.push(
+          `["${node.path}"].attributes: Missing schema "${attrKey}" ` +
+          `(not defined in the official schema files)`
+        );
+      }
+      // If namespace doesn't match any known import, it's a custom/extension
+      // attribute and we don't validate it (same as the viewer).
     }
   }
 

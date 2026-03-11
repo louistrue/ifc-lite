@@ -16,6 +16,7 @@ import {
 } from '@ifc-lite/data';
 import {
   ALL_OFFICIAL_SCHEMAS,
+  IFC_PROP_SCHEMAS,
   STANDARD_IMPORT_URIS,
   validateIfcxFile,
   validateValue,
@@ -118,6 +119,94 @@ describe('Ifc5Exporter', () => {
       expect(errors).toEqual([]);
     });
 
+    it('IFC4 properties without IFC5 schema are NOT exported (avoids "Missing schema" viewer error)', () => {
+      // Simulates the exact user scenario: Revit IFC4 file with Pset_WallCommon
+      // containing properties like Reference, LoadBearing, ExtendToStructure
+      // which have NO matching schema in prop@v5a.ifcx
+      const strings = new StringTable();
+      const entityBuilder = new EntityTableBuilder(2, strings);
+      entityBuilder.add(1, 'IFCWALL', 'wall-1', 'TestWall', '', '');
+      entityBuilder.add(2, 'IFCBUILDING', 'bldg-1', 'TestBuilding', '', '');
+
+      const propertyBuilder = new PropertyTableBuilder(strings);
+      // IsExternal IS in the official prop schema → should be exported
+      propertyBuilder.add({
+        entityId: 1, psetName: 'Pset_WallCommon', psetGlobalId: '',
+        propName: 'IsExternal', value: true, propType: PropertyValueType.Boolean,
+      });
+      // Reference is NOT in prop@v5a.ifcx → must NOT be exported
+      propertyBuilder.add({
+        entityId: 1, psetName: 'Pset_WallCommon', psetGlobalId: '',
+        propName: 'Reference', value: 'Holz Aussenwand_470mm', propType: PropertyValueType.String,
+      });
+      // LoadBearing is NOT in prop@v5a.ifcx → must NOT be exported
+      propertyBuilder.add({
+        entityId: 1, psetName: 'Pset_WallCommon', psetGlobalId: '',
+        propName: 'LoadBearing', value: true, propType: PropertyValueType.Boolean,
+      });
+      // ExtendToStructure is NOT in prop@v5a.ifcx → must NOT be exported
+      propertyBuilder.add({
+        entityId: 1, psetName: 'Pset_WallCommon', psetGlobalId: '',
+        propName: 'ExtendToStructure', value: false, propType: PropertyValueType.Boolean,
+      });
+      // NumberOfStoreys IS in the official prop schema → should be exported
+      propertyBuilder.add({
+        entityId: 2, psetName: 'Pset_BuildingCommon', psetGlobalId: '',
+        propName: 'NumberOfStoreys', value: 3, propType: PropertyValueType.Integer,
+      });
+      // IsLandmarked is NOT in prop@v5a.ifcx → must NOT be exported
+      propertyBuilder.add({
+        entityId: 2, psetName: 'Pset_BuildingCommon', psetGlobalId: '',
+        propName: 'IsLandmarked', value: false, propType: PropertyValueType.Boolean,
+      });
+      // AboveGround is NOT in prop@v5a.ifcx → must NOT be exported
+      propertyBuilder.add({
+        entityId: 2, psetName: 'Pset_BuildingStoreyCommon', psetGlobalId: '',
+        propName: 'AboveGround', value: 'UNKNOWN', propType: PropertyValueType.String,
+      });
+
+      const relBuilder = new RelationshipGraphBuilder();
+      const dataStore = {
+        fileSize: 0, schemaVersion: 'IFC4', entityCount: 2, parseTime: 0,
+        source: new Uint8Array(0),
+        entityIndex: { byId: new Map(), byType: new Map() },
+        strings,
+        entities: entityBuilder.build(),
+        properties: propertyBuilder.build(),
+        quantities: { count: 0, entityId: new Uint32Array(0), qsetName: new Uint32Array(0), quantityName: new Uint32Array(0), quantityType: new Uint8Array(0), value: new Float64Array(0), getForEntity: () => [] } as any,
+        relationships: relBuilder.build(),
+      } as unknown as IfcDataStore;
+
+      const exporter = new Ifc5Exporter(dataStore);
+      const result = exporter.export({ includeGeometry: false });
+      const file = JSON.parse(result.content);
+
+      // Must produce zero validation errors
+      const errors = validateIfcxFile(file);
+      expect(errors).toEqual([]);
+
+      // Verify correct properties are present/absent
+      const allPropKeys = new Set<string>();
+      for (const node of file.data) {
+        for (const key of Object.keys(node.attributes ?? {})) {
+          if (key.startsWith('bsi::ifc::prop::') && key !== 'bsi::ifc::prop::Name' && key !== 'bsi::ifc::prop::Description') {
+            allPropKeys.add(key);
+          }
+        }
+      }
+
+      // These should be exported (they have official IFC5 schemas)
+      expect(allPropKeys).toContain('bsi::ifc::prop::IsExternal');
+      expect(allPropKeys).toContain('bsi::ifc::prop::NumberOfStoreys');
+
+      // These must NOT be exported (no official IFC5 schema)
+      expect(allPropKeys).not.toContain('bsi::ifc::prop::Reference');
+      expect(allPropKeys).not.toContain('bsi::ifc::prop::LoadBearing');
+      expect(allPropKeys).not.toContain('bsi::ifc::prop::ExtendToStructure');
+      expect(allPropKeys).not.toContain('bsi::ifc::prop::IsLandmarked');
+      expect(allPropKeys).not.toContain('bsi::ifc::prop::AboveGround');
+    });
+
     it('export without geometry produces zero validation errors', () => {
       const dataStore = buildMinimalDataStore([
         { expressId: 1, type: 'IFCWALL', globalId: 'g1', name: 'Wall' },
@@ -174,6 +263,65 @@ describe('Ifc5Exporter', () => {
       }
 
       expect(unknownKeys).toEqual([]);
+    });
+
+    it('exporter IFC5_KNOWN_PROP_NAMES matches the real prop@v5a.ifcx schema file', () => {
+      // This test ensures the hardcoded allowlist in ifc5-exporter.ts stays
+      // in sync with the real BSI schema file. If buildingSMART adds/removes
+      // a property in prop@v5a.ifcx, this test will fail until the exporter
+      // is updated.
+      const officialPropNames = Object.keys(IFC_PROP_SCHEMAS)
+        .map((k) => k.replace('bsi::ifc::prop::', ''))
+        .filter((n) => n !== 'Name' && n !== 'Description'); // handled separately
+
+      // Build a set of known props that the exporter knows about by
+      // exporting all official props and checking which ones survive
+      const strings = new StringTable();
+      const entityBuilder = new EntityTableBuilder(1, strings);
+      entityBuilder.add(1, 'IFCWALL', 'g1', 'Wall', '', '');
+      const propertyBuilder = new PropertyTableBuilder(strings);
+
+      // Add ALL official property names from the real schema
+      for (const propName of officialPropNames) {
+        propertyBuilder.add({
+          entityId: 1,
+          psetName: 'Test',
+          psetGlobalId: '',
+          propName,
+          value: propName === 'IsExternal' ? true : propName === 'NumberOfStoreys' ? 1 : 0.0,
+          propType: propName === 'IsExternal' ? PropertyValueType.Boolean
+            : propName === 'NumberOfStoreys' ? PropertyValueType.Integer
+            : PropertyValueType.Real,
+        });
+      }
+
+      const relBuilder = new RelationshipGraphBuilder();
+      const dataStore = {
+        fileSize: 0, schemaVersion: 'IFC4', entityCount: 1, parseTime: 0,
+        source: new Uint8Array(0),
+        entityIndex: { byId: new Map(), byType: new Map() },
+        strings,
+        entities: entityBuilder.build(),
+        properties: propertyBuilder.build(),
+        quantities: { count: 0, entityId: new Uint32Array(0), qsetName: new Uint32Array(0), quantityName: new Uint32Array(0), quantityType: new Uint8Array(0), value: new Float64Array(0), getForEntity: () => [] } as any,
+        relationships: relBuilder.build(),
+      } as unknown as IfcDataStore;
+
+      const exporter = new Ifc5Exporter(dataStore);
+      const file = JSON.parse(exporter.export({ includeGeometry: false }).content);
+
+      const exportedPropNames = new Set<string>();
+      for (const node of file.data) {
+        for (const key of Object.keys(node.attributes ?? {})) {
+          if (key.startsWith('bsi::ifc::prop::') && key !== 'bsi::ifc::prop::Name' && key !== 'bsi::ifc::prop::Description') {
+            exportedPropNames.add(key.replace('bsi::ifc::prop::', ''));
+          }
+        }
+      }
+
+      // Every official prop should be exported
+      const missingFromExporter = officialPropNames.filter((n) => !exportedPropNames.has(n));
+      expect(missingFromExporter).toEqual([]);
     });
 
     it('does NOT use deprecated bsi::ifc::globalId attribute', () => {

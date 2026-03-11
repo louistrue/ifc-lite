@@ -40,6 +40,35 @@ const IFCX_SCHEMA_IMPORTS = {
   USD: 'https://ifcx.dev/@openusd.org/usd@v1.ifcx',
 } as const;
 
+/**
+ * Property names that have official IFC5 schema definitions in prop@v5a.ifcx.
+ * Source: https://github.com/buildingSMART/ifcx.dev/blob/main/@standards.buildingsmart.org/ifc/core/prop@v5a.ifcx
+ *
+ * IFC4 properties NOT in this set (e.g. Reference, LoadBearing, ExtendToStructure)
+ * must be omitted from IFC5 export — the viewer reports "Missing schema" errors for them.
+ *
+ * Name and Description are handled separately (always exported), so they're excluded here.
+ */
+const IFC5_KNOWN_PROP_NAMES = new Set([
+  'UsageType',
+  'TypeName',
+  'IsExternal',
+  'RefElevation',
+  'ElevationOfRefHeight',
+  'ElevationOfTerrain',
+  'NumberOfStoreys',
+  'Height',
+  'Width',
+  'Length',
+  'Depth',
+  'Volume',
+  'NetVolume',
+  'NetArea',
+  'NetSideArea',
+  'CrossSectionArea',
+  'Station',
+]);
+
 // ============================================================================
 // Types
 // ============================================================================
@@ -441,6 +470,7 @@ export class Ifc5Exporter {
       const psets = this.mutationView.getForEntity(entityId);
       for (const pset of psets) {
         for (const prop of pset.properties) {
+          if (!IFC5_KNOWN_PROP_NAMES.has(prop.name)) continue;
           const key = `bsi::ifc::prop::${prop.name}`;
           result[key] = this.convertPropertyValue(prop.value, prop.type);
         }
@@ -449,6 +479,7 @@ export class Ifc5Exporter {
       const psets = this.dataStore.properties.getForEntity(entityId);
       for (const pset of psets) {
         for (const prop of pset.properties) {
+          if (!IFC5_KNOWN_PROP_NAMES.has(prop.name)) continue;
           const key = `bsi::ifc::prop::${prop.name}`;
           result[key] = this.convertPropertyValue(prop.value, prop.type);
         }

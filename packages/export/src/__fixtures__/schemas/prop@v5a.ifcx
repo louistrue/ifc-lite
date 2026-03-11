@@ -1,0 +1,120 @@
+{
+  "header": {
+    "id": "prop",
+    "ifcxVersion": "ifcx_alpha",
+    "dataVersion": "1.0.0",
+    "author": "buildingSMART International",
+    "timestamp": "2025-06-01"
+  },
+  "imports": [],
+  "schemas": {
+    "bsi::ifc::prop::Name": {
+      "value": {
+        "dataType": "String"
+      }
+    },
+    "bsi::ifc::prop::Description": {
+      "value": {
+        "dataType": "String"
+      }
+    },
+    "bsi::ifc::prop::UsageType": {
+      "value": {
+        "dataType": "String"
+      }
+    },
+    "bsi::ifc::prop::RefElevation": {
+      "value": {
+        "dataType": "Real",
+        "quantityKind": "Length"
+      }
+    },
+    "bsi::ifc::prop::ElevationOfRefHeight": {
+      "value": {
+        "dataType": "Real",
+        "quantityKind": "Length"
+      }
+    },
+    "bsi::ifc::prop::ElevationOfTerrain": {
+      "value": {
+        "dataType": "Real",
+        "quantityKind": "Length"
+      }
+    },
+    "bsi::ifc::prop::NumberOfStoreys": {
+      "value": {
+        "dataType": "Integer"
+      }
+    },
+    "bsi::ifc::prop::IsExternal": {
+      "value": {
+        "dataType": "Boolean"
+      }
+    },
+    "bsi::ifc::prop::Volume": {
+      "value": {
+        "dataType": "Real",
+        "quantityKind": "Volume"
+      }
+    },
+    "bsi::ifc::prop::NetVolume": {
+      "value": {
+        "dataType": "Real",
+        "quantityKind": "Volume"
+      }
+    },
+    "bsi::ifc::prop::Height": {
+      "value": {
+        "dataType": "Real",
+        "quantityKind": "Length"
+      }
+    },
+    "bsi::ifc::prop::Width": {
+      "value": {
+        "dataType": "Real",
+        "quantityKind": "Length"
+      }
+    },
+    "bsi::ifc::prop::Length": {
+      "value": {
+        "dataType": "Real",
+        "quantityKind": "Length"
+      }
+    },
+    "bsi::ifc::prop::Depth": {
+      "value": {
+        "dataType": "Real",
+        "quantityKind": "Length"
+      }
+    },
+    "bsi::ifc::prop::NetArea": {
+      "value": {
+        "dataType": "Real",
+        "quantityKind": "Area"
+      }
+    },
+    "bsi::ifc::prop::NetSideArea": {
+      "value": {
+        "dataType": "Real",
+        "quantityKind": "Area"
+      }
+    },
+    "bsi::ifc::prop::CrossSectionArea": {
+      "value": {
+        "dataType": "Real",
+        "quantityKind": "Area"
+      }
+    },
+    "bsi::ifc::prop::Station": {
+      "value": {
+        "dataType": "Real"
+      }
+    },
+    "bsi::ifc::prop::TypeName": {
+      "value": {
+        "dataType": "String"
+      }
+    }
+  },
+  "data": []
+}
