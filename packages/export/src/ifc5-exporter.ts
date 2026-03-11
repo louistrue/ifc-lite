@@ -32,8 +32,7 @@ import { convertEntityType, type IfcSchemaVersion } from './schema-converter.js'
 
 /** Standard IFC5 schema package URIs, keyed by the attribute prefix they provide. */
 const IFCX_SCHEMA_IMPORTS = {
-  /** Core IFC: bsi::ifc::class, bsi::ifc::globalId, bsi::ifc::name, bsi::ifc::description,
-   *  bsi::ifc::presentation::*, bsi::ifc::material, bsi::ifc::spaceBoundary */
+  /** Core IFC: bsi::ifc::class, bsi::ifc::presentation::*, bsi::ifc::material, bsi::ifc::spaceBoundary */
   IFC_CORE: 'https://ifcx.dev/@standards.buildingsmart.org/ifc/core/ifc@v5a.ifcx',
   /** IFC properties: bsi::ifc::prop::* */
   IFC_PROP: 'https://ifcx.dev/@standards.buildingsmart.org/ifc/core/prop@v5a.ifcx',
@@ -185,23 +184,17 @@ export class Ifc5Exporter {
         uri: `https://identifier.buildingsmart.org/uri/buildingsmart/ifc/5/class/${ifc5Class}`,
       };
 
-      // GlobalId
-      const globalId = strings.get(entities.globalId[i]);
-      if (globalId) {
-        attributes['bsi::ifc::globalId'] = globalId;
-      }
-
-      // Name - only write when real data exists (don't fabricate names)
+      // Name → bsi::ifc::prop::Name (IFC5 uses prop namespace, not bsi::ifc::name)
       const name = strings.get(entities.name[i])
         || this.spatialNodeNames.get(expressId);
       if (name) {
-        attributes['bsi::ifc::name'] = name;
+        attributes['bsi::ifc::prop::Name'] = name;
       }
 
-      // Description
+      // Description → bsi::ifc::prop::Description
       const description = strings.get(entities.description[i]);
       if (description) {
-        attributes['bsi::ifc::description'] = description;
+        attributes['bsi::ifc::prop::Description'] = description;
       }
 
       // Properties
@@ -566,35 +559,20 @@ export class Ifc5Exporter {
   private convertToUsdMesh(meshes: MeshData[]): {
     points: number[][];
     faceVertexIndices: number[];
-    faceVertexCounts: number[];
-    normals?: number[][];
   } {
     const allPoints: number[][] = [];
     const allIndices: number[] = [];
-    const allFaceCounts: number[] = [];
-    const allNormals: number[][] = [];
     let indexOffset = 0;
 
     for (const mesh of meshes) {
       // Convert positions from Y-up to Z-up
       // Y-up: X=right, Y=up, Z=back
       // Z-up: X=right, Y=forward, Z=up
-      // Reverse of: Yx=Zx, Yy=Zz, Yz=-Zy
       for (let i = 0; i < mesh.positions.length; i += 3) {
         const x = mesh.positions[i];
         const y = mesh.positions[i + 1];   // Y-up Y = Z-up Z
         const z = mesh.positions[i + 2];   // Y-up Z = -Z-up Y
         allPoints.push([x, -z, y]);
-      }
-
-      // Convert normals from Y-up to Z-up
-      if (mesh.normals) {
-        for (let i = 0; i < mesh.normals.length; i += 3) {
-          const nx = mesh.normals[i];
-          const ny = mesh.normals[i + 1];
-          const nz = mesh.normals[i + 2];
-          allNormals.push([nx, -nz, ny]);
-        }
       }
 
       // Offset indices for merged mesh
@@ -604,28 +582,15 @@ export class Ifc5Exporter {
           mesh.indices[i + 1] + indexOffset,
           mesh.indices[i + 2] + indexOffset,
         );
-        allFaceCounts.push(3); // triangles
       }
 
       indexOffset += mesh.positions.length / 3;
     }
 
-    const result: {
-      points: number[][];
-      faceVertexIndices: number[];
-      faceVertexCounts: number[];
-      normals?: number[][];
-    } = {
+    return {
       points: allPoints,
       faceVertexIndices: allIndices,
-      faceVertexCounts: allFaceCounts,
     };
-
-    if (allNormals.length > 0) {
-      result.normals = allNormals;
-    }
-
-    return result;
   }
 
   // --------------------------------------------------------------------------
@@ -675,24 +640,23 @@ function collectRequiredImports(nodes: IfcxNodeOutput[]): { uri: string }[] {
   for (const node of nodes) {
     if (!node.attributes) continue;
     for (const key of Object.keys(node.attributes)) {
+      // IFC core schemas: class, presentation, material, spaceBoundary
       if (!needsIfcCore && (
         key === 'bsi::ifc::class' ||
-        key === 'bsi::ifc::globalId' ||
-        key === 'bsi::ifc::name' ||
-        key === 'bsi::ifc::description' ||
         key.startsWith('bsi::ifc::presentation::') ||
         key === 'bsi::ifc::material' ||
         key === 'bsi::ifc::spaceBoundary'
       )) {
         needsIfcCore = true;
       }
+      // IFC property schemas: bsi::ifc::prop::*
       if (!needsIfcProp && key.startsWith('bsi::ifc::prop::')) {
         needsIfcProp = true;
       }
+      // USD schemas: usd::*
       if (!needsUsd && key.startsWith('usd::')) {
         needsUsd = true;
       }
-      // Early exit if all found
       if (needsIfcCore && needsIfcProp && needsUsd) break;
     }
     if (needsIfcCore && needsIfcProp && needsUsd) break;

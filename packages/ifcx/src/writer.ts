@@ -162,17 +162,14 @@ export class IfcxWriter {
         };
       }
 
-      // Add basic attributes
-      if (globalId) {
-        attributes['bsi::ifc::globalId'] = globalId;
-      }
+      // IFC5 uses bsi::ifc::prop:: namespace for name/description (not bsi::ifc::name)
       if (name) {
-        attributes['bsi::ifc::name'] = name;
+        attributes['bsi::ifc::prop::Name'] = name;
       }
 
       const description = this.getString(entities.description[i]);
       if (description) {
-        attributes['bsi::ifc::description'] = description;
+        attributes['bsi::ifc::prop::Description'] = description;
       }
 
       // Add properties if requested
@@ -334,20 +331,20 @@ function collectRequiredImports(nodes: IfcxNode[]): ImportNode[] {
   for (const node of nodes) {
     if (!node.attributes) continue;
     for (const key of Object.keys(node.attributes)) {
+      // IFC core schemas: class, presentation, material, spaceBoundary
       if (!needsIfcCore && (
         key === 'bsi::ifc::class' ||
-        key === 'bsi::ifc::globalId' ||
-        key === 'bsi::ifc::name' ||
-        key === 'bsi::ifc::description' ||
         key.startsWith('bsi::ifc::presentation::') ||
         key === 'bsi::ifc::material' ||
         key === 'bsi::ifc::spaceBoundary'
       )) {
         needsIfcCore = true;
       }
+      // IFC property schemas: bsi::ifc::prop::*
       if (!needsIfcProp && key.startsWith('bsi::ifc::prop::')) {
         needsIfcProp = true;
       }
+      // USD schemas: usd::*
       if (!needsUsd && key.startsWith('usd::')) {
         needsUsd = true;
       }
