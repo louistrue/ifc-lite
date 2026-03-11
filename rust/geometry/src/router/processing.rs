@@ -79,11 +79,19 @@ impl GeometryRouter {
         const MAX_SAMPLES: usize = 50;
 
         const BUILDING_ELEMENT_TYPES: &[&str] = &[
+            // Building elements
             "IFCWALL", "IFCWALLSTANDARDCASE", "IFCSLAB", "IFCBEAM", "IFCCOLUMN",
             "IFCPLATE", "IFCROOF", "IFCCOVERING", "IFCFOOTING", "IFCRAILING",
             "IFCSTAIR", "IFCSTAIRFLIGHT", "IFCRAMP", "IFCRAMPFLIGHT",
             "IFCDOOR", "IFCWINDOW", "IFCFURNISHINGELEMENT", "IFCBUILDINGELEMENTPROXY",
             "IFCMEMBER", "IFCCURTAINWALL", "IFCPILE", "IFCSHADINGDEVICE",
+            // IFC4X3 infrastructure elements (large real-world coordinates common)
+            "IFCPAVEMENT", "IFCCOURSE", "IFCKERB", "IFCBEARING",
+            "IFCEARTHWORKSELEMENT", "IFCEARTHWORKSCUT", "IFCEARTHWORKSFILL",
+            "IFCRAIL", "IFCSLEEPER", "IFCTRACKELEMENT",
+            "IFCNAVIGATIONELEMENT", "IFCSIGN", "IFCSIGNAL",
+            "IFCDEEPFOUNDATION",
+            "IFCBUILTELEMENT", "IFCCIVILELEMENT", "IFCGEOGRAPHICELEMENT",
         ];
 
         while let Some((_id, type_name, start, end)) = scanner.next_entity() {

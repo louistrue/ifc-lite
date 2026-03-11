@@ -483,6 +483,7 @@ pub(crate) fn combined_pre_pass(
 fn is_simple_geometry_type(type_name: &str) -> bool {
     matches!(
         type_name,
+        // Building elements
         "IFCWALL"
             | "IFCWALLSTANDARDCASE"
             | "IFCSLAB"
@@ -497,6 +498,13 @@ fn is_simple_geometry_type(type_name: &str) -> bool {
             | "IFCSTAIRFLIGHT"
             | "IFCRAMP"
             | "IFCRAMPFLIGHT"
+            // IFC4X3 infrastructure elements — typically the bulk of infra models
+            | "IFCPAVEMENT"
+            | "IFCCOURSE"
+            | "IFCKERB"
+            | "IFCEARTHWORKSELEMENT"
+            | "IFCEARTHWORKSCUT"
+            | "IFCEARTHWORKSFILL"
     )
 }
 
