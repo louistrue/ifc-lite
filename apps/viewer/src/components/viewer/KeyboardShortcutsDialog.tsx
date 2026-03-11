@@ -3,7 +3,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { X, Info, Keyboard, Github, ExternalLink, Sparkles, ChevronDown, Zap, Wrench, Plus } from 'lucide-react';
+import { X, Info, Keyboard, Github, ExternalLink, Sparkles, ChevronDown, ChevronRight, Zap, Wrench, Plus, Package } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { KEYBOARD_SHORTCUTS } from '@/hooks/useKeyboardShortcuts';
@@ -35,13 +35,16 @@ const TYPE_CONFIG = {
 } as const;
 
 function AboutTab() {
+  const [showPackages, setShowPackages] = useState(false);
+  const packageVersions = __PACKAGE_VERSIONS__;
+
   return (
     <div className="space-y-4">
       {/* Header */}
       <div className="text-center pb-4 border-b">
         <h3 className="text-xl font-bold">ifc-lite</h3>
         <p className="text-sm text-muted-foreground mt-1">
-          Version {__APP_VERSION__}
+          Viewer {__APP_VERSION__}
         </p>
         <p className="text-xs text-muted-foreground mt-0.5">
           Built {formatBuildDate(__BUILD_DATE__)}
@@ -67,6 +70,42 @@ function AboutTab() {
           <li>Property inspection</li>
         </ul>
       </div>
+
+      {/* Package Versions */}
+      {packageVersions.length > 0 && (
+        <div className="space-y-2">
+          <button
+            onClick={() => setShowPackages(!showPackages)}
+            className="flex items-center gap-1.5 text-sm font-medium hover:text-foreground transition-colors w-full"
+          >
+            {showPackages ? (
+              <ChevronDown className="h-3.5 w-3.5" />
+            ) : (
+              <ChevronRight className="h-3.5 w-3.5" />
+            )}
+            <Package className="h-3.5 w-3.5" />
+            Package Versions
+            <span className="text-xs text-muted-foreground font-normal ml-auto">
+              {packageVersions.length} packages
+            </span>
+          </button>
+          {showPackages && (
+            <div className="rounded-md border bg-muted/30 p-2 space-y-0.5 max-h-48 overflow-y-auto">
+              {packageVersions.map((pkg) => (
+                <div
+                  key={pkg.name}
+                  className="flex items-center justify-between text-xs py-0.5 px-1"
+                >
+                  <span className="text-muted-foreground font-mono truncate mr-2">
+                    {pkg.name}
+                  </span>
+                  <span className="font-mono shrink-0">{pkg.version}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Links */}
       <div className="pt-4 border-t space-y-2">
@@ -139,7 +178,14 @@ function WhatsNewTab() {
               return (
                 <li key={h.text} className="flex items-start gap-2 text-sm text-muted-foreground">
                   <Icon className={`h-3.5 w-3.5 mt-0.5 shrink-0 ${className}`} />
-                  <span>{h.text}</span>
+                  <span>
+                    {h.text}
+                    {h.package && (
+                      <span className="ml-1.5 text-[10px] opacity-50 font-mono">
+                        {h.package.replace('@ifc-lite/', '')}
+                      </span>
+                    )}
+                  </span>
                 </li>
               );
             })}
