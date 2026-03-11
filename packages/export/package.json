@@ -19,6 +19,7 @@
   "dependencies": {
     "@ifc-lite/geometry": "workspace:^",
     "@ifc-lite/data": "workspace:^",
+    "@ifc-lite/encoding": "workspace:^",
     "@ifc-lite/parser": "workspace:^",
     "@ifc-lite/mutations": "workspace:^",
     "parquet-wasm": "^0.5.0",

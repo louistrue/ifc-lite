@@ -12,6 +12,7 @@
 
 import type { IfcDataStore } from '@ifc-lite/parser';
 import { generateHeader } from '@ifc-lite/parser';
+import { decodeIfcString } from '@ifc-lite/encoding';
 import { collectReferencedEntityIds, getVisibleEntityIds, collectStyleEntities } from './reference-collector.js';
 import { convertStepLine, needsConversion, type IfcSchemaVersion } from './schema-converter.js';
 
@@ -499,7 +500,8 @@ export class MergedExporter {
     const attr = this.extractStepAttribute(expressId, dataStore, decoder, 2);
     if (!attr || attr === '$') return null;
     if (attr.startsWith("'") && attr.endsWith("'")) {
-      return attr.slice(1, -1).replace(/''/g, "'");
+      const raw = attr.slice(1, -1).replace(/''/g, "'");
+      return decodeIfcString(raw);
     }
     return null;
   }
