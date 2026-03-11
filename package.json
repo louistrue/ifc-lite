@@ -24,7 +24,7 @@
     "docs:serve": "python3 -m mkdocs serve",
     "docs:build": "python3 -m mkdocs build",
     "changeset": "changeset",
-    "version": "changeset version && node scripts/sync-versions.js",
+    "version": "changeset version && node scripts/sync-root-version.js",
     "release": "pnpm build && pnpm release:npm && pnpm release:crates",
     "release:npm": "changeset publish",
     "release:crates": "cargo publish -p ifc-lite-core --allow-dirty || true && sleep 30 && cargo publish -p ifc-lite-geometry --allow-dirty || true && sleep 30 && cargo publish -p ifc-lite-wasm --allow-dirty || true",
