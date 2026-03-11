@@ -153,10 +153,13 @@ export class IfcxWriter {
       // Build attributes
       const attributes: Record<string, unknown> = {};
 
-      // Add IFC class
+      // Add IFC class (requires both code and uri per official schema)
       const typeName = this.getTypeName(typeEnum);
       if (typeName) {
-        attributes['bsi::ifc::class'] = { code: typeName };
+        attributes['bsi::ifc::class'] = {
+          code: typeName,
+          uri: `https://identifier.buildingsmart.org/uri/buildingsmart/ifc/5/class/${typeName}`,
+        };
       }
 
       // Add basic attributes

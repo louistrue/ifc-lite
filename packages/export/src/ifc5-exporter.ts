@@ -179,8 +179,11 @@ export class Ifc5Exporter {
       // Build attributes
       const attributes: Record<string, unknown> = {};
 
-      // IFC class
-      attributes['bsi::ifc::class'] = { code: ifc5Class };
+      // IFC class (requires both code and uri per official schema)
+      attributes['bsi::ifc::class'] = {
+        code: ifc5Class,
+        uri: `https://identifier.buildingsmart.org/uri/buildingsmart/ifc/5/class/${ifc5Class}`,
+      };
 
       // GlobalId
       const globalId = strings.get(entities.globalId[i]);
