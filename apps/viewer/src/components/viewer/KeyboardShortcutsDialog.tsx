@@ -53,21 +53,41 @@ function AboutTab() {
       {/* Description */}
       <div className="space-y-2">
         <p className="text-sm">
-          A high-performance IFC viewer for BIM models, built with WebGPU.
+          Open-source BIM toolkit built with WebGPU.
         </p>
       </div>
 
       {/* Features */}
-      <div className="space-y-2">
-        <h4 className="text-sm font-medium">Features</h4>
-        <ul className="text-sm text-muted-foreground space-y-1 list-disc list-inside">
-          <li>WebGPU-accelerated 3D rendering</li>
-          <li>IFC4 and IFC5/IFCX format support</li>
-          <li>Multi-model federation</li>
-          <li>Spatial hierarchy navigation</li>
-          <li>Section planes and measurements</li>
-          <li>Property inspection</li>
-        </ul>
+      <div className="space-y-3">
+        <div>
+          <h4 className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-1">Viewer</h4>
+          <ul className="text-sm text-muted-foreground space-y-0.5 list-disc list-inside">
+            <li>WebGPU rendering with edge & contact shading</li>
+            <li>IFC2x3, IFC4, IFC4X3, IFC5/IFCX formats</li>
+            <li>Multi-model federation</li>
+            <li>3D measurements with snap-to-geometry</li>
+            <li>Section planes & storey isolation</li>
+          </ul>
+        </div>
+        <div>
+          <h4 className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-1">Analysis</h4>
+          <ul className="text-sm text-muted-foreground space-y-0.5 list-disc list-inside">
+            <li>Properties, quantities, materials & classifications</li>
+            <li>Data tables with custom columns & export</li>
+            <li>Lens rules for filtering & colorization</li>
+            <li>IDS validation & compliance checking</li>
+          </ul>
+        </div>
+        <div>
+          <h4 className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-1">Productivity</h4>
+          <ul className="text-sm text-muted-foreground space-y-0.5 list-disc list-inside">
+            <li>2D drawing generation with annotations</li>
+            <li>BCF collaboration & issue tracking</li>
+            <li>JavaScript scripting with BIM SDK</li>
+            <li>AI assistant for model queries & automation</li>
+            <li>Export to IFC, glTF, CSV, Parquet</li>
+          </ul>
+        </div>
       </div>
 
       {/* Package Versions */}
