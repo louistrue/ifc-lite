@@ -150,8 +150,6 @@ type TimelineEntry = {
   entries: Array<{ pkg: string; highlights: typeof __RELEASE_HISTORY__[0]['releases'][0]['highlights'] }>;
 };
 
-type VersionBump = { version: string; pkgs: string[] };
-
 const compareSemver = (a: string, b: string) => {
   const pa = a.split('.').map(Number);
   const pb = b.split('.').map(Number);
@@ -189,46 +187,14 @@ function buildTimeline(
     }));
 }
 
-/** Find packages whose current version is higher than their highest changelog version. */
-function getVersionBumps(
-  packageChangelogs: typeof __RELEASE_HISTORY__,
-  packageVersions: typeof __PACKAGE_VERSIONS__,
-): VersionBump[] {
-  const highestChangelog = new Map<string, string>();
-  for (const pkg of packageChangelogs) {
-    if (pkg.releases.length > 0) {
-      highestChangelog.set(pkg.name, pkg.releases[0].version);
-    }
-  }
-
-  const bumpMap = new Map<string, string[]>();
-  for (const { name, version } of packageVersions) {
-    const highest = highestChangelog.get(name);
-    if (!highest || compareSemver(version, highest) < 0) {
-      if (!bumpMap.has(version)) bumpMap.set(version, []);
-      bumpMap.get(version)!.push(name);
-    }
-  }
-
-  return Array.from(bumpMap.entries())
-    .sort(([a], [b]) => compareSemver(a, b))
-    .map(([version, pkgs]) => ({ version, pkgs: pkgs.sort() }));
-}
-
 function WhatsNewTab() {
   const packageChangelogs = __RELEASE_HISTORY__;
-  const packageVersions = __PACKAGE_VERSIONS__;
   const viewerVersion = __APP_VERSION__;
   const [expandedVersions, setExpandedVersions] = useState<Set<string>>(() => new Set());
 
   const timeline = useMemo(
     () => buildTimeline(packageChangelogs, viewerVersion),
     [packageChangelogs, viewerVersion]
-  );
-
-  const versionBumps = useMemo(
-    () => getVersionBumps(packageChangelogs, packageVersions),
-    [packageChangelogs, packageVersions]
   );
 
   // Auto-expand the first version with actual changes
@@ -257,19 +223,6 @@ function WhatsNewTab() {
 
   return (
     <div className="space-y-1">
-      {/* Compact header for packages at newer versions than their changelogs */}
-      {versionBumps.length > 0 && (
-        <div className="text-xs text-muted-foreground px-1 pb-1 mb-1 border-b space-y-0.5">
-          {versionBumps.map(({ version, pkgs }) => (
-            <div key={version}>
-              <span className="font-semibold">v{version}</span>
-              {' \u2014 '}
-              {pkgs.map(formatPkgName).join(', ')}
-            </div>
-          ))}
-        </div>
-      )}
-
       {timeline.map((release) => {
         const isExpanded = expandedVersions.has(release.version);
         const totalHighlights = release.entries.reduce((s, e) => s + e.highlights.length, 0);
