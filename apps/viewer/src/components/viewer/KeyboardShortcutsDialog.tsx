@@ -38,23 +38,16 @@ function AboutTab() {
   const packageVersions = __PACKAGE_VERSIONS__;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       {/* Header */}
-      <div className="text-center pb-4 border-b">
+      <div className="text-center pb-2 border-b">
         <h3 className="text-xl font-bold">ifc-lite</h3>
-        <p className="text-sm text-muted-foreground mt-1">
-          Viewer {__APP_VERSION__}
-        </p>
         <p className="text-xs text-muted-foreground mt-0.5">
-          Built {formatBuildDate(__BUILD_DATE__)}
+          v{__APP_VERSION__} &middot; {formatBuildDate(__BUILD_DATE__)}
         </p>
       </div>
 
-      {/* Tagline + Links */}
-      <div className="text-center text-sm text-muted-foreground">
-        Open-source BIM toolkit built with WebGPU
-      </div>
-
+      {/* Links */}
       <div className="flex items-center justify-center gap-4 text-xs">
         <a
           href={GITHUB_URL}
@@ -78,7 +71,7 @@ function AboutTab() {
       </div>
 
       {/* Feature chips */}
-      <div className="flex flex-wrap gap-1.5 justify-center pt-2 border-t">
+      <div className="flex flex-wrap gap-1 justify-center pt-2 border-t">
         {[
           'WebGPU', 'IFC2x3', 'IFC4', 'IFC4X3', 'IFC5/IFCX',
           'Federation', 'Measurements', 'Sections',
