@@ -1,5 +1,11 @@
 # @ifc-lite/encoding
 
+## 1.14.4
+
+### Patch Changes
+
+- [#357](https://github.com/louistrue/ifc-lite/pull/357) [`40bf3d0`](https://github.com/louistrue/ifc-lite/commit/40bf3d00cb5d5ef3512b96cd5e066442adcaab87) Thanks [@louistrue](https://github.com/louistrue)! - Improve IFC STEP string handling by implementing robust decode support for `\\S\\`, `\\X\\`, `\\X2\\...\\X0\\`, `\\X4\\...\\X0\\`, and `\\P.\\` directives, and add `encodeIfcString` for producing STEP-safe string escapes.
+
 ## 1.14.3
 
 ## 1.14.2

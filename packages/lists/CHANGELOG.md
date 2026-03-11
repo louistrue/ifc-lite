@@ -1,5 +1,12 @@
 # @ifc-lite/lists
 
+## 1.14.4
+
+### Patch Changes
+
+- Updated dependencies [[`40bf3d0`](https://github.com/louistrue/ifc-lite/commit/40bf3d00cb5d5ef3512b96cd5e066442adcaab87)]:
+  - @ifc-lite/encoding@1.14.4
+
 ## 1.14.3
 
 ### Patch Changes
