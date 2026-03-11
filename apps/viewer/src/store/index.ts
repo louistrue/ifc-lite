@@ -130,7 +130,7 @@ export const useViewerStore = create<ViewerState>()((...args) => ({
   // Note: Does NOT clear models - use clearAllModels() for that
   resetViewerState: () => {
     invalidateVisibleBasketCache();
-    const [set] = args;
+    const [set, get] = args;
     set({
       // Selection (legacy)
       selectedEntityId: null,
@@ -312,7 +312,7 @@ export const useViewerStore = create<ViewerState>()((...args) => ({
       undoStacks: new Map(),
       redoStacks: new Map(),
       dirtyModels: new Set(),
-      mutationVersion: 0,
+      mutationVersion: get().mutationVersion + 1,
     });
   },
 }));
