@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-import { IfcTypeEnum, type SpatialNode } from '@ifc-lite/data';
+import { IfcTypeEnum, type SpatialNode, type SpatialHierarchy } from '@ifc-lite/data';
 import type { IfcDataStore } from '@ifc-lite/parser';
 import type { EntityRef } from './types.js';
 import { entityRefToString, stringToEntityRef } from './types.js';
@@ -273,6 +273,52 @@ function getExpandedSelectionRefs(state: ViewerStateSnapshot): EntityRef[] {
   return dedupeRefs(baseRefs.flatMap((ref) => expandRefToElements(state, ref)));
 }
 
+/**
+ * Collect all descendant IfcSpace expressIds from a spatial node.
+ */
+function collectDescendantSpaceIds(node: SpatialNode): number[] {
+  const spaceIds: number[] = [];
+  for (const child of node.children) {
+    if (child.type === IfcTypeEnum.IfcSpace) {
+      spaceIds.push(child.expressId);
+    }
+    // Recurse into all children (spaces can nest under other spatial nodes)
+    spaceIds.push(...collectDescendantSpaceIds(child));
+  }
+  return spaceIds;
+}
+
+/**
+ * Collect all element IDs for a storey, including elements contained in
+ * descendant IfcSpace nodes and the space geometry itself.
+ */
+export function collectStoreyElementsWithSpaces(
+  hierarchy: SpatialHierarchy,
+  storeyId: number
+): number[] | null {
+  const storeyElements = hierarchy.byStorey.get(storeyId);
+  if (!storeyElements) return null;
+
+  const storeyNode = findSpatialNode(hierarchy.project, storeyId);
+  if (!storeyNode) return storeyElements;
+
+  const spaceIds = collectDescendantSpaceIds(storeyNode);
+  if (spaceIds.length === 0) return storeyElements;
+
+  // Combine storey elements + space expressIds + elements inside spaces
+  const combined = [...storeyElements];
+  for (const spaceId of spaceIds) {
+    combined.push(spaceId); // The space geometry itself
+    const spaceElements = hierarchy.bySpace.get(spaceId);
+    if (spaceElements) {
+      for (const elemId of spaceElements) {
+        combined.push(elemId);
+      }
+    }
+  }
+  return combined;
+}
+
 function computeStoreyIsolation(state: ViewerStateSnapshot): Set<number> | null {
   if (state.selectedStoreys.size === 0) return null;
 
@@ -284,7 +330,8 @@ function computeStoreyIsolation(state: ViewerStateSnapshot): Set<number> | null 
       if (!hierarchy) continue;
       const offset = model.idOffset ?? 0;
       for (const storeyId of state.selectedStoreys) {
-        const storeyElementIds = hierarchy.byStorey.get(storeyId) || hierarchy.byStorey.get(storeyId - offset);
+        const localStoreyId = hierarchy.byStorey.has(storeyId) ? storeyId : storeyId - offset;
+        const storeyElementIds = collectStoreyElementsWithSpaces(hierarchy, localStoreyId);
         if (!storeyElementIds) continue;
         for (const localId of storeyElementIds) {
           ids.add(localId + offset);
@@ -292,8 +339,9 @@ function computeStoreyIsolation(state: ViewerStateSnapshot): Set<number> | null 
       }
     }
   } else if (state.ifcDataStore?.spatialHierarchy) {
+    const hierarchy = state.ifcDataStore.spatialHierarchy;
     for (const storeyId of state.selectedStoreys) {
-      const storeyElementIds = state.ifcDataStore.spatialHierarchy.byStorey.get(storeyId);
+      const storeyElementIds = collectStoreyElementsWithSpaces(hierarchy, storeyId);
       if (!storeyElementIds) continue;
       for (const id of storeyElementIds) {
         ids.add(id);

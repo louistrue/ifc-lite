@@ -9,6 +9,7 @@ import { ToolOverlays } from './ToolOverlays';
 import { Section2DPanel } from './Section2DPanel';
 import { BasketPresentationDock } from './BasketPresentationDock';
 import { useViewerStore } from '@/store';
+import { collectStoreyElementsWithSpaces } from '@/store/basketVisibleSet';
 import { useIfc } from '@/hooks/useIfc';
 import { useWebGPU } from '@/hooks/useWebGPU';
 import { Upload, MousePointer, Layers, Info, Command, AlertTriangle, ChevronDown, ExternalLink, Plus } from 'lucide-react';
@@ -275,7 +276,8 @@ export function ViewportContainer() {
           // Note: storeyId itself might be a globalId if the user selected via mesh click,
           // or an original ID if selected via hierarchy panel. The byStorey map uses original IDs.
           // For now, try both the storeyId and storeyId - offset
-          const storeyElementIds = hierarchy.byStorey.get(storeyId) || hierarchy.byStorey.get(storeyId - offset);
+          const localStoreyId = hierarchy.byStorey.has(storeyId) ? storeyId : storeyId - offset;
+          const storeyElementIds = collectStoreyElementsWithSpaces(hierarchy, localStoreyId);
           if (storeyElementIds) {
             for (const originalExpressId of storeyElementIds) {
               // Transform to globalId
@@ -291,7 +293,7 @@ export function ViewportContainer() {
       if (ifcDataStore?.spatialHierarchy && storeModels.size === 0) {
         const hierarchy = ifcDataStore.spatialHierarchy;
         for (const storeyId of selectedStoreys) {
-          const storeyElementIds = hierarchy.byStorey.get(storeyId);
+          const storeyElementIds = collectStoreyElementsWithSpaces(hierarchy, storeyId);
           if (storeyElementIds) {
             for (const id of storeyElementIds) {
               combinedGlobalIds.add(id); // offset = 0 for legacy single-model
