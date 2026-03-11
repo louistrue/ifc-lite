@@ -304,6 +304,15 @@ export const useViewerStore = create<ViewerState>()((...args) => ({
       chatStreamingContent: '',
       chatError: null,
       chatAbortController: null,
+
+      // Mutations - clear all mutation state so stale changes don't carry over
+      mutationViews: new Map(),
+      changeSets: new Map(),
+      activeChangeSetId: null,
+      undoStacks: new Map(),
+      redoStacks: new Map(),
+      dirtyModels: new Set(),
+      mutationVersion: 0,
     });
   },
 }));
