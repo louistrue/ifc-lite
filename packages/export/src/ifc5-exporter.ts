@@ -498,13 +498,6 @@ export class Ifc5Exporter {
         return Math.round(Number(value));
       case PropertyValueType.Boolean:
       case PropertyValueType.Logical:
-        // IFC STEP booleans may arrive as strings: ".T."/".F.", "true"/"false", "1"/"0"
-        if (typeof value === 'string') {
-          return value === '.T.' || value === 'true' || value === '1';
-        }
-        if (typeof value === 'number') {
-          return value !== 0;
-        }
         return Boolean(value);
       default:
         return value;
