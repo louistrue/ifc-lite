@@ -20,6 +20,13 @@ function attachChild(parent: ComposedNode, child: ComposedNode, key: string): vo
   parent.children.set(key, child);
 }
 
+function ifcClass(code: string) {
+  return {
+    code,
+    uri: `https://identifier.buildingsmart.org/uri/buildingsmart/ifc/5/class/${code}`,
+  };
+}
+
 function createMesh(): UsdMesh {
   return {
     points: [
@@ -34,13 +41,13 @@ function createMesh(): UsdMesh {
 describe('extractEntities', () => {
   it('uses incoming edge names without relying on a single parent pointer', () => {
     const storey = createNode('storey');
-    storey.attributes.set(ATTR.CLASS, { code: 'IfcBuildingStorey' });
+    storey.attributes.set(ATTR.CLASS, ifcClass('IfcBuildingStorey'));
 
     const wall = createNode('wall');
-    wall.attributes.set(ATTR.CLASS, { code: 'IfcWall' });
+    wall.attributes.set(ATTR.CLASS, ifcClass('IfcWall'));
 
     const window = createNode('window');
-    window.attributes.set(ATTR.CLASS, { code: 'IfcWindow' });
+    window.attributes.set(ATTR.CLASS, ifcClass('IfcWindow'));
 
     attachChild(storey, wall, 'Wall');
     wall.children.set('Kitchen Window', window);

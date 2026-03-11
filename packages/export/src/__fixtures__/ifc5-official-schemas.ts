@@ -150,7 +150,7 @@ export function validateValue(
       if (!Array.isArray(value)) {
         errors.push(`${path}: Expected Array, got ${typeof value}`);
       } else if (schema.arrayRestrictions?.value) {
-        for (let i = 0; i < Math.min(value.length, 5); i++) {
+        for (let i = 0; i < value.length; i++) {
           errors.push(...validateValue(value[i], schema.arrayRestrictions.value, `${path}[${i}]`));
         }
       }

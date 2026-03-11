@@ -1322,18 +1322,30 @@ function parsePropertyValue(propEntity: IfcEntity): { type: number; value: Prope
                 const innerValue = nominalValue[1];
                 const typeName = String(nominalValue[0]).toUpperCase();
 
-                if (typeName.includes('BOOLEAN') || typeName.includes('LOGICAL')) {
+                if (typeName.includes('BOOLEAN')) {
                     type = PropertyValueType.Boolean;
                     value = innerValue === '.T.' || innerValue === true;
+                } else if (typeName.includes('LOGICAL')) {
+                    type = PropertyValueType.Logical;
+                    // Preserve .U. (unknown) as null; .T./.F. as boolean
+                    if (innerValue === '.U.' || innerValue === '.X.') {
+                        value = null;
+                    } else {
+                        value = innerValue === '.T.' || innerValue === true;
+                    }
                 } else if (typeof innerValue === 'number') {
-                    type = PropertyValueType.Real;
+                    if (Number.isInteger(innerValue)) {
+                        type = PropertyValueType.Integer;
+                    } else {
+                        type = PropertyValueType.Real;
+                    }
                     value = innerValue;
                 } else {
                     type = PropertyValueType.String;
                     value = String(innerValue);
                 }
             } else if (typeof nominalValue === 'number') {
-                type = PropertyValueType.Real;
+                type = Number.isInteger(nominalValue) ? PropertyValueType.Integer : PropertyValueType.Real;
             } else if (typeof nominalValue === 'boolean') {
                 type = PropertyValueType.Boolean;
             } else if (nominalValue !== null && nominalValue !== undefined) {

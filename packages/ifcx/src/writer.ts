@@ -269,7 +269,7 @@ export class IfcxWriter {
   /**
    * Get type name from enum
    */
-  private getTypeName(typeEnum: number): string {
+  private getTypeName(typeEnum: number): string | undefined {
     // Map common type enums to IFC class names
     const typeMap: Record<number, string> = {
       1: 'IfcProject',
@@ -300,14 +300,14 @@ export class IfcxWriter {
       40: 'IfcOpeningElement',
     };
 
-    return typeMap[typeEnum] || `IfcElement_${typeEnum}`;
+    return typeMap[typeEnum] || undefined;
   }
 
   /**
    * Generate path for an entity
    */
   private generatePath(expressId: number, typeEnum: number): string {
-    const typeName = this.getTypeName(typeEnum);
+    const typeName = this.getTypeName(typeEnum) || 'IfcElement';
     return `ifc:${typeName}.${expressId}`;
   }
 

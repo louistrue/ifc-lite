@@ -19,6 +19,13 @@ function attachChild(parent: ComposedNode, child: ComposedNode, key: string): vo
   parent.children.set(key, child);
 }
 
+function ifcClass(code: string) {
+  return {
+    code,
+    uri: `https://identifier.buildingsmart.org/uri/buildingsmart/ifc/5/class/${code}`,
+  };
+}
+
 function createMesh(): UsdMesh {
   return {
     points: [
@@ -33,14 +40,14 @@ function createMesh(): UsdMesh {
 describe('extractGeometry', () => {
   it('traverses disconnected cycle components even when other roots exist', () => {
     const root = createNode('root');
-    root.attributes.set(ATTR.CLASS, { code: 'IfcWall' });
+    root.attributes.set(ATTR.CLASS, ifcClass('IfcWall'));
     root.attributes.set(ATTR.MESH, createMesh());
 
     const cycleA = createNode('cycle-a');
-    cycleA.attributes.set(ATTR.CLASS, { code: 'IfcWindow' });
+    cycleA.attributes.set(ATTR.CLASS, ifcClass('IfcWindow'));
 
     const cycleB = createNode('cycle-b');
-    cycleB.attributes.set(ATTR.CLASS, { code: 'IfcWindow' });
+    cycleB.attributes.set(ATTR.CLASS, ifcClass('IfcWindow'));
     cycleB.attributes.set(ATTR.MESH, createMesh());
 
     attachChild(cycleA, cycleB, 'b');
@@ -86,19 +93,19 @@ describe('extractGeometry', () => {
 
   it('emits shared inherited mesh geometry for each non-type instance context', () => {
     const root = createNode('root');
-    root.attributes.set(ATTR.CLASS, { code: 'IfcWall' });
+    root.attributes.set(ATTR.CLASS, ifcClass('IfcWall'));
 
     const typeDefinition = createNode('window-type');
-    typeDefinition.attributes.set(ATTR.CLASS, { code: 'IfcWindowType' });
+    typeDefinition.attributes.set(ATTR.CLASS, ifcClass('IfcWindowType'));
     typeDefinition.attributes.set('customdata', {
       originalStepInstance: '#10=IFCWINDOWTYPE()',
     });
 
     const windowA = createNode('window-a');
-    windowA.attributes.set(ATTR.CLASS, { code: 'IfcWindow' });
+    windowA.attributes.set(ATTR.CLASS, ifcClass('IfcWindow'));
 
     const windowB = createNode('window-b');
-    windowB.attributes.set(ATTR.CLASS, { code: 'IfcWindow' });
+    windowB.attributes.set(ATTR.CLASS, ifcClass('IfcWindow'));
 
     const sharedBody = createNode('window-body');
     sharedBody.attributes.set(ATTR.MESH, createMesh());
@@ -133,22 +140,22 @@ describe('extractGeometry', () => {
 
   it('preserves inherited type-definition state through classed helper descendants', () => {
     const root = createNode('root');
-    root.attributes.set(ATTR.CLASS, { code: 'IfcWall' });
+    root.attributes.set(ATTR.CLASS, ifcClass('IfcWall'));
 
     const typeDefinition = createNode('window-type');
-    typeDefinition.attributes.set(ATTR.CLASS, { code: 'IfcWindowType' });
+    typeDefinition.attributes.set(ATTR.CLASS, ifcClass('IfcWindowType'));
     typeDefinition.attributes.set('customdata', {
       originalStepInstance: '#10=IFCWINDOWTYPE()',
     });
 
     const helper = createNode('representation');
-    helper.attributes.set(ATTR.CLASS, { code: 'IfcRepresentation' });
+    helper.attributes.set(ATTR.CLASS, ifcClass('IfcRepresentation'));
 
     const meshNode = createNode('mesh');
     meshNode.attributes.set(ATTR.MESH, createMesh());
 
     const instance = createNode('window-instance');
-    instance.attributes.set(ATTR.CLASS, { code: 'IfcWindow' });
+    instance.attributes.set(ATTR.CLASS, ifcClass('IfcWindow'));
 
     attachChild(root, typeDefinition, 'Type');
     attachChild(root, instance, 'Window');
