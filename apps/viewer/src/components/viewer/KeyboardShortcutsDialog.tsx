@@ -50,64 +50,68 @@ function AboutTab() {
         </p>
       </div>
 
-      {/* Description */}
-      <div className="space-y-2">
-        <p className="text-sm">
-          Open-source BIM toolkit built with WebGPU.
-        </p>
+      {/* Tagline + Links */}
+      <div className="text-center text-sm text-muted-foreground">
+        Open-source BIM toolkit built with WebGPU
       </div>
 
-      {/* Features */}
-      <div className="space-y-3">
-        <div>
-          <h4 className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-1">Viewer</h4>
-          <ul className="text-sm text-muted-foreground space-y-0.5 list-disc list-inside">
-            <li>WebGPU rendering with edge & contact shading</li>
-            <li>IFC2x3, IFC4, IFC4X3, IFC5/IFCX formats</li>
-            <li>Multi-model federation</li>
-            <li>3D measurements with snap-to-geometry</li>
-            <li>Section planes & storey isolation</li>
-          </ul>
-        </div>
-        <div>
-          <h4 className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-1">Analysis</h4>
-          <ul className="text-sm text-muted-foreground space-y-0.5 list-disc list-inside">
-            <li>Properties, quantities, materials & classifications</li>
-            <li>Data tables with custom columns & export</li>
-            <li>Lens rules for filtering & colorization</li>
-            <li>IDS validation & compliance checking</li>
-          </ul>
-        </div>
-        <div>
-          <h4 className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-1">Productivity</h4>
-          <ul className="text-sm text-muted-foreground space-y-0.5 list-disc list-inside">
-            <li>2D drawing generation with annotations</li>
-            <li>BCF collaboration & issue tracking</li>
-            <li>JavaScript scripting with BIM SDK</li>
-            <li>AI assistant for model queries & automation</li>
-            <li>Export to IFC, glTF, CSV, Parquet</li>
-          </ul>
-        </div>
+      <div className="flex items-center justify-center gap-4 text-xs">
+        <a
+          href={GITHUB_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground transition-colors"
+        >
+          <Github className="h-3.5 w-3.5" />
+          GitHub
+        </a>
+        <a
+          href={`${GITHUB_URL}/issues`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground transition-colors"
+        >
+          Report issue
+          <ExternalLink className="h-3 w-3" />
+        </a>
+        <span className="text-muted-foreground">MPL-2.0</span>
+      </div>
+
+      {/* Feature chips */}
+      <div className="flex flex-wrap gap-1.5 justify-center pt-2 border-t">
+        {[
+          'WebGPU', 'IFC2x3', 'IFC4', 'IFC4X3', 'IFC5/IFCX',
+          'Federation', 'Measurements', 'Sections',
+          'Properties', 'Data tables', 'Lens rules', 'IDS',
+          '2D drawings', 'BCF', 'Scripting', 'AI assistant',
+          'glTF export', 'CSV', 'Parquet',
+        ].map((tag) => (
+          <span
+            key={tag}
+            className="px-2 py-0.5 text-[11px] rounded-full bg-muted/60 text-muted-foreground"
+          >
+            {tag}
+          </span>
+        ))}
       </div>
 
       {/* Package Versions */}
       {packageVersions.length > 0 && (
-        <div className="space-y-2">
+        <div className="pt-2 border-t">
           <button
             onClick={() => setShowPackages(!showPackages)}
-            className="flex items-center gap-1.5 text-sm font-medium hover:text-foreground transition-colors"
+            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
           >
             {showPackages ? (
-              <ChevronDown className="h-3.5 w-3.5" />
+              <ChevronDown className="h-3 w-3" />
             ) : (
-              <ChevronRight className="h-3.5 w-3.5" />
+              <ChevronRight className="h-3 w-3" />
             )}
-            <Package className="h-3.5 w-3.5" />
-            Packages
-            <span className="text-xs text-muted-foreground font-normal">({packageVersions.length})</span>
+            <Package className="h-3 w-3" />
+            {packageVersions.length} packages
           </button>
           {showPackages && (
-            <div className="rounded-md border bg-muted/30 p-2 max-h-64 overflow-y-auto">
+            <div className="rounded-md border bg-muted/30 p-2 mt-1.5 max-h-48 overflow-y-auto">
               <div className="grid grid-cols-2 gap-x-4 gap-y-0.5">
                 {packageVersions.map((pkg) => (
                   <div
@@ -125,37 +129,6 @@ function AboutTab() {
           )}
         </div>
       )}
-
-      {/* Links */}
-      <div className="pt-4 border-t space-y-2">
-        <a
-          href={GITHUB_URL}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
-        >
-          <Github className="h-4 w-4" />
-          <span>View on GitHub</span>
-          <ExternalLink className="h-3 w-3" />
-        </a>
-        <a
-          href={`${GITHUB_URL}/issues`}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
-        >
-          <span className="w-4 text-center">🐛</span>
-          <span>Report an issue</span>
-          <ExternalLink className="h-3 w-3" />
-        </a>
-      </div>
-
-      {/* License */}
-      <div className="pt-4 border-t">
-        <p className="text-xs text-muted-foreground text-center">
-          Licensed under Mozilla Public License 2.0
-        </p>
-      </div>
     </div>
   );
 }
