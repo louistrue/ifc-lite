@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import {
   Search,
@@ -46,6 +46,8 @@ export function HierarchyPanel() {
   const setStoreysSelection = useViewerStore((s) => s.setStoreysSelection);
   const clearStoreySelection = useViewerStore((s) => s.clearStoreySelection);
   const isolateEntities = useViewerStore((s) => s.isolateEntities);
+  const isolatedEntities = useViewerStore((s) => s.isolatedEntities);
+  const clearIsolation = useViewerStore((s) => s.clearIsolation);
   const setHierarchyBasketSelection = useViewerStore((s) => s.setHierarchyBasketSelection);
 
   const hiddenEntities = useViewerStore((s) => s.hiddenEntities);
@@ -53,6 +55,28 @@ export function HierarchyPanel() {
   const showEntities = useViewerStore((s) => s.showEntities);
   const toggleEntityVisibility = useViewerStore((s) => s.toggleEntityVisibility);
   const clearSelection = useViewerStore((s) => s.clearSelection);
+
+  // Derive the IFC class name when class isolation is active
+  const isolatedClassName = useMemo(() => {
+    if (!isolatedEntities || isolatedEntities.size === 0) return null;
+    const sampleId = isolatedEntities.values().next().value!;
+    // Check federated models first
+    for (const [, model] of models) {
+      const gr = model.geometryResult;
+      if (!gr?.meshes) continue;
+      const offset = model.idOffset ?? 0;
+      const mesh = gr.meshes.find((m: { expressId: number }) => m.expressId + offset === sampleId);
+      if (mesh?.ifcType) return mesh.ifcType;
+    }
+    // Legacy single-model
+    if (geometryResult?.meshes) {
+      const mesh = geometryResult.meshes.find((m: { expressId: number }) => m.expressId === sampleId);
+      if (mesh?.ifcType) return mesh.ifcType;
+    }
+    return null;
+  }, [isolatedEntities, models, geometryResult]);
+
+  const hasActiveFilters = selectedStoreys.size > 0 || isolatedEntities !== null;
 
   // Resizable panel split (percentage for storeys section, 0.5 = 50%)
   const [splitRatio, setSplitRatio] = useState(0.5);
@@ -551,21 +575,35 @@ export function HierarchyPanel() {
         </div>
 
         {/* Footer status */}
-        {selectedStoreys.size > 0 ? (
+        {hasActiveFilters ? (
           <div className="p-2 border-t-2 border-zinc-200 dark:border-zinc-800 bg-primary text-white dark:bg-primary">
-            <div className="flex items-center justify-between text-xs font-medium">
-              <span className="uppercase tracking-wide">
-                {selectedStoreys.size} {selectedStoreys.size === 1 ? 'STOREY' : 'STOREYS'} FILTERED
-              </span>
-              <div className="flex items-center gap-2">
+            <div className="flex items-center justify-between text-xs font-medium gap-2">
+              <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+                {selectedStoreys.size > 0 && (
+                  <span className="inline-flex items-center gap-1 bg-white/15 rounded px-1.5 py-0.5 text-[10px] uppercase tracking-wide">
+                    {selectedStoreys.size} {selectedStoreys.size === 1 ? 'Storey' : 'Storeys'}
+                    <button onClick={clearStoreySelection} className="ml-0.5 opacity-60 hover:opacity-100">&times;</button>
+                  </span>
+                )}
+                {selectedStoreys.size > 0 && isolatedEntities !== null && (
+                  <span className="text-[10px] opacity-50">+</span>
+                )}
+                {isolatedEntities !== null && (
+                  <span className="inline-flex items-center gap-1 bg-white/15 rounded px-1.5 py-0.5 text-[10px] uppercase tracking-wide">
+                    {isolatedClassName ?? `${isolatedEntities.size} elements`}
+                    <button onClick={clearIsolation} className="ml-0.5 opacity-60 hover:opacity-100">&times;</button>
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
                 <span className="opacity-70 text-[10px] font-mono">ESC</span>
                 <Button
                   variant="ghost"
                   size="sm"
                   className="h-6 text-[10px] uppercase border border-white/20 hover:bg-white/20 hover:text-white rounded-none px-2"
-                  onClick={clearStoreySelection}
+                  onClick={() => { clearStoreySelection(); clearIsolation(); }}
                 >
-                  Clear
+                  Clear all
                 </Button>
               </div>
             </div>
@@ -614,21 +652,35 @@ export function HierarchyPanel() {
       </div>
 
       {/* Footer status */}
-      {selectedStoreys.size > 0 ? (
+      {hasActiveFilters ? (
         <div className="p-2 border-t-2 border-zinc-200 dark:border-zinc-800 bg-primary text-white dark:bg-primary">
-          <div className="flex items-center justify-between text-xs font-medium">
-            <span className="uppercase tracking-wide">
-              {selectedStoreys.size} {selectedStoreys.size === 1 ? 'STOREY' : 'STOREYS'} FILTERED
-            </span>
-            <div className="flex items-center gap-2">
+          <div className="flex items-center justify-between text-xs font-medium gap-2">
+            <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+              {selectedStoreys.size > 0 && (
+                <span className="inline-flex items-center gap-1 bg-white/15 rounded px-1.5 py-0.5 text-[10px] uppercase tracking-wide">
+                  {selectedStoreys.size} {selectedStoreys.size === 1 ? 'Storey' : 'Storeys'}
+                  <button onClick={clearStoreySelection} className="ml-0.5 opacity-60 hover:opacity-100">&times;</button>
+                </span>
+              )}
+              {selectedStoreys.size > 0 && isolatedEntities !== null && (
+                <span className="text-[10px] opacity-50">+</span>
+              )}
+              {isolatedEntities !== null && (
+                <span className="inline-flex items-center gap-1 bg-white/15 rounded px-1.5 py-0.5 text-[10px] uppercase tracking-wide">
+                  {isolatedClassName ?? `${isolatedEntities.size} elements`}
+                  <button onClick={clearIsolation} className="ml-0.5 opacity-60 hover:opacity-100">&times;</button>
+                </span>
+              )}
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
               <span className="opacity-70 text-[10px] font-mono">ESC</span>
               <Button
                 variant="ghost"
                 size="sm"
                 className="h-6 text-[10px] uppercase border border-white/20 hover:bg-white/20 hover:text-white rounded-none px-2"
-                onClick={clearStoreySelection}
+                onClick={() => { clearStoreySelection(); clearIsolation(); }}
               >
-                Clear
+                Clear all
               </Button>
             </div>
           </div>
