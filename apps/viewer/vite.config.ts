@@ -12,9 +12,19 @@ interface ReleaseHighlight {
   text: string;
 }
 
-interface Release {
+interface PackageRelease {
   version: string;
   highlights: ReleaseHighlight[];
+}
+
+interface PackageChangelog {
+  name: string;
+  releases: PackageRelease[];
+}
+
+interface PackageVersion {
+  name: string;
+  version: string;
 }
 
 const SKIP_BOLD_LOWER = new Set([
@@ -69,7 +79,7 @@ function compareSemver(a: string, b: string): number {
   return 0;
 }
 
-function parseChangelogs(): Release[] {
+function parseChangelogs(): PackageChangelog[] {
   const packagesDir = path.resolve(__dirname, '../../packages');
   let dirs: string[];
   try {
@@ -78,16 +88,26 @@ function parseChangelogs(): Release[] {
     return [];
   }
 
-  const versionMap = new Map<string, Map<string, ReleaseHighlight>>();
-  const seenVersionsPerFile = new Map<string, Set<string>>();
+  const MAX_HIGHLIGHTS_PER_VERSION = 12;
+  const result: PackageChangelog[] = [];
 
   for (const dir of dirs) {
     const changelogPath = path.join(packagesDir, dir, 'CHANGELOG.md');
     if (!fs.existsSync(changelogPath)) continue;
 
     const content = fs.readFileSync(changelogPath, 'utf-8');
-    const fileKey = dir;
-    seenVersionsPerFile.set(fileKey, new Set());
+
+    // Read package name from package.json
+    let pkgName = dir;
+    try {
+      const pkgJson = JSON.parse(
+        fs.readFileSync(path.join(packagesDir, dir, 'package.json'), 'utf-8')
+      );
+      pkgName = pkgJson.name || dir;
+    } catch { /* use dir name as fallback */ }
+
+    const seenVersions = new Set<string>();
+    const releases: PackageRelease[] = [];
 
     // Split into version blocks
     const versionBlocks = content.split(/^## /m).slice(1);
@@ -98,14 +118,10 @@ function parseChangelogs(): Release[] {
       const version = versionMatch[1];
 
       // Skip duplicate version sections within same file
-      if (seenVersionsPerFile.get(fileKey)!.has(version)) continue;
-      seenVersionsPerFile.get(fileKey)!.add(version);
+      if (seenVersions.has(version)) continue;
+      seenVersions.add(version);
 
-      if (!versionMap.has(version)) {
-        versionMap.set(version, new Map());
-      }
-      const highlights = versionMap.get(version)!;
-
+      const highlights = new Map<string, ReleaseHighlight>();
       const lines = block.split('\n');
 
       // 1) Extract top-level bullet descriptions (lines starting with "- " at root indent)
@@ -138,24 +154,59 @@ function parseChangelogs(): Release[] {
           highlights.set(key, { type: categorizeHighlight(text), text });
         }
       }
+
+      if (highlights.size > 0) {
+        releases.push({
+          version,
+          highlights: Array.from(highlights.values()).slice(0, MAX_HIGHLIGHTS_PER_VERSION),
+        });
+      }
+    }
+
+    if (releases.length > 0) {
+      result.push({ name: pkgName, releases });
     }
   }
 
-  const MAX_HIGHLIGHTS_PER_VERSION = 12;
-
-  return Array.from(versionMap.entries())
-    .sort((a, b) => compareSemver(b[0], a[0]))
-    .map(([version, highlights]) => ({
-      version,
-      highlights: Array.from(highlights.values()).slice(0, MAX_HIGHLIGHTS_PER_VERSION),
-    }))
-    .filter((r) => r.highlights.length > 0);
+  return result.sort((a, b) => {
+    const aTotal = a.releases.reduce((s, r) => s + r.highlights.length, 0);
+    const bTotal = b.releases.reduce((s, r) => s + r.highlights.length, 0);
+    return bTotal - aTotal;
+  });
 }
 
-// Read version from root package.json
+// Collect all package versions
+function collectPackageVersions(): PackageVersion[] {
+  const packagesDir = path.resolve(__dirname, '../../packages');
+  let dirs: string[];
+  try {
+    dirs = fs.readdirSync(packagesDir);
+  } catch {
+    return [];
+  }
+
+  const versions: PackageVersion[] = [];
+  for (const dir of dirs) {
+    const pkgPath = path.join(packagesDir, dir, 'package.json');
+    if (!fs.existsSync(pkgPath)) continue;
+    try {
+      const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
+      if (pkg.name && pkg.version) {
+        versions.push({ name: pkg.name, version: pkg.version });
+      }
+    } catch { /* skip unreadable packages */ }
+  }
+  return versions.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+// Read version from viewer package.json (primary app version) with root fallback
+const viewerPkg = JSON.parse(
+  fs.readFileSync(path.resolve(__dirname, './package.json'), 'utf-8')
+);
 const rootPkg = JSON.parse(
   fs.readFileSync(path.resolve(__dirname, '../../package.json'), 'utf-8')
 );
+const appVersion = viewerPkg.version || rootPkg.version;
 
 export default defineConfig({
   plugins: [
@@ -164,9 +215,10 @@ export default defineConfig({
     topLevelAwait(),
   ],
   define: {
-    __APP_VERSION__: JSON.stringify(rootPkg.version),
+    __APP_VERSION__: JSON.stringify(appVersion),
     __BUILD_DATE__: JSON.stringify(new Date().toISOString()),
     __RELEASE_HISTORY__: JSON.stringify(parseChangelogs()),
+    __PACKAGE_VERSIONS__: JSON.stringify(collectPackageVersions()),
   },
   resolve: {
     alias: {

@@ -3,13 +3,12 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { X, Info, Keyboard, Github, ExternalLink, Sparkles, ChevronDown, Zap, Wrench, Plus } from 'lucide-react';
+import { X, Info, Keyboard, Github, ExternalLink, Sparkles, ChevronDown, ChevronRight, Zap, Wrench, Plus, Package } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { KEYBOARD_SHORTCUTS } from '@/hooks/useKeyboardShortcuts';
 
 const GITHUB_URL = 'https://github.com/louistrue/ifc-lite';
-const INITIAL_RELEASE_COUNT = 5;
 
 interface InfoDialogProps {
   open: boolean;
@@ -35,13 +34,16 @@ const TYPE_CONFIG = {
 } as const;
 
 function AboutTab() {
+  const [showPackages, setShowPackages] = useState(false);
+  const packageVersions = __PACKAGE_VERSIONS__;
+
   return (
     <div className="space-y-4">
       {/* Header */}
       <div className="text-center pb-4 border-b">
         <h3 className="text-xl font-bold">ifc-lite</h3>
         <p className="text-sm text-muted-foreground mt-1">
-          Version {__APP_VERSION__}
+          Viewer {__APP_VERSION__}
         </p>
         <p className="text-xs text-muted-foreground mt-0.5">
           Built {formatBuildDate(__BUILD_DATE__)}
@@ -67,6 +69,42 @@ function AboutTab() {
           <li>Property inspection</li>
         </ul>
       </div>
+
+      {/* Package Versions */}
+      {packageVersions.length > 0 && (
+        <div className="space-y-2">
+          <button
+            onClick={() => setShowPackages(!showPackages)}
+            className="flex items-center gap-1.5 text-sm font-medium hover:text-foreground transition-colors"
+          >
+            {showPackages ? (
+              <ChevronDown className="h-3.5 w-3.5" />
+            ) : (
+              <ChevronRight className="h-3.5 w-3.5" />
+            )}
+            <Package className="h-3.5 w-3.5" />
+            Packages
+            <span className="text-xs text-muted-foreground font-normal">({packageVersions.length})</span>
+          </button>
+          {showPackages && (
+            <div className="rounded-md border bg-muted/30 p-2 max-h-64 overflow-y-auto">
+              <div className="grid grid-cols-2 gap-x-4 gap-y-0.5">
+                {packageVersions.map((pkg) => (
+                  <div
+                    key={pkg.name}
+                    className="flex items-center justify-between text-xs py-0.5 px-1 min-w-0"
+                  >
+                    <span className="text-muted-foreground font-mono truncate mr-2">
+                      {pkg.name.replace('@ifc-lite/', '')}
+                    </span>
+                    <span className="font-mono shrink-0 tabular-nums">{pkg.version}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Links */}
       <div className="pt-4 border-t space-y-2">
@@ -102,18 +140,114 @@ function AboutTab() {
   );
 }
 
-function WhatsNewTab() {
-  const [showAll, setShowAll] = useState(false);
-  const releases = __RELEASE_HISTORY__;
+function formatPkgName(name: string): string {
+  return name.replace('@ifc-lite/', '');
+}
 
-  const visibleReleases = useMemo(
-    () => (showAll ? releases : releases.slice(0, INITIAL_RELEASE_COUNT)),
-    [releases, showAll]
+type TimelineEntry = {
+  version: string;
+  isViewerVersion: boolean;
+  entries: Array<{ pkg: string; highlights: typeof __RELEASE_HISTORY__[0]['releases'][0]['highlights'] }>;
+};
+
+type VersionBump = { version: string; pkgs: string[] };
+
+const compareSemver = (a: string, b: string) => {
+  const pa = a.split('.').map(Number);
+  const pb = b.split('.').map(Number);
+  for (let i = 0; i < 3; i++) {
+    if ((pa[i] || 0) !== (pb[i] || 0)) return (pb[i] || 0) - (pa[i] || 0);
+  }
+  return 0;
+};
+
+/** Merge all per-package changelogs into a unified timeline grouped by version. */
+function buildTimeline(
+  packageChangelogs: typeof __RELEASE_HISTORY__,
+  viewerVersion: string
+): TimelineEntry[] {
+  type Highlights = typeof __RELEASE_HISTORY__[0]['releases'][0]['highlights'];
+  const versionMap = new Map<string, Map<string, Highlights>>();
+
+  for (const pkg of packageChangelogs) {
+    for (const release of pkg.releases) {
+      if (!versionMap.has(release.version)) {
+        versionMap.set(release.version, new Map());
+      }
+      versionMap.get(release.version)!.set(pkg.name, release.highlights);
+    }
+  }
+
+  return Array.from(versionMap.entries())
+    .sort(([a], [b]) => compareSemver(a, b))
+    .map(([version, pkgMap]) => ({
+      version,
+      isViewerVersion: version === viewerVersion,
+      entries: Array.from(pkgMap.entries())
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([pkg, highlights]) => ({ pkg, highlights })),
+    }));
+}
+
+/** Find packages whose current version is higher than their highest changelog version. */
+function getVersionBumps(
+  packageChangelogs: typeof __RELEASE_HISTORY__,
+  packageVersions: typeof __PACKAGE_VERSIONS__,
+): VersionBump[] {
+  const highestChangelog = new Map<string, string>();
+  for (const pkg of packageChangelogs) {
+    if (pkg.releases.length > 0) {
+      highestChangelog.set(pkg.name, pkg.releases[0].version);
+    }
+  }
+
+  const bumpMap = new Map<string, string[]>();
+  for (const { name, version } of packageVersions) {
+    const highest = highestChangelog.get(name);
+    if (!highest || compareSemver(version, highest) < 0) {
+      if (!bumpMap.has(version)) bumpMap.set(version, []);
+      bumpMap.get(version)!.push(name);
+    }
+  }
+
+  return Array.from(bumpMap.entries())
+    .sort(([a], [b]) => compareSemver(a, b))
+    .map(([version, pkgs]) => ({ version, pkgs: pkgs.sort() }));
+}
+
+function WhatsNewTab() {
+  const packageChangelogs = __RELEASE_HISTORY__;
+  const packageVersions = __PACKAGE_VERSIONS__;
+  const viewerVersion = __APP_VERSION__;
+  const [expandedVersions, setExpandedVersions] = useState<Set<string>>(() => new Set());
+
+  const timeline = useMemo(
+    () => buildTimeline(packageChangelogs, viewerVersion),
+    [packageChangelogs, viewerVersion]
   );
 
-  const hasMore = releases.length > INITIAL_RELEASE_COUNT;
+  const versionBumps = useMemo(
+    () => getVersionBumps(packageChangelogs, packageVersions),
+    [packageChangelogs, packageVersions]
+  );
 
-  if (releases.length === 0) {
+  // Auto-expand the first version with actual changes
+  useEffect(() => {
+    if (timeline.length > 0 && expandedVersions.size === 0) {
+      setExpandedVersions(new Set([timeline[0].version]));
+    }
+  }, [timeline]);
+
+  const toggleVersion = useCallback((version: string) => {
+    setExpandedVersions((prev) => {
+      const next = new Set(prev);
+      if (next.has(version)) next.delete(version);
+      else next.add(version);
+      return next;
+    });
+  }, []);
+
+  if (timeline.length === 0) {
     return (
       <div className="text-center py-8 text-sm text-muted-foreground">
         No release history available.
@@ -122,43 +256,72 @@ function WhatsNewTab() {
   }
 
   return (
-    <div className="space-y-4">
-      {visibleReleases.map((release, i) => (
-        <div key={release.version}>
-          <div className="flex items-center gap-2 mb-1.5">
-            <span className="text-sm font-semibold">v{release.version}</span>
-            {i === 0 && (
-              <span className="px-1.5 py-0.5 text-[10px] font-medium bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 rounded">
-                latest
+    <div className="space-y-1">
+      {/* Compact header for packages at newer versions than their changelogs */}
+      {versionBumps.length > 0 && (
+        <div className="text-xs text-muted-foreground px-1 pb-1 mb-1 border-b space-y-0.5">
+          {versionBumps.map(({ version, pkgs }) => (
+            <div key={version}>
+              <span className="font-semibold">v{version}</span>
+              {' \u2014 '}
+              {pkgs.map(formatPkgName).join(', ')}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {timeline.map((release) => {
+        const isExpanded = expandedVersions.has(release.version);
+        const totalHighlights = release.entries.reduce((s, e) => s + e.highlights.length, 0);
+        return (
+          <div key={release.version}>
+            <button
+              onClick={() => toggleVersion(release.version)}
+              className="flex items-center gap-2 w-full py-1.5 px-1 text-left hover:bg-muted/40 transition-colors rounded"
+            >
+              {isExpanded ? (
+                <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />
+              ) : (
+                <ChevronRight className="h-3 w-3 shrink-0 text-muted-foreground" />
+              )}
+              <span className="text-sm font-semibold">v{release.version}</span>
+              {release.isViewerVersion && (
+                <span className="px-1.5 py-0.5 text-[10px] font-medium bg-sky-500/15 text-sky-600 dark:text-sky-400 rounded">
+                  viewer
+                </span>
+              )}
+              <span className="text-xs text-muted-foreground ml-auto">
+                {totalHighlights} change{totalHighlights !== 1 ? 's' : ''}
               </span>
+            </button>
+            {isExpanded && (
+              <div className="ml-5 pb-2 space-y-2">
+                {release.entries.map(({ pkg, highlights }) => (
+                  <div key={pkg}>
+                    <span className="text-xs font-medium font-mono text-muted-foreground">
+                      {formatPkgName(pkg)}
+                    </span>
+                    <ul className="space-y-0.5 mt-0.5">
+                      {highlights.map((h) => {
+                        const { icon: Icon, className } = TYPE_CONFIG[h.type];
+                        return (
+                          <li
+                            key={h.text}
+                            className="flex items-start gap-1.5 text-sm text-muted-foreground"
+                          >
+                            <Icon className={`h-3 w-3 mt-0.5 shrink-0 ${className}`} />
+                            <span>{h.text}</span>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
+                ))}
+              </div>
             )}
           </div>
-          <ul className="space-y-1 ml-0.5">
-            {release.highlights.map((h) => {
-              const { icon: Icon, className } = TYPE_CONFIG[h.type];
-              return (
-                <li key={h.text} className="flex items-start gap-2 text-sm text-muted-foreground">
-                  <Icon className={`h-3.5 w-3.5 mt-0.5 shrink-0 ${className}`} />
-                  <span>{h.text}</span>
-                </li>
-              );
-            })}
-          </ul>
-          {i < visibleReleases.length - 1 && (
-            <div className="border-b mt-3" />
-          )}
-        </div>
-      ))}
-
-      {hasMore && !showAll && (
-        <button
-          onClick={() => setShowAll(true)}
-          className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors mx-auto"
-        >
-          <ChevronDown className="h-3.5 w-3.5" />
-          Show all {releases.length} releases
-        </button>
-      )}
+        );
+      })}
 
       {/* Legend */}
       <div className="pt-3 border-t flex items-center justify-center gap-4 text-[11px] text-muted-foreground">
