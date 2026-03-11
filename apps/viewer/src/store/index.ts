@@ -130,7 +130,7 @@ export const useViewerStore = create<ViewerState>()((...args) => ({
   // Note: Does NOT clear models - use clearAllModels() for that
   resetViewerState: () => {
     invalidateVisibleBasketCache();
-    const [set] = args;
+    const [set, get] = args;
     set({
       // Selection (legacy)
       selectedEntityId: null,
@@ -304,6 +304,15 @@ export const useViewerStore = create<ViewerState>()((...args) => ({
       chatStreamingContent: '',
       chatError: null,
       chatAbortController: null,
+
+      // Mutations - clear all mutation state so stale changes don't carry over
+      mutationViews: new Map(),
+      changeSets: new Map(),
+      activeChangeSetId: null,
+      undoStacks: new Map(),
+      redoStacks: new Map(),
+      dirtyModels: new Set(),
+      mutationVersion: get().mutationVersion + 1,
     });
   },
 }));
