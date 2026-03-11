@@ -127,9 +127,21 @@ function parseSpecification(el: Element, index: number): IDSSpecification {
     .map((v) => normalizeIfcVersion(v))
     .filter((v): v is IFCVersion => v !== null);
 
+  // Parse applicability
+  const applicabilityEl = getChildElement(el, 'applicability');
+  const applicability: IDSApplicability = {
+    facets: applicabilityEl ? parseFacets(applicabilityEl) : [],
+  };
+
   // Parse minOccurs/maxOccurs with NaN validation
-  const minOccursAttr = el.getAttribute('minOccurs');
-  const maxOccursAttr = el.getAttribute('maxOccurs');
+  // Per IDS 1.0 spec, these are on the <applicability> element,
+  // but also check the <specification> element for backwards compatibility
+  const minOccursAttr =
+    (applicabilityEl && applicabilityEl.getAttribute('minOccurs')) ||
+    el.getAttribute('minOccurs');
+  const maxOccursAttr =
+    (applicabilityEl && applicabilityEl.getAttribute('maxOccurs')) ||
+    el.getAttribute('maxOccurs');
 
   let minOccurs: number | undefined;
   if (minOccursAttr) {
@@ -150,12 +162,6 @@ function parseSpecification(el: Element, index: number): IDSSpecification {
       }
     }
   }
-
-  // Parse applicability
-  const applicabilityEl = getChildElement(el, 'applicability');
-  const applicability: IDSApplicability = {
-    facets: applicabilityEl ? parseFacets(applicabilityEl) : [],
-  };
 
   // Parse requirements
   const requirementsEl = getChildElement(el, 'requirements');
