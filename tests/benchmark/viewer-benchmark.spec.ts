@@ -11,6 +11,7 @@ interface ViewerBenchmarkResult {
   file: string;
   sizeMB: number;
   timestamp: string;
+  deflection: number | null;
   metrics: ViewerBenchmarkMetrics;
   thresholds: {
     passed: boolean;
@@ -50,6 +51,13 @@ function loadBaseline(): Baseline {
     }
   }
   return {};
+}
+
+function getBenchmarkDeflection(): number | null {
+  const raw = process.env.VIEWER_BENCHMARK_DEFLECTION;
+  if (!raw) return null;
+  const parsed = Number.parseFloat(raw);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
 function checkThresholds(
@@ -124,6 +132,7 @@ test.describe('Viewer Performance Benchmarks', () => {
 
   const baseline = loadBaseline();
   const thresholds = DEFAULT_THRESHOLDS;
+  const benchmarkDeflection = getBenchmarkDeflection();
 
   // Expected mesh counts for geometry correctness validation
   // These help detect if optimizations break geometry (e.g., CSG skipping too much)
@@ -147,7 +156,7 @@ test.describe('Viewer Performance Benchmarks', () => {
       }
 
       const benchmarkPage = new ViewerBenchmarkPage(page);
-      await benchmarkPage.setup();
+      await benchmarkPage.setup(benchmarkDeflection ?? undefined);
 
       // Load file
       console.log(`\n${'='.repeat(80)}`);
@@ -167,7 +176,10 @@ test.describe('Viewer Performance Benchmarks', () => {
       const metrics = benchmarkPage.getMetrics();
 
       // Get baseline for this file
-      const baselineMetrics = baseline[fileName]?.metrics || null;
+      const baselineKey = benchmarkDeflection === null
+        ? fileName
+        : `${fileName}::deflection=${benchmarkDeflection}`;
+      const baselineMetrics = baseline[baselineKey]?.metrics || null;
 
       // Check thresholds
       const thresholdResult = checkThresholds(metrics, baselineMetrics, thresholds);
@@ -177,6 +189,9 @@ test.describe('Viewer Performance Benchmarks', () => {
       console.log(`Benchmark Results: ${fileName}`);
       console.log(`${'='.repeat(80)}`);
       console.log(`\nFile Size: ${metrics.fileSizeMB?.toFixed(2) || 'N/A'} MB`);
+      if (benchmarkDeflection !== null) {
+        console.log(`Curve Deflection: ${benchmarkDeflection} m`);
+      }
       
       // TOTAL TIME - the most important metric
       console.log(`\n>>> TOTAL WALL-CLOCK TIME: ${metrics.totalWallClockMs?.toFixed(0) || 'N/A'} ms (${((metrics.totalWallClockMs || 0) / 1000).toFixed(1)}s) <<<`);
@@ -242,11 +257,18 @@ test.describe('Viewer Performance Benchmarks', () => {
         file: fileName,
         sizeMB: metrics.fileSizeMB || 0,
         timestamp: new Date().toISOString(),
+        deflection: benchmarkDeflection,
         metrics,
         thresholds: thresholdResult,
       };
 
-      const outputPath = join(outputDir, `viewer-${fileName.replace(/[^a-zA-Z0-9]/g, '_')}.json`);
+      const deflectionSuffix = benchmarkDeflection === null
+        ? ''
+        : `-deflection-${String(benchmarkDeflection).replace(/[^a-zA-Z0-9]/g, '_')}`;
+      const outputPath = join(
+        outputDir,
+        `viewer-${fileName.replace(/[^a-zA-Z0-9]/g, '_')}${deflectionSuffix}.json`
+      );
       writeFileSync(outputPath, JSON.stringify(result, null, 2));
       console.log(`Results saved to ${outputPath}`);
 

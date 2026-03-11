@@ -52,6 +52,10 @@ export interface GeometryProcessingResult {
   coordinateInfo: CoordinateInfo;
 }
 
+export interface GeometryProcessingOptions {
+  curveDeflection?: number;
+}
+
 /**
  * Options for streaming geometry processing
  */
@@ -82,14 +86,18 @@ export interface IPlatformBridge {
    * Process IFC content and return all geometry at once
    * @param content IFC file content as string
    */
-  processGeometry(content: string): Promise<GeometryProcessingResult>;
+  processGeometry(content: string, options?: GeometryProcessingOptions): Promise<GeometryProcessingResult>;
 
   /**
    * Process IFC content with streaming output
    * @param content IFC file content as string
    * @param options Streaming options with callbacks
    */
-  processGeometryStreaming(content: string, options: StreamingOptions): Promise<GeometryStats>;
+  processGeometryStreaming(
+    content: string,
+    options: StreamingOptions,
+    processingOptions?: GeometryProcessingOptions
+  ): Promise<GeometryStats>;
 
   /**
    * Get the underlying API object (for advanced usage)

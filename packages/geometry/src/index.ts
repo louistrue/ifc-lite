@@ -67,6 +67,7 @@ import type { GeometryResult, MeshData, CoordinateInfo } from './types.js';
 
 export interface GeometryProcessorOptions {
   quality?: GeometryQuality; // Default: Balanced
+  curveDeflection?: number;
 }
 
 /**
@@ -119,11 +120,13 @@ export class GeometryProcessor {
   private bufferBuilder: BufferBuilder;
   private coordinateHandler: CoordinateHandler;
   private isNative: boolean = false;
+  private curveDeflection?: number;
 
   constructor(options: GeometryProcessorOptions = {}) {
     this.bufferBuilder = new BufferBuilder();
     this.coordinateHandler = new CoordinateHandler();
     this.isNative = isTauri();
+    this.curveDeflection = options.curveDeflection;
     // Note: options accepted for API compatibility
     void options.quality;
 
@@ -166,7 +169,9 @@ export class GeometryProcessor {
       console.time('[GeometryProcessor] native-processing');
       const decoder = new TextDecoder();
       const content = decoder.decode(buffer);
-      const result = await this.platformBridge.processGeometry(content);
+      const result = await this.platformBridge.processGeometry(content, {
+        curveDeflection: this.curveDeflection,
+      });
       meshes = result.meshes;
       console.timeEnd('[GeometryProcessor] native-processing');
     } else {
@@ -225,7 +230,9 @@ export class GeometryProcessor {
     const decoder = new TextDecoder();
     const content = decoder.decode(buffer);
 
-    const collector = new IfcLiteMeshCollector(this.bridge.getApi(), content);
+    const collector = new IfcLiteMeshCollector(this.bridge.getApi(), content, {
+      deflection: this.curveDeflection,
+    });
     const meshes = collector.collectMeshes();
     const buildingRotation = collector.getBuildingRotation();
 
@@ -274,7 +281,9 @@ export class GeometryProcessor {
 
       // For native, we do a single batch for now (streaming via events is complex)
       // TODO: Implement proper streaming with Tauri events
-      const result = await this.platformBridge.processGeometry(content);
+      const result = await this.platformBridge.processGeometry(content, {
+        curveDeflection: this.curveDeflection,
+      });
       const totalMeshes = result.meshes.length;
 
       this.coordinateHandler.processMeshesIncremental(result.meshes);
@@ -290,7 +299,9 @@ export class GeometryProcessor {
         throw new Error('WASM bridge not initialized');
       }
 
-      const collector = new IfcLiteMeshCollector(this.bridge.getApi(), content);
+      const collector = new IfcLiteMeshCollector(this.bridge.getApi(), content, {
+        deflection: this.curveDeflection,
+      });
       let totalMeshes = 0;
       let extractedBuildingRotation: number | undefined = undefined;
 
@@ -383,7 +394,9 @@ export class GeometryProcessor {
     // Use a placeholder model ID (IFC-Lite doesn't use model IDs)
     yield { type: 'model-open', modelID: 0 };
 
-    const collector = new IfcLiteMeshCollector(this.bridge!.getApi(), content);
+    const collector = new IfcLiteMeshCollector(this.bridge!.getApi(), content, {
+      deflection: this.curveDeflection,
+    });
     let totalGeometries = 0;
     let totalInstances = 0;
 
@@ -486,32 +499,39 @@ export class GeometryProcessor {
       yield { type: 'model-open', modelID: 0 };
 
       let allMeshes: MeshData[];
+      let extractedBuildingRotation: number | undefined = undefined;
 
       if (this.isNative && this.platformBridge) {
         // NATIVE PATH - single batch processing
         console.time('[GeometryProcessor] native-adaptive-sync');
-        const result = await this.platformBridge.processGeometry(content);
+        const result = await this.platformBridge.processGeometry(content, {
+          curveDeflection: this.curveDeflection,
+        });
         allMeshes = result.meshes;
         console.timeEnd('[GeometryProcessor] native-adaptive-sync');
       } else {
         // WASM PATH
-        const collector = new IfcLiteMeshCollector(this.bridge!.getApi(), content);
-        allMeshes = collector.collectMeshes();
+        const mainThreadResult = await this.collectMeshesMainThread(buffer);
+        allMeshes = mainThreadResult.meshes;
+        extractedBuildingRotation = mainThreadResult.buildingRotation;
       }
 
       // Process coordinate shifts
       this.coordinateHandler.processMeshesIncremental(allMeshes);
       const coordinateInfo = this.coordinateHandler.getFinalCoordinateInfo();
+      const finalCoordinateInfo = extractedBuildingRotation !== undefined
+        ? { ...coordinateInfo, buildingRotation: extractedBuildingRotation }
+        : coordinateInfo;
 
       // Emit as single batch for immediate rendering
       yield {
         type: 'batch',
         meshes: allMeshes,
         totalSoFar: allMeshes.length,
-        coordinateInfo: coordinateInfo || undefined,
+        coordinateInfo: finalCoordinateInfo || undefined,
       };
 
-      yield { type: 'complete', totalMeshes: allMeshes.length, coordinateInfo };
+      yield { type: 'complete', totalMeshes: allMeshes.length, coordinateInfo: finalCoordinateInfo };
     } else {
       // Large files: Stream for fast first frame
       // processStreaming will emit its own start and model-open events

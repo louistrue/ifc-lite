@@ -101,6 +101,29 @@ Baseline updated from local run on 2026-02-21:
 | BWK-BIM | ~5.43s | ~11.89s | ~2.98s | 39,146 |
 | Holter | ~3.05s | ~11.04s | ~5.60s | 108,551 |
 
+## Deflection Benchmark
+
+Focused curved-tessellation benchmark captured on March 7, 2026 for the client-side WASM viewer
+using `tests/models/various/01_Snowdon_Towers_Sample_Structural(1).ifc` (includes
+`IfcReinforcingBar` geometry). These runs were collected headless with SwiftShader so the
+absolute numbers are less important than the relative comparison:
+
+| Deflection (m) | Total Time (`totalWallClockMs`) | First Geometry (`firstBatchWaitMs`) | WASM Wait (`wasmWaitMs`) | Meshes |
+|----------------|----------------------------------|--------------------------------------|---------------------------|--------|
+| `0.001` (default) | `282ms` | `126ms` | `132ms` | `1,556` |
+| `0.003` | `271ms` | `126ms` | `122ms` | `1,556` |
+| `0.005` | `277ms` | `129ms` | `125ms` | `1,556` |
+
+Current recommendation for the demo viewer's rebar-heavy path:
+
+- Keep the library default at `0.001m`.
+- Use `curveDeflection=0.003` in the viewer when you want a lighter curved tessellation tradeoff
+  without changing mesh counts on this benchmark model.
+- The raw results are saved in:
+  - `tests/benchmark/benchmark-results/viewer-snowdon-default.json`
+  - `tests/benchmark/benchmark-results/viewer-snowdon-deflection-0_003.json`
+  - `tests/benchmark/benchmark-results/viewer-snowdon-deflection-0_005.json`
+
 ## CI Integration
 
 Viewer benchmark CI mode is available via:

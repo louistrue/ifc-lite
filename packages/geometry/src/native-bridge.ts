@@ -13,6 +13,7 @@ import type {
   IPlatformBridge,
   GeometryProcessingResult,
   GeometryStats,
+  GeometryProcessingOptions,
   StreamingOptions,
   GeometryBatch,
 } from './platform-bridge.js';
@@ -67,7 +68,7 @@ export class NativeBridge implements IPlatformBridge {
     return this.initialized;
   }
 
-  async processGeometry(content: string): Promise<GeometryProcessingResult> {
+  async processGeometry(content: string, options: GeometryProcessingOptions = {}): Promise<GeometryProcessingResult> {
     if (!this.initialized || !this.invoke) {
       await this.init();
     }
@@ -82,7 +83,7 @@ export class NativeBridge implements IPlatformBridge {
       totalVertices: number;
       totalTriangles: number;
       coordinateInfo: NativeCoordinateInfo;
-    }>('get_geometry', { buffer });
+    }>('get_geometry', { buffer, deflection: options.curveDeflection });
 
     // Convert native format to TypeScript format
     const meshes: MeshData[] = result.meshes.map(convertNativeMesh);
@@ -98,7 +99,8 @@ export class NativeBridge implements IPlatformBridge {
 
   async processGeometryStreaming(
     content: string,
-    options: StreamingOptions
+    options: StreamingOptions,
+    processingOptions: GeometryProcessingOptions = {}
   ): Promise<GeometryStats> {
     if (!this.initialized || !this.invoke) {
       await this.init();
@@ -107,7 +109,7 @@ export class NativeBridge implements IPlatformBridge {
     // If event API not available, fall back to non-streaming processing
     if (!this.listen) {
       console.warn('[NativeBridge] Event API unavailable, falling back to non-streaming mode');
-      const result = await this.processGeometry(content);
+      const result = await this.processGeometry(content, processingOptions);
       const stats: GeometryStats = {
         totalMeshes: result.meshes.length,
         totalVertices: result.totalVertices,
@@ -152,7 +154,7 @@ export class NativeBridge implements IPlatformBridge {
         totalTriangles: number;
         parseTimeMs: number;
         geometryTimeMs: number;
-      }>('get_geometry_streaming', { buffer });
+      }>('get_geometry_streaming', { buffer, deflection: processingOptions.curveDeflection });
 
       const result: GeometryStats = {
         totalMeshes: stats.totalMeshes,

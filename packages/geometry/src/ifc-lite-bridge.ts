@@ -35,6 +35,7 @@ export interface InstancedStreamingStats {
 
 export interface ParseMeshesAsyncOptions {
   batchSize?: number;
+  deflection?: number;
   // NOTE: WASM automatically defers style building for faster first frame
   onBatch?: (meshes: MeshDataJs[], progress: StreamingProgress) => void;
   onComplete?: (stats: StreamingStats) => void;
@@ -43,8 +44,13 @@ export interface ParseMeshesAsyncOptions {
 
 export interface ParseMeshesInstancedAsyncOptions {
   batchSize?: number;
+  deflection?: number;
   onBatch?: (geometries: InstancedGeometry[], progress: StreamingProgress) => void;
   onComplete?: (stats: InstancedStreamingStats) => void;
+}
+
+export interface ParseMeshesOptions {
+  deflection?: number;
 }
 
 export class IfcLiteBridge {
@@ -104,12 +110,12 @@ export class IfcLiteBridge {
    * Parse IFC content and return mesh collection (blocking)
    * Returns individual meshes with express IDs and colors
    */
-  parseMeshes(content: string): MeshCollection {
+  parseMeshes(content: string, options: ParseMeshesOptions = {}): MeshCollection {
     if (!this.ifcApi) {
       throw new Error('IFC-Lite not initialized. Call init() first.');
     }
     try {
-      const collection = this.ifcApi.parseMeshes(content);
+      const collection = this.ifcApi.parseMeshes(content, options);
       log.debug(`Parsed ${collection.length} meshes`, { operation: 'parseMeshes' });
       return collection;
     } catch (error) {

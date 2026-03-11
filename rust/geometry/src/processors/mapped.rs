@@ -7,20 +7,26 @@
 use crate::{Error, Mesh, Result};
 use ifc_lite_core::{DecodedEntity, EntityDecoder, IfcSchema, IfcType};
 
-use crate::router::GeometryProcessor;
-use super::extrusion::ExtrudedAreaSolidProcessor;
-use super::tessellated::TriangulatedFaceSetProcessor;
-use super::brep::FacetedBrepProcessor;
 use super::boolean::BooleanClippingProcessor;
-use super::swept::{SweptDiskSolidProcessor, RevolvedAreaSolidProcessor};
+use super::brep::FacetedBrepProcessor;
+use super::extrusion::ExtrudedAreaSolidProcessor;
+use super::swept::{RevolvedAreaSolidProcessor, SweptDiskSolidProcessor};
+use super::tessellated::TriangulatedFaceSetProcessor;
+use crate::router::GeometryProcessor;
 
 /// MappedItem processor (P0)
 /// Handles IfcMappedItem - geometry instancing
-pub struct MappedItemProcessor;
+pub struct MappedItemProcessor {
+    deflection: f64,
+}
 
 impl MappedItemProcessor {
     pub fn new() -> Self {
-        Self
+        Self { deflection: 0.001 }
+    }
+
+    pub fn with_deflection(deflection: f64) -> Self {
+        Self { deflection }
     }
 }
 
@@ -68,7 +74,10 @@ impl GeometryProcessor for MappedItemProcessor {
         for item in items {
             let item_mesh = match item.ifc_type {
                 IfcType::IfcExtrudedAreaSolid => {
-                    let processor = ExtrudedAreaSolidProcessor::new(schema.clone());
+                    let processor = ExtrudedAreaSolidProcessor::with_deflection(
+                        schema.clone(),
+                        self.deflection,
+                    );
                     processor.process(&item, decoder, schema)?
                 }
                 IfcType::IfcTriangulatedFaceSet => {
@@ -80,15 +89,19 @@ impl GeometryProcessor for MappedItemProcessor {
                     processor.process(&item, decoder, schema)?
                 }
                 IfcType::IfcSweptDiskSolid => {
-                    let processor = SweptDiskSolidProcessor::new(schema.clone());
+                    let processor =
+                        SweptDiskSolidProcessor::with_deflection(schema.clone(), self.deflection);
                     processor.process(&item, decoder, schema)?
                 }
                 IfcType::IfcBooleanClippingResult | IfcType::IfcBooleanResult => {
-                    let processor = BooleanClippingProcessor::new();
+                    let processor = BooleanClippingProcessor::with_deflection(self.deflection);
                     processor.process(&item, decoder, schema)?
                 }
                 IfcType::IfcRevolvedAreaSolid => {
-                    let processor = RevolvedAreaSolidProcessor::new(schema.clone());
+                    let processor = RevolvedAreaSolidProcessor::with_deflection(
+                        schema.clone(),
+                        self.deflection,
+                    );
                     processor.process(&item, decoder, schema)?
                 }
                 _ => continue, // Skip unsupported types

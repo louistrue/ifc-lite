@@ -208,7 +208,7 @@ export class IfcAPI {
    * Example:
    * ```javascript
    * const api = new IfcAPI();
-   * const collection = api.parseMeshes(ifcData);
+   * const collection = api.parseMeshes(ifcData, { deflection: 0.003 });
    * for (let i = 0; i < collection.length; i++) {
    *   const mesh = collection.get(i);
    *   console.log('Express ID:', mesh.expressId);
@@ -217,13 +217,14 @@ export class IfcAPI {
    * }
    * ```
    */
-  parseMeshes(content: string): MeshCollection;
+  parseMeshes(content: string, options?: any | null): MeshCollection;
   /**
    * Parse IFC file with streaming mesh batches for progressive rendering
    * Calls the callback with batches of meshes, yielding to browser between batches
    *
    * Options:
    * - `batchSize`: Number of meshes per batch (default: 25)
+   * - `deflection`: Curved tessellation tolerance in meters (default: 0.001)
    * - `onBatch(meshes, progress)`: Called for each batch of meshes
    * - `onRtcOffset({x, y, z, hasRtc})`: Called early with RTC offset for camera/world setup
    * - `onColorUpdate(Map<id, color>)`: Called with style updates after initial render
@@ -933,7 +934,7 @@ export interface InitOutput {
   readonly ifcapi_is_ready: (a: number) => number;
   readonly ifcapi_new: () => number;
   readonly ifcapi_parse: (a: number, b: number, c: number) => number;
-  readonly ifcapi_parseMeshes: (a: number, b: number, c: number) => number;
+  readonly ifcapi_parseMeshes: (a: number, b: number, c: number, d: number) => number;
   readonly ifcapi_parseMeshesAsync: (a: number, b: number, c: number, d: number) => number;
   readonly ifcapi_parseMeshesInstanced: (a: number, b: number, c: number) => number;
   readonly ifcapi_parseMeshesInstancedAsync: (a: number, b: number, c: number, d: number) => number;
@@ -1042,11 +1043,11 @@ export interface InitOutput {
   readonly meshcollection_rtcOffsetX: (a: number) => number;
   readonly symboliccircle_expressId: (a: number) => number;
   readonly __wbg_gpuinstancedgeometryref_free: (a: number, b: number) => void;
-  readonly __wasm_bindgen_func_elem_1021: (a: number, b: number, c: number) => void;
-  readonly __wasm_bindgen_func_elem_1019: (a: number, b: number) => void;
+  readonly __wasm_bindgen_func_elem_471: (a: number, b: number) => void;
   readonly __wasm_bindgen_func_elem_469: (a: number, b: number) => void;
-  readonly __wasm_bindgen_func_elem_467: (a: number, b: number) => void;
-  readonly __wasm_bindgen_func_elem_1052: (a: number, b: number, c: number, d: number) => void;
+  readonly __wasm_bindgen_func_elem_1026: (a: number, b: number, c: number) => void;
+  readonly __wasm_bindgen_func_elem_1024: (a: number, b: number) => void;
+  readonly __wasm_bindgen_func_elem_1057: (a: number, b: number, c: number, d: number) => void;
   readonly __wbindgen_export: (a: number) => void;
   readonly __wbindgen_export2: (a: number, b: number, c: number) => void;
   readonly __wbindgen_export3: (a: number, b: number) => number;
