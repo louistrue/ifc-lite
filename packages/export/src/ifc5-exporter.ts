@@ -441,7 +441,7 @@ export class Ifc5Exporter {
       const psets = this.mutationView.getForEntity(entityId);
       for (const pset of psets) {
         for (const prop of pset.properties) {
-          const key = `bsi::ifc::prop::${pset.name}::${prop.name}`;
+          const key = `bsi::ifc::prop::${prop.name}`;
           result[key] = this.convertPropertyValue(prop.value, prop.type);
         }
       }
@@ -449,7 +449,7 @@ export class Ifc5Exporter {
       const psets = this.dataStore.properties.getForEntity(entityId);
       for (const pset of psets) {
         for (const prop of pset.properties) {
-          const key = `bsi::ifc::prop::${pset.name}::${prop.name}`;
+          const key = `bsi::ifc::prop::${prop.name}`;
           result[key] = this.convertPropertyValue(prop.value, prop.type);
         }
       }

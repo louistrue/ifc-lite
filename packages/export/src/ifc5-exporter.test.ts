@@ -91,9 +91,10 @@ describe('Ifc5Exporter', () => {
       propertyBuilder.add({
         entityId: 1,
         psetName: 'Pset_WallCommon',
+        psetGlobalId: '',
         propName: 'IsExternal',
         value: true,
-        type: PropertyValueType.Boolean,
+        propType: PropertyValueType.Boolean,
       });
 
       const relBuilder = new RelationshipGraphBuilder();
@@ -135,8 +136,8 @@ describe('Ifc5Exporter', () => {
       entityBuilder.add(1, 'IFCWALL', 'abc', 'Wall', 'desc', '');
       const propertyBuilder = new PropertyTableBuilder(strings);
       propertyBuilder.add({
-        entityId: 1, psetName: 'Pset_WallCommon', propName: 'IsExternal',
-        value: true, type: PropertyValueType.Boolean,
+        entityId: 1, psetName: 'Pset_WallCommon', psetGlobalId: '', propName: 'IsExternal',
+        value: true, propType: PropertyValueType.Boolean,
       });
       const relBuilder = new RelationshipGraphBuilder();
       const dataStore = {
