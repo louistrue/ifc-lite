@@ -6,6 +6,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
 import { Ifc5Exporter } from './ifc5-exporter.js';
+import { IfcParser, type IfcDataStore } from '@ifc-lite/parser';
 import {
   StringTable,
   EntityTableBuilder,
@@ -13,7 +14,6 @@ import {
   RelationshipGraphBuilder,
   PropertyValueType,
 } from '@ifc-lite/data';
-import type { IfcDataStore } from '@ifc-lite/parser';
 import {
   ALL_OFFICIAL_SCHEMAS,
   STANDARD_IMPORT_URIS,
@@ -352,6 +352,141 @@ describe('Ifc5Exporter', () => {
       const ref = loadReferenceFile('IFC_Hero_Model_IFC_Hero_Model.ifcx');
       const errors = validateIfcxFile(ref);
       expect(errors).toEqual([]);
+    });
+  });
+
+  // ==========================================================================
+  // End-to-end: parse real IFC4 → export IFC5 → validate against official schemas
+  // ==========================================================================
+
+  describe('end-to-end: IFC4 parse → IFC5 export → official schema validation', () => {
+    // Real IFC4 file content (Revit-exported, walls with properties)
+    const REAL_IFC4 = `ISO-10303-21;
+HEADER;
+FILE_DESCRIPTION(('ViewDefinition [DesignTransferView_V1.0]'),'2;1');
+FILE_NAME('test','2023-01-17T16:18:54+01:00',(''),(''),'','','');
+FILE_SCHEMA(('IFC4'));
+ENDSEC;
+DATA;
+#1=IFCORGANIZATION($,'Autodesk Revit 2023 (ENU)',$,$,$);
+#2=IFCAPPLICATION(#1,'2023','Autodesk Revit 2023 (ENU)','Revit');
+#3=IFCCARTESIANPOINT((0.,0.,0.));
+#5=IFCDIRECTION((1.,0.,0.));
+#9=IFCDIRECTION((0.,0.,1.));
+#15=IFCPERSON($,'Author','IFC',(),$,$,$,$);
+#16=IFCORGANIZATION($,'TestOrg','',$,$);
+#17=IFCPERSONANDORGANIZATION(#15,#16,$);
+#18=IFCOWNERHISTORY(#17,#2,$,.NOCHANGE.,$,$,$,1673968733);
+#19=IFCSIUNIT(*,.LENGTHUNIT.,$,.METRE.);
+#20=IFCSIUNIT(*,.AREAUNIT.,$,.SQUARE_METRE.);
+#21=IFCSIUNIT(*,.VOLUMEUNIT.,$,.CUBIC_METRE.);
+#22=IFCSIUNIT(*,.PLANEANGLEUNIT.,$,.RADIAN.);
+#25=IFCDIMENSIONALEXPONENTS(0,0,0,0,0,0,0);
+#24=IFCMEASUREWITHUNIT(IFCRATIOMEASURE(0.017453292519943278),#22);
+#26=IFCCONVERSIONBASEDUNIT(#25,.PLANEANGLEUNIT.,'DEGREE',#24);
+#82=IFCUNITASSIGNMENT((#19,#20,#21,#26));
+#83=IFCAXIS2PLACEMENT3D(#3,$,$);
+#85=IFCGEOMETRICREPRESENTATIONCONTEXT($,'Model',3,1.0E-05,#83,$);
+#90=IFCPROJECT('3k3rYVmQDDW90hT9pdtv9K',#18,'0000','IfcProject Description',$,'Project','Status',(#85),#82);
+#92=IFCAXIS2PLACEMENT3D(#3,$,$);
+#112=IFCLOCALPLACEMENT($,#92);
+#113=IFCSITE('3k3rYVmQDDW90hT9pdtv9M',#18,'TestSite',$,$,#112,$,$,.ELEMENT.,(47,21,39,600219),(8,33,38,576431),0.,$,$);
+#93=IFCLOCALPLACEMENT(#112,#92);
+#95=IFCBUILDING('3k3rYVmQDDW90hT9pdtv9L',#18,'TestBuilding',$,$,#93,$,'TestBuilding',.ELEMENT.,$,$,$);
+#98=IFCLOCALPLACEMENT(#93,#92);
+#99=IFCBUILDINGSTOREY('3k3rYVmQDDW90hT9mO8S_F',#18,'U1.UG_RDOK',$,'Level',#98,$,'U1.UG_RDOK',.ELEMENT.,-3.5);
+#102=IFCBUILDINGSTOREY('3k3rYVmQDDW90hT9mO86pt',#18,'00.EG_RDOK',$,'Level',#98,$,'00.EG_RDOK',.ELEMENT.,0.);
+#119=IFCLOCALPLACEMENT(#98,#92);
+#139=IFCWALL('3DqaUydM99ehywE4_2hm1u',#18,'Basic Wall:Holz Aussenwand_470mm:2270026',$,'Basic Wall:Holz Aussenwand_470mm',#119,$,'2270026',.NOTDEFINED.);
+#264=IFCWALL('3DqaUydM99ehywE4_2hm2J',#18,'Basic Wall:Holz tragende Wohnungstrennwand_380mm:2270113',$,'Basic Wall:Holz tragende Wohnungstrennwand_380mm',#119,$,'2270113',.NOTDEFINED.);
+#320=IFCWALL('3DqaUydM99ehywE4_2hm37',#18,'Basic Wall:STB 30cm:2270197',$,'Basic Wall:STB 30cm, Beton C30/37',#119,$,'2270197',.NOTDEFINED.);
+#234=IFCPROPERTYSINGLEVALUE('IsExternal',$,IFCBOOLEAN(.T.),$);
+#235=IFCPROPERTYSINGLEVALUE('LoadBearing',$,IFCBOOLEAN(.T.),$);
+#236=IFCPROPERTYSINGLEVALUE('ExtendToStructure',$,IFCBOOLEAN(.F.),$);
+#230=IFCPROPERTYSINGLEVALUE('Reference',$,IFCIDENTIFIER('Holz Aussenwand_470mm'),$);
+#237=IFCPROPERTYSET('3GyMrhoFW4z01N$8$28gdn',#18,'Pset_WallCommon',$,(#230,#234,#235,#236));
+#240=IFCRELDEFINESBYPROPERTIES('2mQcscH4zO43fkth_BMjq4',#18,$,$,(#139),#237);
+#356=IFCRELCONTAINEDINSPATIALSTRUCTURE('18M1N3O8v0TvfnULSexYwc',#18,$,$,(#139,#264,#320),#99);
+#363=IFCRELAGGREGATES('2Tp0Y1RCTYVG3kBW3f1hFa',#18,$,$,#90,(#113));
+#364=IFCRELAGGREGATES('3QnmEzPqwebvbfIT3RQXck',#18,$,$,#113,(#95));
+#365=IFCRELAGGREGATES('3mQBaTfuH9QBHDcYQBQvNl',#18,$,$,#95,(#99,#102));
+ENDSEC;
+END-ISO-10303-21;`;
+
+    it('real IFC4 file exported as IFC5 produces zero validation errors', async () => {
+      const parser = new IfcParser();
+      const store = await parser.parseColumnar(
+        new TextEncoder().encode(REAL_IFC4).buffer,
+      );
+
+      const exporter = new Ifc5Exporter(store);
+      const result = exporter.export({ includeGeometry: false });
+      const file = JSON.parse(result.content);
+
+      // Validate against official schemas
+      const errors = validateIfcxFile(file);
+      expect(errors).toEqual([]);
+    });
+
+    it('real IFC4 file exported as IFC5 has no unknown attribute keys', async () => {
+      const parser = new IfcParser();
+      const store = await parser.parseColumnar(
+        new TextEncoder().encode(REAL_IFC4).buffer,
+      );
+
+      const exporter = new Ifc5Exporter(store);
+      const result = exporter.export({ includeGeometry: false });
+      const file = JSON.parse(result.content);
+
+      const unknownKeys: string[] = [];
+      for (const node of file.data) {
+        for (const key of Object.keys(node.attributes ?? {})) {
+          if (ALL_OFFICIAL_SCHEMAS[key]) continue;
+          if (key.startsWith('bsi::ifc::prop::')) continue;
+          unknownKeys.push(`${node.path}: ${key}`);
+        }
+      }
+      expect(unknownKeys).toEqual([]);
+    });
+
+    it('real IFC4 file exported as IFC5 has correct imports for all used namespaces', async () => {
+      const parser = new IfcParser();
+      const store = await parser.parseColumnar(
+        new TextEncoder().encode(REAL_IFC4).buffer,
+      );
+
+      const exporter = new Ifc5Exporter(store);
+      const result = exporter.export({ includeGeometry: false });
+      const file = JSON.parse(result.content);
+
+      // Should have IFC core (for bsi::ifc::class) and prop imports
+      const importUris = new Set(file.imports.map((i: any) => i.uri));
+      expect(importUris.has(STANDARD_IMPORT_URIS.IFC_CORE)).toBe(true);
+      expect(importUris.has(STANDARD_IMPORT_URIS.IFC_PROP)).toBe(true);
+    });
+
+    it('real IFC4 file exported as IFC5 contains expected entities', async () => {
+      const parser = new IfcParser();
+      const store = await parser.parseColumnar(
+        new TextEncoder().encode(REAL_IFC4).buffer,
+      );
+
+      const exporter = new Ifc5Exporter(store);
+      const result = exporter.export({ includeGeometry: false });
+      const file = JSON.parse(result.content);
+
+      // Check that we have the expected entity types
+      const classCodes = new Set<string>();
+      for (const node of file.data) {
+        const cls = node.attributes?.['bsi::ifc::class'];
+        if (cls) classCodes.add(cls.code);
+      }
+
+      expect(classCodes).toContain('IfcWall');
+      expect(classCodes).toContain('IfcProject');
+      expect(classCodes).toContain('IfcSite');
+      expect(classCodes).toContain('IfcBuilding');
+      expect(classCodes).toContain('IfcBuildingStorey');
     });
   });
 });
