@@ -7,6 +7,7 @@
  */
 
 import { createLogger } from '@ifc-lite/data';
+import { decodeIfcString } from '@ifc-lite/encoding';
 import type { IfcEntity, EntityRef } from './types.js';
 
 export type { IfcEntity };
@@ -183,7 +184,9 @@ export class EntityExtractor {
     // String: 'text'
     if (value.startsWith("'") && value.endsWith("'")) {
       // STEP uses doubled quotes ('') for escaping, not backslash
-      return value.slice(1, -1).replace(/''/g, "'");
+      const raw = value.slice(1, -1).replace(/''/g, "'");
+      // Decode IFC STEP encoded characters (\X2\00FC\X0\ -> ü, etc.)
+      return decodeIfcString(raw);
     }
 
     // Number

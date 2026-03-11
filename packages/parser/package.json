@@ -22,6 +22,7 @@
   },
   "dependencies": {
     "@ifc-lite/data": "workspace:^",
+    "@ifc-lite/encoding": "workspace:^",
     "@ifc-lite/ifcx": "workspace:^"
   },
   "devDependencies": {

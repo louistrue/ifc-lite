@@ -709,6 +709,9 @@ importers:
       '@ifc-lite/data':
         specifier: workspace:^
         version: link:../data
+      '@ifc-lite/encoding':
+        specifier: workspace:^
+        version: link:../encoding
       '@ifc-lite/ifcx':
         specifier: workspace:^
         version: link:../ifcx
