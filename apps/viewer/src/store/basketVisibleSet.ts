@@ -290,10 +290,10 @@ function collectDescendantSpaceIds(node: SpatialNode): number[] {
 }
 
 /**
- * Collect all element IDs for a storey, including elements contained in
- * descendant IfcSpace nodes and the space geometry itself.
+ * Collect all element IDs for an IfcBuildingStorey, including elements
+ * contained in descendant IfcSpace nodes and the space geometry itself.
  */
-export function collectStoreyElementsWithSpaces(
+export function collectIfcBuildingStoreyElementsWithIfcSpace(
   hierarchy: SpatialHierarchy,
   storeyId: number
 ): number[] | null {
@@ -332,7 +332,7 @@ function computeStoreyIsolation(state: ViewerStateSnapshot): Set<number> | null 
       const offset = model.idOffset ?? 0;
       for (const storeyId of state.selectedStoreys) {
         const localStoreyId = hierarchy.byStorey.has(storeyId) ? storeyId : storeyId - offset;
-        const storeyElementIds = collectStoreyElementsWithSpaces(hierarchy, localStoreyId);
+        const storeyElementIds = collectIfcBuildingStoreyElementsWithIfcSpace(hierarchy, localStoreyId);
         if (!storeyElementIds) continue;
         for (const localId of storeyElementIds) {
           ids.add(localId + offset);
@@ -342,7 +342,7 @@ function computeStoreyIsolation(state: ViewerStateSnapshot): Set<number> | null 
   } else if (state.ifcDataStore?.spatialHierarchy) {
     const hierarchy = state.ifcDataStore.spatialHierarchy;
     for (const storeyId of state.selectedStoreys) {
-      const storeyElementIds = collectStoreyElementsWithSpaces(hierarchy, storeyId);
+      const storeyElementIds = collectIfcBuildingStoreyElementsWithIfcSpace(hierarchy, storeyId);
       if (!storeyElementIds) continue;
       for (const id of storeyElementIds) {
         ids.add(id);

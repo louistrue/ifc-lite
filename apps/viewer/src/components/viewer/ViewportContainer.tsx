@@ -9,7 +9,7 @@ import { ToolOverlays } from './ToolOverlays';
 import { Section2DPanel } from './Section2DPanel';
 import { BasketPresentationDock } from './BasketPresentationDock';
 import { useViewerStore } from '@/store';
-import { collectStoreyElementsWithSpaces } from '@/store/basketVisibleSet';
+import { collectIfcBuildingStoreyElementsWithIfcSpace } from '@/store/basketVisibleSet';
 import { useIfc } from '@/hooks/useIfc';
 import { useWebGPU } from '@/hooks/useWebGPU';
 import { Upload, MousePointer, Layers, Info, Command, AlertTriangle, ChevronDown, ExternalLink, Plus } from 'lucide-react';
@@ -267,7 +267,7 @@ export function ViewportContainer() {
 
         for (const storeyId of selectedStoreys) {
           const localStoreyId = hierarchy.byStorey.has(storeyId) ? storeyId : storeyId - offset;
-          const storeyElementIds = collectStoreyElementsWithSpaces(hierarchy, localStoreyId);
+          const storeyElementIds = collectIfcBuildingStoreyElementsWithIfcSpace(hierarchy, localStoreyId);
           if (storeyElementIds) {
             for (const originalExpressId of storeyElementIds) {
               combinedGlobalIds.add(originalExpressId + offset);
@@ -280,7 +280,7 @@ export function ViewportContainer() {
       if (ifcDataStore?.spatialHierarchy && storeModels.size === 0) {
         const hierarchy = ifcDataStore.spatialHierarchy;
         for (const storeyId of selectedStoreys) {
-          const storeyElementIds = collectStoreyElementsWithSpaces(hierarchy, storeyId);
+          const storeyElementIds = collectIfcBuildingStoreyElementsWithIfcSpace(hierarchy, storeyId);
           if (storeyElementIds) {
             for (const id of storeyElementIds) {
               combinedGlobalIds.add(id);
