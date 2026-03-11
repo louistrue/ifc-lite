@@ -498,10 +498,20 @@ export function isKnownEntity(typeName: string): boolean {
  * Normalize type name to IfcXxx format
  */
 function normalizeTypeName(name: string): string {
-  // Convert IFCWALL -> IfcWall
-  if (name.toUpperCase().startsWith('IFC')) {
-    return 'Ifc' + name.substring(3).charAt(0).toUpperCase() +
-           name.substring(4).toLowerCase();
+  // Already in IfcPascalCase — return as-is
+  if (name.startsWith('Ifc') && name.length > 3 && name[3] >= 'A' && name[3] <= 'Z') {
+    return name;
+  }
+  // Convert UPPERCASE STEP names: IFCWALL -> IfcWall, IFCWALLTYPE -> IfcWallType
+  const upper = name.toUpperCase();
+  if (upper.startsWith('IFC')) {
+    const rest = upper.substring(3);
+    // Lookup by matching uppercase keys in the registry
+    for (const key of Object.keys(SCHEMA_REGISTRY.entities)) {
+      if (key.toUpperCase() === 'IFC' + rest) return key;
+    }
+    // Fallback: best-effort single-word conversion
+    return 'Ifc' + rest.charAt(0) + rest.substring(1).toLowerCase();
   }
   return name;
 }
