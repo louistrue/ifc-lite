@@ -112,7 +112,7 @@ describe('Ifc5Exporter', () => {
 
       const meshes = makeMockMeshes(1);
       const exporter = new Ifc5Exporter(dataStore, { meshes } as any);
-      const result = exporter.export();
+      const result = exporter.export({ onlyTreeEntities: false });
       const file = JSON.parse(result.content);
 
       const errors = validateIfcxFile(file);
@@ -178,7 +178,7 @@ describe('Ifc5Exporter', () => {
       } as unknown as IfcDataStore;
 
       const exporter = new Ifc5Exporter(dataStore);
-      const result = exporter.export({ includeGeometry: false });
+      const result = exporter.export({ includeGeometry: false, onlyTreeEntities: false });
       const file = JSON.parse(result.content);
 
       // Must produce zero validation errors
@@ -212,7 +212,7 @@ describe('Ifc5Exporter', () => {
         { expressId: 1, type: 'IFCWALL', globalId: 'g1', name: 'Wall' },
       ]);
       const exporter = new Ifc5Exporter(dataStore);
-      const result = exporter.export({ includeGeometry: false, includeProperties: false });
+      const result = exporter.export({ includeGeometry: false, includeProperties: false, onlyTreeEntities: false });
       const file = JSON.parse(result.content);
 
       const errors = validateIfcxFile(file);
@@ -241,7 +241,7 @@ describe('Ifc5Exporter', () => {
 
       const meshes = makeMockMeshes(1);
       const exporter = new Ifc5Exporter(dataStore, { meshes } as any);
-      const result = exporter.export();
+      const result = exporter.export({ onlyTreeEntities: false });
       const file = JSON.parse(result.content);
 
       // Collect every attribute key used in the export
@@ -308,7 +308,7 @@ describe('Ifc5Exporter', () => {
       } as unknown as IfcDataStore;
 
       const exporter = new Ifc5Exporter(dataStore);
-      const file = JSON.parse(exporter.export({ includeGeometry: false }).content);
+      const file = JSON.parse(exporter.export({ includeGeometry: false, onlyTreeEntities: false }).content);
 
       const exportedPropNames = new Set<string>();
       for (const node of file.data) {
@@ -329,7 +329,7 @@ describe('Ifc5Exporter', () => {
         { expressId: 1, type: 'IFCWALL', globalId: 'some-guid', name: 'Wall' },
       ]);
       const exporter = new Ifc5Exporter(dataStore);
-      const result = exporter.export({ includeGeometry: false });
+      const result = exporter.export({ includeGeometry: false, onlyTreeEntities: false });
       const file = JSON.parse(result.content);
 
       for (const node of file.data) {
@@ -344,7 +344,7 @@ describe('Ifc5Exporter', () => {
         { expressId: 1, type: 'IFCWALL', globalId: 'g1', name: 'MyWall', description: 'A wall' },
       ]);
       const exporter = new Ifc5Exporter(dataStore);
-      const result = exporter.export({ includeGeometry: false, includeProperties: false });
+      const result = exporter.export({ includeGeometry: false, includeProperties: false, onlyTreeEntities: false });
       const file = JSON.parse(result.content);
 
       const node = file.data[0];
@@ -359,7 +359,7 @@ describe('Ifc5Exporter', () => {
         { expressId: 1, type: 'IFCWALL', globalId: 'abc', name: 'Wall' },
       ]);
       const exporter = new Ifc5Exporter(dataStore);
-      const result = exporter.export({ includeGeometry: false, includeProperties: false });
+      const result = exporter.export({ includeGeometry: false, includeProperties: false, onlyTreeEntities: false });
       const file = JSON.parse(result.content);
 
       const cls = file.data[0].attributes['bsi::ifc::class'];
@@ -388,7 +388,7 @@ describe('Ifc5Exporter', () => {
         { expressId: 1, type: 'IFCWALL', globalId: 'g1', name: 'Wall' },
       ]);
       const exporter = new Ifc5Exporter(dataStore);
-      const file = JSON.parse(exporter.export({ includeGeometry: false, includeProperties: false }).content);
+      const file = JSON.parse(exporter.export({ includeGeometry: false, includeProperties: false, onlyTreeEntities: false }).content);
       expect(file.data[0].attributes['bsi::ifc::class'].uri).toMatch(refUriPattern);
     });
   });
@@ -400,7 +400,7 @@ describe('Ifc5Exporter', () => {
       ]);
       const meshes = makeMockMeshes(1);
       const exporter = new Ifc5Exporter(dataStore, { meshes } as any);
-      const file = JSON.parse(exporter.export().content);
+      const file = JSON.parse(exporter.export({ onlyTreeEntities: false }).content);
 
       const mesh = file.data[0].attributes['usd::usdgeom::mesh'];
       // Must have the required keys
@@ -424,7 +424,7 @@ describe('Ifc5Exporter', () => {
       ]);
       const meshes = makeMockMeshes(1);
       const exporter = new Ifc5Exporter(dataStore, { meshes } as any);
-      const file = JSON.parse(exporter.export().content);
+      const file = JSON.parse(exporter.export({ onlyTreeEntities: false }).content);
 
       const mesh = file.data[0].attributes['usd::usdgeom::mesh'];
       expect(Array.isArray(mesh.points)).toBe(true);
@@ -441,7 +441,7 @@ describe('Ifc5Exporter', () => {
       ]);
       const meshes = makeMockMeshes(1);
       const exporter = new Ifc5Exporter(dataStore, { meshes } as any);
-      const file = JSON.parse(exporter.export().content);
+      const file = JSON.parse(exporter.export({ onlyTreeEntities: false }).content);
 
       const mesh = file.data[0].attributes['usd::usdgeom::mesh'];
       expect(Array.isArray(mesh.faceVertexIndices)).toBe(true);
@@ -461,7 +461,7 @@ describe('Ifc5Exporter', () => {
       ]);
       const meshes = makeMockMeshes(1);
       const exporter = new Ifc5Exporter(dataStore, { meshes } as any);
-      const file = JSON.parse(exporter.export().content);
+      const file = JSON.parse(exporter.export({ onlyTreeEntities: false }).content);
 
       for (const imp of file.imports) {
         expect(imp).toHaveProperty('uri');
@@ -475,7 +475,7 @@ describe('Ifc5Exporter', () => {
         { expressId: 1, type: 'IFCWALL', globalId: 'g1', name: 'Wall', description: 'Desc' },
       ]);
       const exporter = new Ifc5Exporter(dataStore);
-      const file = JSON.parse(exporter.export({ includeGeometry: false, includeProperties: false }).content);
+      const file = JSON.parse(exporter.export({ includeGeometry: false, includeProperties: false, onlyTreeEntities: false }).content);
 
       const propImport = file.imports.find(
         (i: { uri: string }) => i.uri === STANDARD_IMPORT_URIS.IFC_PROP,

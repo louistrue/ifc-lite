@@ -97,6 +97,10 @@ export interface Ifc5ExportOptions {
    *  When false, all IFC4 properties are exported even if they lack
    *  an official IFC5 schema definition (viewer may show warnings). */
   onlyKnownProperties?: boolean;
+  /** Only export entities reachable from the spatial tree (default: true).
+   *  When true, relationship entities (IfcRel*), type objects, materials,
+   *  and other non-spatial entities are excluded from the output. */
+  onlyTreeEntities?: boolean;
 }
 
 /** Result of IFC5 export */
@@ -182,6 +186,9 @@ export class Ifc5Exporter {
     // Build visible set
     const visibleIds = this.buildVisibleSet(options);
 
+    // Build spatial tree set (entities reachable from the project node)
+    const treeIds = options.onlyTreeEntities !== false ? this.buildTreeEntitySet() : null;
+
     // Collect nodes
     const nodes: IfcxNodeOutput[] = [];
     let propertyCount = 0;
@@ -197,6 +204,9 @@ export class Ifc5Exporter {
 
       // Visibility filter
       if (visibleIds && !visibleIds.has(expressId)) continue;
+
+      // Spatial tree filter
+      if (treeIds && !treeIds.has(expressId)) continue;
 
       const typeEnum = entities.typeEnum[i];
       const typeName = IfcTypeEnumToString(typeEnum as IfcTypeEnum) || 'IfcElement';
@@ -292,6 +302,7 @@ export class Ifc5Exporter {
         nodes.unshift({
           path: rootUuid,
           children: { [projectName]: projectUuid },
+          attributes: {},
         });
       }
     }
@@ -621,6 +632,38 @@ export class Ifc5Exporter {
   // --------------------------------------------------------------------------
   // Visibility
   // --------------------------------------------------------------------------
+
+  /**
+   * Build the set of entity IDs reachable from the spatial tree.
+   * Includes Project, Site, Building, Storey, Space, and all contained elements.
+   */
+  private buildTreeEntitySet(): Set<number> {
+    const ids = new Set<number>();
+
+    // Walk spatial hierarchy tree
+    const { spatialHierarchy } = this.dataStore;
+    if (spatialHierarchy?.project) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const walk = (node: { expressId: number; children: any[] }) => {
+        ids.add(node.expressId);
+        for (const child of node.children) walk(child);
+      };
+      walk(spatialHierarchy.project);
+    }
+
+    // Add elements from containment maps (elements assigned to storeys, etc.)
+    if (spatialHierarchy) {
+      for (const map of [spatialHierarchy.bySite, spatialHierarchy.byBuilding, spatialHierarchy.byStorey, spatialHierarchy.bySpace]) {
+        if (map) {
+          for (const children of map.values()) {
+            for (const id of children) ids.add(id);
+          }
+        }
+      }
+    }
+
+    return ids;
+  }
 
   /**
    * Build visible entity set if visibility filtering is requested.
