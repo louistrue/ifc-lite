@@ -6,6 +6,7 @@ import type { EntityRef, VisibilityBackendMethods } from '@ifc-lite/sdk';
 import type { StoreApi } from './types.js';
 import { getModelForRef, type ModelLike } from './model-compat.js';
 import { collectIfcBuildingStoreyElementsWithIfcSpace } from '../../store/basketVisibleSet.js';
+import { IfcTypeEnum, type SpatialNode } from '@ifc-lite/data';
 
 const SPATIAL_TYPES = new Set([
   'IfcBuildingStorey',
@@ -13,6 +14,33 @@ const SPATIAL_TYPES = new Set([
   'IfcSite',
   'IfcProject',
 ]);
+
+function findDescendantNode(root: SpatialNode, expressId: number): SpatialNode | null {
+  const stack: SpatialNode[] = [root];
+  while (stack.length > 0) {
+    const node = stack.pop()!;
+    if (node.expressId === expressId) return node;
+    for (const child of node.children) {
+      stack.push(child);
+    }
+  }
+  return null;
+}
+
+function collectDescendantStoreyIds(node: SpatialNode): number[] {
+  const storeyIds: number[] = [];
+  const stack: SpatialNode[] = [node];
+  while (stack.length > 0) {
+    const current = stack.pop()!;
+    if (current.type === IfcTypeEnum.IfcBuildingStorey) {
+      storeyIds.push(current.expressId);
+    }
+    for (const child of current.children) {
+      stack.push(child);
+    }
+  }
+  return storeyIds;
+}
 
 /**
  * If `ref` points to a spatial structure element (storey, building, etc.),
@@ -33,10 +61,15 @@ function expandSpatialRef(ref: EntityRef, model: ModelLike): number[] {
   }
 
   // For higher-level containers (IfcBuilding, IfcSite, IfcProject),
-  // collect elements from all descendant storeys
+  // walk the spatial tree from ref.expressId to find descendant storeys only
+  const startNode = findDescendantNode(hierarchy.project, ref.expressId);
+  if (!startNode) return [ref.expressId];
+
+  const descendantStoreyIds = collectDescendantStoreyIds(startNode);
+
   const allIds: number[] = [];
   const seen = new Set<number>();
-  for (const [storeyId] of hierarchy.byStorey) {
+  for (const storeyId of descendantStoreyIds) {
     const storeyIds = collectIfcBuildingStoreyElementsWithIfcSpace(hierarchy, storeyId);
     if (storeyIds) {
       for (const id of storeyIds) {
