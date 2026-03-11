@@ -27,6 +27,21 @@ import {
 import { convertEntityType, type IfcSchemaVersion } from './schema-converter.js';
 
 // ============================================================================
+// Standard IFCX schema imports
+// ============================================================================
+
+/** Standard IFC5 schema package URIs, keyed by the attribute prefix they provide. */
+const IFCX_SCHEMA_IMPORTS = {
+  /** Core IFC: bsi::ifc::class, bsi::ifc::globalId, bsi::ifc::name, bsi::ifc::description,
+   *  bsi::ifc::presentation::*, bsi::ifc::material, bsi::ifc::spaceBoundary */
+  IFC_CORE: 'https://ifcx.dev/@standards.buildingsmart.org/ifc/core/ifc@v5a.ifcx',
+  /** IFC properties: bsi::ifc::prop::* */
+  IFC_PROP: 'https://ifcx.dev/@standards.buildingsmart.org/ifc/core/prop@v5a.ifcx',
+  /** OpenUSD geometry: usd::usdgeom::mesh, usd::xformop, usd::usdgeom::visibility */
+  USD: 'https://ifcx.dev/@openusd.org/usd@v1.ifcx',
+} as const;
+
+// ============================================================================
 // Types
 // ============================================================================
 
@@ -74,7 +89,7 @@ interface IfcxFileOutput {
     author: string;
     timestamp: string;
   };
-  imports: string[];
+  imports: { uri: string }[];
   schemas: Record<string, unknown>;
   data: IfcxNodeOutput[];
 }
@@ -228,6 +243,9 @@ export class Ifc5Exporter {
       nodes.push(node);
     }
 
+    // Determine required imports by scanning which attribute namespaces are used
+    const imports = collectRequiredImports(nodes);
+
     // Assemble IFCX file
     const file: IfcxFileOutput = {
       header: {
@@ -237,7 +255,7 @@ export class Ifc5Exporter {
         author: options.author || 'ifc-lite',
         timestamp: new Date().toISOString(),
       },
-      imports: [],
+      imports,
       schemas: {},
       data: nodes,
     };
@@ -641,6 +659,48 @@ export class Ifc5Exporter {
 // ============================================================================
 // Helpers
 // ============================================================================
+
+/**
+ * Scan data nodes and return the list of standard IFCX import URIs needed
+ * for the attribute namespaces actually used.
+ */
+function collectRequiredImports(nodes: IfcxNodeOutput[]): { uri: string }[] {
+  let needsIfcCore = false;
+  let needsIfcProp = false;
+  let needsUsd = false;
+
+  for (const node of nodes) {
+    if (!node.attributes) continue;
+    for (const key of Object.keys(node.attributes)) {
+      if (!needsIfcCore && (
+        key === 'bsi::ifc::class' ||
+        key === 'bsi::ifc::globalId' ||
+        key === 'bsi::ifc::name' ||
+        key === 'bsi::ifc::description' ||
+        key.startsWith('bsi::ifc::presentation::') ||
+        key === 'bsi::ifc::material' ||
+        key === 'bsi::ifc::spaceBoundary'
+      )) {
+        needsIfcCore = true;
+      }
+      if (!needsIfcProp && key.startsWith('bsi::ifc::prop::')) {
+        needsIfcProp = true;
+      }
+      if (!needsUsd && key.startsWith('usd::')) {
+        needsUsd = true;
+      }
+      // Early exit if all found
+      if (needsIfcCore && needsIfcProp && needsUsd) break;
+    }
+    if (needsIfcCore && needsIfcProp && needsUsd) break;
+  }
+
+  const imports: { uri: string }[] = [];
+  if (needsIfcCore) imports.push({ uri: IFCX_SCHEMA_IMPORTS.IFC_CORE });
+  if (needsIfcProp) imports.push({ uri: IFCX_SCHEMA_IMPORTS.IFC_PROP });
+  if (needsUsd) imports.push({ uri: IFCX_SCHEMA_IMPORTS.USD });
+  return imports;
+}
 
 /**
  * Convert STEP uppercase type name (e.g. "IFCWALL") to PascalCase class name (e.g. "IfcWall").

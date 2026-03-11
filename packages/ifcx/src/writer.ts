@@ -8,9 +8,20 @@
  * Exports IFC data to IFCX JSON format.
  */
 
-import type { IfcxFile, IfcxNode, IfcxHeader } from './types.js';
+import type { IfcxFile, IfcxNode, IfcxHeader, ImportNode } from './types.js';
 import type { EntityTable, PropertyTable, PropertySet, SpatialHierarchy } from '@ifc-lite/data';
 import type { MutablePropertyView } from '@ifc-lite/mutations';
+
+// ============================================================================
+// Standard IFCX schema imports
+// ============================================================================
+
+/** Standard IFC5 schema package URIs, keyed by the attribute prefix they provide. */
+const IFCX_SCHEMA_IMPORTS = {
+  IFC_CORE: 'https://ifcx.dev/@standards.buildingsmart.org/ifc/core/ifc@v5a.ifcx',
+  IFC_PROP: 'https://ifcx.dev/@standards.buildingsmart.org/ifc/core/prop@v5a.ifcx',
+  USD: 'https://ifcx.dev/@openusd.org/usd@v1.ifcx',
+} as const;
 
 /**
  * Options for IFCX export
@@ -81,7 +92,7 @@ export class IfcxWriter {
 
     const file: IfcxFile = {
       header,
-      imports: [],
+      imports: collectRequiredImports(nodes),
       schemas: {},
       data: nodes,
     };
@@ -306,6 +317,47 @@ export class IfcxWriter {
   private generateId(): string {
     return `ifcx_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
   }
+}
+
+/**
+ * Scan data nodes and return the list of standard IFCX import URIs needed
+ * for the attribute namespaces actually used.
+ */
+function collectRequiredImports(nodes: IfcxNode[]): ImportNode[] {
+  let needsIfcCore = false;
+  let needsIfcProp = false;
+  let needsUsd = false;
+
+  for (const node of nodes) {
+    if (!node.attributes) continue;
+    for (const key of Object.keys(node.attributes)) {
+      if (!needsIfcCore && (
+        key === 'bsi::ifc::class' ||
+        key === 'bsi::ifc::globalId' ||
+        key === 'bsi::ifc::name' ||
+        key === 'bsi::ifc::description' ||
+        key.startsWith('bsi::ifc::presentation::') ||
+        key === 'bsi::ifc::material' ||
+        key === 'bsi::ifc::spaceBoundary'
+      )) {
+        needsIfcCore = true;
+      }
+      if (!needsIfcProp && key.startsWith('bsi::ifc::prop::')) {
+        needsIfcProp = true;
+      }
+      if (!needsUsd && key.startsWith('usd::')) {
+        needsUsd = true;
+      }
+      if (needsIfcCore && needsIfcProp && needsUsd) break;
+    }
+    if (needsIfcCore && needsIfcProp && needsUsd) break;
+  }
+
+  const imports: ImportNode[] = [];
+  if (needsIfcCore) imports.push({ uri: IFCX_SCHEMA_IMPORTS.IFC_CORE });
+  if (needsIfcProp) imports.push({ uri: IFCX_SCHEMA_IMPORTS.IFC_PROP });
+  if (needsUsd) imports.push({ uri: IFCX_SCHEMA_IMPORTS.USD });
+  return imports;
 }
 
 /**
