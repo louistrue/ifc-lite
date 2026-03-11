@@ -393,7 +393,24 @@ function getVisibleGlobalIds(state: ViewerStateSnapshot): Set<number> {
     globalHidden.add(id);
   }
 
-  const globalIsolation = state.isolatedEntities ?? computeStoreyIsolation(state);
+  const storeyIsolation = computeStoreyIsolation(state);
+  const classIsolation = state.isolatedEntities;
+
+  // Combine class isolation and storey isolation:
+  // - Both active → intersection (e.g., only columns on ground floor)
+  // - Only one active → use that one
+  // - Neither → null (show all)
+  let globalIsolation: Set<number> | null;
+  if (classIsolation !== null && storeyIsolation !== null) {
+    globalIsolation = new Set<number>();
+    for (const id of classIsolation) {
+      if (storeyIsolation.has(id)) {
+        globalIsolation.add(id);
+      }
+    }
+  } else {
+    globalIsolation = classIsolation ?? storeyIsolation;
+  }
 
   const visible = new Set<number>();
   for (const candidate of candidates) {
