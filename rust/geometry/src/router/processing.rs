@@ -6,7 +6,7 @@
 
 use super::GeometryRouter;
 use crate::{Error, Mesh, Result, SubMeshCollection};
-use ifc_lite_core::{DecodedEntity, EntityDecoder, GeometryCategory, IfcType};
+use ifc_lite_core::{has_geometry_by_name, DecodedEntity, EntityDecoder, GeometryCategory, IfcType};
 use nalgebra::Matrix4;
 use std::sync::Arc;
 
@@ -78,27 +78,14 @@ impl GeometryRouter {
         let mut translations: Vec<(f64, f64, f64)> = Vec::new();
         const MAX_SAMPLES: usize = 50;
 
-        const BUILDING_ELEMENT_TYPES: &[&str] = &[
-            // Building elements
-            "IFCWALL", "IFCWALLSTANDARDCASE", "IFCSLAB", "IFCBEAM", "IFCCOLUMN",
-            "IFCPLATE", "IFCROOF", "IFCCOVERING", "IFCFOOTING", "IFCRAILING",
-            "IFCSTAIR", "IFCSTAIRFLIGHT", "IFCRAMP", "IFCRAMPFLIGHT",
-            "IFCDOOR", "IFCWINDOW", "IFCFURNISHINGELEMENT", "IFCBUILDINGELEMENTPROXY",
-            "IFCMEMBER", "IFCCURTAINWALL", "IFCPILE", "IFCSHADINGDEVICE",
-            // IFC4X3 infrastructure elements (large real-world coordinates common)
-            "IFCPAVEMENT", "IFCCOURSE", "IFCKERB", "IFCBEARING",
-            "IFCEARTHWORKSELEMENT", "IFCEARTHWORKSCUT", "IFCEARTHWORKSFILL",
-            "IFCRAIL", "IFCSLEEPER", "IFCTRACKELEMENT",
-            "IFCNAVIGATIONELEMENT", "IFCSIGN", "IFCSIGNAL",
-            "IFCDEEPFOUNDATION",
-            "IFCBUILTELEMENT", "IFCCIVILELEMENT", "IFCGEOGRAPHICELEMENT",
-        ];
-
         while let Some((_id, type_name, start, end)) = scanner.next_entity() {
             if translations.len() >= MAX_SAMPLES {
                 break;
             }
-            if !BUILDING_ELEMENT_TYPES.iter().any(|&t| t == type_name) {
+            // Use the canonical has_geometry_by_name check from the schema
+            // instead of a hardcoded list — any entity class with geometry
+            // is a valid candidate for RTC offset sampling.
+            if !has_geometry_by_name(type_name) {
                 continue;
             }
             if let Ok(entity) = decoder.decode_at(start, end) {
