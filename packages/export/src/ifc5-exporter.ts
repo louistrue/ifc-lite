@@ -49,7 +49,7 @@ const IFCX_SCHEMA_IMPORTS = {
  *
  * Name and Description are handled separately (always exported), so they're excluded here.
  */
-const IFC5_KNOWN_PROP_NAMES = new Set([
+export const IFC5_KNOWN_PROP_NAMES = new Set([
   'UsageType',
   'TypeName',
   'IsExternal',
@@ -93,6 +93,10 @@ export interface Ifc5ExportOptions {
   hiddenEntityIds?: Set<number>;
   /** Isolated entity IDs (local expressIds, null = no isolation) */
   isolatedEntityIds?: Set<number> | null;
+  /** Only export properties with known IFC5 schemas (default: true).
+   *  When false, all IFC4 properties are exported even if they lack
+   *  an official IFC5 schema definition (viewer may show warnings). */
+  onlyKnownProperties?: boolean;
 }
 
 /** Result of IFC5 export */
@@ -470,7 +474,7 @@ export class Ifc5Exporter {
       const psets = this.mutationView.getForEntity(entityId);
       for (const pset of psets) {
         for (const prop of pset.properties) {
-          if (!IFC5_KNOWN_PROP_NAMES.has(prop.name)) continue;
+          if (options.onlyKnownProperties !== false && !IFC5_KNOWN_PROP_NAMES.has(prop.name)) continue;
           const key = `bsi::ifc::prop::${prop.name}`;
           result[key] = this.convertPropertyValue(prop.value, prop.type);
         }
@@ -479,7 +483,7 @@ export class Ifc5Exporter {
       const psets = this.dataStore.properties.getForEntity(entityId);
       for (const pset of psets) {
         for (const prop of pset.properties) {
-          if (!IFC5_KNOWN_PROP_NAMES.has(prop.name)) continue;
+          if (options.onlyKnownProperties !== false && !IFC5_KNOWN_PROP_NAMES.has(prop.name)) continue;
           const key = `bsi::ifc::prop::${prop.name}`;
           result[key] = this.convertPropertyValue(prop.value, prop.type);
         }
