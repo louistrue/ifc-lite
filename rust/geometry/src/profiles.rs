@@ -937,7 +937,16 @@ impl ProfileProcessor {
 
         // Convert trim parameters to angles (in degrees usually)
         let start_angle = trim1.unwrap_or(0.0).to_radians();
-        let end_angle = trim2.unwrap_or(360.0).to_radians();
+        let mut end_angle = trim2.unwrap_or(360.0).to_radians();
+
+        // Handle angle wrapping for arcs that cross the 0°/360° boundary.
+        // Example: start=359.98°, end=0° with sense=T should be a tiny arc (~0.02°),
+        // not a near-full circle (~359.98°).
+        if sense && end_angle < start_angle {
+            end_angle += 2.0 * std::f64::consts::PI;
+        } else if !sense && end_angle > start_angle {
+            end_angle -= 2.0 * std::f64::consts::PI;
+        }
 
         // Calculate arc angle and adaptive segment count
         // Use ~8 segments per 90° (quarter circle), minimum 2
