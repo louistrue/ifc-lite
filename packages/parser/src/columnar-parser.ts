@@ -160,7 +160,7 @@ const ASSOCIATION_REL_TYPES = new Set([
 ]);
 
 // Attributes to skip in extractAllEntityAttributes (shown elsewhere or non-displayable)
-const SKIP_DISPLAY_ATTRS = new Set(['GlobalId', 'OwnerHistory', 'ObjectPlacement', 'Representation']);
+const SKIP_DISPLAY_ATTRS = new Set(['GlobalId', 'OwnerHistory', 'ObjectPlacement', 'Representation', 'HasPropertySets', 'RepresentationMaps']);
 
 // Property-related entity types for on-demand extraction
 const PROPERTY_ENTITY_TYPES = new Set([
