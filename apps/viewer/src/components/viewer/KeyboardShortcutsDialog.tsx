@@ -9,7 +9,18 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { KEYBOARD_SHORTCUTS } from '@/hooks/useKeyboardShortcuts';
 
 const GITHUB_URL = 'https://github.com/louistrue/ifc-lite';
-const INITIAL_RELEASE_COUNT = 5;
+
+/** Core packages shown by default in the About tab */
+const CORE_PACKAGES = new Set([
+  '@ifc-lite/parser',
+  '@ifc-lite/renderer',
+  '@ifc-lite/geometry',
+  '@ifc-lite/sdk',
+  '@ifc-lite/ifcx',
+  '@ifc-lite/wasm',
+  '@ifc-lite/create',
+  '@ifc-lite/export',
+]);
 
 interface InfoDialogProps {
   open: boolean;
@@ -72,40 +83,61 @@ function AboutTab() {
       </div>
 
       {/* Package Versions */}
-      {packageVersions.length > 0 && (
-        <div className="space-y-2">
-          <button
-            onClick={() => setShowPackages(!showPackages)}
-            className="flex items-center gap-1.5 text-sm font-medium hover:text-foreground transition-colors w-full"
-          >
-            {showPackages ? (
-              <ChevronDown className="h-3.5 w-3.5" />
-            ) : (
-              <ChevronRight className="h-3.5 w-3.5" />
-            )}
-            <Package className="h-3.5 w-3.5" />
-            Package Versions
-            <span className="text-xs text-muted-foreground font-normal ml-auto">
-              {packageVersions.length} packages
-            </span>
-          </button>
-          {showPackages && (
-            <div className="rounded-md border bg-muted/30 p-2 space-y-0.5 max-h-48 overflow-y-auto">
-              {packageVersions.map((pkg) => (
+      {packageVersions.length > 0 && (() => {
+        const core = packageVersions.filter((p) => CORE_PACKAGES.has(p.name));
+        const rest = packageVersions.filter((p) => !CORE_PACKAGES.has(p.name));
+        return (
+          <div className="space-y-2">
+            <h4 className="text-sm font-medium flex items-center gap-1.5">
+              <Package className="h-3.5 w-3.5" />
+              Packages
+            </h4>
+            <div className="rounded-md border bg-muted/30 p-2 space-y-0.5">
+              {core.map((pkg) => (
                 <div
                   key={pkg.name}
                   className="flex items-center justify-between text-xs py-0.5 px-1"
                 >
                   <span className="text-muted-foreground font-mono truncate mr-2">
-                    {pkg.name}
+                    {pkg.name.replace('@ifc-lite/', '')}
                   </span>
                   <span className="font-mono shrink-0">{pkg.version}</span>
                 </div>
               ))}
+              {rest.length > 0 && (
+                <>
+                  <button
+                    onClick={() => setShowPackages(!showPackages)}
+                    className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors pt-1"
+                  >
+                    {showPackages ? (
+                      <ChevronDown className="h-3 w-3" />
+                    ) : (
+                      <ChevronRight className="h-3 w-3" />
+                    )}
+                    {showPackages ? 'Hide' : `${rest.length} more packages`}
+                  </button>
+                  {showPackages && (
+                    <div className="space-y-0.5 max-h-32 overflow-y-auto">
+                      {rest.map((pkg) => (
+                        <div
+                          key={pkg.name}
+                          className="flex items-center justify-between text-xs py-0.5 px-1"
+                        >
+                          <span className="text-muted-foreground font-mono truncate mr-2">
+                            {pkg.name.replace('@ifc-lite/', '')}
+                          </span>
+                          <span className="font-mono shrink-0">{pkg.version}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
             </div>
-          )}
-        </div>
-      )}
+          </div>
+        );
+      })()}
 
       {/* Links */}
       <div className="pt-4 border-t space-y-2">
@@ -141,18 +173,31 @@ function AboutTab() {
   );
 }
 
-function WhatsNewTab() {
-  const [showAll, setShowAll] = useState(false);
-  const releases = __RELEASE_HISTORY__;
+function formatPkgName(name: string): string {
+  return name.replace('@ifc-lite/', '').replace('create-ifc-lite', 'create-ifc-lite');
+}
 
-  const visibleReleases = useMemo(
-    () => (showAll ? releases : releases.slice(0, INITIAL_RELEASE_COUNT)),
-    [releases, showAll]
+function WhatsNewTab() {
+  const packageChangelogs = __RELEASE_HISTORY__;
+  const [selectedPkg, setSelectedPkg] = useState<string | null>(null);
+  const [expandedPkgs, setExpandedPkgs] = useState<Set<string>>(() => new Set());
+
+  const togglePkgExpanded = useCallback((name: string) => {
+    setExpandedPkgs((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+  }, []);
+
+  // When a specific package is selected, show its full changelog
+  const selectedChangelog = useMemo(
+    () => (selectedPkg ? packageChangelogs.find((p) => p.name === selectedPkg) : null),
+    [packageChangelogs, selectedPkg]
   );
 
-  const hasMore = releases.length > INITIAL_RELEASE_COUNT;
-
-  if (releases.length === 0) {
+  if (packageChangelogs.length === 0) {
     return (
       <div className="text-center py-8 text-sm text-muted-foreground">
         No release history available.
@@ -160,51 +205,127 @@ function WhatsNewTab() {
     );
   }
 
+  // Detail view for a single package
+  if (selectedChangelog) {
+    return (
+      <div className="space-y-3">
+        <button
+          onClick={() => setSelectedPkg(null)}
+          className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
+        >
+          <ChevronRight className="h-3.5 w-3.5 rotate-180" />
+          All packages
+        </button>
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-semibold font-mono">
+            {formatPkgName(selectedChangelog.name)}
+          </span>
+        </div>
+        <div className="space-y-3">
+          {selectedChangelog.releases.map((release, i) => (
+            <div key={release.version}>
+              <div className="flex items-center gap-2 mb-1.5">
+                <span className="text-xs font-medium text-muted-foreground">
+                  v{release.version}
+                </span>
+                {i === 0 && (
+                  <span className="px-1.5 py-0.5 text-[10px] font-medium bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 rounded">
+                    latest
+                  </span>
+                )}
+              </div>
+              <ul className="space-y-1 ml-0.5">
+                {release.highlights.map((h) => {
+                  const { icon: Icon, className } = TYPE_CONFIG[h.type];
+                  return (
+                    <li
+                      key={h.text}
+                      className="flex items-start gap-2 text-sm text-muted-foreground"
+                    >
+                      <Icon className={`h-3.5 w-3.5 mt-0.5 shrink-0 ${className}`} />
+                      <span>{h.text}</span>
+                    </li>
+                  );
+                })}
+              </ul>
+              {i < selectedChangelog.releases.length - 1 && (
+                <div className="border-b mt-2" />
+              )}
+            </div>
+          ))}
+        </div>
+        {/* Legend */}
+        <div className="pt-3 border-t flex items-center justify-center gap-4 text-[11px] text-muted-foreground">
+          <span className="flex items-center gap-1">
+            <Plus className="h-3 w-3 text-emerald-500" /> Feature
+          </span>
+          <span className="flex items-center gap-1">
+            <Wrench className="h-3 w-3 text-amber-500" /> Fix
+          </span>
+          <span className="flex items-center gap-1">
+            <Zap className="h-3 w-3 text-blue-500" /> Perf
+          </span>
+        </div>
+      </div>
+    );
+  }
+
+  // Overview: show each package with its latest version + highlights (expandable)
   return (
-    <div className="space-y-4">
-      {visibleReleases.map((release, i) => (
-        <div key={release.version}>
-          <div className="flex items-center gap-2 mb-1.5">
-            <span className="text-sm font-semibold">v{release.version}</span>
-            {i === 0 && (
-              <span className="px-1.5 py-0.5 text-[10px] font-medium bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 rounded">
-                latest
+    <div className="space-y-2">
+      {packageChangelogs.map((pkg) => {
+        const latest = pkg.releases[0];
+        const isExpanded = expandedPkgs.has(pkg.name);
+        return (
+          <div key={pkg.name} className="rounded-md border bg-muted/20">
+            <button
+              onClick={() => togglePkgExpanded(pkg.name)}
+              className="flex items-center gap-2 w-full px-3 py-2 text-left hover:bg-muted/40 transition-colors rounded-md"
+            >
+              {isExpanded ? (
+                <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />
+              ) : (
+                <ChevronRight className="h-3 w-3 shrink-0 text-muted-foreground" />
+              )}
+              <span className="text-sm font-medium font-mono truncate">
+                {formatPkgName(pkg.name)}
               </span>
+              <span className="text-xs text-muted-foreground ml-auto shrink-0">
+                v{latest.version}
+              </span>
+            </button>
+            {isExpanded && (
+              <div className="px-3 pb-2 space-y-1">
+                <ul className="space-y-1 ml-0.5">
+                  {latest.highlights.map((h) => {
+                    const { icon: Icon, className } = TYPE_CONFIG[h.type];
+                    return (
+                      <li
+                        key={h.text}
+                        className="flex items-start gap-2 text-sm text-muted-foreground"
+                      >
+                        <Icon className={`h-3.5 w-3.5 mt-0.5 shrink-0 ${className}`} />
+                        <span>{h.text}</span>
+                      </li>
+                    );
+                  })}
+                </ul>
+                {pkg.releases.length > 1 && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSelectedPkg(pkg.name);
+                    }}
+                    className="text-xs text-muted-foreground hover:text-foreground transition-colors mt-1"
+                  >
+                    View all {pkg.releases.length} releases →
+                  </button>
+                )}
+              </div>
             )}
           </div>
-          <ul className="space-y-1 ml-0.5">
-            {release.highlights.map((h) => {
-              const { icon: Icon, className } = TYPE_CONFIG[h.type];
-              return (
-                <li key={h.text} className="flex items-start gap-2 text-sm text-muted-foreground">
-                  <Icon className={`h-3.5 w-3.5 mt-0.5 shrink-0 ${className}`} />
-                  <span>
-                    {h.text}
-                    {h.package && (
-                      <span className="ml-1.5 text-[10px] opacity-50 font-mono">
-                        {h.package.replace('@ifc-lite/', '')}
-                      </span>
-                    )}
-                  </span>
-                </li>
-              );
-            })}
-          </ul>
-          {i < visibleReleases.length - 1 && (
-            <div className="border-b mt-3" />
-          )}
-        </div>
-      ))}
-
-      {hasMore && !showAll && (
-        <button
-          onClick={() => setShowAll(true)}
-          className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors mx-auto"
-        >
-          <ChevronDown className="h-3.5 w-3.5" />
-          Show all {releases.length} releases
-        </button>
-      )}
+        );
+      })}
 
       {/* Legend */}
       <div className="pt-3 border-t flex items-center justify-center gap-4 text-[11px] text-muted-foreground">
@@ -305,7 +426,7 @@ export function KeyboardShortcutsDialog({ open, onClose }: InfoDialogProps) {
             </TabsList>
           </div>
 
-          <TabsContent value="about" className="p-4 max-h-80 overflow-y-auto">
+          <TabsContent value="about" className="p-4 max-h-96 overflow-y-auto">
             <AboutTab />
           </TabsContent>
 

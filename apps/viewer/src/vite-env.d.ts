@@ -21,7 +21,10 @@ interface ImportMeta {
 declare const __APP_VERSION__: string;
 declare const __BUILD_DATE__: string;
 declare const __RELEASE_HISTORY__: Array<{
-  version: string;
-  highlights: Array<{ type: 'feature' | 'fix' | 'perf'; text: string; package?: string }>;
+  name: string;
+  releases: Array<{
+    version: string;
+    highlights: Array<{ type: 'feature' | 'fix' | 'perf'; text: string }>;
+  }>;
 }>;
 declare const __PACKAGE_VERSIONS__: Array<{ name: string; version: string }>;

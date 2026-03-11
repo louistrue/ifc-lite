@@ -10,12 +10,16 @@ import fs from 'fs';
 interface ReleaseHighlight {
   type: 'feature' | 'fix' | 'perf';
   text: string;
-  package?: string;
 }
 
-interface Release {
+interface PackageRelease {
   version: string;
   highlights: ReleaseHighlight[];
+}
+
+interface PackageChangelog {
+  name: string;
+  releases: PackageRelease[];
 }
 
 interface PackageVersion {
@@ -75,7 +79,7 @@ function compareSemver(a: string, b: string): number {
   return 0;
 }
 
-function parseChangelogs(): Release[] {
+function parseChangelogs(): PackageChangelog[] {
   const packagesDir = path.resolve(__dirname, '../../packages');
   let dirs: string[];
   try {
@@ -84,16 +88,14 @@ function parseChangelogs(): Release[] {
     return [];
   }
 
-  const versionMap = new Map<string, Map<string, ReleaseHighlight>>();
-  const seenVersionsPerFile = new Map<string, Set<string>>();
+  const MAX_HIGHLIGHTS_PER_VERSION = 12;
+  const result: PackageChangelog[] = [];
 
   for (const dir of dirs) {
     const changelogPath = path.join(packagesDir, dir, 'CHANGELOG.md');
     if (!fs.existsSync(changelogPath)) continue;
 
     const content = fs.readFileSync(changelogPath, 'utf-8');
-    const fileKey = dir;
-    seenVersionsPerFile.set(fileKey, new Set());
 
     // Read package name from package.json
     let pkgName = dir;
@@ -104,6 +106,9 @@ function parseChangelogs(): Release[] {
       pkgName = pkgJson.name || dir;
     } catch { /* use dir name as fallback */ }
 
+    const seenVersions = new Set<string>();
+    const releases: PackageRelease[] = [];
+
     // Split into version blocks
     const versionBlocks = content.split(/^## /m).slice(1);
 
@@ -113,14 +118,10 @@ function parseChangelogs(): Release[] {
       const version = versionMatch[1];
 
       // Skip duplicate version sections within same file
-      if (seenVersionsPerFile.get(fileKey)!.has(version)) continue;
-      seenVersionsPerFile.get(fileKey)!.add(version);
+      if (seenVersions.has(version)) continue;
+      seenVersions.add(version);
 
-      if (!versionMap.has(version)) {
-        versionMap.set(version, new Map());
-      }
-      const highlights = versionMap.get(version)!;
-
+      const highlights = new Map<string, ReleaseHighlight>();
       const lines = block.split('\n');
 
       // 1) Extract top-level bullet descriptions (lines starting with "- " at root indent)
@@ -132,7 +133,7 @@ function parseChangelogs(): Release[] {
         if (desc && desc.length >= 10) {
           const key = desc.toLowerCase().substring(0, 60);
           if (!highlights.has(key)) {
-            highlights.set(key, { type: categorizeHighlight(desc), text: desc, package: pkgName });
+            highlights.set(key, { type: categorizeHighlight(desc), text: desc });
           }
         }
       }
@@ -150,21 +151,30 @@ function parseChangelogs(): Release[] {
 
         const key = text.toLowerCase().substring(0, 60);
         if (!highlights.has(key)) {
-          highlights.set(key, { type: categorizeHighlight(text), text, package: pkgName });
+          highlights.set(key, { type: categorizeHighlight(text), text });
         }
       }
+
+      if (highlights.size > 0) {
+        releases.push({
+          version,
+          highlights: Array.from(highlights.values()).slice(0, MAX_HIGHLIGHTS_PER_VERSION),
+        });
+      }
+    }
+
+    if (releases.length > 0) {
+      // Already sorted by file order (newest first in CHANGELOG.md)
+      result.push({ name: pkgName, releases });
     }
   }
 
-  const MAX_HIGHLIGHTS_PER_VERSION = 12;
-
-  return Array.from(versionMap.entries())
-    .sort((a, b) => compareSemver(b[0], a[0]))
-    .map(([version, highlights]) => ({
-      version,
-      highlights: Array.from(highlights.values()).slice(0, MAX_HIGHLIGHTS_PER_VERSION),
-    }))
-    .filter((r) => r.highlights.length > 0);
+  // Sort packages: those with the most release content first
+  return result.sort((a, b) => {
+    const aTotal = a.releases.reduce((s, r) => s + r.highlights.length, 0);
+    const bTotal = b.releases.reduce((s, r) => s + r.highlights.length, 0);
+    return bTotal - aTotal;
+  });
 }
 
 // Read version from viewer package.json (primary app version) with root fallback
