@@ -512,9 +512,10 @@ export function DataConnector({ trigger }: DataConnectorProps) {
   // Derive the current step for the step indicator
   const currentStep = useMemo(() => {
     if (importStats) return 3;
+    if (csvColumns.length > 0 && matchColumn && mappings.length > 0) return 2;
     if (csvColumns.length > 0) return 1;
     return 0;
-  }, [csvColumns.length, importStats]);
+  }, [csvColumns.length, matchColumn, mappings.length, importStats]);
 
   const steps = ['Upload CSV', 'Configure Mapping', 'Import'];
 
@@ -951,8 +952,7 @@ export function DataConnector({ trigger }: DataConnectorProps) {
             disabled={
               !csvConnector ||
               !csvContent ||
-              !matchResults ||
-              matchStats?.matched === 0 ||
+              !matchColumn ||
               mappings.length === 0 ||
               isProcessing
             }
@@ -965,7 +965,7 @@ export function DataConnector({ trigger }: DataConnectorProps) {
             ) : (
               <>
                 <Play className="h-4 w-4 mr-2" />
-                Import {matchStats?.matched || 0} rows
+                {matchStats ? `Import ${matchStats.matched} rows` : 'Import'}
               </>
             )}
           </Button>
