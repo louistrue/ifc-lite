@@ -16,6 +16,7 @@
 import { loadIfcFile } from '../loader.js';
 import { hasFlag, fatal, printJson } from '../output.js';
 import { EntityNode } from '@ifc-lite/query';
+import { getInheritanceChainForEntity } from '@ifc-lite/parser';
 
 interface ValidationIssue {
   severity: 'error' | 'warning' | 'info';
@@ -49,9 +50,11 @@ export async function validateCommand(args: string[]): Promise<void> {
     issues.push({ severity: 'warning', rule: 'has-storeys', message: 'No IfcBuildingStorey entities found' });
   }
 
-  // 3. Check GlobalId uniqueness
+  // 3. Check GlobalId uniqueness (only for entity types that inherit from IfcRoot)
   const globalIds = new Map<string, number[]>();
-  for (const [, ids] of store.entityIndex.byType) {
+  for (const [typeName, ids] of store.entityIndex.byType) {
+    const chain = getInheritanceChainForEntity(typeName);
+    if (!chain.includes('IfcRoot')) continue;
     for (const id of ids) {
       const node = new EntityNode(store, id);
       const gid = node.globalId;
