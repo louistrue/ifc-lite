@@ -22,6 +22,14 @@
 - **Honor fallback behavior:** If federation lookup misses, support single-model fallback (`globalId === expressId`) and legacy sentinel behavior (`modelId: 'legacy'`) where required.
 - **Do not hardcode multi-model assumptions:** Avoid logic that only works when `models.size > 1`; verify behavior for `models.size === 0` (legacy), `1`, and `N`.
 
-## 5. Feedback Loop
+## 5. CLI Toolkit (`@ifc-lite/cli`)
+- **Headless BIM operations:** Use `ifc-lite` CLI for terminal-based IFC file operations without a browser/viewer.
+- **Discovery:** Run `ifc-lite schema` to get the full SDK API as JSON (88 methods across 8 namespaces).
+- **Key commands:** `info` (summary), `query` (filter entities), `props` (entity details), `export` (CSV/JSON/IFC), `ids` (validation), `bcf` (collaboration), `create` (generate IFC), `eval` (SDK expressions), `run` (execute scripts), `schema` (API reference).
+- **Machine-readable output:** Always use `--json` flag for structured JSON output. Stdout = data, stderr = status messages.
+- **`eval` is the power tool:** `ifc-lite eval model.ifc "bim.query().byType('IfcWall').count()"` — the `bim` object exposes the full `@ifc-lite/sdk` API.
+- **HeadlessBackend:** `packages/cli/src/headless-backend.ts` implements `BimBackend` without a renderer. Viewer-specific operations are no-ops; query, export, create, IDS, and BCF work fully.
+
+## 6. Feedback Loop
 - If a pattern is confusing or repeatedly error-prone, call it out explicitly in your PR notes.
 - Prefer refactors that make the correct path the easiest path (single source of truth helpers, stricter types, fewer implicit fallbacks).

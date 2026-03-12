@@ -113,6 +113,7 @@ nav:
   - Getting Started:
     - Installation: guide/installation.md
     - Quick Start: guide/quickstart.md
+    - CLI Toolkit: guide/cli.md
     - Server Guide: guide/server.md
     - Desktop App: guide/desktop.md
     - Browser Requirements: guide/browser-requirements.md
