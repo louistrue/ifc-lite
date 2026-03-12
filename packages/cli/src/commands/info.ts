@@ -11,6 +11,7 @@
 import { loadIfcFile } from '../loader.js';
 import { printJson, formatTable, hasFlag, fatal } from '../output.js';
 import { EntityNode } from '@ifc-lite/query';
+import { IFC_ENTITY_NAMES } from '@ifc-lite/data';
 
 export async function infoCommand(args: string[]): Promise<void> {
   const filePath = args.find(a => !a.startsWith('-'));
@@ -24,8 +25,8 @@ export async function infoCommand(args: string[]): Promise<void> {
   const typeCounts: Record<string, number> = {};
   for (const [typeName, ids] of store.entityIndex.byType) {
     if (ids.length > 0) {
-      // Convert to PascalCase display name
-      const displayName = store.entities.getTypeName(ids[0]) || typeName;
+      // Convert UPPERCASE STEP type name to PascalCase for display
+      const displayName = IFC_ENTITY_NAMES[typeName] ?? typeName;
       typeCounts[displayName] = (typeCounts[displayName] ?? 0) + ids.length;
     }
   }

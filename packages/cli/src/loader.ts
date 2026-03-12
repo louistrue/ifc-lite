@@ -18,6 +18,20 @@ import { HeadlessBackend } from './headless-backend.js';
  */
 export async function loadIfcFile(filePath: string): Promise<IfcDataStore> {
   const buffer = await readFile(filePath);
+
+  // Validate the file is a STEP/IFC file
+  if (buffer.byteLength === 0) {
+    process.stderr.write(`Error: ${filePath} is empty (0 bytes)\n`);
+    process.exit(1);
+  }
+
+  // Check for STEP file signature ("ISO-10303-21") in the first 256 bytes
+  const headerSnippet = buffer.subarray(0, Math.min(buffer.byteLength, 256)).toString('ascii');
+  if (!headerSnippet.includes('ISO-10303-21')) {
+    process.stderr.write(`Error: ${filePath} is not a valid IFC/STEP file\n`);
+    process.exit(1);
+  }
+
   const parser = new IfcParser();
 
   // Suppress parser's internal console.log/warn during parsing

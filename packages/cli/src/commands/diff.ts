@@ -12,6 +12,7 @@
 import { loadIfcFile } from '../loader.js';
 import { hasFlag, fatal, printJson, formatTable } from '../output.js';
 import { EntityNode } from '@ifc-lite/query';
+import { IFC_ENTITY_NAMES } from '@ifc-lite/data';
 
 export async function diffCommand(args: string[]): Promise<void> {
   const positional = args.filter(a => !a.startsWith('-'));
@@ -41,11 +42,8 @@ export async function diffCommand(args: string[]): Promise<void> {
     const c1 = types1.get(t) ?? 0;
     const c2 = types2.get(t) ?? 0;
     if (c1 !== c2) {
-      const displayName = store1.entities.getTypeName(
-        store1.entityIndex.byType.get(t)?.[0] ?? 0
-      ) || store2.entities.getTypeName(
-        store2.entityIndex.byType.get(t)?.[0] ?? 0
-      ) || t;
+      // Convert UPPERCASE STEP type name to PascalCase for display
+      const displayName = IFC_ENTITY_NAMES[t] ?? t;
       typeDiffs.push({ type: displayName, count1: c1, count2: c2, delta: c2 - c1 });
     }
   }

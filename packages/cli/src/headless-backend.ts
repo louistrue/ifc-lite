@@ -165,9 +165,11 @@ export class HeadlessBackend implements BimBackend {
     const store = this.store;
 
     function getEntityData(ref: EntityRef): EntityData | null {
+      // Verify the entity actually exists in the parsed data
+      if (!store.entityIndex.byId.has(ref.expressId)) return null;
       const node = new EntityNode(store, ref.expressId);
       const type = node.type;
-      if (!type) return null;
+      if (!type || type === 'Unknown') return null;
       return {
         ref,
         globalId: node.globalId,

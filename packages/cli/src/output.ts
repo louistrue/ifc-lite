@@ -51,9 +51,15 @@ export function formatTable(headers: string[], rows: string[][]): string {
 
 /**
  * Print JSON to stdout.
+ * Handles Map instances by converting them to plain objects.
  */
 export function printJson(data: unknown): void {
-  process.stdout.write(JSON.stringify(data, null, 2) + '\n');
+  process.stdout.write(JSON.stringify(data, (_key, value) => {
+    if (value instanceof Map) {
+      return Object.fromEntries(value);
+    }
+    return value;
+  }, 2) + '\n');
 }
 
 /**

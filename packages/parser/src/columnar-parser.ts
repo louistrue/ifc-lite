@@ -160,10 +160,16 @@ const SPATIAL_TYPES = new Set([
     'IFCPROJECT', 'IFCSITE', 'IFCBUILDING', 'IFCBUILDINGSTOREY', 'IFCSPACE',
 ]);
 
-// Relationship types needed for hierarchy
+// Relationship types needed for hierarchy and structural relationships
 const HIERARCHY_REL_TYPES = new Set([
     'IFCRELAGGREGATES', 'IFCRELCONTAINEDINSPATIALSTRUCTURE',
     'IFCRELDEFINESBYTYPE',
+    // Structural relationships (voids, fills, connections, groups)
+    'IFCRELVOIDSELEMENT', 'IFCRELFILLSELEMENT',
+    'IFCRELCONNECTSPATHELEMENTS', 'IFCRELCONNECTSELEMENTS',
+    'IFCRELSPACEBOUNDARY',
+    'IFCRELASSIGNSTOGROUP', 'IFCRELASSIGNSTOPRODUCT',
+    'IFCRELREFERENCEDINSPATIALSTRUCTURE',
 ]);
 
 // Relationship types for on-demand property loading
@@ -586,19 +592,33 @@ export class ColumnarParser {
         if (typeUpper === 'IFCRELDEFINESBYPROPERTIES' || typeUpper === 'IFCRELDEFINESBYTYPE' || typeUpper === 'IFCRELCONTAINEDINSPATIALSTRUCTURE') {
             relatedObjects = attrs[4];
             relatingObject = attrs[5];
+        } else if (typeUpper === 'IFCRELASSIGNSTOGROUP' || typeUpper === 'IFCRELASSIGNSTOPRODUCT') {
+            // IfcRelAssigns subtypes: [4]=RelatedObjects, [6]=RelatingGroup/Product
+            relatedObjects = attrs[4];
+            relatingObject = attrs.length > 6 ? attrs[6] : undefined;
         } else {
             relatingObject = attrs[4];
             relatedObjects = attrs[5];
         }
 
-        if (typeof relatingObject !== 'number' || !Array.isArray(relatedObjects)) {
+        if (typeof relatingObject !== 'number') {
+            return null;
+        }
+
+        // Handle both 1-to-many (array) and 1-to-1 (single ref) relationships
+        let relatedArray: number[];
+        if (Array.isArray(relatedObjects)) {
+            relatedArray = relatedObjects.filter((id): id is number => typeof id === 'number');
+        } else if (typeof relatedObjects === 'number') {
+            relatedArray = [relatedObjects];
+        } else {
             return null;
         }
 
         return {
             type: entity.type,
             relatingObject,
-            relatedObjects: relatedObjects.filter((id): id is number => typeof id === 'number'),
+            relatedObjects: relatedArray,
         };
     }
 

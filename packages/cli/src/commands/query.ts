@@ -40,14 +40,32 @@ export async function queryCommand(args: string[]): Promise<void> {
   if (spatial) {
     const storeys = bim.storeys();
     const tree: Record<string, unknown[]> = {};
-    for (const storey of storeys) {
-      const contained = bim.contains(storey.ref);
-      tree[storey.name || `Storey #${storey.ref.expressId}`] = contained.map(e => ({
-        type: e.type,
-        name: e.name,
-        globalId: e.globalId,
-      }));
+
+    if (storeys.length > 0) {
+      for (const storey of storeys) {
+        const contained = bim.contains(storey.ref);
+        tree[storey.name || `Storey #${storey.ref.expressId}`] = contained.map(e => ({
+          type: e.type,
+          name: e.name,
+          globalId: e.globalId,
+        }));
+      }
+    } else {
+      // Fall back to buildings when no storeys exist
+      const buildings = bim.query().byType('IfcBuilding').toArray();
+      for (const building of buildings) {
+        const contained = bim.contains(building.ref);
+        tree[building.name || `Building #${building.ref.expressId}`] = contained.map(e => ({
+          type: e.type,
+          name: e.name,
+          globalId: e.globalId,
+        }));
+      }
+      if (buildings.length === 0) {
+        process.stderr.write('No storeys or buildings found in spatial structure\n');
+      }
     }
+
     printJson(tree);
     return;
   }
