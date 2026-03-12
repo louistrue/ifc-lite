@@ -84,10 +84,18 @@ const RECIPES: Recipe[] = [
   },
   {
     name: 'count-type',
-    patterns: [/how many (ifc\w+)/i, /count (ifc\w+)/i],
+    patterns: [/how many (ifc\w+)/i, /count (ifc\w+)/i, /how many (\w+)/i, /count (\w+)/i, /number of (\w+)/i],
     description: 'Count entities of a specific IFC type',
     execute: (bim, _store, match) => {
-      const typeName = match?.[1] ?? 'IfcProduct';
+      let typeName = match?.[1] ?? 'IfcProduct';
+      // Auto-prefix Ifc if not already present
+      if (!typeName.startsWith('Ifc') && !typeName.startsWith('IFC')) {
+        // Singularize common plural forms and capitalize
+        let singular = typeName;
+        if (singular.endsWith('ies')) singular = singular.slice(0, -3) + 'y';
+        else if (singular.endsWith('s') && !singular.endsWith('ss')) singular = singular.slice(0, -1);
+        typeName = 'Ifc' + singular.charAt(0).toUpperCase() + singular.slice(1).toLowerCase();
+      }
       const count = bim.query().byType(typeName).count();
       return { answer: `${count} ${typeName} entities`, count, type: typeName };
     },
@@ -123,20 +131,34 @@ const RECIPES: Recipe[] = [
   {
     name: 'window-wall-ratio',
     patterns: [/window.?wall.?ratio/i, /wwr/i, /glazing ratio/i],
-    description: 'Calculate window-to-wall ratio',
+    description: 'Calculate window-to-wall ratio (ISO 13790: exterior walls only)',
     execute: (bim) => {
-      const walls = bim.query().byType('IfcWall').toArray();
       const windows = bim.query().byType('IfcWindow').toArray();
-      let wallArea = 0;
-      for (const w of walls) wallArea += getQuantity(bim, w.ref, ['GrossSideArea', 'NetSideArea']);
       let windowArea = 0;
       for (const w of windows) windowArea += getQuantity(bim, w.ref, ['Area']);
+
+      // Per ISO 13790, WWR should use exterior wall area only
+      const { exteriorWalls, area: extWallArea, hasIsExternalData } = getExteriorWalls(bim);
+      let wallArea: number;
+      let wallSource: string;
+      if (hasIsExternalData && extWallArea > 0) {
+        wallArea = extWallArea;
+        wallSource = `${exteriorWalls.length} exterior walls`;
+      } else {
+        // Fallback to all walls if no IsExternal data
+        const allWalls = bim.query().byType('IfcWall').toArray();
+        wallArea = 0;
+        for (const w of allWalls) wallArea += getQuantity(bim, w.ref, ['GrossSideArea', 'NetSideArea']);
+        wallSource = `${allWalls.length} walls (all, IsExternal not available)`;
+      }
+
       const ratio = wallArea > 0 ? (windowArea / wallArea) * 100 : 0;
       return {
-        answer: `Window-Wall Ratio: ${round(ratio)}% (${round(windowArea)} m2 windows / ${round(wallArea)} m2 walls)`,
+        answer: `Window-Wall Ratio: ${round(ratio)}% (${round(windowArea)} m2 windows / ${round(wallArea)} m2 ${wallSource})`,
         ratio: round(ratio),
         windowArea: round(windowArea),
         wallArea: round(wallArea),
+        wallSource,
       };
     },
   },
@@ -278,20 +300,99 @@ const RECIPES: Recipe[] = [
     patterns: [/exterior.*wall/i, /external.*wall/i, /outside.*wall/i, /facade.*area/i],
     description: 'Count and measure exterior walls (IsExternal=true)',
     execute: (bim) => {
-      const walls = bim.query().byType('IfcWall').toArray();
-      let count = 0;
-      let area = 0;
-      for (const w of walls) {
-        const isExt = getPropValue(bim, w.ref, 'Pset_WallCommon', 'IsExternal');
-        if (isExt === true || isExt === 'TRUE' || isExt === '.T.') {
-          count++;
-          area += getQuantity(bim, w.ref, ['GrossSideArea', 'NetSideArea']);
-        }
+      const { exteriorWalls, area: extArea, hasIsExternalData } = getExteriorWalls(bim);
+      if (!hasIsExternalData) {
+        // Fallback: no IsExternal property data available
+        const allWalls = bim.query().byType('IfcWall').toArray();
+        let totalArea = 0;
+        for (const w of allWalls) totalArea += getQuantity(bim, w.ref, ['GrossSideArea', 'NetSideArea']);
+        return {
+          answer: `${allWalls.length} walls (IsExternal property not available — showing all walls), ${round(totalArea)} m2 total area`,
+          count: allWalls.length,
+          area: round(totalArea),
+          caveat: 'IsExternal property not found; results include all walls',
+        };
       }
       return {
-        answer: `${count} exterior walls, ${round(area)} m2 total area`,
-        count,
-        area: round(area),
+        answer: `${exteriorWalls.length} exterior walls, ${round(extArea)} m2 total area`,
+        count: exteriorWalls.length,
+        area: round(extArea),
+      };
+    },
+  },
+
+  // --- Ranking recipes ---
+  {
+    name: 'largest-element',
+    patterns: [/largest wall/i, /biggest wall/i, /largest slab/i, /biggest slab/i, /largest (\w+)/i, /biggest (\w+)/i],
+    description: 'Find the largest element by area or volume',
+    execute: (bim, _store, match) => {
+      const typeHint = match?.[1]?.toLowerCase() ?? 'wall';
+      const typeMap: Record<string, string> = {
+        wall: 'IfcWall', slab: 'IfcSlab', window: 'IfcWindow', door: 'IfcDoor',
+        column: 'IfcColumn', beam: 'IfcBeam', roof: 'IfcRoof', pile: 'IfcPile',
+      };
+      const ifcType = typeMap[typeHint] ?? ('Ifc' + typeHint.charAt(0).toUpperCase() + typeHint.slice(1));
+      const areaNames = ifcType === 'IfcWall'
+        ? ['GrossSideArea', 'NetSideArea']
+        : ['GrossArea', 'NetArea', 'Area', 'GrossSideArea'];
+
+      const entities = bim.query().byType(ifcType).toArray();
+      let maxEntity: any = null;
+      let maxValue = 0;
+      for (const e of entities) {
+        const val = getQuantity(bim, e.ref, areaNames) || getQuantity(bim, e.ref, ['GrossVolume', 'NetVolume']);
+        if (val > maxValue) {
+          maxValue = val;
+          maxEntity = e;
+        }
+      }
+      if (!maxEntity) {
+        return { answer: `No ${ifcType} entities found`, count: 0 };
+      }
+      return {
+        answer: `Largest ${ifcType}: "${maxEntity.name ?? '(unnamed)'}" with ${round(maxValue)} (m2 or m3)`,
+        name: maxEntity.name,
+        globalId: maxEntity.globalId,
+        value: round(maxValue),
+        type: ifcType,
+      };
+    },
+  },
+  {
+    name: 'smallest-element',
+    patterns: [/smallest wall/i, /smallest slab/i, /smallest (\w+)/i],
+    description: 'Find the smallest element by area or volume',
+    execute: (bim, _store, match) => {
+      const typeHint = match?.[1]?.toLowerCase() ?? 'wall';
+      const typeMap: Record<string, string> = {
+        wall: 'IfcWall', slab: 'IfcSlab', window: 'IfcWindow', door: 'IfcDoor',
+        column: 'IfcColumn', beam: 'IfcBeam',
+      };
+      const ifcType = typeMap[typeHint] ?? ('Ifc' + typeHint.charAt(0).toUpperCase() + typeHint.slice(1));
+      const areaNames = ifcType === 'IfcWall'
+        ? ['GrossSideArea', 'NetSideArea']
+        : ['GrossArea', 'NetArea', 'Area', 'GrossSideArea'];
+
+      const entities = bim.query().byType(ifcType).toArray();
+      let minEntity: any = null;
+      let minValue = Infinity;
+      for (const e of entities) {
+        const val = getQuantity(bim, e.ref, areaNames) || getQuantity(bim, e.ref, ['GrossVolume', 'NetVolume']);
+        if (val > 0 && val < minValue) {
+          minValue = val;
+          minEntity = e;
+        }
+      }
+      if (!minEntity) {
+        return { answer: `No ${ifcType} entities with quantities found`, count: 0 };
+      }
+      return {
+        answer: `Smallest ${ifcType}: "${minEntity.name ?? '(unnamed)'}" with ${round(minValue)} (m2 or m3)`,
+        name: minEntity.name,
+        globalId: minEntity.globalId,
+        value: round(minValue),
+        type: ifcType,
       };
     },
   },
@@ -379,6 +480,29 @@ export async function askCommand(args: string[]): Promise<void> {
       fatal(`Recipe "${recipe.name}" failed: ${err.message}`);
     }
   }
+}
+
+/**
+ * Get exterior walls and their total area. Returns whether IsExternal data exists at all.
+ */
+function getExteriorWalls(bim: any): { exteriorWalls: any[]; area: number; hasIsExternalData: boolean } {
+  const walls = bim.query().byType('IfcWall').toArray();
+  const exteriorWalls: any[] = [];
+  let area = 0;
+  let hasIsExternalData = false;
+
+  for (const w of walls) {
+    const isExt = getPropValue(bim, w.ref, 'Pset_WallCommon', 'IsExternal');
+    if (isExt !== undefined) {
+      hasIsExternalData = true;
+      if (isExt === true || isExt === 'TRUE' || isExt === '.T.') {
+        exteriorWalls.push(w);
+        area += getQuantity(bim, w.ref, ['GrossSideArea', 'NetSideArea']);
+      }
+    }
+  }
+
+  return { exteriorWalls, area, hasIsExternalData };
 }
 
 function getQuantity(bim: any, ref: any, names: string[]): number {

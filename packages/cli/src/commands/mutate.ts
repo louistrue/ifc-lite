@@ -11,7 +11,7 @@
 
 import { writeFile } from 'node:fs/promises';
 import { loadIfcFile, createHeadlessContext } from '../loader.js';
-import { getFlag, hasFlag, fatal, printJson } from '../output.js';
+import { getFlag, getAllFlags, hasFlag, fatal, printJson } from '../output.js';
 import { MutablePropertyView } from '@ifc-lite/mutations';
 import { StepExporter } from '@ifc-lite/export';
 import { extractPropertiesOnDemand } from '@ifc-lite/parser';
@@ -40,23 +40,35 @@ function parseWhereFilter(filter: string): { psetName: string; propName: string;
 }
 
 /**
- * Parse a --set value like "Pset_WallCommon.IsExternal=true" into
- * { psetName, propName, value }.
+ * Parse a --set value. Supports two forms:
+ *   "PsetName.PropName=Value"  → property set mutation
+ *   "AttributeName=Value"      → entity attribute mutation (Name, Description, etc.)
  */
-function parseSetArg(setStr: string): { psetName: string; propName: string; value: string } {
+function parseSetArg(setStr: string): { psetName: string | null; propName: string; value: string; isAttribute: boolean } {
   const dotIdx = setStr.indexOf('.');
-  if (dotIdx <= 0) {
-    fatal(`Invalid --set syntax: "${setStr}". Expected: PsetName.PropName=Value`);
+  const eqIdx = setStr.indexOf('=');
+
+  if (eqIdx <= 0) {
+    fatal(`Invalid --set syntax: "${setStr}". Expected: PsetName.PropName=Value or AttributeName=Value`);
   }
+
+  // No dot or dot comes after '=' → attribute mutation (e.g. "Name=TestWall")
+  if (dotIdx <= 0 || dotIdx > eqIdx) {
+    const propName = setStr.slice(0, eqIdx);
+    const value = setStr.slice(eqIdx + 1);
+    return { psetName: null, propName, value, isAttribute: true };
+  }
+
+  // Standard pset.prop=value form
   const psetName = setStr.slice(0, dotIdx);
   const rest = setStr.slice(dotIdx + 1);
-  const eqIdx = rest.indexOf('=');
-  if (eqIdx <= 0) {
+  const restEqIdx = rest.indexOf('=');
+  if (restEqIdx <= 0) {
     fatal(`Invalid --set syntax: "${setStr}". Expected: PsetName.PropName=Value`);
   }
-  const propName = rest.slice(0, eqIdx);
-  const value = rest.slice(eqIdx + 1);
-  return { psetName, propName, value };
+  const propName = rest.slice(0, restEqIdx);
+  const value = rest.slice(restEqIdx + 1);
+  return { psetName, propName, value, isAttribute: false };
 }
 
 /**
@@ -102,16 +114,19 @@ export async function mutateCommand(args: string[]): Promise<void> {
 
   const idStr = getFlag(args, '--id');
   const type = getFlag(args, '--type');
-  const setStr = getFlag(args, '--set');
+  const setStrs = getAllFlags(args, '--set');
   const outPath = getFlag(args, '--out');
   const propFilter = getFlag(args, '--where');
   const jsonOutput = hasFlag(args, '--json');
 
-  if (!setStr) fatal('--set is required. Example: --set Pset_WallCommon.IsExternal=true');
+  if (setStrs.length === 0) fatal('--set is required. Example: --set Pset_WallCommon.IsExternal=true or --set Name=TestWall');
   if (!outPath) fatal('--out is required. Specify output file path.');
 
-  const { psetName, propName, value } = parseSetArg(setStr);
-  const { coerced, valueType } = coerceValue(value);
+  const mutations = setStrs.map(s => {
+    const parsed = parseSetArg(s);
+    const { coerced, valueType } = coerceValue(parsed.value);
+    return { ...parsed, coerced, valueType };
+  });
 
   // Load the store and create a BimContext for querying
   const { bim, store } = await createHeadlessContext(filePath);
@@ -176,14 +191,23 @@ export async function mutateCommand(args: string[]): Promise<void> {
 
   // Apply mutations via the real mutation system
   let mutatedCount = 0;
+  const attributeMutations: { entity: any; propName: string; value: string }[] = [];
+
   for (const entity of targets) {
-    mutationView.setProperty(
-      entity.ref.expressId,
-      psetName,
-      propName,
-      coerced,
-      valueType,
-    );
+    for (const mut of mutations) {
+      if (mut.isAttribute) {
+        // Attribute mutations are handled via store manipulation
+        attributeMutations.push({ entity, propName: mut.propName, value: mut.value });
+      } else {
+        mutationView.setProperty(
+          entity.ref.expressId,
+          mut.psetName!,
+          mut.propName,
+          mut.coerced,
+          mut.valueType,
+        );
+      }
+    }
     mutatedCount++;
   }
 
@@ -195,18 +219,134 @@ export async function mutateCommand(args: string[]): Promise<void> {
     applyMutations: true,
   });
 
-  await writeFile(outPath, result.content, 'utf-8');
+  // Apply attribute mutations via STEP text post-processing
+  let outputContent = result.content;
+  if (attributeMutations.length > 0) {
+    outputContent = applyAttributeMutations(outputContent, attributeMutations);
+  }
 
+  await writeFile(outPath, outputContent, 'utf-8');
+
+  const mutationDescs = mutations.map(m =>
+    m.isAttribute ? m.propName : `${m.psetName}.${m.propName}`
+  );
   if (jsonOutput) {
     printJson({
       mutated: mutatedCount,
-      property: `${psetName}.${propName}`,
-      value: coerced,
+      properties: mutationDescs.map((desc, i) => ({
+        property: desc,
+        value: mutations[i].coerced,
+      })),
       output: outPath,
       stats: result.stats,
     });
   } else {
-    process.stderr.write(`Mutated ${mutatedCount} entities: ${psetName}.${propName} = ${value}\n`);
+    for (const mut of mutations) {
+      const desc = mut.isAttribute ? mut.propName : `${mut.psetName}.${mut.propName}`;
+      process.stderr.write(`Mutated ${mutatedCount} entities: ${desc} = ${mut.value}\n`);
+    }
     process.stderr.write(`Written to ${outPath} (${result.stats.entityCount} entities, ${result.stats.newEntityCount} new)\n`);
   }
+}
+
+/**
+ * IFC entity attribute indices (0-based positions in STEP argument list).
+ * Standard for all IfcRoot subtypes: GlobalId(0), OwnerHistory(1), Name(2), Description(3).
+ * IfcObject subtypes add ObjectType(4). Tag varies by entity type.
+ */
+const ATTRIBUTE_INDEX: Record<string, number> = {
+  name: 2,
+  description: 3,
+  objecttype: 4,
+};
+
+/**
+ * Apply attribute mutations to STEP content via text replacement.
+ * For each target entity, finds its STEP line and replaces the attribute at the known index.
+ */
+function applyAttributeMutations(
+  content: string,
+  mutations: { entity: any; propName: string; value: string }[],
+): string {
+  // Group mutations by expressId for efficient single-pass replacement
+  const mutationsByEntity = new Map<number, { propName: string; value: string }[]>();
+  for (const m of mutations) {
+    const id = m.entity.ref.expressId;
+    const list = mutationsByEntity.get(id) ?? [];
+    list.push({ propName: m.propName, value: m.value });
+    mutationsByEntity.set(id, list);
+  }
+
+  const lines = content.split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    // Match entity lines: #123=IFCTYPE(...);
+    const match = line.match(/^#(\d+)\s*=\s*\w+\s*\(/);
+    if (!match) continue;
+
+    const expressId = parseInt(match[1], 10);
+    const entityMuts = mutationsByEntity.get(expressId);
+    if (!entityMuts) continue;
+
+    // Parse the STEP argument list (handle nested parens and quoted strings)
+    const argsStart = line.indexOf('(');
+    const argsEnd = line.lastIndexOf(')');
+    if (argsStart === -1 || argsEnd === -1) continue;
+
+    const args = splitStepArgs(line.slice(argsStart + 1, argsEnd));
+
+    for (const mut of entityMuts) {
+      const attrIdx = ATTRIBUTE_INDEX[mut.propName.toLowerCase()];
+      if (attrIdx !== undefined && attrIdx < args.length) {
+        // Escape for STEP format and wrap in quotes
+        const escaped = mut.value.replace(/\\/g, '\\\\').replace(/'/g, "''");
+        args[attrIdx] = `'${escaped}'`;
+      } else {
+        process.stderr.write(`Warning: attribute "${mut.propName}" not recognized for entity #${expressId}\n`);
+      }
+    }
+
+    lines[i] = line.slice(0, argsStart + 1) + args.join(',') + line.slice(argsEnd);
+  }
+
+  return lines.join('\n');
+}
+
+/**
+ * Split a STEP argument string by commas, respecting nested parens and quoted strings.
+ */
+function splitStepArgs(argsStr: string): string[] {
+  const result: string[] = [];
+  let current = '';
+  let depth = 0;
+  let inString = false;
+
+  for (let i = 0; i < argsStr.length; i++) {
+    const ch = argsStr[i];
+    if (inString) {
+      current += ch;
+      if (ch === "'" && argsStr[i + 1] === "'") {
+        current += "'";
+        i++; // skip escaped quote
+      } else if (ch === "'") {
+        inString = false;
+      }
+    } else if (ch === "'") {
+      inString = true;
+      current += ch;
+    } else if (ch === '(') {
+      depth++;
+      current += ch;
+    } else if (ch === ')') {
+      depth--;
+      current += ch;
+    } else if (ch === ',' && depth === 0) {
+      result.push(current);
+      current = '';
+    } else {
+      current += ch;
+    }
+  }
+  if (current) result.push(current);
+  return result;
 }

@@ -22,6 +22,8 @@ import { printJson, fatal, hasFlag, getFlag } from '../output.js';
 
 /** Known flags that take a value argument */
 const EVAL_VALUE_FLAGS = new Set(['--type', '--limit']);
+/** Known boolean flags (no value) */
+const EVAL_BOOLEAN_FLAGS = new Set(['--json']);
 
 export async function evalCommand(args: string[]): Promise<void> {
   const jsonOutput = hasFlag(args, '--json');
@@ -29,26 +31,28 @@ export async function evalCommand(args: string[]): Promise<void> {
   const limitStr = getFlag(args, '--limit');
 
   // Parse positional args, skipping known flags and their values.
-  // Once the file path (first positional) is collected, stop option parsing
-  // so expressions like "-1" are not treated as flags.
+  // Known value flags (--type, --limit) and boolean flags (--json) are always
+  // skipped regardless of position. After the file path is collected, other
+  // dash-prefixed tokens (e.g. "-1") are treated as expression parts.
   const positional: string[] = [];
-  let noMoreOptions = false;
+  let afterFilePath = false;
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     if (arg === '--') {
-      noMoreOptions = true;
+      afterFilePath = true;
       continue;
     }
-    if (!noMoreOptions) {
-      if (EVAL_VALUE_FLAGS.has(arg)) {
-        i++; // skip flag value
-        continue;
-      }
-      if (arg.startsWith('-')) continue; // skip boolean flags
+    // Always skip known flags, even after the file path
+    if (EVAL_VALUE_FLAGS.has(arg)) {
+      i++; // skip flag value
+      continue;
     }
+    if (EVAL_BOOLEAN_FLAGS.has(arg)) continue;
+    // Before the file path, skip any unrecognised flags too
+    if (!afterFilePath && arg.startsWith('-')) continue;
     positional.push(arg);
-    // After collecting the file path, treat everything else as expression parts
-    if (positional.length === 1) noMoreOptions = true;
+    // After collecting the file path, allow dash-prefixed expression tokens
+    if (positional.length === 1) afterFilePath = true;
   }
 
   if (positional.length < 2) fatal('Usage: ifc-lite eval <file.ifc> "<expression>"');

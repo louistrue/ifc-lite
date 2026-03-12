@@ -80,6 +80,20 @@ export function getFlag(args: string[], flag: string): string | undefined {
 }
 
 /**
+ * Collect all values for a repeated flag (e.g. --set A --set B → ['A', 'B']).
+ */
+export function getAllFlags(args: string[], flag: string): string[] {
+  const results: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === flag && i + 1 < args.length) {
+      results.push(args[i + 1]);
+      i++; // skip value
+    }
+  }
+  return results;
+}
+
+/**
  * Check if a boolean flag is present.
  */
 export function hasFlag(args: string[], flag: string): boolean {

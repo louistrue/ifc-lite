@@ -35,7 +35,8 @@ export async function statsCommand(args: string[]): Promise<void> {
   const ELEMENT_TYPES = [
     'IfcWall', 'IfcSlab', 'IfcDoor', 'IfcWindow', 'IfcColumn', 'IfcBeam',
     'IfcRoof', 'IfcStair', 'IfcRailing', 'IfcSpace', 'IfcMember', 'IfcPlate',
-    'IfcCovering', 'IfcFooting', 'IfcCurtainWall', 'IfcFurnishingElement',
+    'IfcCovering', 'IfcFooting', 'IfcPile', 'IfcCurtainWall', 'IfcFurnishingElement',
+    'IfcRamp',
   ];
   const elementCounts: Record<string, number> = {};
   let totalElements = 0;

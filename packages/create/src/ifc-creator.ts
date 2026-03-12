@@ -36,13 +36,28 @@ import type {
 // Internal helpers
 // ============================================================================
 
-/** Generate a 22-character IFC GlobalId (base64-ish) */
+/** Track generated GlobalIds to guarantee uniqueness within a process */
+const usedGlobalIds = new Set<string>();
+
+/** Generate a 22-character IFC GlobalId (base64-ish) using crypto-strong randomness */
 function newGlobalId(): string {
   const chars = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_$';
-  let result = '';
-  for (let i = 0; i < 22; i++) {
-    result += chars[Math.floor(Math.random() * 64)];
-  }
+  let result: string;
+  do {
+    // Use Web Crypto API (works in both Node.js and browsers)
+    const bytes = new Uint8Array(22);
+    if (typeof globalThis.crypto !== 'undefined' && globalThis.crypto.getRandomValues) {
+      globalThis.crypto.getRandomValues(bytes);
+    } else {
+      // Fallback for older environments
+      for (let i = 0; i < 22; i++) bytes[i] = Math.floor(Math.random() * 256);
+    }
+    result = '';
+    for (let i = 0; i < 22; i++) {
+      result += chars[bytes[i] % 64];
+    }
+  } while (usedGlobalIds.has(result));
+  usedGlobalIds.add(result);
   return result;
 }
 

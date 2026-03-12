@@ -965,7 +965,11 @@ function outputGroupBy(entities: any[], groupByKey: string, sumQuantity: string 
     }
     if (sumQuantity) {
       const grandTotal = [...groupAgg.values()].reduce((a, b) => a + b, 0);
-      process.stdout.write(`\n  Total: ${entities.length} entities in ${groups.size} groups\n\n`);
+      process.stdout.write(`\n  Total: ${entities.length} entities in ${groups.size} groups\n`);
+      if (grandTotal === 0 && entities.length > 0) {
+        process.stderr.write(`\n  Warning: All ${sumQuantity} values are 0. The file may not contain quantity data for this property.\n`);
+      }
+      process.stdout.write('\n');
     } else {
       process.stdout.write(`\n  Total: ${entities.length} entities in ${groups.size} groups\n\n`);
     }
