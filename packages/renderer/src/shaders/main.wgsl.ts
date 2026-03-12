@@ -106,6 +106,21 @@ export const mainShaderSource = `
             }
           }
 
+          // DEBUG: Visualize section plane data reaching GPU
+          // Green tint = section flag reached shader, red channel = distance proximity
+          var sectionDebugTint = vec3<f32>(0.0, 0.0, 0.0);
+          if (uniforms.flags.y == 1u) {
+            let planeNormal = uniforms.sectionPlane.xyz;
+            let planeDistance = uniforms.sectionPlane.w;
+            let distToPlane = dot(input.worldPos, planeNormal) - planeDistance;
+            // Green = section flag reached GPU, intensity = how close to the cut plane
+            sectionDebugTint = vec3<f32>(
+              clamp(-distToPlane / 5.0, 0.0, 1.0),  // Red = below plane (kept fragments)
+              0.3,                                      // Green = section enabled indicator
+              clamp(abs(distToPlane) / 2.0, 0.0, 0.5)  // Blue = distance from plane
+            );
+          }
+
           let N = normalize(input.normal);
 
           // Enhanced lighting with multiple sources
@@ -230,6 +245,12 @@ export const mainShaderSource = `
 
           // Gamma correction
           color = pow(color, vec3<f32>(1.0 / 2.2));
+
+          // DEBUG: Apply section debug tint (green = section active, red/blue = distance info)
+          // Remove this block once section clipping is confirmed working
+          if (sectionDebugTint.g > 0.0) {
+            color = mix(color, sectionDebugTint, 0.4);
+          }
 
           var out: FragmentOutput;
           out.color = vec4<f32>(color, finalAlpha);

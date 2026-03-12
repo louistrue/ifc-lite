@@ -4,7 +4,12 @@
 
 /**
  * Render updates hook for the 3D viewport
- * Handles visibility/selection/section/hover state re-render effects
+ *
+ * Single consolidated effect for triggering re-renders when visibility,
+ * selection, section plane, hover, or theme state changes.
+ *
+ * CRITICAL: Only ONE render call per state change to avoid flickering.
+ * The 2D overlay upload and the 3D render happen in the same effect.
  */
 
 import { useEffect, type MutableRefObject } from 'react';
@@ -34,7 +39,7 @@ export interface UseRenderUpdatesParams {
   sectionRange: { min: number; max: number } | null;
   coordinateInfo?: CoordinateInfo;
 
-  // Refs for theme re-render
+  // Refs for animation-loop renders (not used here, kept for interface compat)
   hiddenEntitiesRef: MutableRefObject<Set<number>>;
   isolatedEntitiesRef: MutableRefObject<Set<number> | null>;
   selectedEntityIdRef: MutableRefObject<number | null>;
@@ -48,6 +53,32 @@ export interface UseRenderUpdatesParams {
   drawing2D: Drawing2D | null;
   show3DOverlay: boolean;
   showHiddenLines: boolean;
+}
+
+/**
+ * Build the section plane render option.
+ * Returns undefined when the section tool is not active.
+ * Only passes axis-mode data to the renderer (face mode is not yet supported in the renderer).
+ */
+function buildSectionOption(
+  activeTool: string,
+  sectionPlane: SectionPlane,
+  sectionRange: { min: number; max: number } | null,
+): import('@ifc-lite/renderer').SectionPlane | undefined {
+  if (activeTool !== 'section') return undefined;
+
+  // Face mode: renderer doesn't understand arbitrary normals yet.
+  // Only pass section data when in axis mode.
+  if (sectionPlane.mode === 'face') return undefined;
+
+  return {
+    axis: sectionPlane.axis,
+    position: sectionPlane.position,
+    enabled: sectionPlane.enabled,
+    flipped: sectionPlane.flipped,
+    min: sectionRange?.min,
+    max: sectionRange?.max,
+  };
 }
 
 export function useRenderUpdates(params: UseRenderUpdatesParams): void {
@@ -66,52 +97,33 @@ export function useRenderUpdates(params: UseRenderUpdatesParams): void {
     sectionPlane,
     sectionRange,
     coordinateInfo,
-    hiddenEntitiesRef,
-    isolatedEntitiesRef,
-    selectedEntityIdRef,
-    selectedModelIndexRef,
-    selectedEntityIdsRef,
     sectionPlaneRef,
     sectionRangeRef,
-    activeToolRef,
     drawing2D,
     show3DOverlay,
     showHiddenLines,
   } = params;
 
-  // Theme-aware clear color update
+  // Theme-aware clear color update (separate effect — theme changes are rare)
   useEffect(() => {
-    // Update clear color when theme changes
     clearColorRef.current = getThemeClearColor(theme as 'light' | 'dark');
-    // Re-render with new clear color
-    const renderer = rendererRef.current;
-    if (renderer && isInitialized) {
-      renderer.render({
-        hiddenIds: hiddenEntitiesRef.current,
-        isolatedIds: isolatedEntitiesRef.current,
-        selectedId: selectedEntityIdRef.current,
-        selectedModelIndex: selectedModelIndexRef.current,
-        clearColor: clearColorRef.current,
-        visualEnhancement: visualEnhancementRef.current,
-      });
-    }
-  }, [theme, isInitialized]);
+  }, [theme]);
 
-  // 2D section overlay: upload drawing data to renderer when available
+  // SINGLE consolidated render effect.
+  // Handles: visibility, selection, section plane, drawing overlay, theme.
+  // Only ONE renderer.render() call per state change — no flickering.
   useEffect(() => {
     const renderer = rendererRef.current;
     if (!renderer || !isInitialized) return;
 
-    // Only show overlay when section tool is active, we have a drawing, AND 3D overlay is enabled
-    if (activeTool === 'section' && drawing2D && drawing2D.cutPolygons.length > 0 && show3DOverlay) {
-      // Convert Drawing2D format to renderer format
+    // Step 1: Update 2D section overlay if needed
+    if (activeTool === 'section' && sectionPlane.mode === 'axis' && drawing2D && drawing2D.cutPolygons.length > 0 && show3DOverlay) {
       const polygons: CutPolygon2D[] = drawing2D.cutPolygons.map((cp) => ({
         polygon: cp.polygon,
         ifcType: cp.ifcType,
-        expressId: cp.entityId,  // DrawingPolygon uses entityId
+        expressId: cp.entityId,
       }));
 
-      // Include linework from the generated drawing on the section plane overlay.
       const lines: DrawingLine2D[] = drawing2D.lines
         .filter((line) => showHiddenLines || line.visibility !== 'hidden')
         .map((line) => ({
@@ -119,43 +131,28 @@ export function useRenderUpdates(params: UseRenderUpdatesParams): void {
           category: line.category,
         }));
 
-      // Upload to renderer - will be drawn on the section plane
-      // Pass sectionRange to match exactly what render() uses for section plane position
       renderer.uploadSection2DOverlay(
         polygons,
         lines,
         sectionPlane.axis,
         sectionPlane.position,
-        sectionRangeRef.current ?? undefined,  // Same range as section plane
+        sectionRangeRef.current ?? undefined,
         sectionPlane.flipped
       );
     } else {
-      // Clear overlay when not in section mode, no drawing, or overlay disabled
       renderer.clearSection2DOverlay();
     }
 
-    // Re-render to show/hide overlay
-    renderer.render({
-      hiddenIds: hiddenEntitiesRef.current,
-      isolatedIds: isolatedEntitiesRef.current,
-      selectedId: selectedEntityIdRef.current,
-      selectedIds: selectedEntityIdsRef.current,
-      selectedModelIndex: selectedModelIndexRef.current,
-      clearColor: clearColorRef.current,
-      visualEnhancement: visualEnhancementRef.current,
-      sectionPlane: activeTool === 'section' ? {
-        ...sectionPlane,
-        min: sectionRangeRef.current?.min,
-        max: sectionRangeRef.current?.max,
-      } : undefined,
-    });
-  }, [drawing2D, activeTool, sectionPlane, isInitialized, coordinateInfo, show3DOverlay, showHiddenLines]);
+    // Step 2: Update persistent section state on the renderer.
+    // This ensures ALL subsequent renders (streaming, color updates, animation loop)
+    // respect section clipping even if they don't pass sectionPlane in options.
+    const sectionOpt = buildSectionOption(activeTool, sectionPlane, sectionRange);
+    renderer.setSectionPlane(sectionOpt, coordinateInfo?.buildingRotation);
+    if (sectionOpt) {
+      console.debug('[RenderUpdates] section →', sectionOpt.axis, 'pos=' + sectionOpt.position, 'en=' + sectionOpt.enabled, 'range=', sectionOpt.min, sectionOpt.max);
+    }
 
-  // Re-render when visibility, selection, or section plane changes
-  useEffect(() => {
-    const renderer = rendererRef.current;
-    if (!renderer || !isInitialized) return;
-
+    // Step 3: Single render call
     renderer.render({
       hiddenIds: hiddenEntities,
       isolatedIds: isolatedEntities,
@@ -164,14 +161,26 @@ export function useRenderUpdates(params: UseRenderUpdatesParams): void {
       selectedModelIndex,
       clearColor: clearColorRef.current,
       visualEnhancement: visualEnhancementRef.current,
-      sectionPlane: activeTool === 'section' ? {
-        ...sectionPlane,
-        min: sectionRange?.min,
-        max: sectionRange?.max,
-      } : undefined,
+      sectionPlane: sectionOpt,
       buildingRotation: coordinateInfo?.buildingRotation,
     });
-  }, [hiddenEntities, isolatedEntities, selectedEntityId, selectedEntityIds, selectedModelIndex, isInitialized, sectionPlane, activeTool, sectionRange, coordinateInfo?.buildingRotation]);
+  }, [
+    // All reactive dependencies — any change triggers exactly ONE render
+    hiddenEntities,
+    isolatedEntities,
+    selectedEntityId,
+    selectedEntityIds,
+    selectedModelIndex,
+    isInitialized,
+    sectionPlane,
+    activeTool,
+    sectionRange,
+    coordinateInfo?.buildingRotation,
+    theme,
+    drawing2D,
+    show3DOverlay,
+    showHiddenLines,
+  ]);
 }
 
 export default useRenderUpdates;

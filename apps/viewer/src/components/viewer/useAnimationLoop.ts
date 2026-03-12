@@ -4,7 +4,9 @@
 
 /**
  * Animation loop hook for the 3D viewport
- * Handles requestAnimationFrame loop, camera update, ViewCube sync
+ *
+ * Handles requestAnimationFrame loop, camera update, ViewCube sync,
+ * and continuous rendering during gizmo drag interaction.
  */
 
 import { useEffect, type MutableRefObject, type RefObject } from 'react';
@@ -40,6 +42,25 @@ export interface UseAnimationLoopParams {
   hasPendingMeasurements: () => boolean;
 }
 
+/** Build section render option from refs (axis mode only — face mode not yet in renderer) */
+function buildSectionOption(
+  activeToolRef: MutableRefObject<string>,
+  sectionPlaneRef: MutableRefObject<SectionPlane>,
+  sectionRangeRef: MutableRefObject<{ min: number; max: number } | null>,
+) {
+  if (activeToolRef.current !== 'section') return undefined;
+  const sp = sectionPlaneRef.current;
+  if (sp.mode === 'face') return undefined;
+  return {
+    axis: sp.axis,
+    position: sp.position,
+    enabled: sp.enabled,
+    flipped: sp.flipped,
+    min: sectionRangeRef.current?.min,
+    max: sectionRangeRef.current?.max,
+  };
+}
+
 export function useAnimationLoop(params: UseAnimationLoopParams): void {
   const {
     canvasRef,
@@ -72,9 +93,9 @@ export function useAnimationLoop(params: UseAnimationLoopParams): void {
     const camera = renderer.getCamera();
     let aborted = false;
 
-    // Animation loop - update ViewCube in real-time
     let lastRotationUpdate = 0;
     let lastScaleUpdate = 0;
+
     const animate = (currentTime: number) => {
       if (aborted) return;
 
@@ -82,7 +103,14 @@ export function useAnimationLoop(params: UseAnimationLoopParams): void {
       lastFrameTimeRef.current = currentTime;
 
       const isAnimating = camera.update(deltaTime);
-      if (isAnimating) {
+
+      // Determine if we need to render this frame:
+      // 1. Camera is animating (preset transitions, inertia, etc.)
+      // 2. Gizmo is being dragged (section plane position changing continuously)
+      const isGizmoDragging = sectionPlaneRef.current.gizmo.dragging;
+      const needsRender = isAnimating || isGizmoDragging;
+
+      if (needsRender) {
         renderer.render({
           hiddenIds: hiddenEntitiesRef.current,
           isolatedIds: isolatedEntitiesRef.current,
@@ -90,69 +118,60 @@ export function useAnimationLoop(params: UseAnimationLoopParams): void {
           selectedModelIndex: selectedModelIndexRef.current,
           clearColor: clearColorRef.current,
           visualEnhancement: visualEnhancementRef.current,
-          sectionPlane: activeToolRef.current === 'section' ? {
-            ...sectionPlaneRef.current,
-            min: sectionRangeRef.current?.min,
-            max: sectionRangeRef.current?.max,
-          } : undefined,
+          sectionPlane: buildSectionOption(activeToolRef, sectionPlaneRef, sectionRangeRef),
         });
-        // Update ViewCube during camera animation (e.g., preset view transitions)
-        updateCameraRotationRealtime(camera.getRotation());
-        calculateScale();
+
+        if (isAnimating) {
+          updateCameraRotationRealtime(camera.getRotation());
+          calculateScale();
+        }
       } else if (!mouseIsDraggingRef.current && currentTime - lastRotationUpdate > 500) {
-        // Update camera rotation for ViewCube when not dragging (throttled to every 500ms when idle)
         updateCameraRotationRealtime(camera.getRotation());
         lastRotationUpdate = currentTime;
       }
 
-      // Update scale bar (throttled to every 500ms - scale rarely needs frequent updates)
+      // Scale bar (throttled)
       if (currentTime - lastScaleUpdate > 500) {
         calculateScale();
         lastScaleUpdate = currentTime;
       }
 
-      // Update measurement screen coordinates only when:
-      // 1. Measure tool is active (not in other modes)
-      // 2. Measurements exist
-      // 3. Camera actually changed
-      // This prevents unnecessary store updates and re-renders when not measuring
-      if (activeToolRef.current === 'measure') {
-        if (hasPendingMeasurements()) {
-          const cameraPos = camera.getPosition();
-          const cameraRot = camera.getRotation();
-          const cameraDist = camera.getDistance();
-          const currentCameraState = {
-            position: cameraPos,
-            rotation: cameraRot,
-            distance: cameraDist,
-            canvasWidth: canvas.width,
-            canvasHeight: canvas.height,
-          };
+      // Measurement screen coord updates
+      if (activeToolRef.current === 'measure' && hasPendingMeasurements()) {
+        const cameraPos = camera.getPosition();
+        const cameraRot = camera.getRotation();
+        const cameraDist = camera.getDistance();
+        const currentCameraState = {
+          position: cameraPos,
+          rotation: cameraRot,
+          distance: cameraDist,
+          canvasWidth: canvas.width,
+          canvasHeight: canvas.height,
+        };
 
-          // Check if camera state changed
-          const lastState = lastCameraStateRef.current;
-          const cameraChanged =
-            !lastState ||
-            lastState.position.x !== currentCameraState.position.x ||
-            lastState.position.y !== currentCameraState.position.y ||
-            lastState.position.z !== currentCameraState.position.z ||
-            lastState.rotation.azimuth !== currentCameraState.rotation.azimuth ||
-            lastState.rotation.elevation !== currentCameraState.rotation.elevation ||
-            lastState.distance !== currentCameraState.distance ||
-            lastState.canvasWidth !== currentCameraState.canvasWidth ||
-            lastState.canvasHeight !== currentCameraState.canvasHeight;
+        const lastState = lastCameraStateRef.current;
+        const cameraChanged =
+          !lastState ||
+          lastState.position.x !== currentCameraState.position.x ||
+          lastState.position.y !== currentCameraState.position.y ||
+          lastState.position.z !== currentCameraState.position.z ||
+          lastState.rotation.azimuth !== currentCameraState.rotation.azimuth ||
+          lastState.rotation.elevation !== currentCameraState.rotation.elevation ||
+          lastState.distance !== currentCameraState.distance ||
+          lastState.canvasWidth !== currentCameraState.canvasWidth ||
+          lastState.canvasHeight !== currentCameraState.canvasHeight;
 
-          if (cameraChanged) {
-            lastCameraStateRef.current = currentCameraState;
-            updateMeasurementScreenCoords((worldPos) => {
-              return camera.projectToScreen(worldPos, canvas.width, canvas.height);
-            });
-          }
+        if (cameraChanged) {
+          lastCameraStateRef.current = currentCameraState;
+          updateMeasurementScreenCoords((worldPos) => {
+            return camera.projectToScreen(worldPos, canvas.width, canvas.height);
+          });
         }
       }
 
       animationFrameRef.current = requestAnimationFrame(animate);
     };
+
     lastFrameTimeRef.current = performance.now();
     animationFrameRef.current = requestAnimationFrame(animate);
 

@@ -527,8 +527,11 @@ export function Viewport({ geometry, geometryVersion, coordinateInfo, computedIs
           selectedModelIndex: selectedModelIndexRef.current,
           clearColor: clearColorRef.current,
           visualEnhancement: visualEnhancementRef.current,
-          sectionPlane: activeToolRef.current === 'section' ? {
-            ...sectionPlaneRef.current,
+          sectionPlane: activeToolRef.current === 'section' && sectionPlaneRef.current.mode !== 'face' ? {
+            axis: sectionPlaneRef.current.axis,
+            position: sectionPlaneRef.current.position,
+            enabled: sectionPlaneRef.current.enabled,
+            flipped: sectionPlaneRef.current.flipped,
             min: sectionRangeRef.current?.min,
             max: sectionRangeRef.current?.max,
           } : undefined,

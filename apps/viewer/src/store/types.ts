@@ -86,13 +86,42 @@ export interface EdgeLockState {
 /** Semantic axis names: down (Y), front (Z), side (X) for intuitive user experience */
 export type SectionPlaneAxis = 'down' | 'front' | 'side';
 
+/** How the section plane is defined */
+export type SectionMode = 'axis' | 'face';
+
+/** State for the 3D gizmo drag interaction */
+export interface SectionGizmoState {
+  /** Whether the gizmo is currently being dragged */
+  dragging: boolean;
+  /** Screen-space start position of drag */
+  startScreenY: number;
+  /** Section position at drag start (0-100) */
+  startPosition: number;
+}
+
+/** Face-based section: arbitrary plane defined by a picked surface normal */
+export interface SectionFace {
+  /** Unit normal of the picked face (world space) */
+  normal: { x: number; y: number; z: number };
+  /** A point on the picked face (world space, used as anchor) */
+  point: { x: number; y: number; z: number };
+  /** Offset along the normal from the anchor point (world units, can be negative) */
+  offset: number;
+}
+
 export interface SectionPlane {
+  /** How the section was created */
+  mode: SectionMode;
   axis: SectionPlaneAxis;
   /** 0-100 percentage of model bounds */
   position: number;
   enabled: boolean;
   /** If true, show the opposite side of the cut */
   flipped: boolean;
+  /** Face-based section data (only used when mode === 'face') */
+  face: SectionFace | null;
+  /** Gizmo interaction state */
+  gizmo: SectionGizmoState;
 }
 
 // ============================================================================

@@ -13,7 +13,7 @@ function createMockCrossSlice() {
     hiddenEntities: new Set<number>(),
     models: new Map<string, { idOffset: number }>([['legacy', { idOffset: 0 }]]),
     cameraCallbacks: { getViewpoint: () => null },
-    sectionPlane: { axis: 'front' as const, position: 50, enabled: false, flipped: false },
+    sectionPlane: { mode: 'axis' as const, axis: 'front' as const, position: 50, enabled: false, flipped: false, face: null, gizmo: { dragging: false, startScreenY: 0, startPosition: 0 } },
     drawing2D: null,
     drawing2DDisplayOptions: { show3DOverlay: true, showHiddenLines: true },
     setDrawing2D: () => {},

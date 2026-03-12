@@ -114,7 +114,16 @@ export class Renderer {
 
     // Error rate limiting (log at most once per second)
     private lastRenderErrorTime: number = 0;
+    private _sectionDebugThrottle: number = 0;
+    private _renderDebugThrottle: number = 0;
     private readonly RENDER_ERROR_THROTTLE_MS = 1000;
+
+    // Persistent section plane state — survives render calls that don't pass sectionPlane.
+    // This fixes the bug where streaming/color-update renders overwrite a clipped frame
+    // with an unclipped one because they only pass { clearColor }.
+    // Set to undefined to clear section (e.g., when switching away from section tool).
+    private _persistentSectionPlane: import('./types.js').SectionPlane | undefined;
+    private _persistentBuildingRotation: number | undefined;
 
     // Pooled per-frame buffers to avoid GC pressure from per-batch Float32Array allocations
     // A single 192-byte uniform buffer (48 floats) is reused for all batches/meshes within a frame
@@ -274,10 +283,42 @@ export class Renderer {
     }
 
     /**
+     * Explicitly set (or clear) the persistent section plane state.
+     * All subsequent render() calls will use this section plane even if
+     * they don't pass sectionPlane in RenderOptions.
+     */
+    setSectionPlane(sectionPlane: import('./types.js').SectionPlane | undefined, buildingRotation?: number): void {
+        this._persistentSectionPlane = sectionPlane;
+        this._persistentBuildingRotation = buildingRotation;
+    }
+
+    /**
      * Render frame
      */
     render(options: RenderOptions = {}): void {
         if (!this.device.isInitialized() || !this.pipeline) return;
+
+        // Merge persistent section state: if caller provides sectionPlane, use it
+        // and update the persistent state. If caller omits it, reuse persistent state.
+        // This ensures streaming/color-update renders don't lose section clipping.
+        if (options.sectionPlane !== undefined) {
+            this._persistentSectionPlane = options.sectionPlane;
+        }
+        if (options.buildingRotation !== undefined) {
+            this._persistentBuildingRotation = options.buildingRotation;
+        }
+        // Apply persistent state to options for this render call
+        const effectiveSectionPlane = options.sectionPlane ?? this._persistentSectionPlane;
+        const effectiveBuildingRotation = options.buildingRotation ?? this._persistentBuildingRotation;
+
+        // DEBUG: Track render calls with/without section data
+        if (!this._renderDebugThrottle || Date.now() - this._renderDebugThrottle > 200) {
+            this._renderDebugThrottle = Date.now();
+            const hasSP = !!effectiveSectionPlane;
+            const spEnabled = effectiveSectionPlane?.enabled;
+            const source = options.sectionPlane ? 'explicit' : (this._persistentSectionPlane ? 'persistent' : 'none');
+            console.debug('[Render]', hasSP ? `section=${effectiveSectionPlane!.axis}@${effectiveSectionPlane!.position}% en=${spEnabled} src=${source}` : 'NO-SECTION', new Error().stack?.split('\n')[2]?.trim());
+        }
 
         // Validate canvas dimensions
         // Align width to 64 pixels for WebGPU texture row alignment (256 bytes / 4 bytes per pixel)
@@ -417,7 +458,7 @@ export class Renderer {
             // Calculate section plane parameters and model bounds
             // Always calculate bounds when sectionPlane is provided (for preview and active mode)
             let sectionPlaneData: { normal: [number, number, number]; distance: number; enabled: boolean } | undefined;
-            if (options.sectionPlane) {
+            if (effectiveSectionPlane) {
                 // Get model bounds from ALL geometry sources: individual meshes AND batched meshes
                 const boundsMin = { x: Infinity, y: Infinity, z: Infinity };
                 const boundsMax = { x: -Infinity, y: -Infinity, z: -Infinity };
@@ -457,19 +498,19 @@ export class Renderer {
                 this.geometryManager.setModelBounds({ min: boundsMin, max: boundsMax });
 
                 // Only calculate clipping data if section is enabled
-                if (options.sectionPlane.enabled) {
+                if (effectiveSectionPlane.enabled) {
                     // Calculate plane normal based on semantic axis
                     // down = Y axis (horizontal cut), front = Z axis, side = X axis
                     let normal: [number, number, number] = [0, 0, 0];
-                    if (options.sectionPlane.axis === 'side') normal[0] = 1;        // X axis
-                    else if (options.sectionPlane.axis === 'down') normal[1] = 1;   // Y axis (horizontal)
+                    if (effectiveSectionPlane.axis === 'side') normal[0] = 1;        // X axis
+                    else if (effectiveSectionPlane.axis === 'down') normal[1] = 1;   // Y axis (horizontal)
                     else normal[2] = 1;                                              // Z axis (front)
 
                     // Apply building rotation if present (rotate normal around Y axis)
                     // Building rotation is in X-Y plane (Z is up in IFC, Y is up in WebGL)
-                    if (options.buildingRotation !== undefined && options.buildingRotation !== 0) {
-                        const cosR = Math.cos(options.buildingRotation);
-                        const sinR = Math.sin(options.buildingRotation);
+                    if (effectiveBuildingRotation !== undefined && effectiveBuildingRotation !== 0) {
+                        const cosR = Math.cos(effectiveBuildingRotation);
+                        const sinR = Math.sin(effectiveBuildingRotation);
                         // Rotate normal vector around Y axis (vertical)
                         // For X-Z plane rotation: x' = x*cos - z*sin, z' = x*sin + z*cos, y' = y
                         const x = normal[0];
@@ -487,15 +528,32 @@ export class Renderer {
 
                     // Get axis-specific range based on semantic axis
                     // Use min/max overrides from sectionPlane if provided (storey-based range)
-                    const axisIdx = options.sectionPlane.axis === 'side' ? 'x' : options.sectionPlane.axis === 'down' ? 'y' : 'z';
-                    const minVal = options.sectionPlane.min ?? boundsMin[axisIdx];
-                    const maxVal = options.sectionPlane.max ?? boundsMax[axisIdx];
+                    const axisIdx = effectiveSectionPlane.axis === 'side' ? 'x' : effectiveSectionPlane.axis === 'down' ? 'y' : 'z';
+                    const minVal = effectiveSectionPlane.min ?? boundsMin[axisIdx];
+                    const maxVal = effectiveSectionPlane.max ?? boundsMax[axisIdx];
 
                     // Calculate plane distance from position percentage
                     const range = maxVal - minVal;
-                    const distance = minVal + (options.sectionPlane.position / 100) * range;
+                    const distance = minVal + (effectiveSectionPlane.position / 100) * range;
 
                     sectionPlaneData = { normal, distance, enabled: true };
+
+                    // DEBUG: Log section plane calculation
+                    if (!this._sectionDebugThrottle || Date.now() - this._sectionDebugThrottle > 500) {
+                        this._sectionDebugThrottle = Date.now();
+                        console.debug('[Section3D]', {
+                            axis: effectiveSectionPlane.axis,
+                            position: effectiveSectionPlane.position,
+                            normal,
+                            distance: distance.toFixed(3),
+                            range: `${minVal.toFixed(3)} → ${maxVal.toFixed(3)}`,
+                            boundsY: `${boundsMin.y.toFixed(3)} → ${boundsMax.y.toFixed(3)}`,
+                            hasMinMax: effectiveSectionPlane.min !== undefined,
+                            flipped: effectiveSectionPlane.flipped,
+                            batchCount: this.scene.getBatchedMeshes().length,
+                            meshCount: meshes.length,
+                        });
+                    }
                 }
             }
 
@@ -709,6 +767,17 @@ export class Renderer {
                 tplFlags[1] = sectionPlaneData?.enabled ? 1 : 0;
                 tplFlags[2] = edgeEnabledU32;
                 tplFlags[3] = edgeIntensityMilliU32;
+
+                // DEBUG: Log uniform template values for section plane
+                if (sectionPlaneData && (!this._sectionDebugThrottle || Date.now() - this._sectionDebugThrottle > 1000)) {
+                    this._sectionDebugThrottle = Date.now();
+                    console.debug('[UniformTemplate]', {
+                        'tpl[40-43] (sectionPlane)': [tpl[40], tpl[41], tpl[42], tpl[43]],
+                        'flags[0-3]': [tplFlags[0], tplFlags[1], tplFlags[2], tplFlags[3]],
+                        'sectionEnabled (flags[1])': tplFlags[1],
+                        batchCount: opaqueBatches.length + transparentBatches.length,
+                    });
+                }
 
                 // Helper function to render a batch — patches color into the shared template
                 const renderBatch = (batch: typeof allBatchedMeshes[0]) => {
@@ -971,31 +1040,31 @@ export class Renderer {
             // Draw section plane visual BEFORE pass.end() (within same MSAA render pass)
             // Always show plane when sectionPlane options are provided (as preview or active)
             const modelBounds = this.geometryManager.getModelBounds();
-            if (options.sectionPlane && this.sectionPlaneRenderer && modelBounds) {
+            if (effectiveSectionPlane && this.sectionPlaneRenderer && modelBounds) {
                 this.sectionPlaneRenderer.draw(
                     pass,
                     {
-                        axis: options.sectionPlane.axis,
-                        position: options.sectionPlane.position,
+                        axis: effectiveSectionPlane.axis,
+                        position: effectiveSectionPlane.position,
                         bounds: modelBounds,
                         viewProj,
-                        isPreview: !options.sectionPlane.enabled, // Preview mode when not enabled
-                        min: options.sectionPlane.min,
-                        max: options.sectionPlane.max,
+                        isPreview: !effectiveSectionPlane.enabled, // Preview mode when not enabled
+                        min: effectiveSectionPlane.min,
+                        max: effectiveSectionPlane.max,
                     }
                 );
 
                 // Draw 2D section overlay on the section plane (when section is active, not preview)
-                if (options.sectionPlane.enabled && this.section2DOverlayRenderer?.hasGeometry()) {
+                if (effectiveSectionPlane.enabled && this.section2DOverlayRenderer?.hasGeometry()) {
                     this.section2DOverlayRenderer.draw(
                         pass,
                         {
-                            axis: options.sectionPlane.axis,
-                            position: options.sectionPlane.position,
+                            axis: effectiveSectionPlane.axis,
+                            position: effectiveSectionPlane.position,
                             bounds: modelBounds,
                             viewProj,
-                            min: options.sectionPlane.min,
-                            max: options.sectionPlane.max,
+                            min: effectiveSectionPlane.min,
+                            max: effectiveSectionPlane.max,
                         }
                     );
                 }

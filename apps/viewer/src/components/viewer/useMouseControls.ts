@@ -717,8 +717,11 @@ export function useMouseControls(params: UseMouseControlsParams): void {
             selectedModelIndex: selectedModelIndexRef.current,
             clearColor: clearColorRef.current,
             isInteracting: true,
-            sectionPlane: activeToolRef.current === 'section' ? {
-              ...sectionPlaneRef.current,
+            sectionPlane: activeToolRef.current === 'section' && sectionPlaneRef.current.mode !== 'face' ? {
+              axis: sectionPlaneRef.current.axis,
+              position: sectionPlaneRef.current.position,
+              enabled: sectionPlaneRef.current.enabled,
+              flipped: sectionPlaneRef.current.flipped,
               min: sectionRangeRef.current?.min,
               max: sectionRangeRef.current?.max,
             } : undefined,
@@ -741,8 +744,11 @@ export function useMouseControls(params: UseMouseControlsParams): void {
               selectedModelIndex: selectedModelIndexRef.current,
               clearColor: clearColorRef.current,
               isInteracting: true,
-              sectionPlane: activeToolRef.current === 'section' ? {
-                ...sectionPlaneRef.current,
+              sectionPlane: activeToolRef.current === 'section' && sectionPlaneRef.current.mode !== 'face' ? {
+                axis: sectionPlaneRef.current.axis,
+                position: sectionPlaneRef.current.position,
+                enabled: sectionPlaneRef.current.enabled,
+                flipped: sectionPlaneRef.current.flipped,
                 min: sectionRangeRef.current?.min,
                 max: sectionRangeRef.current?.max,
               } : undefined,
@@ -913,8 +919,11 @@ export function useMouseControls(params: UseMouseControlsParams): void {
           selectedModelIndex: selectedModelIndexRef.current,
           clearColor: clearColorRef.current,
           isInteracting: true,
-          sectionPlane: activeToolRef.current === 'section' ? {
-            ...sectionPlaneRef.current,
+          sectionPlane: activeToolRef.current === 'section' && sectionPlaneRef.current.mode !== 'face' ? {
+            axis: sectionPlaneRef.current.axis,
+            position: sectionPlaneRef.current.position,
+            enabled: sectionPlaneRef.current.enabled,
+            flipped: sectionPlaneRef.current.flipped,
             min: sectionRangeRef.current?.min,
             max: sectionRangeRef.current?.max,
           } : undefined,
@@ -934,8 +943,11 @@ export function useMouseControls(params: UseMouseControlsParams): void {
             selectedModelIndex: selectedModelIndexRef.current,
             clearColor: clearColorRef.current,
             isInteracting: true,
-            sectionPlane: activeToolRef.current === 'section' ? {
-              ...sectionPlaneRef.current,
+            sectionPlane: activeToolRef.current === 'section' && sectionPlaneRef.current.mode !== 'face' ? {
+              axis: sectionPlaneRef.current.axis,
+              position: sectionPlaneRef.current.position,
+              enabled: sectionPlaneRef.current.enabled,
+              flipped: sectionPlaneRef.current.flipped,
               min: sectionRangeRef.current?.min,
               max: sectionRangeRef.current?.max,
             } : undefined,
