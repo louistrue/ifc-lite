@@ -548,6 +548,7 @@ export class Scene {
             newBucket = [];
             this.batchedMeshData.set(newBucketKey, newBucket);
           }
+          this.meshDataBatchIdx.set(meshData, newBucket.length);
           newBucket.push(meshData);
 
           // Update reverse mapping
