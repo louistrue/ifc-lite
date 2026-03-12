@@ -85,14 +85,14 @@ export interface ImportStats {
 export interface ImportProgress {
   /** Current phase of the import */
   phase: 'parsing' | 'matching' | 'applying';
-  /** Rows processed so far in this phase */
-  current: number;
-  /** Total rows to process */
-  total: number;
+  /** Unified progress 0–1 across all phases */
+  percent: number;
   /** Running count of mutations created */
   mutationsCreated: number;
   /** Running count of matched rows */
   matchedRows: number;
+  /** Total rows being processed */
+  totalRows: number;
 }
 
 /**
@@ -342,12 +342,16 @@ export class CsvConnector {
     };
 
     try {
+      // Unified progress: matching = 0–60%, applying = 60–100%
+      const MATCH_WEIGHT = 0.6;
+      const APPLY_WEIGHT = 0.4;
+
       // Phase 1: Parse
-      onProgress({ phase: 'parsing', current: 0, total: 0, mutationsCreated: 0, matchedRows: 0 });
+      onProgress({ phase: 'parsing', percent: 0, mutationsCreated: 0, matchedRows: 0, totalRows: 0 });
       const rows = this.parse(content, options);
       stats.totalRows = rows.length;
 
-      // Phase 2: Match in batches
+      // Phase 2: Match in batches (0–60%)
       const allMatches: MatchResult[] = [];
       for (let i = 0; i < rows.length; i += batchSize) {
         const batch = rows.slice(i, i + batchSize);
@@ -365,31 +369,33 @@ export class CsvConnector {
           }
         }
 
+        const matchProgress = Math.min(i + batchSize, rows.length) / rows.length;
         onProgress({
           phase: 'matching',
-          current: Math.min(i + batchSize, rows.length),
-          total: rows.length,
+          percent: matchProgress * MATCH_WEIGHT,
           mutationsCreated: 0,
           matchedRows: stats.matchedRows,
+          totalRows: rows.length,
         });
 
         // Yield to main thread
         await new Promise((r) => setTimeout(r, 0));
       }
 
-      // Phase 3: Apply mutations in batches
+      // Phase 3: Apply mutations in batches (60–100%)
       let mutationCount = 0;
       for (let i = 0; i < allMatches.length; i += batchSize) {
         const batch = allMatches.slice(i, i + batchSize);
         const mutations = this.generateMutations(batch, mapping);
         mutationCount += mutations.length;
 
+        const applyProgress = Math.min(i + batchSize, allMatches.length) / allMatches.length;
         onProgress({
           phase: 'applying',
-          current: Math.min(i + batchSize, allMatches.length),
-          total: allMatches.length,
+          percent: MATCH_WEIGHT + applyProgress * APPLY_WEIGHT,
           mutationsCreated: mutationCount,
           matchedRows: stats.matchedRows,
+          totalRows: rows.length,
         });
 
         // Yield to main thread

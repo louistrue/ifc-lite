@@ -104,6 +104,7 @@ export function DataConnector({ trigger }: DataConnectorProps) {
   const legacyGeometryResult = useViewerStore((s) => s.geometryResult);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const scrollAreaRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
   const [selectedModelId, setSelectedModelId] = useState<string>('');
 
@@ -463,6 +464,19 @@ export function DataConnector({ trigger }: DataConnectorProps) {
     }
   }, [csvConnector, csvContent, buildDataMapping]);
 
+  // Auto-scroll to bottom when import completes or errors appear
+  useEffect(() => {
+    if ((importStats || error) && scrollAreaRef.current) {
+      // Small delay to let the DOM update with the new alert
+      requestAnimationFrame(() => {
+        scrollAreaRef.current?.scrollTo({
+          top: scrollAreaRef.current.scrollHeight,
+          behavior: 'smooth',
+        });
+      });
+    }
+  }, [importStats, error]);
+
   // Stats from match results
   const matchStats = useMemo(() => {
     if (!matchResults) return null;
@@ -576,7 +590,7 @@ export function DataConnector({ trigger }: DataConnectorProps) {
         </DialogHeader>
 
         {/* Scrollable Body */}
-        <div className="flex-1 overflow-y-auto px-6 py-4">
+        <div ref={scrollAreaRef} className="flex-1 overflow-y-auto px-6 py-4">
           <div className="space-y-6">
             {/* Model selector */}
             <div className="space-y-2">
@@ -908,20 +922,16 @@ export function DataConnector({ trigger }: DataConnectorProps) {
                         {importProgress.phase === 'applying' && 'Applying properties...'}
                       </span>
                       <span className="text-muted-foreground tabular-nums">
-                        {importProgress.total > 0
-                          ? `${importProgress.current.toLocaleString()} / ${importProgress.total.toLocaleString()} rows`
-                          : 'Preparing...'}
+                        {Math.round(importProgress.percent * 100)}%
+                        {importProgress.totalRows > 0 &&
+                          ` \u00b7 ${importProgress.totalRows.toLocaleString()} rows`}
                       </span>
                     </div>
-                    {/* Progress bar */}
+                    {/* Progress bar — single 0→100% across all phases */}
                     <div className="h-2 bg-muted rounded-full overflow-hidden">
                       <div
                         className="h-full bg-primary rounded-full transition-[width] duration-150"
-                        style={{
-                          width: importProgress.total > 0
-                            ? `${Math.round((importProgress.current / importProgress.total) * 100)}%`
-                            : '0%',
-                        }}
+                        style={{ width: `${Math.round(importProgress.percent * 100)}%` }}
                       />
                     </div>
                     {/* Live counters */}
@@ -1008,9 +1018,7 @@ export function DataConnector({ trigger }: DataConnectorProps) {
             {isProcessing && importProgress ? (
               <>
                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                {importProgress.total > 0
-                  ? `${Math.round((importProgress.current / importProgress.total) * 100)}%`
-                  : 'Starting...'}
+                {Math.round(importProgress.percent * 100)}%
               </>
             ) : (
               <>
