@@ -149,6 +149,9 @@ export function BulkPropertyEditor({ trigger }: BulkPropertyEditorProps) {
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const [previewResult, setPreviewResult] = useState<BulkQueryPreview | null>(null);
   const [executeResult, setExecuteResult] = useState<BulkQueryResult | null>(null);
+  // Track whether config changed since last execute (disables button after success)
+  const [executeDirty, setExecuteDirty] = useState(true);
+  const prevProgressRef = useRef<{ done: number; total: number } | null>(null);
 
   // --- All expensive computation is gated behind `open` so IFC loading is never impacted ---
 
@@ -590,6 +593,7 @@ export function BulkPropertyEditor({ trigger }: BulkPropertyEditorProps) {
         errors: errors.length > 0 ? errors : undefined,
       };
       setExecuteResult(result);
+      if (result.success) setExecuteDirty(false);
 
       if (result.mutations.length > 0) {
         bumpMutationVersion();
@@ -619,19 +623,37 @@ export function BulkPropertyEditor({ trigger }: BulkPropertyEditorProps) {
     setTargetValue('');
     setPreviewResult(null);
     setExecuteResult(null);
+    setExecuteDirty(true);
   }, []);
 
-  // Auto-scroll to bottom when execute completes
-  useEffect(() => {
-    if (executeResult && scrollAreaRef.current) {
+  // Scroll to bottom — double rAF ensures DOM is painted
+  const scrollToBottom = useCallback(() => {
+    requestAnimationFrame(() => {
       requestAnimationFrame(() => {
         scrollAreaRef.current?.scrollTo({
           top: scrollAreaRef.current.scrollHeight,
           behavior: 'smooth',
         });
       });
-    }
-  }, [executeResult]);
+    });
+  }, []);
+
+  // Auto-scroll when execute completes
+  useEffect(() => {
+    if (executeResult) scrollToBottom();
+  }, [executeResult, scrollToBottom]);
+
+  // Auto-scroll when progress first appears
+  useEffect(() => {
+    if (executeProgress && !prevProgressRef.current) scrollToBottom();
+    prevProgressRef.current = executeProgress;
+  }, [executeProgress, scrollToBottom]);
+
+  // Mark config dirty when criteria or action settings change after a completed execute
+  useEffect(() => {
+    if (executeResult) setExecuteDirty(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only fire on config changes
+  }, [selectedTypes, selectedStoreys, namePattern, filters, actionType, targetPset, targetProp, targetValue, valueType]);
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -996,7 +1018,7 @@ export function BulkPropertyEditor({ trigger }: BulkPropertyEditorProps) {
               </Button>
               <Button
                 onClick={handleExecute}
-                disabled={liveMatchCount === 0 || !targetProp || (actionType !== 'SET_ATTRIBUTE' && !targetPset)}
+                disabled={liveMatchCount === 0 || !targetProp || (actionType !== 'SET_ATTRIBUTE' && !targetPset) || !executeDirty}
               >
                 <Play className="h-4 w-4 mr-2" />
                 Apply to {liveMatchCount} entities

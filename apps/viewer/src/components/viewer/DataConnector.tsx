@@ -132,6 +132,8 @@ export function DataConnector({ trigger }: DataConnectorProps) {
   const [isProcessing, setIsProcessing] = useState(false);
   const [importProgress, setImportProgress] = useState<ImportProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Track whether config changed since last import (disables button after success)
+  const [importDirty, setImportDirty] = useState(true);
 
   // Get list of models - includes both federated models and legacy single-model
   const modelList = useMemo(() => {
@@ -217,6 +219,7 @@ export function DataConnector({ trigger }: DataConnectorProps) {
     setMatchResults(null);
     setImportStats(null);
     setError(null);
+    setImportDirty(true);
 
     const reader = new FileReader();
     reader.onload = (event) => {
@@ -320,6 +323,7 @@ export function DataConnector({ trigger }: DataConnectorProps) {
     setMatchResults(null);
     setImportStats(null);
     setError(null);
+    setImportDirty(true);
   }, []);
 
   // Add a mapping row
@@ -453,6 +457,7 @@ export function DataConnector({ trigger }: DataConnectorProps) {
 
       setImportStats(stats);
       setImportProgress(null);
+      setImportDirty(false);
 
       if (stats.errors.length > 0) {
         setError(stats.errors.join('\n'));
@@ -465,18 +470,35 @@ export function DataConnector({ trigger }: DataConnectorProps) {
     }
   }, [csvConnector, csvContent, buildDataMapping]);
 
-  // Auto-scroll to bottom when import completes or errors appear
-  useEffect(() => {
-    if ((importStats || error) && scrollAreaRef.current) {
-      // Small delay to let the DOM update with the new alert
+  // Scroll to bottom of the body area — double rAF ensures DOM is painted
+  const scrollToBottom = useCallback(() => {
+    requestAnimationFrame(() => {
       requestAnimationFrame(() => {
         scrollAreaRef.current?.scrollTo({
           top: scrollAreaRef.current.scrollHeight,
           behavior: 'smooth',
         });
       });
-    }
-  }, [importStats, error]);
+    });
+  }, []);
+
+  // Auto-scroll when import completes or errors appear
+  useEffect(() => {
+    if (importStats || error) scrollToBottom();
+  }, [importStats, error, scrollToBottom]);
+
+  // Auto-scroll when progress first appears (so user sees the bar)
+  const prevProgressRef = useRef<ImportProgress | null>(null);
+  useEffect(() => {
+    if (importProgress && !prevProgressRef.current) scrollToBottom();
+    prevProgressRef.current = importProgress;
+  }, [importProgress, scrollToBottom]);
+
+  // Mark config dirty when match/mapping settings change after a completed import
+  useEffect(() => {
+    if (importStats) setImportDirty(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only fire on config changes, not importStats itself
+  }, [matchType, matchColumn, matchPset, matchProp, mappings]);
 
   // Stats from match results
   const matchStats = useMemo(() => {
@@ -996,7 +1018,8 @@ export function DataConnector({ trigger }: DataConnectorProps) {
               !csvContent ||
               !matchColumn ||
               mappings.length === 0 ||
-              isProcessing
+              isProcessing ||
+              !importDirty
             }
           >
             {isProcessing && importProgress ? (
