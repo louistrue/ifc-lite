@@ -122,6 +122,8 @@ export class BulkQueryEngine {
   private properties: PropertyTable | null;
   private mutationView: MutablePropertyView;
   private strings: { get(idx: number): string } | null;
+  /** expressId → array index lookup, built once to avoid O(n) scans */
+  private expressIdIndex: Map<number, number>;
 
   constructor(
     entities: EntityTable,
@@ -135,21 +137,32 @@ export class BulkQueryEngine {
     this.spatialHierarchy = spatialHierarchy || null;
     this.properties = properties || null;
     this.strings = strings || null;
+
+    // Build O(1) lookup map once instead of O(n) linear scan per query
+    this.expressIdIndex = new Map<number, number>();
+    for (let i = 0; i < entities.count; i++) {
+      this.expressIdIndex.set(entities.expressId[i], i);
+    }
   }
 
   /**
    * Select entities matching criteria
    */
   select(criteria: SelectionCriteria): number[] {
-    let candidates = this.getAllEntityIds();
+    let candidates: number[];
 
-    // Filter by entity types
+    // Fast path: filter by entity types directly during iteration instead of
+    // building the full ID list first, then filtering (avoids two passes).
     if (criteria.entityTypes && criteria.entityTypes.length > 0) {
       const typeSet = new Set(criteria.entityTypes);
-      candidates = candidates.filter((id) => {
-        const idx = this.findEntityIndex(id);
-        return idx !== -1 && typeSet.has(this.entities.typeEnum[idx]);
-      });
+      candidates = [];
+      for (let i = 0; i < this.entities.count; i++) {
+        if (typeSet.has(this.entities.typeEnum[i])) {
+          candidates.push(this.entities.expressId[i]);
+        }
+      }
+    } else {
+      candidates = this.getAllEntityIds();
     }
 
     // Filter by storeys
@@ -277,9 +290,9 @@ export class BulkQueryEngine {
   }
 
   /**
-   * Apply an action to a single entity
+   * Apply an action to a single entity (public for chunked execution from UI)
    */
-  private applyAction(entityId: number, action: BulkAction): Mutation | null {
+  applyAction(entityId: number, action: BulkAction): Mutation | null {
     switch (action.type) {
       case 'SET_PROPERTY':
         return this.mutationView.setProperty(
@@ -423,14 +436,9 @@ export class BulkQueryEngine {
   }
 
   /**
-   * Find the index of an entity by ID
+   * Find the index of an entity by ID (O(1) via pre-built map)
    */
   private findEntityIndex(expressId: number): number {
-    for (let i = 0; i < this.entities.count; i++) {
-      if (this.entities.expressId[i] === expressId) {
-        return i;
-      }
-    }
-    return -1;
+    return this.expressIdIndex.get(expressId) ?? -1;
   }
 }
