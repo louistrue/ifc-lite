@@ -444,12 +444,16 @@ export class RenderPipeline {
         return 192; // 48 floats * 4 bytes
     }
 
+    private destroyed = false;
+
     /**
      * Destroy all GPU resources held by this pipeline.
      * After calling this method the pipeline is no longer usable.
      * Safe to call multiple times.
      */
     destroy(): void {
+        if (this.destroyed) return;
+        this.destroyed = true;
         this.depthTexture.destroy();
         this.objectIdTexture.destroy();
         this.multisampleTexture?.destroy();
@@ -828,12 +832,16 @@ export class InstancedRenderPipeline {
         });
     }
 
+    private destroyed = false;
+
     /**
      * Destroy all GPU resources held by this pipeline.
      * After calling this method the pipeline is no longer usable.
      * Safe to call multiple times.
      */
     destroy(): void {
+        if (this.destroyed) return;
+        this.destroyed = true;
         this.depthTexture.destroy();
         this.uniformBuffer.destroy();
     }

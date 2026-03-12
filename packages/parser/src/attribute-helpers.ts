@@ -35,7 +35,8 @@ export function getReference(value: unknown): number | undefined {
   if (value === null || value === undefined) return undefined;
   if (typeof value === 'number') return value;
   if (typeof value === 'string' && value.startsWith('#')) {
-    return parseInt(value.substring(1));
+    const num = parseInt(value.substring(1));
+    if (!Number.isNaN(num)) return num;
   }
   return undefined;
 }

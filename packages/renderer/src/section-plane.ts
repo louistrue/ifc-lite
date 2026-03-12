@@ -364,5 +364,6 @@ export class SectionPlaneRenderer {
     this.vertexBuffer = null;
     this.uniformBuffer?.destroy();
     this.uniformBuffer = null;
+    this.initialized = false;
   }
 }
