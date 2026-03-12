@@ -6,7 +6,7 @@
  * Global keyboard shortcuts for the viewer
  */
 
-import { useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useRef } from 'react';
 import { useViewerStore } from '@/store';
 import { resetVisibilityForHomeFromStore } from '@/store/homeView';
 import {
@@ -33,8 +33,13 @@ function getAllSelectedGlobalIds(): number[] {
   return [];
 }
 
+/** Double-escape threshold in milliseconds */
+const DOUBLE_ESCAPE_MS = 500;
+
 export function useKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
   const { enabled = true } = options;
+
+  const lastEscapeRef = useRef<number>(0);
 
   const selectedEntityId = useViewerStore((s) => s.selectedEntityId);
   const setSelectedEntityId = useViewerStore((s) => s.setSelectedEntityId);
@@ -181,9 +186,29 @@ export function useKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
       }
     }
 
-    // Selection - Escape clears selection and switches to select tool
+    // Escape: first press clears selection/tool, double-press closes all panels
     if (key === 'escape') {
       e.preventDefault();
+      const now = Date.now();
+      const timeSinceLastEscape = now - lastEscapeRef.current;
+      lastEscapeRef.current = now;
+
+      if (timeSinceLastEscape < DOUBLE_ESCAPE_MS) {
+        // Double-escape: close all panels, return to starting view
+        const state = useViewerStore.getState();
+        state.setBcfPanelVisible(false);
+        state.setIdsPanelVisible(false);
+        state.setLensPanelVisible(false);
+        state.setScriptPanelVisible(false);
+        state.setListPanelVisible(false);
+        state.setDrawing2DPanelVisible(false);
+        state.setOverridesPanelVisible(false);
+        state.setChatPanelVisible(false);
+        state.setSheetPanelVisible(false);
+        state.setLeftPanelCollapsed(false);
+        state.setRightPanelCollapsed(false);
+      }
+
       setSelectedEntityId(null);
       resetVisibilityForHomeFromStore();
       setActiveTool('select');
@@ -246,6 +271,7 @@ export const KEYBOARD_SHORTCUTS = [
   { key: '1-6', description: 'Preset views', category: 'Camera' },
   { key: 'T', description: 'Toggle theme', category: 'UI' },
   { key: 'Esc', description: 'Reset all (clear selection, basket, isolation)', category: 'Selection' },
+  { key: 'Esc Esc', description: 'Close all panels (return to starting view)', category: 'UI' },
   { key: 'Ctrl+K', description: 'Command palette', category: 'UI' },
   { key: '?', description: 'Show info panel', category: 'Help' },
 ] as const;
