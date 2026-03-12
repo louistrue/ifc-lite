@@ -7,7 +7,7 @@
  * Full integration with BulkQueryEngine
  */
 
-import { useState, useCallback, useMemo, useEffect, useTransition, useRef } from 'react';
+import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import {
   Search,
   Play,
@@ -325,55 +325,55 @@ export function BulkPropertyEditor({ trigger }: BulkPropertyEditorProps) {
     return criteria;
   }, [selectedTypes, selectedStoreys, namePattern, filters, typeNameToEnums]);
 
-  // Deferred computation: run select() once and derive both match count and property discovery
-  // Uses useTransition to keep UI responsive during heavy computation
-  const [isPending, startTransition] = useTransition();
+  // Deferred computation: all expensive work (select + property discovery) yields to the
+  // browser first so pill toggles paint instantly, then runs via setTimeout(0).
+  const [isComputing, setIsComputing] = useState(false);
   const [matchResult, setMatchResult] = useState<{
     count: number;
     psets: Map<string, Set<string>>;
     allProps: Set<string>;
   }>({ count: 0, psets: new Map(), allProps: new Set() });
 
-  // Debounce timer for property discovery
+  // Timers for deferred work
+  const selectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const discoveryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    // Clear any pending debounce
-    if (discoveryTimerRef.current) {
-      clearTimeout(discoveryTimerRef.current);
-    }
+    // Cancel any in-flight work
+    if (selectTimerRef.current) clearTimeout(selectTimerRef.current);
+    if (discoveryTimerRef.current) clearTimeout(discoveryTimerRef.current);
 
     if (!queryEngine) {
+      setIsComputing(false);
       setMatchResult({ count: 0, psets: new Map(), allProps: new Set() });
       return;
     }
 
-    // Match count is cheap — compute immediately for fast feedback
-    let count = 0;
-    let matchedIds: number[] = [];
-    try {
-      matchedIds = queryEngine.select(currentCriteria);
-      count = matchedIds.length;
-    } catch {
-      // leave at 0
-    }
+    // Show spinner immediately — before any expensive work
+    setIsComputing(true);
 
-    // Update count immediately (no transition needed — it's fast)
-    setMatchResult(prev => {
-      if (prev.count === count && count === 0) return prev;
-      return { ...prev, count };
-    });
+    // Yield to browser so the pill toggle paints, then run select()
+    selectTimerRef.current = setTimeout(() => {
+      let count = 0;
+      let matchedIds: number[] = [];
+      try {
+        matchedIds = queryEngine.select(currentCriteria);
+        count = matchedIds.length;
+      } catch {
+        // leave at 0
+      }
 
-    // Debounce property discovery (expensive) by 250ms
-    const capturedIds = matchedIds;
-    discoveryTimerRef.current = setTimeout(() => {
-      startTransition(() => {
+      // Update count right away, keep old psets until discovery finishes
+      setMatchResult(prev => ({ ...prev, count }));
+
+      // Debounce property discovery (most expensive) by another 200ms
+      const capturedIds = matchedIds;
+      discoveryTimerRef.current = setTimeout(() => {
         const psets = new Map<string, Set<string>>();
         const allProps = new Set<string>();
 
         if (selectedModel?.ifcDataStore && capturedIds.length > 0) {
           const dataStore = selectedModel.ifcDataStore;
-          // Sample first 100 entities for performance
           const sampleIds = capturedIds.length > 100 ? capturedIds.slice(0, 100) : capturedIds;
 
           try {
@@ -403,13 +403,13 @@ export function BulkPropertyEditor({ trigger }: BulkPropertyEditorProps) {
         }
 
         setMatchResult({ count, psets, allProps });
-      });
-    }, 250);
+        setIsComputing(false);
+      }, 200);
+    }, 0);
 
     return () => {
-      if (discoveryTimerRef.current) {
-        clearTimeout(discoveryTimerRef.current);
-      }
+      if (selectTimerRef.current) clearTimeout(selectTimerRef.current);
+      if (discoveryTimerRef.current) clearTimeout(discoveryTimerRef.current);
     };
   }, [queryEngine, currentCriteria, selectedModel]);
 
@@ -598,7 +598,7 @@ export function BulkPropertyEditor({ trigger }: BulkPropertyEditorProps) {
                 Selection Criteria
               </Label>
               <Badge variant={liveMatchCount > 0 ? 'default' : 'secondary'} className="text-xs">
-                {isPending && <Loader2 className="h-3 w-3 mr-1 animate-spin" />}
+                {isComputing && <Loader2 className="h-3 w-3 mr-1 animate-spin" />}
                 {liveMatchCount} {liveMatchCount === 1 ? 'entity' : 'entities'} matched
               </Badge>
             </div>
