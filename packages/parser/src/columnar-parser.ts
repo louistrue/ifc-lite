@@ -232,7 +232,6 @@ export class ColumnarParser {
 
         // Build compact entity index (typed arrays instead of Map for ~3x memory reduction)
         const compactByIdIndex = buildCompactEntityIndex(entityRefs);
-        // entityRefs is now sorted by expressId (side effect of buildCompactEntityIndex)
 
         // Also build byType index (Map<string, number[]>)
         const byType = new Map<string, number[]>();

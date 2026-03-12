@@ -89,7 +89,12 @@ export class CompactEntityIndex {
   get(expressId: number): EntityRef | undefined {
     // Check LRU cache first
     const cached = this.lruCache.get(expressId);
-    if (cached !== undefined) return cached;
+    if (cached !== undefined) {
+      // Refresh recency: delete + re-insert moves to end of insertion order
+      this.lruCache.delete(expressId);
+      this.lruCache.set(expressId, cached);
+      return cached;
+    }
 
     const idx = this.binarySearch(expressId);
     if (idx < 0) return undefined;
@@ -239,10 +244,12 @@ export function buildCompactEntityIndex(
   entityRefs: EntityRef[],
   lruMaxSize?: number
 ): CompactEntityIndex {
-  const count = entityRefs.length;
+  // Copy to avoid mutating the caller's array
+  const sorted = entityRefs.slice();
+  const count = sorted.length;
 
   // Sort by expressId for binary search
-  entityRefs.sort((a, b) => a.expressId - b.expressId);
+  sorted.sort((a, b) => a.expressId - b.expressId);
 
   // Deduplicate type strings
   const typeStringMap = new Map<string, number>();
@@ -255,7 +262,7 @@ export function buildCompactEntityIndex(
   const typeIndices = new Uint16Array(count);
 
   for (let i = 0; i < count; i++) {
-    const ref = entityRefs[i];
+    const ref = sorted[i];
     expressIds[i] = ref.expressId;
     byteOffsets[i] = ref.byteOffset;
     byteLengths[i] = ref.byteLength;

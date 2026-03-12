@@ -1149,6 +1149,7 @@ export class Scene {
     this.pendingBatchKeys.clear();
     this.partialBatchCache.clear();
     this.partialBatchCacheKeys.clear();
+    this.geometryReleased = false;
   }
 
   /**
@@ -1295,6 +1296,40 @@ export class Scene {
   }
 
   /**
+   * Ray-box intersection returning entry distance (tNear).
+   * Returns null if no intersection, otherwise the distance along the ray
+   * to the entry point (clamped to 0 if the ray originates inside the box).
+   */
+  private rayBoxDistance(
+    rayOrigin: Vec3,
+    rayDirInv: Vec3,
+    rayDirSign: [number, number, number],
+    box: BoundingBox
+  ): number | null {
+    const bounds = [box.min, box.max];
+
+    let tmin = (bounds[rayDirSign[0]].x - rayOrigin.x) * rayDirInv.x;
+    let tmax = (bounds[1 - rayDirSign[0]].x - rayOrigin.x) * rayDirInv.x;
+    const tymin = (bounds[rayDirSign[1]].y - rayOrigin.y) * rayDirInv.y;
+    const tymax = (bounds[1 - rayDirSign[1]].y - rayOrigin.y) * rayDirInv.y;
+
+    if (tmin > tymax || tymin > tmax) return null;
+    if (tymin > tmin) tmin = tymin;
+    if (tymax < tmax) tmax = tymax;
+
+    const tzmin = (bounds[rayDirSign[2]].z - rayOrigin.z) * rayDirInv.z;
+    const tzmax = (bounds[1 - rayDirSign[2]].z - rayOrigin.z) * rayDirInv.z;
+
+    if (tmin > tzmax || tzmin > tmax) return null;
+    if (tzmin > tmin) tmin = tzmin;
+    if (tzmax < tmax) tmax = tzmax;
+
+    if (tmax < 0) return null;
+    // If tmin < 0, ray starts inside the box; use 0 as entry distance
+    return tmin < 0 ? 0 : tmin;
+  }
+
+  /**
    * Möller–Trumbore ray-triangle intersection
    * Returns distance to intersection or null if no hit
    */
@@ -1365,19 +1400,10 @@ export class Scene {
         if (hiddenIds?.has(expressId)) continue;
         if (isolatedIds !== null && isolatedIds !== undefined && !isolatedIds.has(expressId)) continue;
 
-        if (this.rayIntersectsBox(rayOrigin, rayDirInv, rayDirSign, bbox)) {
-          // Estimate distance to bbox center as approximate hit distance
-          const cx = (bbox.min.x + bbox.max.x) * 0.5;
-          const cy = (bbox.min.y + bbox.max.y) * 0.5;
-          const cz = (bbox.min.z + bbox.max.z) * 0.5;
-          const dx = cx - rayOrigin.x;
-          const dy = cy - rayOrigin.y;
-          const dz = cz - rayOrigin.z;
-          const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
-          if (dist < closestDistance) {
-            closestDistance = dist;
-            closestHit = { expressId, distance: dist };
-          }
+        const tNear = this.rayBoxDistance(rayOrigin, rayDirInv, rayDirSign, bbox);
+        if (tNear !== null && tNear < closestDistance) {
+          closestDistance = tNear;
+          closestHit = { expressId, distance: tNear };
         }
       }
       return closestHit;
