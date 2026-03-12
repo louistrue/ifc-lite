@@ -26,7 +26,13 @@ export async function loadIfcFile(filePath: string): Promise<IfcDataStore> {
   console.log = () => {};
   console.warn = () => {};
   try {
-    const store = await parser.parseColumnar(buffer.buffer as ArrayBuffer);
+    // Ensure we pass the exact slice — Node Buffers may be views into
+    // a larger pooled ArrayBuffer, so buffer.buffer can include extra bytes.
+    const arrayBuffer = buffer.buffer.slice(
+      buffer.byteOffset,
+      buffer.byteOffset + buffer.byteLength,
+    ) as ArrayBuffer;
+    const store = await parser.parseColumnar(arrayBuffer);
     store.fileSize = buffer.byteLength;
     return store;
   } finally {

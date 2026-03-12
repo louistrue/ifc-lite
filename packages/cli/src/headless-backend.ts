@@ -449,11 +449,20 @@ export class HeadlessBackend implements BimBackend {
         }
         return result;
       },
-      ifc(_refs: unknown, options: unknown): string {
+      ifc(refs: unknown, options: unknown): string {
+        const entityRefs = refs as EntityRef[];
         const opts = (options ?? {}) as Record<string, unknown>;
-        return exportToStep(store, {
-          schema: (opts.schema as 'IFC2X3' | 'IFC4' | 'IFC4X3') ?? store.schemaVersion ?? 'IFC4',
-        });
+        const schema = (opts.schema as 'IFC2X3' | 'IFC4' | 'IFC4X3') ?? store.schemaVersion ?? 'IFC4';
+
+        // If refs are provided, filter export to only those entities
+        const exportOpts: Record<string, unknown> = { schema };
+        if (entityRefs && entityRefs.length > 0) {
+          const isolatedIds = new Set(entityRefs.map(r => r.expressId));
+          exportOpts.visibleOnly = true;
+          exportOpts.isolatedEntityIds = isolatedIds;
+          exportOpts.hiddenEntityIds = new Set<number>();
+        }
+        return exportToStep(store, exportOpts as any);
       },
       download(_content: string, _filename: string, _mimeType: string): void {
         /* no-op — CLI writes to stdout/file directly */

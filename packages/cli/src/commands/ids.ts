@@ -11,6 +11,14 @@
 import { readFile } from 'node:fs/promises';
 import { createHeadlessContext, loadIfcFile } from '../loader.js';
 import { printJson, formatTable, hasFlag, getFlag, fatal } from '../output.js';
+import type { IfcDataStore } from '@ifc-lite/parser';
+import { EntityNode } from '@ifc-lite/query';
+import {
+  extractClassificationsOnDemand,
+  extractMaterialsOnDemand,
+  extractAllEntityAttributes,
+} from '@ifc-lite/parser';
+import { RelationshipType } from '@ifc-lite/data';
 
 export async function idsCommand(args: string[]): Promise<void> {
   const positional = args.filter(a => !a.startsWith('-'));
@@ -62,24 +70,132 @@ export async function idsCommand(args: string[]): Promise<void> {
   process.exitCode = exitCode;
 }
 
+const REL_TYPE_MAP: Record<string, RelationshipType> = {
+  IfcRelAggregates: RelationshipType.Aggregates,
+  IfcRelContainedInSpatialStructure: RelationshipType.ContainsElements,
+  IfcRelNests: RelationshipType.Aggregates, // closest mapping
+  IfcRelVoidsElement: RelationshipType.VoidsElement,
+  IfcRelFillsElement: RelationshipType.FillsElement,
+};
+
 /**
- * Build a data accessor compatible with @ifc-lite/ids validation.
- * Maps IFC data store access patterns to what the IDS validator expects.
+ * Build a complete IFCDataAccessor for the IDS validator.
+ * Implements all 12+ methods the validator expects.
  */
-function buildIdsAccessor(store: any): unknown {
-  // The IDS validator expects an accessor object with methods to query
-  // entity data from the model. This is a simplified accessor.
+function buildIdsAccessor(store: IfcDataStore): unknown {
   return {
-    store,
+    getEntityType(expressId: number): string | undefined {
+      return store.entities.getTypeName(expressId) || undefined;
+    },
+    getEntityName(expressId: number): string | undefined {
+      const node = new EntityNode(store, expressId);
+      return node.name || undefined;
+    },
+    getGlobalId(expressId: number): string | undefined {
+      const node = new EntityNode(store, expressId);
+      return node.globalId || undefined;
+    },
+    getDescription(expressId: number): string | undefined {
+      const node = new EntityNode(store, expressId);
+      return node.description || undefined;
+    },
+    getObjectType(expressId: number): string | undefined {
+      const node = new EntityNode(store, expressId);
+      return node.objectType || undefined;
+    },
     getEntitiesByType(typeName: string): number[] {
       const upper = typeName.toUpperCase();
-      return store.entityIndex.byType.get(upper) ?? [];
+      return [...(store.entityIndex.byType.get(upper) ?? [])];
     },
-    getEntityType(expressId: number): string {
-      return store.entities.getTypeName(expressId);
+    getAllEntityIds(): number[] {
+      const ids: number[] = [];
+      for (const [, typeIds] of store.entityIndex.byType) {
+        for (const id of typeIds) ids.push(id);
+      }
+      return ids;
     },
-    getEntityName(expressId: number): string {
-      return store.entities.getName(expressId) ?? '';
+    getPropertyValue(expressId: number, propertySetName: string, propertyName: string) {
+      const node = new EntityNode(store, expressId);
+      const psets = node.properties();
+      for (const pset of psets) {
+        if (pset.name === propertySetName) {
+          for (const prop of pset.properties) {
+            if (prop.name === propertyName) {
+              return {
+                value: prop.value ?? null,
+                dataType: prop.type ?? 'IFCLABEL',
+                propertySetName: pset.name,
+                propertyName: prop.name,
+              };
+            }
+          }
+        }
+      }
+      return undefined;
+    },
+    getPropertySets(expressId: number) {
+      const node = new EntityNode(store, expressId);
+      return node.properties().map(pset => ({
+        name: pset.name,
+        properties: pset.properties.map(p => ({
+          name: p.name,
+          value: p.value ?? null,
+          dataType: p.type ?? 'IFCLABEL',
+        })),
+      }));
+    },
+    getClassifications(expressId: number) {
+      const classifications = extractClassificationsOnDemand(store, expressId);
+      return classifications.map(c => ({
+        system: c.system ?? '',
+        value: c.identification ?? '',
+        name: c.name ?? undefined,
+      }));
+    },
+    getMaterials(expressId: number) {
+      const materialData = extractMaterialsOnDemand(store, expressId);
+      if (!materialData) return [];
+      const materials: Array<{ name: string; category?: string }> = [];
+      if (materialData.name) {
+        materials.push({ name: materialData.name });
+      }
+      if (materialData.layers) {
+        for (const layer of materialData.layers) {
+          if (layer.materialName) {
+            materials.push({ name: layer.materialName, category: layer.category ?? undefined });
+          }
+        }
+      }
+      return materials;
+    },
+    getParent(expressId: number, relationType: string) {
+      const relEnum = REL_TYPE_MAP[relationType];
+      if (relEnum === undefined) return undefined;
+      const parents = store.relationships.getRelated(expressId, relEnum, 'inverse');
+      if (parents.length === 0) return undefined;
+      const parentId = parents[0];
+      const parentType = store.entities.getTypeName(parentId);
+      return {
+        expressId: parentId,
+        entityType: parentType ?? '',
+        predefinedType: undefined,
+      };
+    },
+    getAttribute(expressId: number, attributeName: string): string | undefined {
+      const node = new EntityNode(store, expressId);
+      switch (attributeName) {
+        case 'Name': return node.name || undefined;
+        case 'Description': return node.description || undefined;
+        case 'ObjectType': return node.objectType || undefined;
+        case 'GlobalId': return node.globalId || undefined;
+        case 'Tag': return node.tag || undefined;
+        default: {
+          // Fall back to full attribute extraction
+          const attrs = extractAllEntityAttributes(store, expressId);
+          const attr = attrs.find(a => a.name === attributeName);
+          return attr?.value != null ? String(attr.value) : undefined;
+        }
+      }
     },
   };
 }
