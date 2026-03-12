@@ -8,7 +8,7 @@
  * Full integration with CsvConnector from @ifc-lite/mutations
  */
 
-import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
+import { useState, useCallback, useMemo, useRef, useEffect, type DragEvent } from 'react';
 import {
   Upload,
   FileSpreadsheet,
@@ -22,6 +22,7 @@ import {
   Eye,
   Play,
   Wand2,
+  ChevronRight,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -473,6 +474,50 @@ export function DataConnector({ trigger }: DataConnectorProps) {
     });
   }, [parsedRows, csvColumns]);
 
+  // Drag-and-drop handlers
+  const [isDragging, setIsDragging] = useState(false);
+
+  const handleDragOver = useCallback((e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  }, []);
+
+  const handleDragLeave = useCallback((e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+  }, []);
+
+  const handleDrop = useCallback(
+    (e: DragEvent<HTMLDivElement>) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setIsDragging(false);
+
+      const file = e.dataTransfer.files[0];
+      if (!file || !file.name.endsWith('.csv')) return;
+
+      // Reuse the same file-reading logic via a synthetic event
+      const dataTransfer = new DataTransfer();
+      dataTransfer.items.add(file);
+      if (fileInputRef.current) {
+        fileInputRef.current.files = dataTransfer.files;
+        fileInputRef.current.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+    },
+    []
+  );
+
+  // Derive the current step for the step indicator
+  const currentStep = useMemo(() => {
+    if (importStats) return 3;
+    if (csvColumns.length > 0) return 1;
+    return 0;
+  }, [csvColumns.length, importStats]);
+
+  const steps = ['Upload CSV', 'Configure Mapping', 'Import'];
+
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
@@ -483,317 +528,412 @@ export function DataConnector({ trigger }: DataConnectorProps) {
           </Button>
         )}
       </DialogTrigger>
-      <DialogContent className="sm:max-w-3xl max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
+      <DialogContent className="sm:max-w-4xl max-h-[85vh] flex flex-col p-0 gap-0">
+        {/* Fixed Header */}
+        <DialogHeader className="px-6 pt-6 pb-4 shrink-0 border-b">
           <DialogTitle className="flex items-center gap-2">
             <FileSpreadsheet className="h-5 w-5" />
             Import External Data
           </DialogTitle>
           <DialogDescription>
-            Import property data from CSV files and map to IFC entities using CsvConnector
+            Map CSV data to IFC entity properties
           </DialogDescription>
+
+          {/* Step Indicator */}
+          <div className="flex items-center gap-1 pt-3">
+            {steps.map((step, idx) => (
+              <div key={step} className="flex items-center gap-1">
+                <div
+                  className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${
+                    idx < currentStep
+                      ? 'bg-primary/10 text-primary'
+                      : idx === currentStep
+                        ? 'bg-primary text-primary-foreground'
+                        : 'bg-muted text-muted-foreground'
+                  }`}
+                >
+                  {idx < currentStep ? (
+                    <Check className="h-3 w-3" />
+                  ) : (
+                    <span className="w-4 text-center">{idx + 1}</span>
+                  )}
+                  {step}
+                </div>
+                {idx < steps.length - 1 && (
+                  <ChevronRight className="h-3 w-3 text-muted-foreground shrink-0" />
+                )}
+              </div>
+            ))}
+          </div>
         </DialogHeader>
 
-        <div className="space-y-6 py-4">
-          {/* Model selector - first so CsvConnector can be created */}
-          <div className="space-y-2">
-            <Label className="text-sm font-medium">Target Model</Label>
-            <Select value={selectedModelId} onValueChange={handleModelChange}>
-              <SelectTrigger>
-                <SelectValue placeholder="Select a model" />
-              </SelectTrigger>
-              <SelectContent>
-                {modelList.map((m) => (
-                  <SelectItem key={m.id} value={m.id}>
-                    {m.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {selectedModelId && !csvConnector && (
-              <p className="text-xs text-amber-600">
-                Note: MutationView not available for this model. Some features may be limited.
-              </p>
-            )}
-          </div>
-
-          {/* File Upload */}
-          <div className="space-y-2">
-            <Label className="text-sm font-medium">CSV File</Label>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".csv"
-              onChange={handleFileSelect}
-              className="hidden"
-            />
-            <div className="flex items-center gap-2">
-              <Button variant="outline" onClick={() => fileInputRef.current?.click()}>
-                <Upload className="h-4 w-4 mr-2" />
-                Choose File
-              </Button>
-              {fileName && <Badge variant="secondary">{fileName}</Badge>}
+        {/* Scrollable Body */}
+        <div className="flex-1 overflow-y-auto px-6 py-4">
+          <div className="space-y-6">
+            {/* Model selector */}
+            <div className="space-y-2">
+              <Label className="text-sm font-medium">Target Model</Label>
+              <Select value={selectedModelId} onValueChange={handleModelChange}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select a model" />
+                </SelectTrigger>
+                <SelectContent>
+                  {modelList.map((m) => (
+                    <SelectItem key={m.id} value={m.id}>
+                      {m.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {selectedModelId && !csvConnector && (
+                <p className="text-xs text-amber-600">
+                  Note: MutationView not available for this model. Some features may be limited.
+                </p>
+              )}
             </div>
-          </div>
 
-          {csvColumns.length > 0 && (
-            <>
-              <Separator />
+            {/* File Upload - Drag and Drop Zone */}
+            <div className="space-y-2">
+              <Label className="text-sm font-medium">CSV File</Label>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".csv"
+                onChange={handleFileSelect}
+                className="hidden"
+              />
+              {!fileName ? (
+                <div
+                  onDragOver={handleDragOver}
+                  onDragLeave={handleDragLeave}
+                  onDrop={handleDrop}
+                  onClick={() => fileInputRef.current?.click()}
+                  className={`flex flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed p-8 cursor-pointer transition-colors ${
+                    isDragging
+                      ? 'border-primary bg-primary/5'
+                      : 'border-muted-foreground/25 hover:border-muted-foreground/50 hover:bg-muted/50'
+                  }`}
+                >
+                  <Upload className={`h-8 w-8 ${isDragging ? 'text-primary' : 'text-muted-foreground'}`} />
+                  <div className="text-center">
+                    <p className="text-sm font-medium">
+                      {isDragging ? 'Drop CSV file here' : 'Drag & drop a CSV file'}
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      or click to browse
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <Badge variant="secondary" className="gap-1.5">
+                    <FileSpreadsheet className="h-3 w-3" />
+                    {fileName}
+                  </Badge>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 text-xs"
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    Change
+                  </Button>
+                </div>
+              )}
+            </div>
 
-              {/* CSV Preview */}
-              <div className="space-y-2">
-                <Label className="text-sm font-medium">Data Preview</Label>
-                <ScrollArea className="h-32 border rounded-md">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        {csvColumns.map((col) => (
-                          <TableHead key={col.name} className="text-xs whitespace-nowrap">
-                            {col.name}
-                          </TableHead>
-                        ))}
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {previewData.map((row, rowIdx) => (
-                        <TableRow key={rowIdx}>
-                          {row.map((cell, cellIdx) => (
-                            <TableCell key={cellIdx} className="text-xs py-1">
-                              {cell || '—'}
-                            </TableCell>
+            {csvColumns.length > 0 && (
+              <>
+                <Separator />
+
+                {/* CSV Preview */}
+                <div className="space-y-2">
+                  <Label className="text-sm font-medium">Data Preview</Label>
+                  <ScrollArea className="h-32 border rounded-md">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          {csvColumns.map((col) => (
+                            <TableHead key={col.name} className="text-xs whitespace-nowrap">
+                              {col.name}
+                            </TableHead>
                           ))}
                         </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </ScrollArea>
-                <p className="text-xs text-muted-foreground">
-                  {parsedRows.length > 0
-                    ? `${parsedRows.length} rows parsed`
-                    : `${csvColumns[0]?.sampleValues.length || 0} sample rows`}
-                </p>
-              </div>
-
-              <Separator />
-
-              {/* Matching Configuration */}
-              <div className="space-y-4">
-                <Label className="text-sm font-medium flex items-center gap-2">
-                  <Link2 className="h-4 w-4" />
-                  Match Configuration
-                </Label>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label className="text-xs text-muted-foreground">Match By</Label>
-                    <Select value={matchType} onValueChange={(v) => setMatchType(v as MatchType)}>
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="globalId">GlobalId</SelectItem>
-                        <SelectItem value="expressId">EXPRESS ID</SelectItem>
-                        <SelectItem value="name">Entity Name</SelectItem>
-                        <SelectItem value="property">Property Value</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label className="text-xs text-muted-foreground">Match Column</Label>
-                    <Select value={matchColumn} onValueChange={setMatchColumn}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select column" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {csvColumns.map((col) => (
-                          <SelectItem key={col.name} value={col.name}>
-                            {col.name}
-                            {col.sampleValues[0] && (
-                              <span className="ml-2 text-muted-foreground">
-                                (e.g., {col.sampleValues[0].slice(0, 20)})
-                              </span>
-                            )}
-                          </SelectItem>
+                      </TableHeader>
+                      <TableBody>
+                        {previewData.map((row, rowIdx) => (
+                          <TableRow key={rowIdx}>
+                            {row.map((cell, cellIdx) => (
+                              <TableCell key={cellIdx} className="text-xs py-1">
+                                {cell || '\u2014'}
+                              </TableCell>
+                            ))}
+                          </TableRow>
                         ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
+                      </TableBody>
+                    </Table>
+                  </ScrollArea>
+                  <p className="text-xs text-muted-foreground">
+                    {parsedRows.length > 0
+                      ? `${parsedRows.length} rows parsed`
+                      : `${csvColumns[0]?.sampleValues.length || 0} sample rows`}
+                  </p>
                 </div>
 
-                {matchType === 'property' && (
+                <Separator />
+
+                {/* Matching Configuration */}
+                <div className="space-y-4">
+                  <Label className="text-sm font-medium flex items-center gap-2">
+                    <Link2 className="h-4 w-4" />
+                    Entity Matching
+                  </Label>
+
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
-                      <Label className="text-xs text-muted-foreground">Property Set</Label>
-                      <Input
-                        value={matchPset}
-                        onChange={(e) => setMatchPset(e.target.value)}
-                        placeholder="e.g., Pset_WallCommon"
-                      />
+                      <Label className="text-xs text-muted-foreground">Match By</Label>
+                      <Select value={matchType} onValueChange={(v) => setMatchType(v as MatchType)}>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="globalId">GlobalId</SelectItem>
+                          <SelectItem value="expressId">EXPRESS ID</SelectItem>
+                          <SelectItem value="name">Entity Name</SelectItem>
+                          <SelectItem value="property">Property Value</SelectItem>
+                        </SelectContent>
+                      </Select>
                     </div>
+
                     <div className="space-y-2">
-                      <Label className="text-xs text-muted-foreground">Property Name</Label>
-                      <Input
-                        value={matchProp}
-                        onChange={(e) => setMatchProp(e.target.value)}
-                        placeholder="e.g., Reference"
-                      />
+                      <Label className="text-xs text-muted-foreground">CSV Column</Label>
+                      <Select value={matchColumn} onValueChange={setMatchColumn}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select column" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {csvColumns.map((col) => (
+                            <SelectItem key={col.name} value={col.name}>
+                              {col.name}
+                              {col.sampleValues[0] && (
+                                <span className="ml-2 text-muted-foreground">
+                                  (e.g., {col.sampleValues[0].slice(0, 20)})
+                                </span>
+                              )}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     </div>
                   </div>
-                )}
-              </div>
 
-              <Separator />
-
-              {/* Property Mappings */}
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <Label className="text-sm font-medium">Property Mappings</Label>
-                  <div className="flex items-center gap-2">
-                    {csvConnector && (
-                      <Button variant="ghost" size="sm" onClick={handleAutoDetect}>
-                        <Wand2 className="h-3 w-3 mr-1" />
-                        Auto-detect
-                      </Button>
-                    )}
-                    <Button variant="ghost" size="sm" onClick={addMapping}>
-                      <Plus className="h-3 w-3 mr-1" />
-                      Add Mapping
-                    </Button>
-                  </div>
+                  {matchType === 'property' && (
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label className="text-xs text-muted-foreground">Property Set</Label>
+                        <Input
+                          value={matchPset}
+                          onChange={(e) => setMatchPset(e.target.value)}
+                          placeholder="e.g., Pset_WallCommon"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label className="text-xs text-muted-foreground">Property Name</Label>
+                        <Input
+                          value={matchProp}
+                          onChange={(e) => setMatchProp(e.target.value)}
+                          placeholder="e.g., Reference"
+                        />
+                      </div>
+                    </div>
+                  )}
                 </div>
 
-                {mappings.length === 0 ? (
-                  <p className="text-sm text-muted-foreground text-center py-4">
-                    Add mappings to import column values as IFC properties
-                  </p>
-                ) : (
-                  <div className="space-y-2">
-                    {mappings.map((mapping) => (
-                      <div
-                        key={mapping.id}
-                        className="flex items-center gap-2 p-2 border rounded-md bg-muted/30"
-                      >
-                        <Select
-                          value={mapping.sourceColumn}
-                          onValueChange={(v) => updateMapping(mapping.id, 'sourceColumn', v)}
-                        >
-                          <SelectTrigger className="h-8 w-32">
-                            <SelectValue placeholder="Column" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {csvColumns.map((col) => (
-                              <SelectItem key={col.name} value={col.name}>
-                                {col.name}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                <Separator />
 
-                        <ArrowRight className="h-4 w-4 text-muted-foreground shrink-0" />
-
-                        <Input
-                          placeholder="Pset name"
-                          value={mapping.targetPset}
-                          onChange={(e) => updateMapping(mapping.id, 'targetPset', e.target.value)}
-                          className="h-8 text-xs w-32"
-                        />
-
-                        <Input
-                          placeholder="Property"
-                          value={mapping.targetProperty}
-                          onChange={(e) =>
-                            updateMapping(mapping.id, 'targetProperty', e.target.value)
-                          }
-                          className="h-8 text-xs flex-1"
-                        />
-
-                        <Select
-                          value={mapping.valueType.toString()}
-                          onValueChange={(v) => updateMapping(mapping.id, 'valueType', parseInt(v))}
-                        >
-                          <SelectTrigger className="h-8 w-24">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value={PropertyValueType.String.toString()}>
-                              String
-                            </SelectItem>
-                            <SelectItem value={PropertyValueType.Real.toString()}>Real</SelectItem>
-                            <SelectItem value={PropertyValueType.Integer.toString()}>
-                              Integer
-                            </SelectItem>
-                            <SelectItem value={PropertyValueType.Boolean.toString()}>
-                              Boolean
-                            </SelectItem>
-                          </SelectContent>
-                        </Select>
-
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8"
-                          onClick={() => removeMapping(mapping.id)}
-                        >
-                          <Trash2 className="h-3 w-3 text-destructive" />
+                {/* Property Mappings */}
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-sm font-medium">Property Mappings</Label>
+                    <div className="flex items-center gap-2">
+                      {csvConnector && (
+                        <Button variant="ghost" size="sm" onClick={handleAutoDetect}>
+                          <Wand2 className="h-3 w-3 mr-1" />
+                          Auto-detect
                         </Button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* Match Results */}
-              {matchStats && (
-                <Alert>
-                  <Eye className="h-4 w-4" />
-                  <AlertTitle>Match Results</AlertTitle>
-                  <AlertDescription className="flex flex-wrap items-center gap-2">
-                    <Badge variant="default">{matchStats.matched} matched</Badge>
-                    <Badge variant="secondary">{matchStats.unmatched} unmatched</Badge>
-                    <Badge variant="outline">{matchStats.highConfidence} high confidence</Badge>
-                    {matchStats.multiMatch > 0 && (
-                      <Badge variant="destructive">{matchStats.multiMatch} multi-match</Badge>
-                    )}
-                  </AlertDescription>
-                </Alert>
-              )}
-
-              {/* Import Stats */}
-              {importStats && (
-                <Alert variant={importStats.errors.length === 0 ? 'default' : 'destructive'}>
-                  <Check className="h-4 w-4" />
-                  <AlertTitle>Import Complete</AlertTitle>
-                  <AlertDescription>
-                    <div className="flex flex-wrap items-center gap-2 mt-1">
-                      <Badge variant="default">
-                        {importStats.mutationsCreated} properties updated
-                      </Badge>
-                      <Badge variant="secondary">{importStats.matchedRows} rows matched</Badge>
-                      <Badge variant="outline">{importStats.unmatchedRows} rows unmatched</Badge>
+                      )}
+                      <Button variant="ghost" size="sm" onClick={addMapping}>
+                        <Plus className="h-3 w-3 mr-1" />
+                        Add
+                      </Button>
                     </div>
-                    {importStats.warnings.length > 0 && (
-                      <div className="mt-2 text-xs text-amber-600">
-                        {importStats.warnings.length} warning(s)
-                      </div>
-                    )}
-                  </AlertDescription>
-                </Alert>
-              )}
+                  </div>
 
-              {/* Error Display */}
-              {error && (
-                <Alert variant="destructive">
-                  <AlertCircle className="h-4 w-4" />
-                  <AlertTitle>Error</AlertTitle>
-                  <AlertDescription className="whitespace-pre-wrap">{error}</AlertDescription>
-                </Alert>
-              )}
-            </>
-          )}
+                  {mappings.length === 0 ? (
+                    <div className="text-center py-6 border rounded-lg border-dashed">
+                      <p className="text-sm text-muted-foreground">
+                        No property mappings configured
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Click &quot;Auto-detect&quot; or &quot;Add&quot; to map CSV columns to IFC properties
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {/* Column headers for mapping rows */}
+                      <div className="grid grid-cols-[1fr_auto_1fr_1fr_auto_auto] gap-2 px-2 text-xs text-muted-foreground">
+                        <span>Source Column</span>
+                        <span />
+                        <span>Target Pset</span>
+                        <span>Target Property</span>
+                        <span>Type</span>
+                        <span />
+                      </div>
+                      {mappings.map((mapping) => (
+                        <div
+                          key={mapping.id}
+                          className="grid grid-cols-[1fr_auto_1fr_1fr_auto_auto] gap-2 items-center p-2 border rounded-md bg-muted/30"
+                        >
+                          <Select
+                            value={mapping.sourceColumn}
+                            onValueChange={(v) => updateMapping(mapping.id, 'sourceColumn', v)}
+                          >
+                            <SelectTrigger className="h-8">
+                              <SelectValue placeholder="Column" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {csvColumns.map((col) => (
+                                <SelectItem key={col.name} value={col.name}>
+                                  {col.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+
+                          <ArrowRight className="h-4 w-4 text-muted-foreground shrink-0" />
+
+                          <Input
+                            placeholder="Pset name"
+                            value={mapping.targetPset}
+                            onChange={(e) =>
+                              updateMapping(mapping.id, 'targetPset', e.target.value)
+                            }
+                            className="h-8 text-xs"
+                          />
+
+                          <Input
+                            placeholder="Property"
+                            value={mapping.targetProperty}
+                            onChange={(e) =>
+                              updateMapping(mapping.id, 'targetProperty', e.target.value)
+                            }
+                            className="h-8 text-xs"
+                          />
+
+                          <Select
+                            value={mapping.valueType.toString()}
+                            onValueChange={(v) =>
+                              updateMapping(mapping.id, 'valueType', parseInt(v))
+                            }
+                          >
+                            <SelectTrigger className="h-8 w-24">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value={PropertyValueType.String.toString()}>
+                                String
+                              </SelectItem>
+                              <SelectItem value={PropertyValueType.Real.toString()}>
+                                Real
+                              </SelectItem>
+                              <SelectItem value={PropertyValueType.Integer.toString()}>
+                                Integer
+                              </SelectItem>
+                              <SelectItem value={PropertyValueType.Boolean.toString()}>
+                                Boolean
+                              </SelectItem>
+                            </SelectContent>
+                          </Select>
+
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8"
+                            onClick={() => removeMapping(mapping.id)}
+                          >
+                            <Trash2 className="h-3 w-3 text-destructive" />
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Match Results */}
+                {matchStats && (
+                  <Alert>
+                    <Eye className="h-4 w-4" />
+                    <AlertTitle>Match Results</AlertTitle>
+                    <AlertDescription className="flex flex-wrap items-center gap-2">
+                      <Badge variant="default">{matchStats.matched} matched</Badge>
+                      <Badge variant="secondary">{matchStats.unmatched} unmatched</Badge>
+                      <Badge variant="outline">
+                        {matchStats.highConfidence} high confidence
+                      </Badge>
+                      {matchStats.multiMatch > 0 && (
+                        <Badge variant="destructive">
+                          {matchStats.multiMatch} multi-match
+                        </Badge>
+                      )}
+                    </AlertDescription>
+                  </Alert>
+                )}
+
+                {/* Import Stats */}
+                {importStats && (
+                  <Alert
+                    variant={importStats.errors.length === 0 ? 'default' : 'destructive'}
+                  >
+                    <Check className="h-4 w-4" />
+                    <AlertTitle>Import Complete</AlertTitle>
+                    <AlertDescription>
+                      <div className="flex flex-wrap items-center gap-2 mt-1">
+                        <Badge variant="default">
+                          {importStats.mutationsCreated} properties updated
+                        </Badge>
+                        <Badge variant="secondary">
+                          {importStats.matchedRows} rows matched
+                        </Badge>
+                        <Badge variant="outline">
+                          {importStats.unmatchedRows} rows unmatched
+                        </Badge>
+                      </div>
+                      {importStats.warnings.length > 0 && (
+                        <div className="mt-2 text-xs text-amber-600">
+                          {importStats.warnings.length} warning(s)
+                        </div>
+                      )}
+                    </AlertDescription>
+                  </Alert>
+                )}
+
+                {/* Error Display */}
+                {error && (
+                  <Alert variant="destructive">
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertTitle>Error</AlertTitle>
+                    <AlertDescription className="whitespace-pre-wrap">
+                      {error}
+                    </AlertDescription>
+                  </Alert>
+                )}
+              </>
+            )}
+          </div>
         </div>
 
-        <DialogFooter className="gap-2">
+        {/* Fixed Footer */}
+        <DialogFooter className="px-6 py-4 border-t shrink-0 gap-2">
           <Button
             variant="secondary"
             onClick={handlePreview}
