@@ -589,14 +589,22 @@ export class ColumnarParser {
         let relatingObject: unknown;
         let relatedObjects: unknown;
 
-        if (typeUpper === 'IFCRELDEFINESBYPROPERTIES' || typeUpper === 'IFCRELDEFINESBYTYPE' || typeUpper === 'IFCRELCONTAINEDINSPATIALSTRUCTURE') {
+        if (typeUpper === 'IFCRELDEFINESBYPROPERTIES' || typeUpper === 'IFCRELDEFINESBYTYPE'
+            || typeUpper === 'IFCRELCONTAINEDINSPATIALSTRUCTURE' || typeUpper === 'IFCRELREFERENCEDINSPATIALSTRUCTURE') {
+            // [4]=RelatedObjects/RelatedElements, [5]=RelatingPropertyDef/Type/Structure
             relatedObjects = attrs[4];
             relatingObject = attrs[5];
         } else if (typeUpper === 'IFCRELASSIGNSTOGROUP' || typeUpper === 'IFCRELASSIGNSTOPRODUCT') {
-            // IfcRelAssigns subtypes: [4]=RelatedObjects, [6]=RelatingGroup/Product
+            // IfcRelAssigns subtypes: [4]=RelatedObjects, [5]=RelatedObjectsType, [6]=RelatingGroup/Product
             relatedObjects = attrs[4];
             relatingObject = attrs.length > 6 ? attrs[6] : undefined;
+        } else if (typeUpper === 'IFCRELCONNECTSELEMENTS' || typeUpper === 'IFCRELCONNECTSPATHELEMENTS') {
+            // [4]=ConnectionGeometry, [5]=RelatingElement, [6]=RelatedElement
+            relatingObject = attrs[5];
+            relatedObjects = attrs.length > 6 ? attrs[6] : undefined;
         } else {
+            // IfcRelAggregates, IfcRelVoidsElement, IfcRelFillsElement, IfcRelSpaceBoundary, etc.
+            // [4]=RelatingObject, [5]=RelatedObject(s)
             relatingObject = attrs[4];
             relatedObjects = attrs[5];
         }
