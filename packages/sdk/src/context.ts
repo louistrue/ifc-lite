@@ -149,9 +149,9 @@ export class BimContext {
     return this._queryNamespace.property(ref, psetName, propName);
   }
 
-  /** Get a single quantity value for an entity. */
-  quantity(ref: EntityRef, qsetName: string, quantityName: string): number | null {
-    return this._queryNamespace.quantity(ref, qsetName, quantityName);
+  /** Get a single quantity value. Supports 2-arg (ref, quantityName) or 3-arg (ref, qsetName, quantityName). */
+  quantity(ref: EntityRef, qsetNameOrQuantityName: string, quantityName?: string): number | null {
+    return this._queryNamespace.quantity(ref, qsetNameOrQuantityName, quantityName);
   }
 
   /** Get related entities by IFC relationship type. */

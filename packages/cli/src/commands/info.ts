@@ -68,17 +68,41 @@ export async function infoCommand(args: string[]): Promise<void> {
     }
   }
 
-  // Top entity types
-  const sorted = Object.entries(typeCounts)
-    .filter(([name]) => !name.startsWith('IfcRel') && !name.startsWith('IfcProperty') && !name.startsWith('IfcQuantity'))
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 20);
+  // Split entity types into building elements vs geometry/infrastructure
+  const BUILDING_ELEMENT_PREFIXES = [
+    'IfcWall', 'IfcSlab', 'IfcBeam', 'IfcColumn', 'IfcDoor', 'IfcWindow',
+    'IfcRoof', 'IfcStair', 'IfcRailing', 'IfcMember', 'IfcPlate', 'IfcCovering',
+    'IfcFooting', 'IfcPile', 'IfcCurtainWall', 'IfcRamp', 'IfcSpace',
+    'IfcBuildingElementProxy', 'IfcFurnishingElement', 'IfcFlowTerminal',
+    'IfcFlowSegment', 'IfcFlowFitting', 'IfcDistributionElement',
+    'IfcOpeningElement', 'IfcSite', 'IfcBuilding', 'IfcBuildingStorey',
+  ];
+  const isBuilding = (name: string) => BUILDING_ELEMENT_PREFIXES.some(p => name.startsWith(p));
+  const isInfrastructure = (name: string) =>
+    !name.startsWith('IfcRel') && !name.startsWith('IfcProperty') && !name.startsWith('IfcQuantity');
 
-  if (sorted.length > 0) {
-    process.stdout.write(`\n  Entity types (top ${sorted.length}):\n`);
+  const buildingElements = Object.entries(typeCounts)
+    .filter(([name]) => isBuilding(name))
+    .sort((a, b) => b[1] - a[1]);
+
+  const otherTypes = Object.entries(typeCounts)
+    .filter(([name]) => isInfrastructure(name) && !isBuilding(name))
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 10);
+
+  if (buildingElements.length > 0) {
+    process.stdout.write(`\n  Building elements:\n`);
     process.stdout.write(formatTable(
       ['Type', 'Count'],
-      sorted.map(([name, count]) => [name, count.toLocaleString()]),
+      buildingElements.map(([name, count]) => [name, count.toLocaleString()]),
+    ).split('\n').map(l => '    ' + l).join('\n') + '\n');
+  }
+
+  if (otherTypes.length > 0) {
+    process.stdout.write(`\n  Other types (top ${otherTypes.length}):\n`);
+    process.stdout.write(formatTable(
+      ['Type', 'Count'],
+      otherTypes.map(([name, count]) => [name, count.toLocaleString()]),
     ).split('\n').map(l => '    ' + l).join('\n') + '\n');
   }
 

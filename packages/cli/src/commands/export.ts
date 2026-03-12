@@ -13,6 +13,31 @@ import { writeFile } from 'node:fs/promises';
 import { createHeadlessContext } from '../loader.js';
 import { getFlag, hasFlag, fatal, writeOutput } from '../output.js';
 
+/**
+ * Parse a --where filter string into psetName, propName, operator, value.
+ */
+function parseWhereFilter(filter: string): { psetName: string; propName: string; operator: string; value?: string } {
+  const dotIdx = filter.indexOf('.');
+  if (dotIdx <= 0) {
+    fatal(`Invalid --where syntax: "${filter}". Expected: PsetName.PropName[=Value]`);
+  }
+
+  const psetName = filter.slice(0, dotIdx);
+  const rest = filter.slice(dotIdx + 1);
+
+  for (const op of ['!=', '>=', '<=', '>', '<', '=', '~']) {
+    const opIdx = rest.indexOf(op);
+    if (opIdx > 0) {
+      const propName = rest.slice(0, opIdx);
+      const value = rest.slice(opIdx + op.length);
+      const mappedOp = op === '~' ? 'contains' : op;
+      return { psetName, propName, operator: mappedOp, value };
+    }
+  }
+
+  return { psetName, propName: rest, operator: 'exists' };
+}
+
 export async function exportCommand(args: string[]): Promise<void> {
   const filePath = args.find(a => !a.startsWith('-'));
   const format = getFlag(args, '--format') ?? 'csv';
@@ -21,8 +46,9 @@ export async function exportCommand(args: string[]): Promise<void> {
   const columnsStr = getFlag(args, '--columns');
   const separator = getFlag(args, '--separator') ?? ',';
   const limit = getFlag(args, '--limit');
+  const propFilter = getFlag(args, '--where');
 
-  if (!filePath) fatal('Usage: ifc-lite export <file.ifc> --format csv|json|ifc [--type IfcWall] [--columns Name,Type,GlobalId] [--out file]');
+  if (!filePath) fatal('Usage: ifc-lite export <file.ifc> --format csv|json|ifc [--type IfcWall] [--columns Name,Type,GlobalId] [--where PsetName.Prop=Value] [--out file]');
 
   const { bim } = await createHeadlessContext(filePath);
 
@@ -30,6 +56,10 @@ export async function exportCommand(args: string[]): Promise<void> {
   let q = bim.query();
   if (type) {
     q = q.byType(...type.split(','));
+  }
+  if (propFilter) {
+    const parsed = parseWhereFilter(propFilter);
+    q = q.where(parsed.psetName, parsed.propName, parsed.operator as any, parsed.value);
   }
   if (limit) {
     q = q.limit(parseInt(limit, 10));

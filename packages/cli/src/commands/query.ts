@@ -121,6 +121,8 @@ export async function queryCommand(args: string[]): Promise<void> {
   const sumQuantity = getFlag(args, '--sum');
   const storeyFilter = getFlag(args, '--storey');
   const quantityNames = hasFlag(args, '--quantity-names');
+  const propertyNames = hasFlag(args, '--property-names');
+  const uniqueProp = getFlag(args, '--unique');
   const groupBy = getFlag(args, '--group-by');
   const spatialSummary = hasFlag(args, '--summary');
 
@@ -200,6 +202,95 @@ export async function queryCommand(args: string[]): Promise<void> {
         }
         process.stderr.write(`  Use --sum <exact-name> with the correct quantity for your analysis.\n\n`);
       }
+    }
+    return;
+  }
+
+  // --property-names: list available properties per entity type
+  if (propertyNames) {
+    const targetType = type;
+    if (!targetType) fatal('--property-names requires --type (e.g., --type IfcWall --property-names)');
+
+    const entities = bim.query().byType(...targetType.split(',')).limit(50).toArray();
+    const psetMap: Record<string, Map<string, { count: number; sampleValues: string[] }>> = {};
+
+    for (const e of entities) {
+      const psets = bim.properties(e.ref);
+      for (const pset of psets) {
+        if (!psetMap[pset.name]) psetMap[pset.name] = new Map();
+        const pmap = psetMap[pset.name];
+        for (const p of pset.properties) {
+          const existing = pmap.get(p.name);
+          const strVal = p.value != null ? String(p.value) : '';
+          if (existing) {
+            existing.count++;
+            if (existing.sampleValues.length < 3 && strVal && !existing.sampleValues.includes(strVal)) {
+              existing.sampleValues.push(strVal);
+            }
+          } else {
+            pmap.set(p.name, { count: 1, sampleValues: strVal ? [strVal] : [] });
+          }
+        }
+      }
+    }
+
+    if (jsonOutput) {
+      const result: Record<string, Record<string, unknown>> = {};
+      for (const [psetName, pmap] of Object.entries(psetMap)) {
+        result[psetName] = {};
+        for (const [propName, info] of pmap) {
+          result[psetName][propName] = {
+            foundIn: `${info.count}/${entities.length} entities`,
+            sampleValues: info.sampleValues,
+            filterPath: `${psetName}.${propName}`,
+          };
+        }
+      }
+      printJson({ availableProperties: result, note: 'Use --where PsetName.PropName=Value to filter.' });
+    } else {
+      process.stdout.write(`\nProperties available for ${targetType} (sampled ${entities.length} entities):\n\n`);
+      for (const [psetName, pmap] of Object.entries(psetMap)) {
+        process.stdout.write(`  ${psetName}:\n`);
+        for (const [propName, info] of pmap) {
+          const samples = info.sampleValues.length > 0 ? `  samples: [${info.sampleValues.map(v => `"${v}"`).join(', ')}]` : '';
+          process.stdout.write(`    ${propName}  (${info.count}/${entities.length} entities)${samples}\n`);
+        }
+        process.stdout.write('\n');
+      }
+    }
+    return;
+  }
+
+  // --unique: distinct values for a property path (PsetName.PropName)
+  if (uniqueProp) {
+    const targetType = type;
+    if (!targetType) fatal('--unique requires --type (e.g., --type IfcWall --unique PsetName.PropName)');
+    const dotIdx = uniqueProp.indexOf('.');
+    if (dotIdx <= 0) fatal(`Invalid --unique path: "${uniqueProp}". Expected: PsetName.PropName`);
+    const psetName = uniqueProp.slice(0, dotIdx);
+    const propName = uniqueProp.slice(dotIdx + 1);
+
+    const entities = bim.query().byType(...targetType.split(',')).toArray();
+    const valueCounts = new Map<string, number>();
+
+    for (const e of entities) {
+      const psets = bim.properties(e.ref);
+      const pset = psets.find((p: any) => p.name === psetName);
+      const prop = pset?.properties?.find((p: any) => p.name === propName);
+      const val = prop?.value != null ? String(prop.value) : '(no value)';
+      valueCounts.set(val, (valueCounts.get(val) ?? 0) + 1);
+    }
+
+    if (jsonOutput) {
+      const result: Record<string, number> = {};
+      for (const [val, count] of valueCounts) result[val] = count;
+      printJson({ property: uniqueProp, distinctValues: result, totalEntities: entities.length });
+    } else {
+      const sorted = [...valueCounts.entries()].sort((a, b) => b[1] - a[1]);
+      for (const [val, count] of sorted) {
+        process.stdout.write(`${val} (${count})\n`);
+      }
+      process.stderr.write(`\n${sorted.length} distinct values across ${entities.length} entities\n`);
     }
     return;
   }
@@ -336,6 +427,13 @@ export async function queryCommand(args: string[]): Promise<void> {
   if (limit) q = q.limit(parseInt(limit, 10));
   if (offset) q = q.offset(parseInt(offset, 10));
 
+  // --group-by + --sum combo: aggregate per group
+  if (groupBy && sumQuantity) {
+    const entities = q.toArray();
+    outputGroupBy(entities, groupBy, sumQuantity, bim, jsonOutput);
+    return;
+  }
+
   // --sum mode: aggregate a quantity across matched entities
   if (sumQuantity) {
     const entities = q.toArray();
@@ -346,7 +444,7 @@ export async function queryCommand(args: string[]): Promise<void> {
   // --group-by mode: pivot table grouped by a property or 'type'/'material'
   if (groupBy) {
     const entities = q.toArray();
-    outputGroupBy(entities, groupBy, sumQuantity, bim, jsonOutput);
+    outputGroupBy(entities, groupBy, undefined, bim, jsonOutput);
     return;
   }
 
@@ -439,7 +537,7 @@ function outputSum(entities: any[], quantityName: string, bim: any, jsonOutput: 
   }
 }
 
-function outputGroupBy(entities: any[], groupByKey: string, _sumQuantity: string | undefined, bim: any, jsonOutput: boolean): void {
+function outputGroupBy(entities: any[], groupByKey: string, sumQuantity: string | undefined, bim: any, jsonOutput: boolean): void {
   const groups = new Map<string, any[]>();
 
   for (const e of entities) {
@@ -447,6 +545,9 @@ function outputGroupBy(entities: any[], groupByKey: string, _sumQuantity: string
 
     if (groupByKey === 'type') {
       groupValue = e.type;
+    } else if (groupByKey === 'storey') {
+      const storey = bim.storey(e.ref);
+      groupValue = storey?.name ?? '(no storey)';
     } else if (groupByKey === 'material') {
       const mat = bim.materials(e.ref);
       groupValue = mat?.materials?.[0]?.name ?? mat?.name ?? '(no material)';
@@ -469,19 +570,48 @@ function outputGroupBy(entities: any[], groupByKey: string, _sumQuantity: string
     }
   }
 
+  // Compute per-group sum if --sum is specified alongside --group-by
+  const groupSums = new Map<string, number>();
+  if (sumQuantity) {
+    for (const [key, groupEntities] of groups) {
+      let sum = 0;
+      for (const e of groupEntities) {
+        const qsets = bim.quantities(e.ref);
+        for (const qset of qsets) {
+          for (const q of qset.quantities) {
+            if (q.name === sumQuantity) sum += Number(q.value) || 0;
+          }
+        }
+      }
+      groupSums.set(key, sum);
+    }
+  }
+
   if (jsonOutput) {
     const result: Record<string, unknown> = {};
     for (const [key, groupEntities] of groups) {
-      result[key] = { count: groupEntities.length };
+      const entry: Record<string, unknown> = { count: groupEntities.length };
+      if (sumQuantity) entry[sumQuantity] = groupSums.get(key) ?? 0;
+      result[key] = entry;
     }
     printJson(result);
   } else {
     const sorted = [...groups.entries()].sort((a, b) => b[1].length - a[1].length);
-    process.stdout.write(`\nGrouped by ${groupByKey}:\n\n`);
+    process.stdout.write(`\nGrouped by ${groupByKey}${sumQuantity ? ` (sum: ${sumQuantity})` : ''}:\n\n`);
     for (const [key, groupEntities] of sorted) {
-      process.stdout.write(`  ${key}: ${groupEntities.length}\n`);
+      if (sumQuantity) {
+        const sum = groupSums.get(key) ?? 0;
+        process.stdout.write(`  ${key}:  ${groupEntities.length} elements,  ${sumQuantity}: ${sum}\n`);
+      } else {
+        process.stdout.write(`  ${key}: ${groupEntities.length}\n`);
+      }
     }
-    process.stdout.write(`\n  Total: ${entities.length} entities in ${groups.size} groups\n\n`);
+    if (sumQuantity) {
+      const grandTotal = [...groupSums.values()].reduce((a, b) => a + b, 0);
+      process.stdout.write(`\n  Total: ${entities.length} entities in ${groups.size} groups, ${sumQuantity}: ${grandTotal}\n\n`);
+    } else {
+      process.stdout.write(`\n  Total: ${entities.length} entities in ${groups.size} groups\n\n`);
+    }
   }
 }
 

@@ -159,13 +159,23 @@ export class QueryNamespace {
     return this.backend.query.relationships(ref);
   }
 
-  /** Get a single quantity value */
-  quantity(ref: EntityRef, qsetName: string, quantityName: string): number | null {
+  /** Get a single quantity value. Supports 2-arg (ref, quantityName) or 3-arg (ref, qsetName, quantityName). */
+  quantity(ref: EntityRef, qsetNameOrQuantityName: string, quantityName?: string): number | null {
     const qsets = this.quantities(ref);
-    const qset = qsets.find(q => q.name === qsetName);
-    if (!qset) return null;
-    const qty = qset.quantities.find(q => q.name === quantityName);
-    return qty?.value ?? null;
+    if (quantityName !== undefined) {
+      // 3-arg: (ref, qsetName, quantityName)
+      const qset = qsets.find(q => q.name === qsetNameOrQuantityName);
+      if (!qset) return null;
+      const qty = qset.quantities.find(q => q.name === quantityName);
+      return qty?.value ?? null;
+    }
+    // 2-arg: (ref, quantityName) — search all qsets
+    const name = qsetNameOrQuantityName;
+    for (const qset of qsets) {
+      const qty = qset.quantities.find(q => q.name === name);
+      if (qty != null) return qty.value ?? null;
+    }
+    return null;
   }
 
   /** Get related entities by IFC relationship type */
