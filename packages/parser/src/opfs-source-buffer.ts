@@ -75,13 +75,16 @@ export class OpfsSourceBuffer {
       return new OpfsSourceBuffer(buffer, buffer.byteLength, false);
     }
 
+    let fileName: string | null = null;
+    let syncHandle: OpfsSyncAccessHandle | null = null;
+
     try {
-      const fileName = `ifc-source-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      fileName = `ifc-source-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       const root = await navigator.storage.getDirectory();
       const fileHandle = await root.getFileHandle(fileName, { create: true }) as unknown as OpfsFileHandle;
 
       // Write buffer to OPFS using sync access handle (fastest path)
-      const syncHandle = await fileHandle.createSyncAccessHandle();
+      syncHandle = await fileHandle.createSyncAccessHandle();
       syncHandle.write(buffer, { at: 0 });
       syncHandle.flush();
 
@@ -92,7 +95,16 @@ export class OpfsSourceBuffer {
 
       return instance;
     } catch {
-      // OPFS failed — fall back to in-memory
+      // OPFS failed — clean up partial resources and fall back to in-memory
+      if (syncHandle) {
+        try { syncHandle.close(); } catch { /* ignore */ }
+      }
+      if (fileName) {
+        try {
+          const root = await navigator.storage.getDirectory();
+          await root.removeEntry(fileName);
+        } catch { /* ignore */ }
+      }
       return new OpfsSourceBuffer(buffer, buffer.byteLength, false);
     }
   }
@@ -103,8 +115,7 @@ export class OpfsSourceBuffer {
   static isOpfsAvailable(): boolean {
     return (
       typeof globalThis !== 'undefined' &&
-      'storage' in globalThis.navigator &&
-      typeof globalThis.navigator.storage.getDirectory === 'function'
+      typeof globalThis.navigator?.storage?.getDirectory === 'function'
     );
   }
 
@@ -113,6 +124,12 @@ export class OpfsSourceBuffer {
    * Works for both in-memory and OPFS-backed buffers.
    */
   readRange(byteOffset: number, byteLength: number): Uint8Array {
+    if (byteOffset < 0 || byteLength < 0 || byteOffset + byteLength > this.byteLength) {
+      throw new RangeError(
+        `OpfsSourceBuffer.readRange: offset=${byteOffset} length=${byteLength} exceeds buffer size=${this.byteLength}`
+      );
+    }
+
     if (this.memoryBuffer) {
       // In-memory: zero-copy subarray view
       return this.memoryBuffer.subarray(byteOffset, byteOffset + byteLength);
@@ -121,7 +138,12 @@ export class OpfsSourceBuffer {
     if (this.fileHandle) {
       // OPFS sync access: read into a new buffer
       const dest = new Uint8Array(byteLength);
-      this.fileHandle.read(dest, { at: byteOffset });
+      const bytesRead = this.fileHandle.read(dest, { at: byteOffset });
+      if (bytesRead < byteLength) {
+        throw new Error(
+          `OpfsSourceBuffer.readRange: short read (${bytesRead}/${byteLength} bytes at offset ${byteOffset})`
+        );
+      }
       return dest;
     }
 
