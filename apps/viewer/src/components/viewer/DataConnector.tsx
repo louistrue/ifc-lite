@@ -58,6 +58,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Progress } from '@/components/ui/progress';
 import { Separator } from '@/components/ui/separator';
 import { useViewerStore } from '@/store';
 import { useIfc } from '@/hooks/useIfc';
@@ -913,38 +914,21 @@ export function DataConnector({ trigger }: DataConnectorProps) {
 
                 {/* Live Import Progress */}
                 {importProgress && (
-                  <div className="space-y-3 p-4 border rounded-lg bg-muted/30">
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="font-medium flex items-center gap-2">
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between text-sm text-muted-foreground">
+                      <span className="flex items-center gap-2">
                         <Loader2 className="h-4 w-4 animate-spin" />
                         {importProgress.phase === 'parsing' && 'Parsing CSV...'}
                         {importProgress.phase === 'matching' && 'Matching entities...'}
                         {importProgress.phase === 'applying' && 'Applying properties...'}
                       </span>
-                      <span className="text-muted-foreground tabular-nums">
-                        {Math.round(importProgress.percent * 100)}%
-                        {importProgress.totalRows > 0 &&
-                          ` \u00b7 ${importProgress.totalRows.toLocaleString()} rows`}
-                      </span>
-                    </div>
-                    {/* Progress bar — single 0→100% across all phases */}
-                    <div className="h-2 bg-muted rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-primary rounded-full transition-[width] duration-150"
-                        style={{ width: `${Math.round(importProgress.percent * 100)}%` }}
-                      />
-                    </div>
-                    {/* Live counters */}
-                    <div className="flex gap-4 text-xs text-muted-foreground">
                       <span className="tabular-nums">
                         {importProgress.matchedRows.toLocaleString()} matched
+                        {importProgress.mutationsCreated > 0 &&
+                          ` \u00b7 ${importProgress.mutationsCreated.toLocaleString()} written`}
                       </span>
-                      {importProgress.mutationsCreated > 0 && (
-                        <span className="tabular-nums">
-                          {importProgress.mutationsCreated.toLocaleString()} properties written
-                        </span>
-                      )}
                     </div>
+                    <Progress value={importProgress.percent * 100} />
                   </div>
                 )}
 

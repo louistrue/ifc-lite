@@ -146,6 +146,7 @@ export function BulkPropertyEditor({ trigger }: BulkPropertyEditorProps) {
   const [isExecuting, setIsExecuting] = useState(false);
   const [executeProgress, setExecuteProgress] = useState<{ done: number; total: number } | null>(null);
   const executeCancelRef = useRef(false);
+  const scrollAreaRef = useRef<HTMLDivElement>(null);
   const [previewResult, setPreviewResult] = useState<BulkQueryPreview | null>(null);
   const [executeResult, setExecuteResult] = useState<BulkQueryResult | null>(null);
 
@@ -620,6 +621,18 @@ export function BulkPropertyEditor({ trigger }: BulkPropertyEditorProps) {
     setExecuteResult(null);
   }, []);
 
+  // Auto-scroll to bottom when execute completes
+  useEffect(() => {
+    if (executeResult && scrollAreaRef.current) {
+      requestAnimationFrame(() => {
+        scrollAreaRef.current?.scrollTo({
+          top: scrollAreaRef.current.scrollHeight,
+          behavior: 'smooth',
+        });
+      });
+    }
+  }, [executeResult]);
+
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
@@ -630,8 +643,8 @@ export function BulkPropertyEditor({ trigger }: BulkPropertyEditorProps) {
           </Button>
         )}
       </DialogTrigger>
-      <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
+      <DialogContent className="sm:max-w-2xl max-h-[85vh] flex flex-col p-0 gap-0">
+        <DialogHeader className="px-6 pt-6 pb-4 shrink-0 border-b">
           <DialogTitle className="flex items-center gap-2">
             <Filter className="h-5 w-5" />
             Bulk Property Editor
@@ -641,13 +654,14 @@ export function BulkPropertyEditor({ trigger }: BulkPropertyEditorProps) {
           </DialogDescription>
         </DialogHeader>
 
+        <div ref={scrollAreaRef} className="flex-1 overflow-y-auto px-6 py-4">
         {isInitializing ? (
           <div className="flex items-center justify-center py-12 gap-2 text-muted-foreground">
             <Loader2 className="h-5 w-5 animate-spin" />
             <span className="text-sm">Loading model data...</span>
           </div>
         ) : (
-        <div className="space-y-6 py-4">
+        <div className="space-y-6">
           {/* Model selector */}
           <div className="space-y-2">
             <Label className="text-sm font-medium">Model</Label>
@@ -964,8 +978,9 @@ export function BulkPropertyEditor({ trigger }: BulkPropertyEditorProps) {
           )}
         </div>
         )}
+        </div>
 
-        <DialogFooter className="gap-2">
+        <DialogFooter className="px-6 py-4 border-t shrink-0 gap-2">
           {isExecuting ? (
             <Button variant="destructive" onClick={() => { executeCancelRef.current = true; }}>
               Cancel
