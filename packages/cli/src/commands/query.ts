@@ -494,6 +494,12 @@ export async function queryCommand(args: string[]): Promise<void> {
       storeyEntities = applyWhereFilter(storeyEntities, parsed, bim);
     }
 
+    const sAggQty = sumQuantity ?? avgQuantity ?? minQuantity ?? maxQuantity;
+    const sAggMode: 'sum' | 'avg' | 'min' | 'max' | undefined = sumQuantity ? 'sum' : avgQuantity ? 'avg' : minQuantity ? 'min' : maxQuantity ? 'max' : undefined;
+    if (groupBy && sAggQty) {
+      outputGroupBy(storeyEntities, groupBy, sAggQty, bim, jsonOutput, limit ? parseInt(limit, 10) : undefined, sAggMode);
+      return;
+    }
     if (sumQuantity) {
       outputSum(storeyEntities, sumQuantity, bim, jsonOutput);
       return;
@@ -508,6 +514,10 @@ export async function queryCommand(args: string[]): Promise<void> {
     }
     if (maxQuantity) {
       outputAggregation(storeyEntities, maxQuantity, 'max', bim, jsonOutput);
+      return;
+    }
+    if (groupBy) {
+      outputGroupBy(storeyEntities, groupBy, undefined, bim, jsonOutput, limit ? parseInt(limit, 10) : undefined);
       return;
     }
     if (countOnly) {
@@ -531,8 +541,10 @@ export async function queryCommand(args: string[]): Promise<void> {
     if (offset) entities = entities.slice(parseInt(offset, 10));
     if (limit) entities = entities.slice(0, parseInt(limit, 10));
 
-    if (groupBy && sumQuantity) {
-      outputGroupBy(entities, groupBy, sumQuantity, bim, jsonOutput, limit ? parseInt(limit, 10) : undefined);
+    const whereAggQty = sumQuantity ?? avgQuantity ?? minQuantity ?? maxQuantity;
+    const whereAggMode: 'sum' | 'avg' | 'min' | 'max' | undefined = sumQuantity ? 'sum' : avgQuantity ? 'avg' : minQuantity ? 'min' : maxQuantity ? 'max' : undefined;
+    if (groupBy && whereAggQty) {
+      outputGroupBy(entities, groupBy, whereAggQty, bim, jsonOutput, limit ? parseInt(limit, 10) : undefined, whereAggMode);
       return;
     }
     if (sumQuantity) {
@@ -576,11 +588,15 @@ export async function queryCommand(args: string[]): Promise<void> {
     }
   }
 
-  // --group-by + --sum combo: aggregate per group
-  if (groupBy && sumQuantity) {
+  // Detect aggregation quantity and mode for --group-by combos
+  const aggQuantity = sumQuantity ?? avgQuantity ?? minQuantity ?? maxQuantity;
+  const aggMode: 'sum' | 'avg' | 'min' | 'max' | undefined = sumQuantity ? 'sum' : avgQuantity ? 'avg' : minQuantity ? 'min' : maxQuantity ? 'max' : undefined;
+
+  // --group-by + aggregation combo: aggregate per group
+  if (groupBy && aggQuantity) {
     const entities = q.toArray();
     // B12: pass limit to outputGroupBy to limit groups, not entities
-    outputGroupBy(entities, groupBy, sumQuantity, bim, jsonOutput, limit ? parseInt(limit, 10) : undefined);
+    outputGroupBy(entities, groupBy, aggQuantity, bim, jsonOutput, limit ? parseInt(limit, 10) : undefined, aggMode);
     return;
   }
 
@@ -804,17 +820,58 @@ function outputAggregation(entities: any[], quantityName: string, mode: 'avg' | 
 }
 
 /**
- * F7: Sort entities by a quantity value.
+ * F7: Sort entities by quantity, attribute, or property value.
+ * Supports: quantity names, entity attributes (name/type/globalId), PsetName.PropName
  */
 function sortEntities(entities: any[], sortBy: string, descending: boolean, bim: any): any[] {
+  const ATTR_KEYS = ['name', 'type', 'globalId', 'globalid', 'description', 'objectType', 'objecttype'];
+  const isAttr = ATTR_KEYS.includes(sortBy) || ATTR_KEYS.includes(sortBy.toLowerCase());
+  const isDotted = sortBy.includes('.');
+
   return entities.slice().sort((a, b) => {
-    const valA = getQuantityValue(bim, a.ref, sortBy) ?? 0;
-    const valB = getQuantityValue(bim, b.ref, sortBy) ?? 0;
-    return descending ? valB - valA : valA - valB;
+    let valA: any;
+    let valB: any;
+
+    if (isAttr) {
+      // Sort by entity attribute (alphabetical)
+      const key = sortBy.toLowerCase() === 'globalid' ? 'globalId'
+        : sortBy.toLowerCase() === 'objecttype' ? 'objectType'
+        : sortBy.toLowerCase();
+      valA = a[key] ?? '';
+      valB = b[key] ?? '';
+      const cmp = String(valA).localeCompare(String(valB));
+      return descending ? -cmp : cmp;
+    } else if (isDotted) {
+      // Sort by PsetName.PropName
+      const [psetName, propName] = sortBy.split('.', 2);
+      const getVal = (e: any) => {
+        const props = bim.properties(e.ref);
+        const pset = props.find((p: any) => p.name === psetName);
+        const prop = pset?.properties?.find((p: any) => p.name === propName);
+        if (prop?.value != null) return prop.value;
+        // Also check quantity sets
+        const qsets = bim.quantities(e.ref);
+        const qset = qsets.find((q: any) => q.name === psetName);
+        const qty = qset?.quantities?.find((q: any) => q.name === propName);
+        return qty?.value ?? null;
+      };
+      valA = getVal(a);
+      valB = getVal(b);
+      if (typeof valA === 'number' && typeof valB === 'number') {
+        return descending ? valB - valA : valA - valB;
+      }
+      const cmp = String(valA ?? '').localeCompare(String(valB ?? ''));
+      return descending ? -cmp : cmp;
+    } else {
+      // Sort by quantity name (numeric)
+      valA = getQuantityValue(bim, a.ref, sortBy) ?? 0;
+      valB = getQuantityValue(bim, b.ref, sortBy) ?? 0;
+      return descending ? valB - valA : valA - valB;
+    }
   });
 }
 
-function outputGroupBy(entities: any[], groupByKey: string, sumQuantity: string | undefined, bim: any, jsonOutput: boolean, groupLimit?: number): void {
+function outputGroupBy(entities: any[], groupByKey: string, sumQuantity: string | undefined, bim: any, jsonOutput: boolean, groupLimit?: number, aggMode?: 'sum' | 'avg' | 'min' | 'max'): void {
   // B11: Validate group-by key
   if (!VALID_GROUP_BY_KEYS.includes(groupByKey) && !groupByKey.includes('.')) {
     fatal(`Unknown grouping "${groupByKey}". Valid options: ${VALID_GROUP_BY_KEYS.join(', ')}, or PsetName.PropName`);
@@ -852,22 +909,32 @@ function outputGroupBy(entities: any[], groupByKey: string, sumQuantity: string 
     }
   }
 
-  // Compute per-group sum if --sum is specified alongside --group-by
-  const groupSums = new Map<string, number>();
+  // Compute per-group aggregation if a quantity is specified alongside --group-by
+  const mode = aggMode ?? 'sum';
+  const groupAgg = new Map<string, number>();
   if (sumQuantity) {
     for (const [key, groupEntities] of groups) {
       let sum = 0;
+      let count = 0;
+      let minVal = Infinity;
+      let maxVal = -Infinity;
       for (const e of groupEntities) {
-        const qsets = bim.quantities(e.ref);
-        for (const qset of qsets) {
-          for (const q of qset.quantities) {
-            if (q.name === sumQuantity) sum += Number(q.value) || 0;
-          }
+        const val = getQuantityValue(bim, e.ref, sumQuantity);
+        if (val !== null) {
+          sum += val;
+          count++;
+          if (val < minVal) minVal = val;
+          if (val > maxVal) maxVal = val;
         }
       }
-      groupSums.set(key, sum);
+      if (mode === 'avg') groupAgg.set(key, count > 0 ? sum / count : 0);
+      else if (mode === 'min') groupAgg.set(key, count > 0 ? minVal : 0);
+      else if (mode === 'max') groupAgg.set(key, count > 0 ? maxVal : 0);
+      else groupAgg.set(key, sum);
     }
   }
+
+  const modeLabel = mode === 'sum' ? 'sum' : mode;
 
   if (jsonOutput) {
     const result: Record<string, unknown> = {};
@@ -876,7 +943,8 @@ function outputGroupBy(entities: any[], groupByKey: string, sumQuantity: string 
     if (groupLimit) entries = entries.slice(0, groupLimit);
     for (const [key, groupEntities] of entries) {
       const entry: Record<string, unknown> = { count: groupEntities.length };
-      if (sumQuantity) entry[sumQuantity] = groupSums.get(key) ?? 0;
+      if (sumQuantity) entry[sumQuantity] = groupAgg.get(key) ?? 0;
+      if (sumQuantity && mode !== 'sum') entry.aggregation = mode;
       result[key] = entry;
     }
     printJson(result);
@@ -884,18 +952,18 @@ function outputGroupBy(entities: any[], groupByKey: string, sumQuantity: string 
     let sorted = [...groups.entries()].sort((a, b) => b[1].length - a[1].length);
     // B12: --limit limits groups, not entities
     if (groupLimit) sorted = sorted.slice(0, groupLimit);
-    process.stdout.write(`\nGrouped by ${groupByKey}${sumQuantity ? ` (sum: ${sumQuantity})` : ''}:\n\n`);
+    process.stdout.write(`\nGrouped by ${groupByKey}${sumQuantity ? ` (${modeLabel}: ${sumQuantity})` : ''}:\n\n`);
     for (const [key, groupEntities] of sorted) {
       if (sumQuantity) {
-        const sum = groupSums.get(key) ?? 0;
-        process.stdout.write(`  ${key}:  ${groupEntities.length} elements,  ${sumQuantity}: ${sum}\n`);
+        const agg = groupAgg.get(key) ?? 0;
+        process.stdout.write(`  ${key}:  ${groupEntities.length} elements,  ${sumQuantity} ${modeLabel}: ${mode === 'avg' ? agg.toFixed(4) : agg}\n`);
       } else {
         process.stdout.write(`  ${key}: ${groupEntities.length}\n`);
       }
     }
     if (sumQuantity) {
-      const grandTotal = [...groupSums.values()].reduce((a, b) => a + b, 0);
-      process.stdout.write(`\n  Total: ${entities.length} entities in ${groups.size} groups, ${sumQuantity}: ${grandTotal}\n\n`);
+      const grandTotal = [...groupAgg.values()].reduce((a, b) => a + b, 0);
+      process.stdout.write(`\n  Total: ${entities.length} entities in ${groups.size} groups\n\n`);
     } else {
       process.stdout.write(`\n  Total: ${entities.length} entities in ${groups.size} groups\n\n`);
     }

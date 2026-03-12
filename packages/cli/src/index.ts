@@ -27,6 +27,7 @@ import { validateCommand } from './commands/validate.js';
 import { bsddCommand } from './commands/bsdd.js';
 import { statsCommand } from './commands/stats.js';
 import { mutateCommand } from './commands/mutate.js';
+import { askCommand } from './commands/ask.js';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -70,6 +71,7 @@ const HELP = `
     bsdd      <class|search|psets|qsets> <arg>     buildingSMART Data Dictionary lookup
     stats     <file.ifc>                          Auto-calculated model KPIs and health check
     mutate    <file.ifc> --id N --set P=V --out F  Modify properties/attributes and save
+    ask       <file.ifc> "<question>"            Natural language BIM queries
 
   Options:
     --help, -h       Show help
@@ -114,6 +116,9 @@ const HELP = `
     ifc-lite bsdd class IfcWall
     ifc-lite bsdd search "concrete wall"
     ifc-lite bsdd psets IfcWall
+    ifc-lite ask model.ifc "how many walls?"
+    ifc-lite ask model.ifc "window-wall ratio" --json
+    ifc-lite ask model.ifc "list materials" --explain
 
   Pipe-friendly:
     ifc-lite query model.ifc --type IfcWall --json | jq '.[].name'
@@ -197,6 +202,9 @@ async function main(): Promise<void> {
       break;
     case 'mutate':
       await mutateCommand(commandArgs);
+      break;
+    case 'ask':
+      await askCommand(commandArgs);
       break;
     default:
       process.stderr.write(`Unknown command: ${command}\n`);

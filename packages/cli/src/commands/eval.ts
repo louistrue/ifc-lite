@@ -8,19 +8,25 @@
  * Evaluate a JavaScript expression against the BIM SDK.
  * The `bim` object is available with the full SDK API.
  *
+ * When --type is specified, the expression is evaluated per-entity with
+ * `ref` bound to each entity reference, enabling patterns like:
+ *   ifc-lite eval model.ifc "bim.quantity(ref, 'GrossSideArea')" --type IfcWall --limit 3
+ *
  * Examples:
  *   ifc-lite eval model.ifc "bim.query().byType('IfcWall').count()"
  *   ifc-lite eval model.ifc "bim.query().byType('IfcDoor').toArray().map(d => d.name)"
  */
 
 import { createHeadlessContext } from '../loader.js';
-import { printJson, fatal, hasFlag } from '../output.js';
+import { printJson, fatal, hasFlag, getFlag } from '../output.js';
 
 /** Known flags that take a value argument */
 const EVAL_VALUE_FLAGS = new Set(['--type', '--limit']);
 
 export async function evalCommand(args: string[]): Promise<void> {
   const jsonOutput = hasFlag(args, '--json');
+  const typeFilter = getFlag(args, '--type');
+  const limitStr = getFlag(args, '--limit');
 
   // Parse positional args, skipping known flags and their values
   const positional: string[] = [];
@@ -41,38 +47,53 @@ export async function evalCommand(args: string[]): Promise<void> {
 
   const { bim } = await createHeadlessContext(filePath);
 
-  // Build evaluation context
-  // Detect if expression is a statement (contains const/let/var/for/if/return or ;)
-  // If so, wrap in async IIFE to allow multi-statement code
-  const isStatement = /^\s*(const |let |var |for |if |while |return |class |function |try |switch |{)/.test(expression)
-    || expression.includes(';');
+  // When --type is specified, iterate entities and evaluate per-entity with `ref` in scope
+  if (typeFilter) {
+    const types = typeFilter.split(',').map(t => {
+      const trimmed = t.trim();
+      if (trimmed.startsWith('Ifc') || trimmed.startsWith('IFC') || trimmed.startsWith('ifc')) return trimmed;
+      return 'Ifc' + trimmed;
+    });
+    let entities = bim.query().byType(...types).toArray();
+    if (limitStr) entities = entities.slice(0, parseInt(limitStr, 10));
 
-  let body: string;
-  if (isStatement) {
-    // For multi-statement code: if the last statement is an expression (not a declaration),
-    // auto-return it so users don't need to write explicit return
-    const statements = expression.split(';').map(s => s.trim()).filter(Boolean);
-    const last = statements[statements.length - 1];
-    const isLastDeclaration = /^(const |let |var |for |if |while |return |class |function |try |switch |{)/.test(last);
-    if (!isLastDeclaration && statements.length > 1) {
-      // Replace last statement with return
-      statements[statements.length - 1] = `return (${last})`;
-    } else if (isLastDeclaration && /^(const |let |var )\s*(\w+)/.test(last)) {
-      // If last is a variable declaration, return the variable name
-      const varMatch = last.match(/^(?:const |let |var )\s*(\w+)/);
-      if (varMatch) {
-        statements.push(`return ${varMatch[1]}`);
+    const results: any[] = [];
+    const evalFn = buildEvalFunction(expression, ['bim', 'ref', 'entity']);
+
+    for (const entity of entities) {
+      try {
+        const result = evalFn(bim, entity.ref, entity);
+        const resolved = result instanceof Promise ? await result : result;
+        results.push({
+          name: entity.name,
+          type: entity.type,
+          globalId: entity.globalId,
+          result: resolved ?? null,
+        });
+      } catch (err: any) {
+        results.push({
+          name: entity.name,
+          type: entity.type,
+          globalId: entity.globalId,
+          error: err.message,
+        });
       }
     }
-    body = `return (async () => { ${statements.join('; ')} })()`;
-  } else {
-    body = `return (${expression})`;
+
+    if (jsonOutput) {
+      printJson({ results });
+    } else {
+      for (const r of results) {
+        const val = r.error ? `ERROR: ${r.error}` : formatValue(r.result);
+        process.stdout.write(`${r.name ?? r.globalId}: ${val}\n`);
+      }
+      process.stderr.write(`\n${results.length} entities evaluated\n`);
+    }
+    return;
   }
 
-  const evalFn = new Function('bim', `
-    "use strict";
-    ${body};
-  `);
+  // Standard eval (no --type): evaluate expression once with bim in scope
+  const evalFn = buildEvalFunction(expression, ['bim']);
 
   try {
     const result = evalFn(bim);
@@ -81,7 +102,6 @@ export async function evalCommand(args: string[]): Promise<void> {
     const resolved = result instanceof Promise ? await result : result;
 
     if (jsonOutput) {
-      // B8: --json wraps output in a JSON envelope
       printJson({ result: resolved ?? null });
     } else if (resolved === undefined || resolved === null) {
       process.stdout.write('null\n');
@@ -93,4 +113,42 @@ export async function evalCommand(args: string[]): Promise<void> {
   } catch (err: any) {
     fatal(`Evaluation error: ${err.message}`);
   }
+}
+
+/**
+ * Build an eval function from an expression string.
+ * Handles both single expressions and multi-statement code.
+ */
+function buildEvalFunction(expression: string, paramNames: string[]): Function {
+  const isStatement = /^\s*(const |let |var |for |if |while |return |class |function |try |switch |{)/.test(expression)
+    || expression.includes(';');
+
+  let body: string;
+  if (isStatement) {
+    const statements = expression.split(';').map(s => s.trim()).filter(Boolean);
+    const last = statements[statements.length - 1];
+    const isLastDeclaration = /^(const |let |var |for |if |while |return |class |function |try |switch |{)/.test(last);
+    if (!isLastDeclaration && statements.length > 1) {
+      statements[statements.length - 1] = `return (${last})`;
+    } else if (isLastDeclaration && /^(const |let |var )\s*(\w+)/.test(last)) {
+      const varMatch = last.match(/^(?:const |let |var )\s*(\w+)/);
+      if (varMatch) {
+        statements.push(`return ${varMatch[1]}`);
+      }
+    }
+    body = `return (async () => { ${statements.join('; ')} })()`;
+  } else {
+    body = `return (${expression})`;
+  }
+
+  return new Function(...paramNames, `
+    "use strict";
+    ${body};
+  `);
+}
+
+function formatValue(value: unknown): string {
+  if (value === null || value === undefined) return 'null';
+  if (typeof value === 'object') return JSON.stringify(value);
+  return String(value);
 }

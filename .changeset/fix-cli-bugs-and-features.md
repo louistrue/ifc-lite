@@ -19,6 +19,8 @@ Comprehensive CLI bug fixes and new features:
 - `--limit` with `--group-by` now limits groups, not entities
 
 **New features:**
-- `stats` command: one-command building KPIs and health check
+- `stats` command: one-command building KPIs and health check (exterior wall area, GFA, material volumes)
 - `mutate` command: modify properties via CLI with `--set` and `--out`
+- `ask` command: natural language BIM queries with 15+ built-in recipes
 - `--sort`/`--desc` flags for sorting query results by quantity values
+- `--group-by` now works with `--avg`, `--min`, `--max` (not just `--sum`)
