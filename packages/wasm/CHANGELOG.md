@@ -1,5 +1,11 @@
 # @ifc-lite/wasm
 
+## 1.14.4
+
+### Patch Changes
+
+- [#368](https://github.com/louistrue/ifc-lite/pull/368) [`0f9d20c`](https://github.com/louistrue/ifc-lite/commit/0f9d20c3b1d3cd88abffc27a2b88a234ef8c74c8) Thanks [@louistrue](https://github.com/louistrue)! - Fix arc angle wrapping for profiles crossing the 0°/360° boundary
+
 ## 1.14.3
 
 ### Patch Changes

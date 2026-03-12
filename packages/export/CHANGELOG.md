@@ -1,5 +1,14 @@
 # @ifc-lite/export
 
+## 1.15.1
+
+### Patch Changes
+
+- [#368](https://github.com/louistrue/ifc-lite/pull/368) [`0f9d20c`](https://github.com/louistrue/ifc-lite/commit/0f9d20c3b1d3cd88abffc27a2b88a234ef8c74c8) Thanks [@louistrue](https://github.com/louistrue)! - Refactor internals across parser, renderer, export, and viewer packages
+
+- Updated dependencies [[`0f9d20c`](https://github.com/louistrue/ifc-lite/commit/0f9d20c3b1d3cd88abffc27a2b88a234ef8c74c8)]:
+  - @ifc-lite/parser@2.1.1
+
 ## 1.15.0
 
 ### Minor Changes
