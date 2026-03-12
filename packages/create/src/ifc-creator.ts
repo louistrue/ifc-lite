@@ -36,31 +36,6 @@ import type {
 // Internal helpers
 // ============================================================================
 
-/** Track generated GlobalIds to guarantee uniqueness within a process */
-const usedGlobalIds = new Set<string>();
-
-/** Generate a 22-character IFC GlobalId (base64-ish) using crypto-strong randomness */
-function newGlobalId(): string {
-  const chars = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_$';
-  let result: string;
-  do {
-    // Use Web Crypto API (works in both Node.js and browsers)
-    const bytes = new Uint8Array(22);
-    if (typeof globalThis.crypto !== 'undefined' && globalThis.crypto.getRandomValues) {
-      globalThis.crypto.getRandomValues(bytes);
-    } else {
-      // Fallback for older environments
-      for (let i = 0; i < 22; i++) bytes[i] = Math.floor(Math.random() * 256);
-    }
-    result = '';
-    for (let i = 0; i < 22; i++) {
-      result += chars[bytes[i] % 64];
-    }
-  } while (usedGlobalIds.has(result));
-  usedGlobalIds.add(result);
-  return result;
-}
-
 /** Escape a string for STEP format */
 function esc(str: string): string {
   return str.replace(/\\/g, '\\\\').replace(/'/g, "''");
@@ -119,6 +94,9 @@ export class IfcCreator {
   private entities: CreatedEntity[] = [];
   private schema: 'IFC2X3' | 'IFC4' | 'IFC4X3';
 
+  /** Track generated GlobalIds to guarantee uniqueness per IfcCreator instance */
+  private usedGlobalIds = new Set<string>();
+
   // Shared entity IDs (created in constructor)
   private projectId = 0;
   private siteId = 0;
@@ -167,6 +145,28 @@ export class IfcCreator {
     this.buildPreamble(params);
   }
 
+  /** Generate a 22-character IFC GlobalId (base64-ish) using crypto-strong randomness */
+  private newGlobalId(): string {
+    const chars = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_$';
+    let result: string;
+    do {
+      // Use Web Crypto API (works in both Node.js and browsers)
+      const bytes = new Uint8Array(22);
+      if (typeof globalThis.crypto !== 'undefined' && globalThis.crypto.getRandomValues) {
+        globalThis.crypto.getRandomValues(bytes);
+      } else {
+        // Fallback for older environments
+        for (let i = 0; i < 22; i++) bytes[i] = Math.floor(Math.random() * 256);
+      }
+      result = '';
+      for (let i = 0; i < 22; i++) {
+        result += chars[bytes[i] % 64];
+      }
+    } while (this.usedGlobalIds.has(result));
+    this.usedGlobalIds.add(result);
+    return result;
+  }
+
   // ============================================================================
   // Public API — Spatial Structure
   // ============================================================================
@@ -174,7 +174,7 @@ export class IfcCreator {
   /** Add a building storey. Returns the storey expressId for use with element creation. */
   addIfcBuildingStorey(params: StoreyParams): number {
     const id = this.id();
-    const globalId = newGlobalId();
+    const globalId = this.newGlobalId();
     const name = params.Name ?? 'Storey';
     const desc = params.Description ? `'${esc(params.Description)}'` : '$';
     const elevation = num(params.Elevation);
@@ -234,7 +234,7 @@ export class IfcCreator {
     const prodShapeId = this.addProductDefinitionShape([shapeId]);
 
     const wallId = this.id();
-    const globalId = newGlobalId();
+    const globalId = this.newGlobalId();
     const name = params.Name ?? 'Wall';
     const desc = params.Description ? `'${esc(params.Description)}'` : '$';
     const objType = params.ObjectType ? `'${esc(params.ObjectType)}'` : '$';
@@ -283,7 +283,7 @@ export class IfcCreator {
     const prodShapeId = this.addProductDefinitionShape([shapeId]);
 
     const slabId = this.id();
-    const globalId = newGlobalId();
+    const globalId = this.newGlobalId();
     const name = params.Name ?? 'Slab';
     const desc = params.Description ? `'${esc(params.Description)}'` : '$';
     const objType = params.ObjectType ? `'${esc(params.ObjectType)}'` : '$';
@@ -321,7 +321,7 @@ export class IfcCreator {
     const prodShapeId = this.addProductDefinitionShape([shapeId]);
 
     const colId = this.id();
-    const globalId = newGlobalId();
+    const globalId = this.newGlobalId();
     const name = params.Name ?? 'Column';
     const desc = params.Description ? `'${esc(params.Description)}'` : '$';
     const objType = params.ObjectType ? `'${esc(params.ObjectType)}'` : '$';
@@ -362,7 +362,7 @@ export class IfcCreator {
     const prodShapeId = this.addProductDefinitionShape([shapeId]);
 
     const beamId = this.id();
-    const globalId = newGlobalId();
+    const globalId = this.newGlobalId();
     const name = params.Name ?? 'Beam';
     const desc = params.Description ? `'${esc(params.Description)}'` : '$';
     const objType = params.ObjectType ? `'${esc(params.ObjectType)}'` : '$';
@@ -421,7 +421,7 @@ export class IfcCreator {
     const prodShapeId = this.addProductDefinitionShape([shapeId]);
 
     const stairId = this.id();
-    const globalId = newGlobalId();
+    const globalId = this.newGlobalId();
     const name = params.Name ?? 'Stair';
     const desc = params.Description ? `'${esc(params.Description)}'` : '$';
     const objType = params.ObjectType ? `'${esc(params.ObjectType)}'` : '$';
@@ -470,7 +470,7 @@ export class IfcCreator {
     const prodShapeId = this.addProductDefinitionShape([shapeId]);
 
     const roofId = this.id();
-    const globalId = newGlobalId();
+    const globalId = this.newGlobalId();
     const name = params.Name ?? 'Roof';
     const desc = params.Description ? `'${esc(params.Description)}'` : '$';
     const objType = params.ObjectType ? `'${esc(params.ObjectType)}'` : '$';
@@ -556,7 +556,7 @@ export class IfcCreator {
     const prodShapeId = this.addProductDefinitionShape([shapeId]);
 
     const roofId = this.id();
-    const globalId = newGlobalId();
+    const globalId = this.newGlobalId();
     const name = params.Name ?? 'Gable Roof';
     const desc = params.Description ? `'${esc(params.Description)}'` : '$';
     const objType = params.ObjectType ? `'${esc(params.ObjectType)}'` : '$';
@@ -594,7 +594,7 @@ export class IfcCreator {
     const prodShapeId = this.addProductDefinitionShape([shapeId]);
 
     const doorId = this.id();
-    const globalId = newGlobalId();
+    const globalId = this.newGlobalId();
     const name = params.Name ?? 'Door';
     const desc = params.Description ? `'${esc(params.Description)}'` : '$';
     const objType = params.ObjectType ? `'${esc(params.ObjectType)}'` : '$';
@@ -635,7 +635,7 @@ export class IfcCreator {
     const prodShapeId = this.addProductDefinitionShape([shapeId]);
 
     const windowId = this.id();
-    const globalId = newGlobalId();
+    const globalId = this.newGlobalId();
     const name = params.Name ?? 'Window';
     const desc = params.Description ? `'${esc(params.Description)}'` : '$';
     const objType = params.ObjectType ? `'${esc(params.ObjectType)}'` : '$';
@@ -667,7 +667,7 @@ export class IfcCreator {
     const prodShapeId = this.addProductDefinitionShape([shapeId]);
 
     const doorId = this.id();
-    const globalId = newGlobalId();
+    const globalId = this.newGlobalId();
     const name = params.Name ?? 'Door';
     const desc = params.Description ? `'${esc(params.Description)}'` : '$';
     const objType = params.ObjectType ? `'${esc(params.ObjectType)}'` : '$';
@@ -699,7 +699,7 @@ export class IfcCreator {
     const prodShapeId = this.addProductDefinitionShape([shapeId]);
 
     const windowId = this.id();
-    const globalId = newGlobalId();
+    const globalId = this.newGlobalId();
     const name = params.Name ?? 'Window';
     const desc = params.Description ? `'${esc(params.Description)}'` : '$';
     const objType = params.ObjectType ? `'${esc(params.ObjectType)}'` : '$';
@@ -744,7 +744,7 @@ export class IfcCreator {
     const prodShapeId = this.addProductDefinitionShape([shapeId]);
 
     const rampId = this.id();
-    const globalId = newGlobalId();
+    const globalId = this.newGlobalId();
     const name = params.Name ?? 'Ramp';
     const desc = params.Description ? `'${esc(params.Description)}'` : '$';
     const objType = params.ObjectType ? `'${esc(params.ObjectType)}'` : '$';
@@ -814,7 +814,7 @@ export class IfcCreator {
     const prodShapeId = this.addProductDefinitionShape([shapeId]);
 
     const railingId = this.id();
-    const globalId = newGlobalId();
+    const globalId = this.newGlobalId();
     const name = params.Name ?? 'Railing';
     const desc = params.Description ? `'${esc(params.Description)}'` : '$';
     const objType = params.ObjectType ? `'${esc(params.ObjectType)}'` : '$';
@@ -849,7 +849,7 @@ export class IfcCreator {
     const prodShapeId = this.addProductDefinitionShape([shapeId]);
 
     const plateId = this.id();
-    const globalId = newGlobalId();
+    const globalId = this.newGlobalId();
     const name = params.Name ?? 'Plate';
     const desc = params.Description ? `'${esc(params.Description)}'` : '$';
     const objType = params.ObjectType ? `'${esc(params.ObjectType)}'` : '$';
@@ -886,7 +886,7 @@ export class IfcCreator {
     const prodShapeId = this.addProductDefinitionShape([shapeId]);
 
     const memberId = this.id();
-    const globalId = newGlobalId();
+    const globalId = this.newGlobalId();
     const name = params.Name ?? 'Member';
     const desc = params.Description ? `'${esc(params.Description)}'` : '$';
     const objType = params.ObjectType ? `'${esc(params.ObjectType)}'` : '$';
@@ -916,7 +916,7 @@ export class IfcCreator {
     const prodShapeId = this.addProductDefinitionShape([shapeId]);
 
     const footingId = this.id();
-    const globalId = newGlobalId();
+    const globalId = this.newGlobalId();
     const name = params.Name ?? 'Footing';
     const desc = params.Description ? `'${esc(params.Description)}'` : '$';
     const objType = params.ObjectType ? `'${esc(params.ObjectType)}'` : '$';
@@ -954,7 +954,7 @@ export class IfcCreator {
     const prodShapeId = this.addProductDefinitionShape([shapeId]);
 
     const pileId = this.id();
-    const globalId = newGlobalId();
+    const globalId = this.newGlobalId();
     const name = params.Name ?? 'Pile';
     const desc = params.Description ? `'${esc(params.Description)}'` : '$';
     const objType = params.ObjectType ? `'${esc(params.ObjectType)}'` : '$';
@@ -989,7 +989,7 @@ export class IfcCreator {
     const prodShapeId = this.addProductDefinitionShape([shapeId]);
 
     const spaceId = this.id();
-    const globalId = newGlobalId();
+    const globalId = this.newGlobalId();
     const name = params.Name ?? 'Space';
     const desc = params.Description ? `'${esc(params.Description)}'` : '$';
     const objType = params.ObjectType ? `'${esc(params.ObjectType)}'` : '$';
@@ -1027,7 +1027,7 @@ export class IfcCreator {
     const prodShapeId = this.addProductDefinitionShape([shapeId]);
 
     const cwId = this.id();
-    const globalId = newGlobalId();
+    const globalId = this.newGlobalId();
     const name = params.Name ?? 'Curtain Wall';
     const desc = params.Description ? `'${esc(params.Description)}'` : '$';
     const objType = params.ObjectType ? `'${esc(params.ObjectType)}'` : '$';
@@ -1058,7 +1058,7 @@ export class IfcCreator {
     const prodShapeId = this.addProductDefinitionShape([shapeId]);
 
     const furnId = this.id();
-    const globalId = newGlobalId();
+    const globalId = this.newGlobalId();
     const name = params.Name ?? 'Furnishing';
     const desc = params.Description ? `'${esc(params.Description)}'` : '$';
     const objType = params.ObjectType ? `'${esc(params.ObjectType)}'` : '$';
@@ -1093,7 +1093,7 @@ export class IfcCreator {
     const prodShapeId = this.addProductDefinitionShape([shapeId]);
 
     const proxyId = this.id();
-    const globalId = newGlobalId();
+    const globalId = this.newGlobalId();
     const name = params.Name ?? 'Proxy';
     const desc = params.Description ? `'${esc(params.Description)}'` : '$';
     const objType = params.ObjectType ?? params.ProxyType ?? '';
@@ -1131,7 +1131,7 @@ export class IfcCreator {
     const prodShapeId = this.addProductDefinitionShape([shapeId]);
 
     const colId = this.id();
-    const globalId = newGlobalId();
+    const globalId = this.newGlobalId();
     const name = params.Name ?? 'Column';
     const desc = params.Description ? `'${esc(params.Description)}'` : '$';
     const objType = params.ObjectType ? `'${esc(params.ObjectType)}'` : '$';
@@ -1180,7 +1180,7 @@ export class IfcCreator {
     const prodShapeId = this.addProductDefinitionShape([shapeId]);
 
     const beamId = this.id();
-    const globalId = newGlobalId();
+    const globalId = this.newGlobalId();
     const name = params.Name ?? 'Beam';
     const desc = params.Description ? `'${esc(params.Description)}'` : '$';
     const objType = params.ObjectType ? `'${esc(params.ObjectType)}'` : '$';
@@ -1224,7 +1224,7 @@ export class IfcCreator {
     const prodShapeId = this.addProductDefinitionShape([shapeId]);
 
     const memberId = this.id();
-    const globalId = newGlobalId();
+    const globalId = this.newGlobalId();
     const name = params.Name ?? 'Member';
     const desc = params.Description ? `'${esc(params.Description)}'` : '$';
     const objType = params.ObjectType ? `'${esc(params.ObjectType)}'` : '$';
@@ -1273,7 +1273,7 @@ export class IfcCreator {
     const prodShapeId = this.addProductDefinitionShape([shapeId]);
 
     const memberId = this.id();
-    const globalId = newGlobalId();
+    const globalId = this.newGlobalId();
     const name = params.Name ?? 'Member';
     const desc = params.Description ? `'${esc(params.Description)}'` : '$';
     const objType = params.ObjectType ? `'${esc(params.ObjectType)}'` : '$';
@@ -1322,7 +1322,7 @@ export class IfcCreator {
     const prodShapeId = this.addProductDefinitionShape([shapeId]);
 
     const memberId = this.id();
-    const globalId = newGlobalId();
+    const globalId = this.newGlobalId();
     const name = params.Name ?? 'Member';
     const desc = params.Description ? `'${esc(params.Description)}'` : '$';
     const objType = params.ObjectType ? `'${esc(params.ObjectType)}'` : '$';
@@ -1356,7 +1356,7 @@ export class IfcCreator {
     const prodShapeId = this.addProductDefinitionShape([shapeId]);
 
     const colId = this.id();
-    const globalId = newGlobalId();
+    const globalId = this.newGlobalId();
     const name = params.Name ?? 'Column';
     const desc = params.Description ? `'${esc(params.Description)}'` : '$';
     const objType = params.ObjectType ? `'${esc(params.ObjectType)}'` : '$';
@@ -1404,7 +1404,7 @@ export class IfcCreator {
     const prodShapeId = this.addProductDefinitionShape([shapeId]);
 
     const beamId = this.id();
-    const globalId = newGlobalId();
+    const globalId = this.newGlobalId();
     const name = params.Name ?? 'Beam';
     const desc = params.Description ? `'${esc(params.Description)}'` : '$';
     const objType = params.ObjectType ? `'${esc(params.ObjectType)}'` : '$';
@@ -1436,13 +1436,13 @@ export class IfcCreator {
     }
 
     const psetId = this.id();
-    const globalId = newGlobalId();
+    const globalId = this.newGlobalId();
     const refs = propIds.map(id => `#${id}`).join(',');
     this.line(psetId, 'IFCPROPERTYSET',
       `'${globalId}',#${this.ownerHistoryId},'${esc(pset.Name)}',$,(${refs})`);
 
     const relId = this.id();
-    const relGlobalId = newGlobalId();
+    const relGlobalId = this.newGlobalId();
     this.line(relId, 'IFCRELDEFINESBYPROPERTIES',
       `'${relGlobalId}',#${this.ownerHistoryId},$,$,(#${elementId}),#${psetId}`);
 
@@ -1462,13 +1462,13 @@ export class IfcCreator {
     }
 
     const qsetId = this.id();
-    const globalId = newGlobalId();
+    const globalId = this.newGlobalId();
     const refs = qtyIds.map(id => `#${id}`).join(',');
     this.line(qsetId, 'IFCELEMENTQUANTITY',
       `'${globalId}',#${this.ownerHistoryId},'${esc(qset.Name)}',$,$,(${refs})`);
 
     const relId = this.id();
-    const relGlobalId = newGlobalId();
+    const relGlobalId = this.newGlobalId();
     this.line(relId, 'IFCRELDEFINESBYPROPERTIES',
       `'${relGlobalId}',#${this.ownerHistoryId},$,$,(#${elementId}),#${qsetId}`);
 
@@ -1631,7 +1631,7 @@ ENDSEC;
 
     // IfcProject
     this.projectId = this.id();
-    const projectGlobalId = newGlobalId();
+    const projectGlobalId = this.newGlobalId();
     const projectName = params.Name ?? 'Project';
     const projectDesc = params.Description ? `'${esc(params.Description)}'` : '$';
     this.line(this.projectId, 'IFCPROJECT',
@@ -1640,14 +1640,14 @@ ENDSEC;
 
     // IfcSite
     this.siteId = this.id();
-    const siteGlobalId = newGlobalId();
+    const siteGlobalId = this.newGlobalId();
     this.line(this.siteId, 'IFCSITE',
       `'${siteGlobalId}',#${this.ownerHistoryId},'Site',$,$,#${this.worldPlacementId},$,$,.ELEMENT.,$,$,$,$,$`);
     this.entities.push({ expressId: this.siteId, type: 'IfcSite', Name: 'Site' });
 
     // IfcBuilding
     this.buildingId = this.id();
-    const buildingGlobalId = newGlobalId();
+    const buildingGlobalId = this.newGlobalId();
     this.line(this.buildingId, 'IFCBUILDING',
       `'${buildingGlobalId}',#${this.ownerHistoryId},'Building',$,$,#${this.worldPlacementId},$,$,.ELEMENT.,$,$,$`);
     this.entities.push({ expressId: this.buildingId, type: 'IfcBuilding', Name: 'Building' });
@@ -1769,7 +1769,7 @@ ENDSEC;
 
     for (const [materialRefId, elementIds] of groups) {
       const relId = this.id();
-      const globalId = newGlobalId();
+      const globalId = this.newGlobalId();
       const refs = elementIds.map(id => `#${id}`).join(',');
       this.line(relId, 'IFCRELASSOCIATESMATERIAL',
         `'${globalId}',#${this.ownerHistoryId},$,$,(${refs}),#${materialRefId}`);
@@ -2149,7 +2149,7 @@ ENDSEC;
     const prodShapeId = this.addProductDefinitionShape([shapeId]);
 
     const elementId = this.id();
-    const globalId = newGlobalId();
+    const globalId = this.newGlobalId();
     const name = params.Name ?? params.IfcType;
     const desc = params.Description ? `'${esc(params.Description)}'` : '$';
     const objType = params.ObjectType ? `'${esc(params.ObjectType)}'` : '$';
@@ -2227,7 +2227,7 @@ ENDSEC;
     const prodShapeId = this.addProductDefinitionShape([shapeId]);
 
     const elementId = this.id();
-    const globalId = newGlobalId();
+    const globalId = this.newGlobalId();
     const name = params.Name ?? params.IfcType;
     const desc = params.Description ? `'${esc(params.Description)}'` : '$';
     const objType = params.ObjectType ? `'${esc(params.ObjectType)}'` : '$';
@@ -2291,13 +2291,13 @@ ENDSEC;
     const prodShapeId = this.addProductDefinitionShape([shapeId]);
 
     const openingId = this.id();
-    const globalId = newGlobalId();
+    const globalId = this.newGlobalId();
     const name = opening.Name ?? 'Opening';
     this.line(openingId, 'IFCOPENINGELEMENT',
       `'${globalId}',#${this.ownerHistoryId},'${esc(name)}',$,$,#${openingPlacementId},#${prodShapeId},$,.OPENING.`);
 
     const relId = this.id();
-    const relGlobalId = newGlobalId();
+    const relGlobalId = this.newGlobalId();
     this.line(relId, 'IFCRELVOIDSELEMENT',
       `'${relGlobalId}',#${this.ownerHistoryId},$,$,#${hostId},#${openingId}`);
 
@@ -2322,13 +2322,13 @@ ENDSEC;
     const prodShapeId = this.addProductDefinitionShape([shapeId]);
 
     const openingId = this.id();
-    const globalId = newGlobalId();
+    const globalId = this.newGlobalId();
     const name = opening.Name ?? 'Opening';
     this.line(openingId, 'IFCOPENINGELEMENT',
       `'${globalId}',#${this.ownerHistoryId},'${esc(name)}',$,$,#${placementId},#${prodShapeId},$,.OPENING.`);
 
     const relId = this.id();
-    const relGlobalId = newGlobalId();
+    const relGlobalId = this.newGlobalId();
     this.line(relId, 'IFCRELVOIDSELEMENT',
       `'${relGlobalId}',#${this.ownerHistoryId},$,$,#${hostId},#${openingId}`);
 
@@ -2394,7 +2394,7 @@ ENDSEC;
 
   private addIfcRelAggregates(relatingId: number, relatedIds: number[]): void {
     const relId = this.id();
-    const globalId = newGlobalId();
+    const globalId = this.newGlobalId();
     const refs = relatedIds.map(id => `#${id}`).join(',');
     this.line(relId, 'IFCRELAGGREGATES',
       `'${globalId}',#${this.ownerHistoryId},$,$,#${relatingId},(${refs})`);
@@ -2402,7 +2402,7 @@ ENDSEC;
 
   private addIfcRelContainedInSpatialStructure(storeyId: number, elementIds: number[]): void {
     const relId = this.id();
-    const globalId = newGlobalId();
+    const globalId = this.newGlobalId();
     const refs = elementIds.map(id => `#${id}`).join(',');
     this.line(relId, 'IFCRELCONTAINEDINSPATIALSTRUCTURE',
       `'${globalId}',#${this.ownerHistoryId},$,$,(${refs}),#${storeyId}`);
@@ -2410,7 +2410,7 @@ ENDSEC;
 
   private addIfcRelFillsElement(openingId: number, fillingId: number): void {
     const relId = this.id();
-    const globalId = newGlobalId();
+    const globalId = this.newGlobalId();
     this.line(relId, 'IFCRELFILLSELEMENT',
       `'${globalId}',#${this.ownerHistoryId},$,$,#${openingId},#${fillingId}`);
   }

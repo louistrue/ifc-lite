@@ -141,11 +141,12 @@ const RECIPES: Recipe[] = [
       const { exteriorWalls, area: extWallArea, hasIsExternalData } = getExteriorWalls(bim);
       let wallArea: number;
       let wallSource: string;
-      if (hasIsExternalData && extWallArea > 0) {
+      if (hasIsExternalData) {
+        // Use exterior wall area (may be 0 if no walls are marked external)
         wallArea = extWallArea;
         wallSource = `${exteriorWalls.length} exterior walls`;
       } else {
-        // Fallback to all walls if no IsExternal data
+        // Fallback to all walls only when IsExternal data is truly missing
         const allWalls = bim.query().byType('IfcWall').toArray();
         wallArea = 0;
         for (const w of allWalls) wallArea += getQuantity(bim, w.ref, ['GrossSideArea', 'NetSideArea']);
