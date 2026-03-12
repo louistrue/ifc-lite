@@ -14,10 +14,26 @@
  */
 
 import { createHeadlessContext } from '../loader.js';
-import { printJson, fatal } from '../output.js';
+import { printJson, fatal, hasFlag } from '../output.js';
+
+/** Known flags that take a value argument */
+const EVAL_VALUE_FLAGS = new Set(['--type', '--limit']);
 
 export async function evalCommand(args: string[]): Promise<void> {
-  const positional = args.filter(a => !a.startsWith('-'));
+  const jsonOutput = hasFlag(args, '--json');
+
+  // Parse positional args, skipping known flags and their values
+  const positional: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (EVAL_VALUE_FLAGS.has(arg)) {
+      i++; // skip flag value
+      continue;
+    }
+    if (arg.startsWith('-')) continue; // skip boolean flags
+    positional.push(arg);
+  }
+
   if (positional.length < 2) fatal('Usage: ifc-lite eval <file.ifc> "<expression>"');
 
   const [filePath, ...exprParts] = positional;
@@ -64,7 +80,10 @@ export async function evalCommand(args: string[]): Promise<void> {
     // Handle async results
     const resolved = result instanceof Promise ? await result : result;
 
-    if (resolved === undefined || resolved === null) {
+    if (jsonOutput) {
+      // B8: --json wraps output in a JSON envelope
+      printJson({ result: resolved ?? null });
+    } else if (resolved === undefined || resolved === null) {
       process.stdout.write('null\n');
     } else if (typeof resolved === 'object') {
       printJson(resolved);

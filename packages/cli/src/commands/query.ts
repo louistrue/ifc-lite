@@ -62,6 +62,26 @@ const STANDARD_QTO_MAP: Record<string, Record<string, string[]>> = {
   },
 };
 
+/** Valid built-in grouping keys */
+const VALID_GROUP_BY_KEYS = ['type', 'storey', 'material'];
+
+/**
+ * B9/F6: Auto-prefix Ifc for --type if user omits it.
+ * Returns the corrected type string, or the original if already prefixed.
+ */
+function normalizeTypeName(typeStr: string): string {
+  return typeStr.split(',').map(t => {
+    const trimmed = t.trim();
+    if (trimmed.startsWith('Ifc') || trimmed.startsWith('IFC') || trimmed.startsWith('ifc')) {
+      return trimmed;
+    }
+    // Auto-prefix with Ifc
+    const prefixed = 'Ifc' + trimmed;
+    process.stderr.write(`Note: Auto-corrected type "${trimmed}" → "${prefixed}"\n`);
+    return prefixed;
+  }).join(',');
+}
+
 /**
  * Parse a --where filter string into psetName, propName, operator, value.
  * Supported formats:
@@ -98,33 +118,101 @@ function parseWhereFilter(filter: string): { psetName: string; propName: string;
   return { psetName, propName: rest, operator: 'exists' };
 }
 
+/**
+ * B3/F1: Apply --where filter to entities, searching both property sets AND quantity sets.
+ * Falls back to quantity sets when a property set match is not found.
+ */
+function applyWhereFilter(entities: any[], parsed: ReturnType<typeof parseWhereFilter>, bim: any): any[] {
+  return entities.filter(e => {
+    // First try property sets
+    const props = bim.properties(e.ref);
+    const pset = props.find((p: any) => p.name === parsed.psetName);
+    if (pset) {
+      const prop = pset.properties.find((p: any) => p.name === parsed.propName);
+      if (prop) {
+        if (parsed.operator === 'exists') return true;
+        return compareValues(prop.value, parsed.operator, parsed.value);
+      }
+    }
+
+    // B3: Also search quantity sets
+    const qsets = bim.quantities(e.ref);
+    const qset = qsets.find((q: any) => q.name === parsed.psetName);
+    if (qset) {
+      const qty = qset.quantities.find((q: any) => q.name === parsed.propName);
+      if (qty) {
+        if (parsed.operator === 'exists') return true;
+        return compareValues(qty.value, parsed.operator, parsed.value);
+      }
+    }
+
+    return false;
+  });
+}
+
+function compareValues(actual: any, operator: string, expected: string | undefined): boolean {
+  if (expected === undefined) return actual != null;
+  const normActual = normalizeBooleanValue(actual);
+  const normExpected = normalizeBooleanValue(expected);
+  switch (operator) {
+    case '=': return String(normActual) === String(normExpected);
+    case '!=': return String(normActual) !== String(normExpected);
+    case '>': return Number(normActual) > Number(normExpected);
+    case '<': return Number(normActual) < Number(normExpected);
+    case '>=': return Number(normActual) >= Number(normExpected);
+    case '<=': return Number(normActual) <= Number(normExpected);
+    case 'contains': return String(normActual).toLowerCase().includes(String(normExpected).toLowerCase());
+    default: return false;
+  }
+}
+
+function normalizeBooleanValue(value: unknown): unknown {
+  if (value === true || value === '.T.' || value === 'true' || value === 'TRUE') return 'true';
+  if (value === false || value === '.F.' || value === 'false' || value === 'FALSE') return 'false';
+  return value;
+}
+
+/**
+ * Helper: get a quantity value for an entity by name (searching all qsets).
+ */
+function getQuantityValue(bim: any, ref: any, quantityName: string): number | null {
+  const qsets = bim.quantities(ref);
+  for (const qset of qsets) {
+    for (const q of qset.quantities) {
+      if (q.name === quantityName) return Number(q.value) || 0;
+    }
+  }
+  return null;
+}
+
 export async function queryCommand(args: string[]): Promise<void> {
   const filePath = args.find(a => !a.startsWith('-'));
   if (!filePath) fatal('Usage: ifc-lite query <file.ifc> --type IfcWall [--props] [--limit N]');
 
-  const type = getFlag(args, '--type');
+  let type = getFlag(args, '--type');
   const limit = getFlag(args, '--limit');
   const offset = getFlag(args, '--offset');
   const propFilter = getFlag(args, '--where');
-  const showProps = hasFlag(args, '--props');
-  const showQuantities = hasFlag(args, '--quantities');
-  const showMaterials = hasFlag(args, '--materials');
-  const showClassifications = hasFlag(args, '--classifications');
-  const showAttributes = hasFlag(args, '--attributes');
-  const showRelationships = hasFlag(args, '--relationships');
-  const showTypeProps = hasFlag(args, '--type-props');
-  const showDocuments = hasFlag(args, '--documents');
-  const showAll = hasFlag(args, '--all');
   const jsonOutput = hasFlag(args, '--json');
   const countOnly = hasFlag(args, '--count');
   const spatial = hasFlag(args, '--spatial');
   const sumQuantity = getFlag(args, '--sum');
+  const avgQuantity = getFlag(args, '--avg');
+  const minQuantity = getFlag(args, '--min');
+  const maxQuantity = getFlag(args, '--max');
+  const sortBy = getFlag(args, '--sort');
+  const descSort = hasFlag(args, '--desc');
   const storeyFilter = getFlag(args, '--storey');
   const quantityNames = hasFlag(args, '--quantity-names');
   const propertyNames = hasFlag(args, '--property-names');
   const uniqueProp = getFlag(args, '--unique');
   const groupBy = getFlag(args, '--group-by');
   const spatialSummary = hasFlag(args, '--summary');
+
+  // B9/F6: Auto-prefix Ifc for --type
+  if (type) {
+    type = normalizeTypeName(type);
+  }
 
   const { bim } = await createHeadlessContext(filePath);
 
@@ -261,24 +349,44 @@ export async function queryCommand(args: string[]): Promise<void> {
     return;
   }
 
-  // --unique: distinct values for a property path (PsetName.PropName)
+  // B6/F8: --unique: distinct values for a property path, material, or storey
   if (uniqueProp) {
     const targetType = type;
-    if (!targetType) fatal('--unique requires --type (e.g., --type IfcWall --unique PsetName.PropName)');
-    const dotIdx = uniqueProp.indexOf('.');
-    if (dotIdx <= 0) fatal(`Invalid --unique path: "${uniqueProp}". Expected: PsetName.PropName`);
-    const psetName = uniqueProp.slice(0, dotIdx);
-    const propName = uniqueProp.slice(dotIdx + 1);
+    if (!targetType) fatal('--unique requires --type (e.g., --type IfcWall --unique material)');
 
     const entities = bim.query().byType(...targetType.split(',')).toArray();
     const valueCounts = new Map<string, number>();
 
-    for (const e of entities) {
-      const psets = bim.properties(e.ref);
-      const pset = psets.find((p: any) => p.name === psetName);
-      const prop = pset?.properties?.find((p: any) => p.name === propName);
-      const val = prop?.value != null ? String(prop.value) : '(no value)';
-      valueCounts.set(val, (valueCounts.get(val) ?? 0) + 1);
+    if (uniqueProp === 'material') {
+      // B6: Support --unique material
+      for (const e of entities) {
+        const mat = bim.materials(e.ref);
+        const val = mat?.materials?.[0] ?? mat?.name ?? '(no material)';
+        valueCounts.set(val, (valueCounts.get(val) ?? 0) + 1);
+      }
+    } else if (uniqueProp === 'storey') {
+      for (const e of entities) {
+        const storey = bim.storey(e.ref);
+        const val = storey?.name ?? '(no storey)';
+        valueCounts.set(val, (valueCounts.get(val) ?? 0) + 1);
+      }
+    } else if (uniqueProp === 'type') {
+      for (const e of entities) {
+        valueCounts.set(e.type, (valueCounts.get(e.type) ?? 0) + 1);
+      }
+    } else {
+      const dotIdx = uniqueProp.indexOf('.');
+      if (dotIdx <= 0) fatal(`Invalid --unique path: "${uniqueProp}". Expected: PsetName.PropName, or one of: material, storey, type`);
+      const psetName = uniqueProp.slice(0, dotIdx);
+      const propName = uniqueProp.slice(dotIdx + 1);
+
+      for (const e of entities) {
+        const psets = bim.properties(e.ref);
+        const pset = psets.find((p: any) => p.name === psetName);
+        const prop = pset?.properties?.find((p: any) => p.name === propName);
+        const val = prop?.value != null ? String(prop.value) : '(no value)';
+        valueCounts.set(val, (valueCounts.get(val) ?? 0) + 1);
+      }
     }
 
     if (jsonOutput) {
@@ -303,7 +411,7 @@ export async function queryCommand(args: string[]): Promise<void> {
     if (storeys.length > 0) {
       for (const storey of storeys) {
         const contained = bim.contains(storey.ref);
-        tree[storey.name || `Storey #${storey.ref.expressId}`] = contained.map(e => ({
+        tree[storey.name || `Storey #${storey.ref.expressId}`] = contained.map((e: any) => ({
           type: e.type,
           name: e.name,
           globalId: e.globalId,
@@ -314,7 +422,7 @@ export async function queryCommand(args: string[]): Promise<void> {
       const buildings = bim.query().byType('IfcBuilding').toArray();
       for (const building of buildings) {
         const contained = bim.contains(building.ref);
-        tree[building.name || `Building #${building.ref.expressId}`] = contained.map(e => ({
+        tree[building.name || `Building #${building.ref.expressId}`] = contained.map((e: any) => ({
           type: e.type,
           name: e.name,
           globalId: e.globalId,
@@ -365,72 +473,114 @@ export async function queryCommand(args: string[]): Promise<void> {
   // --storey filter: restrict to entities in a specific storey
   if (storeyFilter) {
     const storeys = bim.storeys();
-    const matchedStorey = storeys.find(s =>
+    const matchedStorey = storeys.find((s: any) =>
       s.name === storeyFilter ||
       s.name.toLowerCase().includes(storeyFilter.toLowerCase()) ||
       String(s.ref.expressId) === storeyFilter
     );
     if (!matchedStorey) {
-      const names = storeys.map(s => s.name).filter(Boolean).join(', ');
+      const names = storeys.map((s: any) => s.name).filter(Boolean).join(', ');
       fatal(`Storey "${storeyFilter}" not found. Available: ${names || '(none)'}`);
     }
     const contained = bim.contains(matchedStorey.ref);
-    const storeyIds = new Set(contained.map(e => e.ref.expressId));
+    const storeyIds = new Set(contained.map((e: any) => e.ref.expressId));
     // Post-filter: only keep entities that are in this storey
     const baseEntities = q.toArray();
-    const storeyEntities = baseEntities.filter(e => storeyIds.has(e.ref.expressId));
+    let storeyEntities = baseEntities.filter((e: any) => storeyIds.has(e.ref.expressId));
 
-    // Apply --where filter to storey-filtered entities
+    // B3: Apply --where filter to storey-filtered entities (with quantity support)
     if (propFilter) {
       const parsed = parseWhereFilter(propFilter);
-      // Re-apply via manual filtering since we've already resolved entities
-      const finalEntities = storeyEntities.filter(e => {
-        const props = bim.properties(e.ref);
-        const pset = props.find(p => p.name === parsed.psetName);
-        if (!pset) return false;
-        const prop = pset.properties.find((p: any) => p.name === parsed.propName);
-        if (!prop) return false;
-        if (parsed.operator === 'exists') return true;
-        return String(prop.value) === String(parsed.value);
-      });
-
-      if (sumQuantity) {
-        outputSum(finalEntities, sumQuantity, bim, jsonOutput);
-        return;
-      }
-      if (countOnly) {
-        outputCount(finalEntities.length, jsonOutput);
-        return;
-      }
-      outputEntities(finalEntities, args, bim, jsonOutput);
-      return;
+      storeyEntities = applyWhereFilter(storeyEntities, parsed, bim);
     }
 
     if (sumQuantity) {
       outputSum(storeyEntities, sumQuantity, bim, jsonOutput);
       return;
     }
+    if (avgQuantity) {
+      outputAggregation(storeyEntities, avgQuantity, 'avg', bim, jsonOutput);
+      return;
+    }
+    if (minQuantity) {
+      outputAggregation(storeyEntities, minQuantity, 'min', bim, jsonOutput);
+      return;
+    }
+    if (maxQuantity) {
+      outputAggregation(storeyEntities, maxQuantity, 'max', bim, jsonOutput);
+      return;
+    }
     if (countOnly) {
       outputCount(storeyEntities.length, jsonOutput);
       return;
+    }
+    if (sortBy) {
+      storeyEntities = sortEntities(storeyEntities, sortBy, descSort, bim);
     }
     outputEntities(storeyEntities, args, bim, jsonOutput);
     return;
   }
 
-  // --where filter with proper syntax validation
+  // --where filter: search both property sets and quantity sets (B3)
   if (propFilter) {
     const parsed = parseWhereFilter(propFilter);
-    q = q.where(parsed.psetName, parsed.propName, parsed.operator as any, parsed.value);
+    // We need to do manual filtering to support quantity sets
+    let entities = q.toArray();
+    entities = applyWhereFilter(entities, parsed, bim);
+
+    if (limit) entities = entities.slice(0, parseInt(limit, 10));
+    if (offset) entities = entities.slice(parseInt(offset, 10));
+
+    if (groupBy && sumQuantity) {
+      outputGroupBy(entities, groupBy, sumQuantity, bim, jsonOutput, limit ? parseInt(limit, 10) : undefined);
+      return;
+    }
+    if (sumQuantity) {
+      outputSum(entities, sumQuantity, bim, jsonOutput);
+      return;
+    }
+    if (avgQuantity) {
+      outputAggregation(entities, avgQuantity, 'avg', bim, jsonOutput);
+      return;
+    }
+    if (minQuantity) {
+      outputAggregation(entities, minQuantity, 'min', bim, jsonOutput);
+      return;
+    }
+    if (maxQuantity) {
+      outputAggregation(entities, maxQuantity, 'max', bim, jsonOutput);
+      return;
+    }
+    if (groupBy) {
+      outputGroupBy(entities, groupBy, undefined, bim, jsonOutput, limit ? parseInt(limit, 10) : undefined);
+      return;
+    }
+    if (countOnly) {
+      outputCount(entities.length, jsonOutput);
+      return;
+    }
+    if (sortBy) {
+      entities = sortEntities(entities, sortBy, descSort, bim);
+    }
+    outputEntities(entities, args, bim, jsonOutput);
+    return;
   }
 
-  if (limit) q = q.limit(parseInt(limit, 10));
+  if (limit && !groupBy) q = q.limit(parseInt(limit, 10));
   if (offset) q = q.offset(parseInt(offset, 10));
+
+  // B11: Validate --group-by key
+  if (groupBy) {
+    if (!VALID_GROUP_BY_KEYS.includes(groupBy) && !groupBy.includes('.')) {
+      fatal(`Unknown grouping "${groupBy}". Valid options: ${VALID_GROUP_BY_KEYS.join(', ')}, or PsetName.PropName`);
+    }
+  }
 
   // --group-by + --sum combo: aggregate per group
   if (groupBy && sumQuantity) {
     const entities = q.toArray();
-    outputGroupBy(entities, groupBy, sumQuantity, bim, jsonOutput);
+    // B12: pass limit to outputGroupBy to limit groups, not entities
+    outputGroupBy(entities, groupBy, sumQuantity, bim, jsonOutput, limit ? parseInt(limit, 10) : undefined);
     return;
   }
 
@@ -441,10 +591,32 @@ export async function queryCommand(args: string[]): Promise<void> {
     return;
   }
 
+  // B7/F2: --avg mode
+  if (avgQuantity) {
+    const entities = q.toArray();
+    outputAggregation(entities, avgQuantity, 'avg', bim, jsonOutput);
+    return;
+  }
+
+  // B7/F2: --min mode
+  if (minQuantity) {
+    const entities = q.toArray();
+    outputAggregation(entities, minQuantity, 'min', bim, jsonOutput);
+    return;
+  }
+
+  // B7/F2: --max mode
+  if (maxQuantity) {
+    const entities = q.toArray();
+    outputAggregation(entities, maxQuantity, 'max', bim, jsonOutput);
+    return;
+  }
+
   // --group-by mode: pivot table grouped by a property or 'type'/'material'
   if (groupBy) {
     const entities = q.toArray();
-    outputGroupBy(entities, groupBy, undefined, bim, jsonOutput);
+    // B12: pass limit to outputGroupBy to limit groups, not entities
+    outputGroupBy(entities, groupBy, undefined, bim, jsonOutput, limit ? parseInt(limit, 10) : undefined);
     return;
   }
 
@@ -454,7 +626,13 @@ export async function queryCommand(args: string[]): Promise<void> {
     return;
   }
 
-  const entities = q.toArray();
+  let entities = q.toArray();
+
+  // F7: --sort by quantity
+  if (sortBy) {
+    entities = sortEntities(entities, sortBy, descSort, bim);
+  }
+
   outputEntities(entities, args, bim, jsonOutput);
 }
 
@@ -492,6 +670,33 @@ function outputSum(entities: any[], quantityName: string, bim: any, jsonOutput: 
         }
       }
     }
+  }
+
+  // B10: Better error when quantity not found
+  if (matched === 0 && entities.length > 0) {
+    const availableNames = new Set<string>();
+    for (const [key] of allQuantityNames) {
+      availableNames.add(key.split('.').pop()!);
+    }
+    if (jsonOutput) {
+      printJson({
+        quantity: quantityName,
+        total: 0,
+        matchedEntities: 0,
+        totalEntities: entities.length,
+        error: `Quantity "${quantityName}" not found in any of the ${entities.length} entities.`,
+        availableQuantities: [...availableNames],
+        hint: 'Use --quantity-names --type <Type> to see all available quantities with details.',
+      });
+    } else {
+      process.stdout.write(`0\n`);
+      process.stderr.write(`Quantity "${quantityName}" not found in any of the ${entities.length} entities.\n`);
+      if (availableNames.size > 0) {
+        process.stderr.write(`Available quantities: ${[...availableNames].join(', ')}\n`);
+      }
+      process.stderr.write(`Use --quantity-names --type <Type> to see all available quantities.\n`);
+    }
+    return;
   }
 
   // Check for ambiguous area/volume quantities and warn
@@ -537,7 +742,84 @@ function outputSum(entities: any[], quantityName: string, bim: any, jsonOutput: 
   }
 }
 
-function outputGroupBy(entities: any[], groupByKey: string, sumQuantity: string | undefined, bim: any, jsonOutput: boolean): void {
+/**
+ * B7/F2: --avg, --min, --max aggregation functions.
+ */
+function outputAggregation(entities: any[], quantityName: string, mode: 'avg' | 'min' | 'max', bim: any, jsonOutput: boolean): void {
+  let total = 0;
+  let matched = 0;
+  let minVal = Infinity;
+  let maxVal = -Infinity;
+  let minEntity: any = null;
+  let maxEntity: any = null;
+
+  for (const e of entities) {
+    const val = getQuantityValue(bim, e.ref, quantityName);
+    if (val !== null) {
+      total += val;
+      matched++;
+      if (val < minVal) { minVal = val; minEntity = e; }
+      if (val > maxVal) { maxVal = val; maxEntity = e; }
+    }
+  }
+
+  // B10: quantity not found
+  if (matched === 0) {
+    if (jsonOutput) {
+      printJson({ quantity: quantityName, error: `Quantity "${quantityName}" not found.`, hint: 'Use --quantity-names --type <Type> to see available quantities.' });
+    } else {
+      process.stderr.write(`Quantity "${quantityName}" not found in any of the ${entities.length} entities.\n`);
+      process.stderr.write(`Use --quantity-names --type <Type> to see all available quantities.\n`);
+    }
+    return;
+  }
+
+  const avg = total / matched;
+  const label = mode.charAt(0).toUpperCase() + mode.slice(1);
+
+  if (jsonOutput) {
+    const result: Record<string, unknown> = { quantity: quantityName, matchedEntities: matched, totalEntities: entities.length };
+    if (mode === 'avg') {
+      result.average = avg;
+    } else if (mode === 'min') {
+      result.min = minVal;
+      if (minEntity) result.entity = { name: minEntity.name, type: minEntity.type, globalId: minEntity.globalId };
+    } else {
+      result.max = maxVal;
+      if (maxEntity) result.entity = { name: maxEntity.name, type: maxEntity.type, globalId: maxEntity.globalId };
+    }
+    printJson(result);
+  } else {
+    if (mode === 'avg') {
+      process.stdout.write(`${avg}\n`);
+      process.stderr.write(`${label} ${quantityName}: ${avg.toFixed(4)} (${matched} entities)\n`);
+    } else if (mode === 'min') {
+      process.stdout.write(`${minVal}\n`);
+      process.stderr.write(`${label} ${quantityName}: ${minVal} (${minEntity?.name ?? 'unknown'})\n`);
+    } else {
+      process.stdout.write(`${maxVal}\n`);
+      process.stderr.write(`${label} ${quantityName}: ${maxVal} (${maxEntity?.name ?? 'unknown'})\n`);
+    }
+  }
+}
+
+/**
+ * F7: Sort entities by a quantity value.
+ */
+function sortEntities(entities: any[], sortBy: string, descending: boolean, bim: any): any[] {
+  return entities.slice().sort((a, b) => {
+    const valA = getQuantityValue(bim, a.ref, sortBy) ?? 0;
+    const valB = getQuantityValue(bim, b.ref, sortBy) ?? 0;
+    return descending ? valB - valA : valA - valB;
+  });
+}
+
+function outputGroupBy(entities: any[], groupByKey: string, sumQuantity: string | undefined, bim: any, jsonOutput: boolean, groupLimit?: number): void {
+  // B11: Validate group-by key
+  if (!VALID_GROUP_BY_KEYS.includes(groupByKey) && !groupByKey.includes('.')) {
+    fatal(`Unknown grouping "${groupByKey}". Valid options: ${VALID_GROUP_BY_KEYS.join(', ')}, or PsetName.PropName`);
+  }
+
   const groups = new Map<string, any[]>();
 
   for (const e of entities) {
@@ -550,7 +832,7 @@ function outputGroupBy(entities: any[], groupByKey: string, sumQuantity: string 
       groupValue = storey?.name ?? '(no storey)';
     } else if (groupByKey === 'material') {
       const mat = bim.materials(e.ref);
-      groupValue = mat?.materials?.[0]?.name ?? mat?.name ?? '(no material)';
+      groupValue = mat?.materials?.[0] ?? mat?.name ?? '(no material)';
     } else if (groupByKey.includes('.')) {
       // PsetName.PropName
       const [psetName, propName] = groupByKey.split('.', 2);
@@ -589,14 +871,19 @@ function outputGroupBy(entities: any[], groupByKey: string, sumQuantity: string 
 
   if (jsonOutput) {
     const result: Record<string, unknown> = {};
-    for (const [key, groupEntities] of groups) {
+    let entries = [...groups.entries()];
+    // B12: --limit limits groups, not entities
+    if (groupLimit) entries = entries.slice(0, groupLimit);
+    for (const [key, groupEntities] of entries) {
       const entry: Record<string, unknown> = { count: groupEntities.length };
       if (sumQuantity) entry[sumQuantity] = groupSums.get(key) ?? 0;
       result[key] = entry;
     }
     printJson(result);
   } else {
-    const sorted = [...groups.entries()].sort((a, b) => b[1].length - a[1].length);
+    let sorted = [...groups.entries()].sort((a, b) => b[1].length - a[1].length);
+    // B12: --limit limits groups, not entities
+    if (groupLimit) sorted = sorted.slice(0, groupLimit);
     process.stdout.write(`\nGrouped by ${groupByKey}${sumQuantity ? ` (sum: ${sumQuantity})` : ''}:\n\n`);
     for (const [key, groupEntities] of sorted) {
       if (sumQuantity) {
