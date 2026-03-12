@@ -538,15 +538,18 @@ export async function queryCommand(args: string[]): Promise<void> {
     let entities = q.toArray();
     entities = applyWhereFilter(entities, parsed, bim);
 
-    if (offset) entities = entities.slice(parseInt(offset, 10));
-    if (limit) entities = entities.slice(0, parseInt(limit, 10));
-
     const whereAggQty = sumQuantity ?? avgQuantity ?? minQuantity ?? maxQuantity;
     const whereAggMode: 'sum' | 'avg' | 'min' | 'max' | undefined = sumQuantity ? 'sum' : avgQuantity ? 'avg' : minQuantity ? 'min' : maxQuantity ? 'max' : undefined;
+    // When grouping, don't slice entities — pass limit as groupLimit instead
     if (groupBy && whereAggQty) {
       outputGroupBy(entities, groupBy, whereAggQty, bim, jsonOutput, limit ? parseInt(limit, 10) : undefined, whereAggMode);
       return;
     }
+    if (groupBy) {
+      outputGroupBy(entities, groupBy, undefined, bim, jsonOutput, limit ? parseInt(limit, 10) : undefined);
+      return;
+    }
+    // Aggregations operate on the full filtered set (no offset/limit)
     if (sumQuantity) {
       outputSum(entities, sumQuantity, bim, jsonOutput);
       return;
@@ -563,10 +566,9 @@ export async function queryCommand(args: string[]): Promise<void> {
       outputAggregation(entities, maxQuantity, 'max', bim, jsonOutput);
       return;
     }
-    if (groupBy) {
-      outputGroupBy(entities, groupBy, undefined, bim, jsonOutput, limit ? parseInt(limit, 10) : undefined);
-      return;
-    }
+    // Apply offset/limit only for non-aggregation, non-group paths
+    if (offset) entities = entities.slice(parseInt(offset, 10));
+    if (limit) entities = entities.slice(0, parseInt(limit, 10));
     if (countOnly) {
       outputCount(entities.length, jsonOutput);
       return;
@@ -799,10 +801,10 @@ function outputAggregation(entities: any[], quantityName: string, mode: 'avg' | 
       result.average = avg;
     } else if (mode === 'min') {
       result.min = minVal;
-      if (minEntity) result.entity = { name: minEntity.name, type: minEntity.type, globalId: minEntity.globalId };
+      if (minEntity) result.entity = { Name: minEntity.name, Type: minEntity.type, GlobalId: minEntity.globalId };
     } else {
       result.max = maxVal;
-      if (maxEntity) result.entity = { name: maxEntity.name, type: maxEntity.type, globalId: maxEntity.globalId };
+      if (maxEntity) result.entity = { Name: maxEntity.name, Type: maxEntity.type, GlobalId: maxEntity.globalId };
     }
     printJson(result);
   } else {

@@ -58,13 +58,17 @@ function normalizeTypeName(typeStr: string): string {
  * B5: Resolve a column value from an entity, searching entity attributes,
  * property sets, AND quantity sets (by bare quantity name or QsetName.QuantityName).
  */
-function resolveColumnValue(entity: any, col: string, bim: any): string {
+/**
+ * Resolve a column value from an entity, returning the raw value
+ * (number, boolean, string, or null) to preserve types in JSON output.
+ */
+function resolveColumnValue(entity: any, col: string, bim: any): unknown {
   // Native entity attributes
-  if (col === 'Name' || col === 'name') return entity.name ?? '';
-  if (col === 'Type' || col === 'type') return entity.type ?? '';
-  if (col === 'GlobalId' || col === 'globalId') return entity.globalId ?? '';
-  if (col === 'Description' || col === 'description') return entity.description ?? '';
-  if (col === 'ObjectType' || col === 'objectType') return entity.objectType ?? '';
+  if (col === 'Name' || col === 'name') return entity.name ?? null;
+  if (col === 'Type' || col === 'type') return entity.type ?? null;
+  if (col === 'GlobalId' || col === 'globalId') return entity.globalId ?? null;
+  if (col === 'Description' || col === 'description') return entity.description ?? null;
+  if (col === 'ObjectType' || col === 'objectType') return entity.objectType ?? null;
 
   // Dot-separated: PsetName.PropName or QsetName.QuantityName
   const dotIdx = col.indexOf('.');
@@ -77,7 +81,7 @@ function resolveColumnValue(entity: any, col: string, bim: any): string {
     const pset = props.find((p: any) => p.name === setName);
     if (pset) {
       const prop = pset.properties.find((p: any) => p.name === valueName);
-      if (prop?.value != null) return String(prop.value);
+      if (prop?.value != null) return prop.value;
     }
 
     // Search quantity sets
@@ -85,16 +89,16 @@ function resolveColumnValue(entity: any, col: string, bim: any): string {
     const qset = qsets.find((q: any) => q.name === setName);
     if (qset) {
       const qty = qset.quantities.find((q: any) => q.name === valueName);
-      if (qty?.value != null) return String(qty.value);
+      if (qty?.value != null) return qty.value;
     }
-    return '';
+    return null;
   }
 
   // B5: Bare quantity name (e.g., "GrossSideArea") — search all quantity sets
   const qsets = bim.quantities(entity.ref);
   for (const qset of qsets) {
     for (const q of qset.quantities) {
-      if (q.name === col && q.value != null) return String(q.value);
+      if (q.name === col && q.value != null) return q.value;
     }
   }
 
@@ -102,11 +106,17 @@ function resolveColumnValue(entity: any, col: string, bim: any): string {
   const props = bim.properties(entity.ref);
   for (const pset of props) {
     for (const p of pset.properties) {
-      if (p.name === col && p.value != null) return String(p.value);
+      if (p.name === col && p.value != null) return p.value;
     }
   }
 
-  return '';
+  return null;
+}
+
+/** Stringify a column value for CSV output */
+function columnValueToCsv(value: unknown): string {
+  if (value == null) return '';
+  return String(value);
 }
 
 function escapeCsv(value: string, sep: string): string {
@@ -145,12 +155,10 @@ export async function exportCommand(args: string[]): Promise<void> {
     const parsed = parseWhereFilter(propFilter);
     q = q.where(parsed.psetName, parsed.propName, parsed.operator as any, parsed.value);
   }
-  if (limit) {
-    q = q.limit(parseInt(limit, 10));
-  }
+  // Don't apply limit to the query yet — storey filtering must happen first
   let entities = q.toArray();
 
-  // B4: --storey filter (was silently ignored before)
+  // B4: --storey filter (applied before limit so --limit restricts storey-filtered results)
   if (storeyFilter) {
     const storeys = bim.storeys();
     const matchedStorey = storeys.find((s: any) =>
@@ -165,6 +173,11 @@ export async function exportCommand(args: string[]): Promise<void> {
     const contained = bim.contains(matchedStorey.ref);
     const storeyIds = new Set(contained.map((e: any) => e.ref.expressId));
     entities = entities.filter((e: any) => storeyIds.has(e.ref.expressId));
+  }
+
+  // Apply limit after storey filtering
+  if (limit) {
+    entities = entities.slice(0, parseInt(limit, 10));
   }
 
   const refs = entities.map((e: any) => e.ref);
@@ -183,7 +196,7 @@ export async function exportCommand(args: string[]): Promise<void> {
         // B5: Use our own CSV generation that supports quantity columns
         const rows: string[][] = [columns];
         for (const entity of entities) {
-          rows.push(columns.map(col => resolveColumnValue(entity, col, bim)));
+          rows.push(columns.map(col => columnValueToCsv(resolveColumnValue(entity, col, bim))));
         }
         const csv = rows.map(r => r.map(cell => escapeCsv(cell, separator)).join(separator)).join('\n');
         await writeOutput(csv, outPath);
@@ -195,13 +208,12 @@ export async function exportCommand(args: string[]): Promise<void> {
     }
     case 'json': {
       if (hasCustomColumns) {
-        // B5: Use our own JSON generation that supports quantity columns
+        // B5: Use our own JSON generation that supports quantity columns (raw values preserved)
         const result: Record<string, unknown>[] = [];
         for (const entity of entities) {
           const row: Record<string, unknown> = {};
           for (const col of columns) {
-            const val = resolveColumnValue(entity, col, bim);
-            row[col] = val || null;
+            row[col] = resolveColumnValue(entity, col, bim);
           }
           result.push(row);
         }

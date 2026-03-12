@@ -28,16 +28,27 @@ export async function evalCommand(args: string[]): Promise<void> {
   const typeFilter = getFlag(args, '--type');
   const limitStr = getFlag(args, '--limit');
 
-  // Parse positional args, skipping known flags and their values
+  // Parse positional args, skipping known flags and their values.
+  // Once the file path (first positional) is collected, stop option parsing
+  // so expressions like "-1" are not treated as flags.
   const positional: string[] = [];
+  let noMoreOptions = false;
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
-    if (EVAL_VALUE_FLAGS.has(arg)) {
-      i++; // skip flag value
+    if (arg === '--') {
+      noMoreOptions = true;
       continue;
     }
-    if (arg.startsWith('-')) continue; // skip boolean flags
+    if (!noMoreOptions) {
+      if (EVAL_VALUE_FLAGS.has(arg)) {
+        i++; // skip flag value
+        continue;
+      }
+      if (arg.startsWith('-')) continue; // skip boolean flags
+    }
     positional.push(arg);
+    // After collecting the file path, treat everything else as expression parts
+    if (positional.length === 1) noMoreOptions = true;
   }
 
   if (positional.length < 2) fatal('Usage: ifc-lite eval <file.ifc> "<expression>"');
@@ -65,16 +76,16 @@ export async function evalCommand(args: string[]): Promise<void> {
         const result = evalFn(bim, entity.ref, entity);
         const resolved = result instanceof Promise ? await result : result;
         results.push({
-          name: entity.name,
-          type: entity.type,
-          globalId: entity.globalId,
+          Name: entity.name,
+          Type: entity.type,
+          GlobalId: entity.globalId,
           result: resolved ?? null,
         });
       } catch (err: any) {
         results.push({
-          name: entity.name,
-          type: entity.type,
-          globalId: entity.globalId,
+          Name: entity.name,
+          Type: entity.type,
+          GlobalId: entity.globalId,
           error: err.message,
         });
       }
@@ -85,7 +96,7 @@ export async function evalCommand(args: string[]): Promise<void> {
     } else {
       for (const r of results) {
         const val = r.error ? `ERROR: ${r.error}` : formatValue(r.result);
-        process.stdout.write(`${r.name ?? r.globalId}: ${val}\n`);
+        process.stdout.write(`${r.Name ?? r.GlobalId}: ${val}\n`);
       }
       process.stderr.write(`\n${results.length} entities evaluated\n`);
     }

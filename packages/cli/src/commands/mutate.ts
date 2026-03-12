@@ -75,6 +75,27 @@ function coerceValue(value: string): { coerced: string | number | boolean; value
   return { coerced: value, valueType: PropertyValueType.String };
 }
 
+/**
+ * Check if a value matches a filter operator and comparison value.
+ */
+function matchesFilter(actual: any, operator: string, expected?: string): boolean {
+  if (operator === 'exists') return actual != null;
+  if (actual == null || expected == null) return false;
+  const numActual = Number(actual);
+  const numExpected = Number(expected);
+  const isNumeric = !isNaN(numActual) && !isNaN(numExpected);
+  switch (operator) {
+    case '=': return isNumeric ? numActual === numExpected : String(actual) === expected;
+    case '!=': return isNumeric ? numActual !== numExpected : String(actual) !== expected;
+    case '>': return isNumeric ? numActual > numExpected : false;
+    case '<': return isNumeric ? numActual < numExpected : false;
+    case '>=': return isNumeric ? numActual >= numExpected : false;
+    case '<=': return isNumeric ? numActual <= numExpected : false;
+    case 'contains': return String(actual).toLowerCase().includes(expected.toLowerCase());
+    default: return false;
+  }
+}
+
 export async function mutateCommand(args: string[]): Promise<void> {
   const filePath = args.find(a => !a.startsWith('-'));
   if (!filePath) fatal('Usage: ifc-lite mutate <file.ifc> --id <N> --set PsetName.PropName=Value --out output.ifc');
@@ -104,12 +125,41 @@ export async function mutateCommand(args: string[]): Promise<void> {
     if (!entity) fatal(`Entity #${expressId} not found`);
     targets = [entity];
   } else if (type) {
-    let q = bim.query().byType(...type.split(','));
+    // Auto-prefix Ifc if user omits it (e.g., "Wall" → "IfcWall")
+    const normalizedTypes = type.split(',').map(t => {
+      const trimmed = t.trim();
+      if (trimmed.startsWith('Ifc') || trimmed.startsWith('IFC') || trimmed.startsWith('ifc')) return trimmed;
+      const prefixed = 'Ifc' + trimmed;
+      process.stderr.write(`Note: Auto-corrected type "${trimmed}" → "${prefixed}"\n`);
+      return prefixed;
+    });
+    let q = bim.query().byType(...normalizedTypes);
     if (propFilter) {
       const parsed = parseWhereFilter(propFilter);
-      q = q.where(parsed.psetName, parsed.propName, parsed.operator as any, parsed.value);
+      // Try standard property where first
+      const filtered = q.toArray().filter((e: any) => {
+        // Check property sets
+        const psets = bim.properties(e.ref);
+        for (const pset of psets) {
+          if (pset.name === parsed.psetName) {
+            const prop = pset.properties?.find((p: any) => p.name === parsed.propName);
+            if (prop && matchesFilter(prop.value, parsed.operator, parsed.value)) return true;
+          }
+        }
+        // Fallback: check quantity sets (Qto_* aware)
+        const qsets = bim.quantities(e.ref);
+        for (const qset of qsets) {
+          if (qset.name === parsed.psetName) {
+            const qty = qset.quantities?.find((q: any) => q.name === parsed.propName);
+            if (qty && matchesFilter(qty.value, parsed.operator, parsed.value)) return true;
+          }
+        }
+        return false;
+      });
+      targets = filtered;
+    } else {
+      targets = q.toArray();
     }
-    targets = q.toArray();
   } else {
     fatal('Either --id or --type is required to select target entities.');
   }
