@@ -26,10 +26,18 @@ export async function evalCommand(args: string[]): Promise<void> {
   const { bim } = await createHeadlessContext(filePath);
 
   // Build evaluation context
+  // Detect if expression is a statement (contains const/let/var/for/if/return or ;)
+  // If so, wrap in async IIFE to allow multi-statement code
+  const isStatement = /^\s*(const |let |var |for |if |while |return |class |function |try |switch |{)/.test(expression)
+    || expression.includes(';');
+
+  const body = isStatement
+    ? `return (async () => { ${expression} })()`
+    : `return (${expression})`;
+
   const evalFn = new Function('bim', `
     "use strict";
-    const result = (${expression});
-    return result;
+    ${body};
   `);
 
   try {

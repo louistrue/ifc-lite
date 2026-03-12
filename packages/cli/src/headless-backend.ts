@@ -96,6 +96,16 @@ function isProductType(type: string): boolean {
   return true;
 }
 
+/**
+ * Normalize boolean-like values for comparison.
+ * IFC STEP files store booleans as .T./.F., but users pass true/false.
+ */
+function normalizeBooleanValue(value: unknown): unknown {
+  if (value === true || value === '.T.' || value === 'true' || value === 'TRUE') return 'true';
+  if (value === false || value === '.F.' || value === 'false' || value === 'FALSE') return 'false';
+  return value;
+}
+
 function normalizePropertyValue(value: unknown): string | number | boolean | null {
   if (value == null) return null;
   if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
@@ -150,6 +160,7 @@ export class HeadlessBackend implements BimBackend {
         return [{
           id: MODEL_ID,
           name,
+          schema: store.schemaVersion,
           schemaVersion: store.schemaVersion,
           entityCount: store.entityCount,
           fileSize: store.fileSize,
@@ -259,14 +270,18 @@ export class HeadlessBackend implements BimBackend {
               if (!prop) return false;
               if (filter.operator === 'exists') return true;
               const val = prop.value;
+              const filterVal = filter.value;
+              // Normalize booleans: .T./.F./true/false all compare equally
+              const normVal = normalizeBooleanValue(val);
+              const normFilterVal = normalizeBooleanValue(filterVal);
               switch (filter.operator) {
-                case '=': return String(val) === String(filter.value);
-                case '!=': return String(val) !== String(filter.value);
-                case '>': return Number(val) > Number(filter.value);
-                case '<': return Number(val) < Number(filter.value);
-                case '>=': return Number(val) >= Number(filter.value);
-                case '<=': return Number(val) <= Number(filter.value);
-                case 'contains': return String(val).includes(String(filter.value));
+                case '=': return String(normVal) === String(normFilterVal);
+                case '!=': return String(normVal) !== String(normFilterVal);
+                case '>': return Number(normVal) > Number(normFilterVal);
+                case '<': return Number(normVal) < Number(normFilterVal);
+                case '>=': return Number(normVal) >= Number(normFilterVal);
+                case '<=': return Number(normVal) <= Number(normFilterVal);
+                case 'contains': return String(normVal).toLowerCase().includes(String(normFilterVal).toLowerCase());
                 default: return false;
               }
             });
