@@ -29,6 +29,7 @@ export class Scene {
   private batchedMeshIndex: Map<string, number> = new Map(); // Map bucketKey -> index in batchedMeshes array (O(1) lookup)
   private meshDataMap: Map<number, MeshData[]> = new Map(); // Map expressId -> MeshData[] (for lazy buffer creation, accumulates multiple pieces)
   private meshDataBatchKey: Map<MeshData, string> = new Map(); // Reverse lookup: MeshData -> bucketKey (O(1) removal in updateMeshColors)
+  private meshDataBatchIdx: Map<MeshData, number> = new Map(); // Reverse lookup: MeshData -> index in bucket array (O(1) removal)
   private boundingBoxes: Map<number, BoundingBox> = new Map(); // Map expressId -> bounding box (computed lazily)
 
   // Buffer-size-aware bucket splitting: when a single color group's geometry
@@ -256,6 +257,7 @@ export class Scene {
         bucket = [];
         this.batchedMeshData.set(bucketKey, bucket);
       }
+      this.meshDataBatchIdx.set(meshData, bucket.length);
       bucket.push(meshData);
 
       // Track reverse mapping for O(1) batch removal in updateMeshColors
@@ -432,6 +434,7 @@ export class Scene {
     this.batchedMeshIndex.clear();
     this.batchedMeshData.clear();
     this.meshDataBatchKey.clear();
+    this.meshDataBatchIdx.clear();
     this.activeBucketKey.clear();
     this.bucketVertexBytes.clear();
     this.pendingBatchKeys.clear();
@@ -458,6 +461,7 @@ export class Scene {
         bucket = [];
         this.batchedMeshData.set(bucketKey, bucket);
       }
+      this.meshDataBatchIdx.set(meshData, bucket.length);
       bucket.push(meshData);
       this.meshDataBatchKey.set(meshData, bucketKey);
       this.pendingBatchKeys.add(bucketKey);
@@ -514,14 +518,16 @@ export class Scene {
           // Remove from old bucket data using swap-remove for O(1)
           const oldBatchData = this.batchedMeshData.get(oldBucketKey);
           if (oldBatchData) {
-            const idx = oldBatchData.indexOf(meshData);
-            if (idx >= 0) {
-              // Swap with last element and pop — O(1) instead of O(N) splice
+            const idx = this.meshDataBatchIdx.get(meshData);
+            if (idx !== undefined && idx < oldBatchData.length && oldBatchData[idx] === meshData) {
               const last = oldBatchData.length - 1;
               if (idx !== last) {
-                oldBatchData[idx] = oldBatchData[last];
+                const swapped = oldBatchData[last];
+                oldBatchData[idx] = swapped;
+                this.meshDataBatchIdx.set(swapped, idx);
               }
               oldBatchData.pop();
+              this.meshDataBatchIdx.delete(meshData);
             }
             if (oldBatchData.length === 0) {
               this.batchedMeshData.delete(oldBucketKey);
@@ -1045,6 +1051,7 @@ export class Scene {
     this.batchedMeshIndex.clear();
     this.meshDataMap.clear();
     this.meshDataBatchKey.clear();
+    this.meshDataBatchIdx.clear();
     this.boundingBoxes.clear();
     this.activeBucketKey.clear();
     this.bucketVertexBytes.clear();
