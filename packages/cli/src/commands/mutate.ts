@@ -6,12 +6,16 @@
  * ifc-lite mutate <file.ifc> --id N --set PsetName.PropName=Value --out output.ifc
  *
  * Modify properties or attributes of IFC entities and save the result.
- * Supports targeting by expressId, type filter, and --where filter.
+ * Uses MutablePropertyView + StepExporter for real mutation persistence.
  */
 
 import { writeFile } from 'node:fs/promises';
-import { createHeadlessContext } from '../loader.js';
+import { loadIfcFile, createHeadlessContext } from '../loader.js';
 import { getFlag, hasFlag, fatal, printJson } from '../output.js';
+import { MutablePropertyView } from '@ifc-lite/mutations';
+import { StepExporter } from '@ifc-lite/export';
+import { extractPropertiesOnDemand } from '@ifc-lite/parser';
+import { PropertyValueType } from '@ifc-lite/data';
 
 /**
  * Parse a --where filter string.
@@ -56,14 +60,19 @@ function parseSetArg(setStr: string): { psetName: string; propName: string; valu
 }
 
 /**
- * Coerce string value to appropriate type.
+ * Coerce string value to appropriate type and determine PropertyValueType.
  */
-function coerceValue(value: string): string | number | boolean {
-  if (value === 'true') return true;
-  if (value === 'false') return false;
+function coerceValue(value: string): { coerced: string | number | boolean; valueType: PropertyValueType } {
+  if (value === 'true') return { coerced: true, valueType: PropertyValueType.Boolean };
+  if (value === 'false') return { coerced: false, valueType: PropertyValueType.Boolean };
   const num = Number(value);
-  if (!isNaN(num) && value.trim() !== '') return num;
-  return value;
+  if (!isNaN(num) && value.trim() !== '') {
+    return {
+      coerced: num,
+      valueType: Number.isInteger(num) ? PropertyValueType.Integer : PropertyValueType.Real,
+    };
+  }
+  return { coerced: value, valueType: PropertyValueType.String };
 }
 
 export async function mutateCommand(args: string[]): Promise<void> {
@@ -81,9 +90,10 @@ export async function mutateCommand(args: string[]): Promise<void> {
   if (!outPath) fatal('--out is required. Specify output file path.');
 
   const { psetName, propName, value } = parseSetArg(setStr);
-  const coercedValue = coerceValue(value);
+  const { coerced, valueType } = coerceValue(value);
 
-  const { bim } = await createHeadlessContext(filePath);
+  // Load the store and create a BimContext for querying
+  const { bim, store } = await createHeadlessContext(filePath);
 
   // Find target entities
   let targets: any[] = [];
@@ -108,28 +118,45 @@ export async function mutateCommand(args: string[]): Promise<void> {
     fatal('No entities matched the given criteria.');
   }
 
-  // Apply mutations
+  // Create MutablePropertyView with on-demand extraction from the store
+  const mutationView = new MutablePropertyView(null, 'default');
+  mutationView.setOnDemandExtractor((entityId: number) => {
+    return extractPropertiesOnDemand(store, entityId);
+  });
+
+  // Apply mutations via the real mutation system
   let mutatedCount = 0;
   for (const entity of targets) {
-    bim.mutate.setProperty(entity.ref, psetName, propName, coercedValue);
+    mutationView.setProperty(
+      entity.ref.expressId,
+      psetName,
+      propName,
+      coerced,
+      valueType,
+    );
     mutatedCount++;
   }
 
-  // Export the modified model
-  const allEntities = bim.query().toArray();
-  const allRefs = allEntities.map((e: any) => e.ref);
-  const content = bim.export.ifc(allRefs, {});
-  await writeFile(outPath, content, 'utf-8');
+  // Export with mutations applied via StepExporter
+  const schema = store.schemaVersion ?? 'IFC4';
+  const exporter = new StepExporter(store, mutationView);
+  const result = exporter.export({
+    schema: schema as any,
+    applyMutations: true,
+  });
+
+  await writeFile(outPath, result.content, 'utf-8');
 
   if (jsonOutput) {
     printJson({
       mutated: mutatedCount,
       property: `${psetName}.${propName}`,
-      value: coercedValue,
+      value: coerced,
       output: outPath,
+      stats: result.stats,
     });
   } else {
     process.stderr.write(`Mutated ${mutatedCount} entities: ${psetName}.${propName} = ${value}\n`);
-    process.stderr.write(`Written to ${outPath}\n`);
+    process.stderr.write(`Written to ${outPath} (${result.stats.entityCount} entities, ${result.stats.newEntityCount} new)\n`);
   }
 }

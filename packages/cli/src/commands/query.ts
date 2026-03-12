@@ -528,8 +528,8 @@ export async function queryCommand(args: string[]): Promise<void> {
     let entities = q.toArray();
     entities = applyWhereFilter(entities, parsed, bim);
 
-    if (limit) entities = entities.slice(0, parseInt(limit, 10));
     if (offset) entities = entities.slice(parseInt(offset, 10));
+    if (limit) entities = entities.slice(0, parseInt(limit, 10));
 
     if (groupBy && sumQuantity) {
       outputGroupBy(entities, groupBy, sumQuantity, bim, jsonOutput, limit ? parseInt(limit, 10) : undefined);

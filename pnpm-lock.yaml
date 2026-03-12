@@ -550,6 +550,9 @@ importers:
       '@ifc-lite/ids':
         specifier: workspace:^
         version: link:../ids
+      '@ifc-lite/mutations':
+        specifier: workspace:^
+        version: link:../mutations
       '@ifc-lite/parser':
         specifier: workspace:^
         version: link:../parser
