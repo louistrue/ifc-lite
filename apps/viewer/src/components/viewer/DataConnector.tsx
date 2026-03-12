@@ -72,6 +72,7 @@ import {
   type DataMapping,
   type MatchResult,
   type ImportStats,
+  type ImportProgress,
 } from '@ifc-lite/mutations';
 import type { IfcDataStore } from '@ifc-lite/parser';
 
@@ -127,6 +128,7 @@ export function DataConnector({ trigger }: DataConnectorProps) {
   const [matchResults, setMatchResults] = useState<MatchResult[] | null>(null);
   const [importStats, setImportStats] = useState<ImportStats | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [importProgress, setImportProgress] = useState<ImportProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   // Get list of models - includes both federated models and legacy single-model
@@ -424,12 +426,13 @@ export function DataConnector({ trigger }: DataConnectorProps) {
     }
   }, [csvConnector, csvContent, matchColumn, buildDataMapping]);
 
-  // Import using CsvConnector.import
-  const handleImport = useCallback(() => {
+  // Import using CsvConnector.importAsync for non-blocking progress
+  const handleImport = useCallback(async () => {
     if (!csvConnector || !csvContent) return;
 
     setIsProcessing(true);
     setImportStats(null);
+    setImportProgress(null);
     setError(null);
 
     try {
@@ -440,10 +443,14 @@ export function DataConnector({ trigger }: DataConnectorProps) {
         return;
       }
 
-      // Use CsvConnector import method - this creates mutations via the MutablePropertyView
-      const stats = csvConnector.import(csvContent, dataMapping);
+      const stats = await csvConnector.importAsync(
+        csvContent,
+        dataMapping,
+        (progress) => setImportProgress(progress)
+      );
 
       setImportStats(stats);
+      setImportProgress(null);
 
       if (stats.errors.length > 0) {
         setError(stats.errors.join('\n'));
@@ -890,6 +897,47 @@ export function DataConnector({ trigger }: DataConnectorProps) {
                   </Alert>
                 )}
 
+                {/* Live Import Progress */}
+                {importProgress && (
+                  <div className="space-y-3 p-4 border rounded-lg bg-muted/30">
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="font-medium flex items-center gap-2">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        {importProgress.phase === 'parsing' && 'Parsing CSV...'}
+                        {importProgress.phase === 'matching' && 'Matching entities...'}
+                        {importProgress.phase === 'applying' && 'Applying properties...'}
+                      </span>
+                      <span className="text-muted-foreground tabular-nums">
+                        {importProgress.total > 0
+                          ? `${importProgress.current.toLocaleString()} / ${importProgress.total.toLocaleString()} rows`
+                          : 'Preparing...'}
+                      </span>
+                    </div>
+                    {/* Progress bar */}
+                    <div className="h-2 bg-muted rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-primary rounded-full transition-[width] duration-150"
+                        style={{
+                          width: importProgress.total > 0
+                            ? `${Math.round((importProgress.current / importProgress.total) * 100)}%`
+                            : '0%',
+                        }}
+                      />
+                    </div>
+                    {/* Live counters */}
+                    <div className="flex gap-4 text-xs text-muted-foreground">
+                      <span className="tabular-nums">
+                        {importProgress.matchedRows.toLocaleString()} matched
+                      </span>
+                      {importProgress.mutationsCreated > 0 && (
+                        <span className="tabular-nums">
+                          {importProgress.mutationsCreated.toLocaleString()} properties written
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                )}
+
                 {/* Import Stats */}
                 {importStats && (
                   <Alert
@@ -957,10 +1005,12 @@ export function DataConnector({ trigger }: DataConnectorProps) {
               isProcessing
             }
           >
-            {isProcessing ? (
+            {isProcessing && importProgress ? (
               <>
                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                Importing...
+                {importProgress.total > 0
+                  ? `${Math.round((importProgress.current / importProgress.total) * 100)}%`
+                  : 'Starting...'}
               </>
             ) : (
               <>

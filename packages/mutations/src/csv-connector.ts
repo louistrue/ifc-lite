@@ -80,6 +80,22 @@ export interface ImportStats {
 }
 
 /**
+ * Progress update during async import
+ */
+export interface ImportProgress {
+  /** Current phase of the import */
+  phase: 'parsing' | 'matching' | 'applying';
+  /** Rows processed so far in this phase */
+  current: number;
+  /** Total rows to process */
+  total: number;
+  /** Running count of mutations created */
+  mutationsCreated: number;
+  /** Running count of matched rows */
+  matchedRows: number;
+}
+
+/**
  * CSV parsing options
  */
 export interface CsvParseOptions {
@@ -297,6 +313,90 @@ export class CsvConnector {
       // Generate and apply mutations
       const mutations = this.generateMutations(matches, mapping);
       stats.mutationsCreated = mutations.length;
+    } catch (error) {
+      stats.errors.push(error instanceof Error ? error.message : 'Unknown error');
+    }
+
+    return stats;
+  }
+
+  /**
+   * Async batched import that yields to the main thread between batches.
+   * Provides live progress updates via onProgress callback.
+   */
+  async importAsync(
+    content: string,
+    mapping: DataMapping,
+    onProgress: (progress: ImportProgress) => void,
+    options: CsvParseOptions & { batchSize?: number } = {}
+  ): Promise<ImportStats> {
+    const batchSize = options.batchSize || 200;
+
+    const stats: ImportStats = {
+      totalRows: 0,
+      matchedRows: 0,
+      unmatchedRows: 0,
+      mutationsCreated: 0,
+      errors: [],
+      warnings: [],
+    };
+
+    try {
+      // Phase 1: Parse
+      onProgress({ phase: 'parsing', current: 0, total: 0, mutationsCreated: 0, matchedRows: 0 });
+      const rows = this.parse(content, options);
+      stats.totalRows = rows.length;
+
+      // Phase 2: Match in batches
+      const allMatches: MatchResult[] = [];
+      for (let i = 0; i < rows.length; i += batchSize) {
+        const batch = rows.slice(i, i + batchSize);
+        for (let j = 0; j < batch.length; j++) {
+          const match = this.matchRow(batch[j], i + j, mapping.matchStrategy);
+          allMatches.push(match);
+
+          if (match.matchedEntityIds.length > 0) {
+            stats.matchedRows++;
+          } else {
+            stats.unmatchedRows++;
+          }
+          if (match.warnings) {
+            stats.warnings.push(...match.warnings);
+          }
+        }
+
+        onProgress({
+          phase: 'matching',
+          current: Math.min(i + batchSize, rows.length),
+          total: rows.length,
+          mutationsCreated: 0,
+          matchedRows: stats.matchedRows,
+        });
+
+        // Yield to main thread
+        await new Promise((r) => setTimeout(r, 0));
+      }
+
+      // Phase 3: Apply mutations in batches
+      let mutationCount = 0;
+      for (let i = 0; i < allMatches.length; i += batchSize) {
+        const batch = allMatches.slice(i, i + batchSize);
+        const mutations = this.generateMutations(batch, mapping);
+        mutationCount += mutations.length;
+
+        onProgress({
+          phase: 'applying',
+          current: Math.min(i + batchSize, allMatches.length),
+          total: allMatches.length,
+          mutationsCreated: mutationCount,
+          matchedRows: stats.matchedRows,
+        });
+
+        // Yield to main thread
+        await new Promise((r) => setTimeout(r, 0));
+      }
+
+      stats.mutationsCreated = mutationCount;
     } catch (error) {
       stats.errors.push(error instanceof Error ? error.message : 'Unknown error');
     }

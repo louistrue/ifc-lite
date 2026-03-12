@@ -27,5 +27,6 @@ export {
   type DataMapping,
   type MatchResult,
   type ImportStats,
+  type ImportProgress,
   type CsvParseOptions,
 } from './csv-connector.js';
