@@ -299,4 +299,16 @@ export class Picker {
       ],
     });
   }
+
+  /**
+   * Destroy all GPU resources held by this picker.
+   * After calling this method the picker is no longer usable.
+   * Safe to call multiple times.
+   */
+  destroy(): void {
+    this.colorTexture.destroy();
+    this.depthTexture.destroy();
+    this.uniformBuffer.destroy();
+    this.expressIdBuffer.destroy();
+  }
 }

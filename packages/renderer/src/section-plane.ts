@@ -353,4 +353,16 @@ export class SectionPlaneRenderer {
 
     return new Float32Array(vertices);
   }
+
+  /**
+   * Destroy all GPU resources held by this section-plane renderer.
+   * After calling this method the renderer is no longer usable.
+   * Safe to call multiple times.
+   */
+  destroy(): void {
+    this.vertexBuffer?.destroy();
+    this.vertexBuffer = null;
+    this.uniformBuffer?.destroy();
+    this.uniformBuffer = null;
+  }
 }

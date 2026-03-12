@@ -1227,6 +1227,42 @@ export class Renderer {
     }
 
     /**
+     * Destroy the renderer and release all GPU resources.
+     *
+     * Cleans up scene buffers, render pipeline textures, picking resources,
+     * post-processing buffers, section-plane renderers, and snap caches.
+     * After calling this method the renderer is no longer usable.
+     * Safe to call multiple times (idempotent).
+     */
+    destroy(): void {
+        // Scene mesh GPU buffers
+        this.scene.clear();
+
+        // Render pipelines (textures + uniform buffers)
+        this.pipeline?.destroy();
+        this.pipeline = null;
+        this.instancedPipeline?.destroy();
+        this.instancedPipeline = null;
+
+        // Picker GPU resources
+        this.picker?.destroy();
+        this.picker = null;
+
+        // Post-processor uniform buffer
+        this.postProcessor?.destroy();
+        this.postProcessor = null;
+
+        // Section-plane renderers
+        this.sectionPlaneRenderer?.destroy();
+        this.sectionPlaneRenderer = null;
+        this.section2DOverlayRenderer?.dispose();
+        this.section2DOverlayRenderer = null;
+
+        // Snap detector geometry cache
+        this.raycastEngine.clearCaches();
+    }
+
+    /**
      * Get the canvas element
      */
     getCanvas(): HTMLCanvasElement {
