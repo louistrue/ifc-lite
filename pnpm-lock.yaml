@@ -530,6 +530,46 @@ importers:
         specifier: ^1.6.0
         version: 1.6.1(@edge-runtime/vm@3.2.0)(@types/node@22.19.13)(lightningcss@1.30.2)
 
+  packages/cli:
+    dependencies:
+      '@ifc-lite/bcf':
+        specifier: workspace:^
+        version: link:../bcf
+      '@ifc-lite/create':
+        specifier: workspace:^
+        version: link:../create
+      '@ifc-lite/data':
+        specifier: workspace:^
+        version: link:../data
+      '@ifc-lite/encoding':
+        specifier: workspace:^
+        version: link:../encoding
+      '@ifc-lite/export':
+        specifier: workspace:^
+        version: link:../export
+      '@ifc-lite/ids':
+        specifier: workspace:^
+        version: link:../ids
+      '@ifc-lite/parser':
+        specifier: workspace:^
+        version: link:../parser
+      '@ifc-lite/query':
+        specifier: workspace:^
+        version: link:../query
+      '@ifc-lite/sandbox':
+        specifier: workspace:^
+        version: link:../sandbox
+      '@ifc-lite/sdk':
+        specifier: workspace:^
+        version: link:../sdk
+    devDependencies:
+      '@types/node':
+        specifier: ^20.0.0
+        version: 20.19.28
+      typescript:
+        specifier: ^5.3.0
+        version: 5.9.3
+
   packages/codegen:
     dependencies:
       commander:
