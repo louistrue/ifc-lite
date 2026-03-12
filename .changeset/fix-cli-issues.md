@@ -19,5 +19,11 @@ Fix multiple CLI bugs and add new query features:
 
 **New features:**
 - **query --where operators**: Support `!=`, `>`, `<`, `>=`, `<=`, `~` (contains) in addition to `=`
-- **query --sum**: Aggregate a quantity across matched entities (e.g., `--sum GrossSideArea`)
+- **query --sum**: Aggregate a quantity across matched entities with disambiguation warnings when similar quantities exist (e.g., `--sum GrossSideArea`)
 - **query --storey**: Filter entities by storey name (e.g., `--storey Erdgeschoss`)
+- **query --quantity-names**: List all available quantities per entity type with qset context, sample values, and ambiguity warnings — critical for LLM-driven quantity analysis
+- **query --group-by**: Pivot table grouped by type, material, or any property (e.g., `--group-by material`)
+- **query --spatial --summary**: Show element type counts per storey instead of listing every element
+- **eval**: Auto-return last expression value in multi-statement mode (no explicit `return` needed)
+- **validate**: Check quantity completeness — warns when building elements lack quantity sets
+- **--version**: Show version number in help output

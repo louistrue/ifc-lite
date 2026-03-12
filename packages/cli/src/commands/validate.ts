@@ -94,6 +94,35 @@ export async function validateCommand(args: string[]): Promise<void> {
     issues.push({ severity: 'warning', rule: 'schema-version', message: 'Could not determine IFC schema version' });
   }
 
+  // 6. Quantity completeness — check if product entities have quantity sets
+  const quantifiableTypes = ['IFCWALL', 'IFCSLAB', 'IFCCOLUMN', 'IFCBEAM', 'IFCDOOR', 'IFCWINDOW',
+    'IFCSTAIR', 'IFCROOF', 'IFCSPACE', 'IFCMEMBER', 'IFCPLATE', 'IFCFOOTING',
+    'IFCWALLSTANDARDCASE', 'IFCSLABSTANDARDCASE', 'IFCBEAMSTANDARDCASE',
+    'IFCCOLUMNSTANDARDCASE', 'IFCDOORSTANDARDCASE', 'IFCWINDOWSTANDARDCASE'];
+  let withQuantities = 0;
+  let withoutQuantities = 0;
+  for (const qt of quantifiableTypes) {
+    const ids = store.entityIndex.byType.get(qt) ?? [];
+    for (const id of ids) {
+      const node = new EntityNode(store, id);
+      const qsets = node.quantities();
+      if (qsets.length > 0) {
+        withQuantities++;
+      } else {
+        withoutQuantities++;
+      }
+    }
+  }
+  const totalQuantifiable = withQuantities + withoutQuantities;
+  if (totalQuantifiable > 0 && withoutQuantities > 0) {
+    const pct = Math.round((withoutQuantities / totalQuantifiable) * 100);
+    issues.push({
+      severity: pct > 50 ? 'warning' : 'info',
+      rule: 'quantity-completeness',
+      message: `${withoutQuantities}/${totalQuantifiable} building elements (${pct}%) have no quantity sets — quantity-based analysis may be incomplete`,
+    });
+  }
+
   const summary = {
     file: filePath,
     schema: store.schemaVersion,

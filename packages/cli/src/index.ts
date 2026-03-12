@@ -26,16 +26,16 @@ import { diffCommand } from './commands/diff.js';
 import { validateCommand } from './commands/validate.js';
 import { bsddCommand } from './commands/bsdd.js';
 
-const VERSION = '0.1.0';
+const VERSION = '0.2.0';
 
 const HELP = `
-  ifc-lite — BIM toolkit for the terminal
+  ifc-lite v${VERSION} — BIM toolkit for the terminal
 
   Usage: ifc-lite <command> [options]
 
   Commands:
     info      <file.ifc>                          Model summary (schema, entities, storeys)
-    query     <file.ifc> [--type T] [--json]      Query entities by type/properties
+    query     <file.ifc> [--type T] [--json]      Query entities by type/properties/quantities
     props     <file.ifc> --id <N>                 All properties for a single entity
     export    <file.ifc> --format csv|json|ifc    Export data to file or stdout
     ids       <file.ifc> <rules.ids>              Validate against IDS rules
@@ -62,6 +62,10 @@ const HELP = `
     ifc-lite query model.ifc --type IfcDoor --props --limit 5
     ifc-lite query model.ifc --type IfcWall --materials --classifications --json
     ifc-lite query model.ifc --type IfcWall --all --json
+    ifc-lite query model.ifc --type IfcWall --quantity-names
+    ifc-lite query model.ifc --type IfcWall --sum GrossSideArea
+    ifc-lite query model.ifc --type IfcWall --group-by material --json
+    ifc-lite query model.ifc --spatial --summary
     ifc-lite query model.ifc --spatial
     ifc-lite props model.ifc --id 42
     ifc-lite export model.ifc --format csv --type IfcWall --columns Name,Type,GlobalId

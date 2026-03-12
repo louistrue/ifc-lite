@@ -14,6 +14,55 @@ import { createHeadlessContext } from '../loader.js';
 import { printJson, formatTable, getFlag, hasFlag, fatal } from '../output.js';
 
 /**
+ * Standard IFC quantity set definitions — maps entity type to its standard Qto_ sets
+ * and the quantities within each set. Used for disambiguation warnings.
+ */
+const STANDARD_QTO_MAP: Record<string, Record<string, string[]>> = {
+  IfcWall: {
+    Qto_WallBaseQuantities: ['Length', 'Width', 'Height', 'GrossFootprintArea', 'NetFootprintArea', 'GrossSideArea', 'NetSideArea', 'GrossVolume', 'NetVolume'],
+  },
+  IfcSlab: {
+    Qto_SlabBaseQuantities: ['Width', 'Length', 'Depth', 'Perimeter', 'GrossArea', 'NetArea', 'GrossVolume', 'NetVolume'],
+  },
+  IfcDoor: {
+    Qto_DoorBaseQuantities: ['Width', 'Height', 'Perimeter', 'Area'],
+  },
+  IfcWindow: {
+    Qto_WindowBaseQuantities: ['Width', 'Height', 'Perimeter', 'Area'],
+  },
+  IfcColumn: {
+    Qto_ColumnBaseQuantities: ['Length', 'CrossSectionArea', 'OuterSurfaceArea', 'GrossSurfaceArea', 'NetSurfaceArea', 'GrossVolume', 'NetVolume', 'GrossWeight', 'NetWeight'],
+  },
+  IfcBeam: {
+    Qto_BeamBaseQuantities: ['Length', 'CrossSectionArea', 'OuterSurfaceArea', 'GrossSurfaceArea', 'NetSurfaceArea', 'GrossVolume', 'NetVolume', 'GrossWeight', 'NetWeight'],
+  },
+  IfcSpace: {
+    Qto_SpaceBaseQuantities: ['Height', 'FinishCeilingHeight', 'FinishFloorHeight', 'GrossPerimeter', 'NetPerimeter', 'GrossFloorArea', 'NetFloorArea', 'GrossWallArea', 'NetWallArea', 'GrossCeilingArea', 'NetCeilingArea', 'GrossVolume', 'NetVolume'],
+  },
+  IfcRoof: {
+    Qto_RoofBaseQuantities: ['GrossArea', 'NetArea', 'ProjectedArea'],
+  },
+  IfcStair: {
+    Qto_StairBaseQuantities: ['Length', 'GrossVolume', 'NetVolume'],
+  },
+  IfcRailing: {
+    Qto_RailingBaseQuantities: ['Length'],
+  },
+  IfcMember: {
+    Qto_MemberBaseQuantities: ['Length', 'CrossSectionArea', 'OuterSurfaceArea', 'GrossSurfaceArea', 'NetSurfaceArea', 'GrossVolume', 'NetVolume', 'GrossWeight', 'NetWeight'],
+  },
+  IfcPlate: {
+    Qto_PlateBaseQuantities: ['Width', 'Length', 'Perimeter', 'GrossArea', 'NetArea', 'GrossVolume', 'NetVolume', 'GrossWeight', 'NetWeight'],
+  },
+  IfcCovering: {
+    Qto_CoveringBaseQuantities: ['Width', 'Length', 'GrossArea', 'NetArea'],
+  },
+  IfcFooting: {
+    Qto_FootingBaseQuantities: ['Length', 'Width', 'Height', 'CrossSectionArea', 'OuterSurfaceArea', 'GrossVolume', 'NetVolume', 'GrossWeight', 'NetWeight'],
+  },
+};
+
+/**
  * Parse a --where filter string into psetName, propName, operator, value.
  * Supported formats:
  *   PsetName.PropName=Value     (equals)
@@ -71,8 +120,89 @@ export async function queryCommand(args: string[]): Promise<void> {
   const spatial = hasFlag(args, '--spatial');
   const sumQuantity = getFlag(args, '--sum');
   const storeyFilter = getFlag(args, '--storey');
+  const quantityNames = hasFlag(args, '--quantity-names');
+  const groupBy = getFlag(args, '--group-by');
+  const spatialSummary = hasFlag(args, '--summary');
 
   const { bim } = await createHeadlessContext(filePath);
+
+  // --quantity-names: list available quantities per entity type
+  if (quantityNames) {
+    const targetType = type;
+    if (!targetType) fatal('--quantity-names requires --type (e.g., --type IfcWall --quantity-names)');
+
+    const entities = bim.query().byType(...targetType.split(',')).limit(50).toArray();
+    // Collect all quantity names seen, grouped by qset
+    const qsetMap: Record<string, Map<string, { count: number; sampleValues: number[] }>> = {};
+
+    for (const e of entities) {
+      const qsets = bim.quantities(e.ref);
+      for (const qset of qsets) {
+        if (!qsetMap[qset.name]) qsetMap[qset.name] = new Map();
+        const qmap = qsetMap[qset.name];
+        for (const q of qset.quantities) {
+          const existing = qmap.get(q.name);
+          const numVal = Number(q.value) || 0;
+          if (existing) {
+            existing.count++;
+            if (existing.sampleValues.length < 3) existing.sampleValues.push(numVal);
+          } else {
+            qmap.set(q.name, { count: 1, sampleValues: [numVal] });
+          }
+        }
+      }
+    }
+
+    if (jsonOutput) {
+      const result: Record<string, Record<string, unknown>> = {};
+      for (const [qsetName, qmap] of Object.entries(qsetMap)) {
+        result[qsetName] = {};
+        for (const [qName, info] of qmap) {
+          result[qsetName][qName] = {
+            foundIn: `${info.count}/${entities.length} entities`,
+            sampleValues: info.sampleValues,
+            fullReference: `${qsetName}.${qName}`,
+          };
+        }
+      }
+      // Add standard reference if available
+      const stdRef = STANDARD_QTO_MAP[targetType];
+      if (stdRef) {
+        printJson({ availableQuantities: result, standardReference: stdRef, note: 'Use --sum <QuantityName> to aggregate. Use full QsetName.QuantityName for unambiguous reference.' });
+      } else {
+        printJson({ availableQuantities: result, note: 'Use --sum <QuantityName> to aggregate.' });
+      }
+    } else {
+      process.stdout.write(`\nQuantities available for ${targetType} (sampled ${entities.length} entities):\n\n`);
+      for (const [qsetName, qmap] of Object.entries(qsetMap)) {
+        process.stdout.write(`  ${qsetName}:\n`);
+        for (const [qName, info] of qmap) {
+          const samples = info.sampleValues.map(v => v.toFixed(2)).join(', ');
+          process.stdout.write(`    ${qName}  (${info.count}/${entities.length} entities)  samples: [${samples}]\n`);
+        }
+        process.stdout.write('\n');
+      }
+      // Warn about ambiguity
+      const allNames = new Map<string, string[]>();
+      for (const [qsetName, qmap] of Object.entries(qsetMap)) {
+        for (const qName of qmap.keys()) {
+          const sets = allNames.get(qName) ?? [];
+          sets.push(qsetName);
+          allNames.set(qName, sets);
+        }
+      }
+      const areaNames = [...allNames.entries()].filter(([name]) =>
+        name.toLowerCase().includes('area') || name.toLowerCase().includes('surface'));
+      if (areaNames.length > 1) {
+        process.stderr.write(`WARNING: Multiple area quantities found. Choose carefully:\n`);
+        for (const [name, sets] of areaNames) {
+          process.stderr.write(`  - ${name} (in ${sets.join(', ')})\n`);
+        }
+        process.stderr.write(`  Use --sum <exact-name> with the correct quantity for your analysis.\n\n`);
+      }
+    }
+    return;
+  }
 
   // Spatial tree mode
   if (spatial) {
@@ -102,6 +232,32 @@ export async function queryCommand(args: string[]): Promise<void> {
       if (buildings.length === 0) {
         process.stderr.write('No storeys or buildings found in spatial structure\n');
       }
+    }
+
+    if (spatialSummary) {
+      // Summary mode: type counts per storey instead of listing every element
+      const summary: Record<string, Record<string, number>> = {};
+      for (const [storeyName, elements] of Object.entries(tree)) {
+        const counts: Record<string, number> = {};
+        for (const elem of elements as any[]) {
+          counts[elem.type] = (counts[elem.type] || 0) + 1;
+        }
+        summary[storeyName] = counts;
+      }
+      if (jsonOutput) {
+        printJson(summary);
+      } else {
+        for (const [storeyName, counts] of Object.entries(summary)) {
+          const total = Object.values(counts).reduce((a, b) => a + b, 0);
+          process.stdout.write(`\n  ${storeyName} (${total} elements):\n`);
+          const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+          for (const [typeName, count] of sorted) {
+            process.stdout.write(`    ${typeName}: ${count}\n`);
+          }
+        }
+        process.stdout.write('\n');
+      }
+      return;
     }
 
     printJson(tree);
@@ -187,6 +343,13 @@ export async function queryCommand(args: string[]): Promise<void> {
     return;
   }
 
+  // --group-by mode: pivot table grouped by a property or 'type'/'material'
+  if (groupBy) {
+    const entities = q.toArray();
+    outputGroupBy(entities, groupBy, sumQuantity, bim, jsonOutput);
+    return;
+  }
+
   if (countOnly) {
     const count = q.count();
     outputCount(count, jsonOutput);
@@ -208,22 +371,117 @@ function outputCount(count: number, jsonOutput: boolean): void {
 function outputSum(entities: any[], quantityName: string, bim: any, jsonOutput: boolean): void {
   let total = 0;
   let matched = 0;
+  // Track all quantity names seen (for disambiguation warning)
+  const allQuantityNames = new Map<string, { qsetName: string; count: number }>();
+  const matchedQsets = new Set<string>();
+
   for (const e of entities) {
     const qsets = bim.quantities(e.ref);
     for (const qset of qsets) {
       for (const q of qset.quantities) {
+        // Track all quantities for disambiguation
+        const key = `${qset.name}.${q.name}`;
+        const existing = allQuantityNames.get(key);
+        if (existing) {
+          existing.count++;
+        } else {
+          allQuantityNames.set(key, { qsetName: qset.name, count: 1 });
+        }
         if (q.name === quantityName) {
           total += Number(q.value) || 0;
           matched++;
+          matchedQsets.add(qset.name);
         }
       }
     }
   }
+
+  // Check for ambiguous area/volume quantities and warn
+  const similarNames = [...allQuantityNames.entries()]
+    .filter(([key]) => {
+      const qName = key.split('.').pop()!.toLowerCase();
+      const searchName = quantityName.toLowerCase();
+      // Warn if there are other quantities with similar base concept (area, volume, etc.)
+      if (searchName.includes('area')) return qName.includes('area') || qName.includes('surface');
+      if (searchName.includes('volume')) return qName.includes('volume');
+      if (searchName.includes('length')) return qName.includes('length');
+      return false;
+    })
+    .filter(([key]) => key.split('.').pop() !== quantityName);
+
   if (jsonOutput) {
-    printJson({ quantity: quantityName, total, matchedEntities: matched, totalEntities: entities.length });
+    const result: Record<string, unknown> = {
+      quantity: quantityName,
+      total,
+      matchedEntities: matched,
+      totalEntities: entities.length,
+      fromQuantitySets: [...matchedQsets],
+    };
+    if (similarNames.length > 0) {
+      result.warning = 'Other similar quantities exist — verify you are using the correct one';
+      result.alternatives = similarNames.map(([key, info]) => ({
+        name: key,
+        foundInEntities: info.count,
+      }));
+    }
+    printJson(result);
   } else {
     process.stdout.write(`${total}\n`);
-    process.stderr.write(`${quantityName}: ${total} (from ${matched} of ${entities.length} entities)\n`);
+    process.stderr.write(`${quantityName}: ${total} (from ${matched} of ${entities.length} entities, qsets: ${[...matchedQsets].join(', ')})\n`);
+    if (similarNames.length > 0) {
+      process.stderr.write(`\nWARNING: Other similar quantities exist in these entities:\n`);
+      for (const [key, info] of similarNames) {
+        process.stderr.write(`  - ${key} (${info.count} entities)\n`);
+      }
+      process.stderr.write(`  Verify you are summing the correct quantity for your analysis.\n`);
+      process.stderr.write(`  Use --quantity-names --type <Type> to see all available quantities.\n`);
+    }
+  }
+}
+
+function outputGroupBy(entities: any[], groupByKey: string, _sumQuantity: string | undefined, bim: any, jsonOutput: boolean): void {
+  const groups = new Map<string, any[]>();
+
+  for (const e of entities) {
+    let groupValue: string;
+
+    if (groupByKey === 'type') {
+      groupValue = e.type;
+    } else if (groupByKey === 'material') {
+      const mat = bim.materials(e.ref);
+      groupValue = mat?.materials?.[0]?.name ?? mat?.name ?? '(no material)';
+    } else if (groupByKey.includes('.')) {
+      // PsetName.PropName
+      const [psetName, propName] = groupByKey.split('.', 2);
+      const props = bim.properties(e.ref);
+      const pset = props.find((p: any) => p.name === psetName);
+      const prop = pset?.properties?.find((p: any) => p.name === propName);
+      groupValue = prop?.value != null ? String(prop.value) : `(no ${propName})`;
+    } else {
+      groupValue = e[groupByKey] ?? `(no ${groupByKey})`;
+    }
+
+    const existing = groups.get(groupValue);
+    if (existing) {
+      existing.push(e);
+    } else {
+      groups.set(groupValue, [e]);
+    }
+  }
+
+  if (jsonOutput) {
+    const result: Record<string, unknown> = {};
+    for (const [key, groupEntities] of groups) {
+      result[key] = { count: groupEntities.length };
+    }
+    printJson(result);
+  } else {
+    const sorted = [...groups.entries()].sort((a, b) => b[1].length - a[1].length);
+    process.stdout.write(`\nGrouped by ${groupByKey}:\n\n`);
+    for (const [key, groupEntities] of sorted) {
+      process.stdout.write(`  ${key}: ${groupEntities.length}\n`);
+    }
+    process.stdout.write(`\n  Total: ${entities.length} entities in ${groups.size} groups\n\n`);
   }
 }
 
