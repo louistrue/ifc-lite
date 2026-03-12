@@ -495,6 +495,16 @@ export class Scene {
   releaseGeometryData(): void {
     if (this.geometryReleased) return;
 
+    // Guard: releasing while async batch work is in-flight would corrupt GPU state
+    if (this.pendingBatchKeys.size > 0 || this.streamingFragments.length > 0) {
+      console.warn(
+        `[Scene] releaseGeometryData() called with ${this.pendingBatchKeys.size} pending batches ` +
+        `and ${this.streamingFragments.length} streaming fragments still in-flight. ` +
+        `Call finalizeStreaming()/rebuildPendingBatches() first.`
+      );
+      return;
+    }
+
     // 1. Precompute and cache ALL entity bounding boxes before releasing data
     for (const [expressId, pieces] of this.meshDataMap) {
       if (this.boundingBoxes.has(expressId)) continue;
@@ -1274,7 +1284,8 @@ export class Scene {
   }
 
   /**
-   * Ray-box intersection test (slab method)
+   * Ray-box intersection test (slab method).
+   * Handles zero ray direction components (axis-aligned rays) safely.
    */
   private rayIntersectsBox(
     rayOrigin: Vec3,
@@ -1284,21 +1295,38 @@ export class Scene {
   ): boolean {
     const bounds = [box.min, box.max];
 
-    let tmin = (bounds[rayDirSign[0]].x - rayOrigin.x) * rayDirInv.x;
-    let tmax = (bounds[1 - rayDirSign[0]].x - rayOrigin.x) * rayDirInv.x;
-    const tymin = (bounds[rayDirSign[1]].y - rayOrigin.y) * rayDirInv.y;
-    const tymax = (bounds[1 - rayDirSign[1]].y - rayOrigin.y) * rayDirInv.y;
+    let tmin = -Infinity;
+    let tmax = Infinity;
 
-    if (tmin > tymax || tymin > tmax) return false;
-    if (tymin > tmin) tmin = tymin;
-    if (tymax < tmax) tmax = tymax;
+    // X axis
+    if (!isFinite(rayDirInv.x)) {
+      if (rayOrigin.x < box.min.x || rayOrigin.x > box.max.x) return false;
+    } else {
+      tmin = (bounds[rayDirSign[0]].x - rayOrigin.x) * rayDirInv.x;
+      tmax = (bounds[1 - rayDirSign[0]].x - rayOrigin.x) * rayDirInv.x;
+    }
 
-    const tzmin = (bounds[rayDirSign[2]].z - rayOrigin.z) * rayDirInv.z;
-    const tzmax = (bounds[1 - rayDirSign[2]].z - rayOrigin.z) * rayDirInv.z;
+    // Y axis
+    if (!isFinite(rayDirInv.y)) {
+      if (rayOrigin.y < box.min.y || rayOrigin.y > box.max.y) return false;
+    } else {
+      const tymin = (bounds[rayDirSign[1]].y - rayOrigin.y) * rayDirInv.y;
+      const tymax = (bounds[1 - rayDirSign[1]].y - rayOrigin.y) * rayDirInv.y;
+      if (tmin > tymax || tymin > tmax) return false;
+      if (tymin > tmin) tmin = tymin;
+      if (tymax < tmax) tmax = tymax;
+    }
 
-    if (tmin > tzmax || tzmin > tmax) return false;
-    if (tzmin > tmin) tmin = tzmin;
-    if (tzmax < tmax) tmax = tzmax;
+    // Z axis
+    if (!isFinite(rayDirInv.z)) {
+      if (rayOrigin.z < box.min.z || rayOrigin.z > box.max.z) return false;
+    } else {
+      const tzmin = (bounds[rayDirSign[2]].z - rayOrigin.z) * rayDirInv.z;
+      const tzmax = (bounds[1 - rayDirSign[2]].z - rayOrigin.z) * rayDirInv.z;
+      if (tmin > tzmax || tzmin > tmax) return false;
+      if (tzmin > tmin) tmin = tzmin;
+      if (tzmax < tmax) tmax = tzmax;
+    }
 
     return tmax >= 0;
   }
@@ -1307,6 +1335,7 @@ export class Scene {
    * Ray-box intersection returning entry distance (tNear).
    * Returns null if no intersection, otherwise the distance along the ray
    * to the entry point (clamped to 0 if the ray originates inside the box).
+   * Handles zero ray direction components (axis-aligned rays) safely.
    */
   private rayBoxDistance(
     rayOrigin: Vec3,
@@ -1316,24 +1345,43 @@ export class Scene {
   ): number | null {
     const bounds = [box.min, box.max];
 
-    let tmin = (bounds[rayDirSign[0]].x - rayOrigin.x) * rayDirInv.x;
-    let tmax = (bounds[1 - rayDirSign[0]].x - rayOrigin.x) * rayDirInv.x;
-    const tymin = (bounds[rayDirSign[1]].y - rayOrigin.y) * rayDirInv.y;
-    const tymax = (bounds[1 - rayDirSign[1]].y - rayOrigin.y) * rayDirInv.y;
+    let tmin = -Infinity;
+    let tmax = Infinity;
 
-    if (tmin > tymax || tymin > tmax) return null;
-    if (tymin > tmin) tmin = tymin;
-    if (tymax < tmax) tmax = tymax;
+    // X axis
+    if (!isFinite(rayDirInv.x)) {
+      // Ray parallel to X: miss if origin outside X slab
+      if (rayOrigin.x < box.min.x || rayOrigin.x > box.max.x) return null;
+    } else {
+      const t1 = (bounds[rayDirSign[0]].x - rayOrigin.x) * rayDirInv.x;
+      const t2 = (bounds[1 - rayDirSign[0]].x - rayOrigin.x) * rayDirInv.x;
+      tmin = t1;
+      tmax = t2;
+    }
 
-    const tzmin = (bounds[rayDirSign[2]].z - rayOrigin.z) * rayDirInv.z;
-    const tzmax = (bounds[1 - rayDirSign[2]].z - rayOrigin.z) * rayDirInv.z;
+    // Y axis
+    if (!isFinite(rayDirInv.y)) {
+      if (rayOrigin.y < box.min.y || rayOrigin.y > box.max.y) return null;
+    } else {
+      const tymin = (bounds[rayDirSign[1]].y - rayOrigin.y) * rayDirInv.y;
+      const tymax = (bounds[1 - rayDirSign[1]].y - rayOrigin.y) * rayDirInv.y;
+      if (tmin > tymax || tymin > tmax) return null;
+      if (tymin > tmin) tmin = tymin;
+      if (tymax < tmax) tmax = tymax;
+    }
 
-    if (tmin > tzmax || tzmin > tmax) return null;
-    if (tzmin > tmin) tmin = tzmin;
-    if (tzmax < tmax) tmax = tzmax;
+    // Z axis
+    if (!isFinite(rayDirInv.z)) {
+      if (rayOrigin.z < box.min.z || rayOrigin.z > box.max.z) return null;
+    } else {
+      const tzmin = (bounds[rayDirSign[2]].z - rayOrigin.z) * rayDirInv.z;
+      const tzmax = (bounds[1 - rayDirSign[2]].z - rayOrigin.z) * rayDirInv.z;
+      if (tmin > tzmax || tzmin > tmax) return null;
+      if (tzmin > tmin) tmin = tzmin;
+      if (tzmax < tmax) tmax = tzmax;
+    }
 
     if (tmax < 0) return null;
-    // If tmin < 0, ray starts inside the box; use 0 as entry distance
     return tmin < 0 ? 0 : tmin;
   }
 

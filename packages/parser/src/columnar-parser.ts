@@ -43,6 +43,9 @@ export type EntityByIdIndex = {
     has(expressId: number): boolean;
     readonly size: number;
     keys(): IterableIterator<number>;
+    values(): IterableIterator<EntityRef>;
+    entries(): IterableIterator<[number, EntityRef]>;
+    forEach(callback: (value: EntityRef, key: number) => void): void;
     [Symbol.iterator](): IterableIterator<[number, EntityRef]>;
 };
 

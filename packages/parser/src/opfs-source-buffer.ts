@@ -85,7 +85,15 @@ export class OpfsSourceBuffer {
 
       // Write buffer to OPFS using sync access handle (fastest path)
       syncHandle = await fileHandle.createSyncAccessHandle();
-      syncHandle.write(buffer, { at: 0 });
+      const bytesWritten = syncHandle.write(buffer, { at: 0 });
+      if (bytesWritten !== buffer.byteLength) {
+        syncHandle.close();
+        const root = await navigator.storage.getDirectory();
+        await root.removeEntry(fileName);
+        throw new Error(
+          `OPFS short write: wrote ${bytesWritten}/${buffer.byteLength} bytes`
+        );
+      }
       syncHandle.flush();
 
       const instance = new OpfsSourceBuffer(null, buffer.byteLength, true);
