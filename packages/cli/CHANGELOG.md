@@ -1,5 +1,35 @@
 # @ifc-lite/cli
 
+## 0.4.0
+
+### Minor Changes
+
+- [#374](https://github.com/louistrue/ifc-lite/pull/374) [`e20157b`](https://github.com/louistrue/ifc-lite/commit/e20157bd8c0a61e3ec99ea8bae963fba4862517c) Thanks [@louistrue](https://github.com/louistrue)! - ### CLI
+
+  **Bug fixes:**
+
+  - `export --where` now filters entities (was silently ignored)
+  - `--group-by storey` resolves actual storey names via spatial containment instead of showing "(no storey)"
+
+  **New flags:**
+
+  - `--property-names`: discover available properties per entity type (parallel to `--quantity-names`)
+  - `--unique PsetName.PropName`: show distinct values and counts for a property
+  - `--group-by` + `--sum` combo: aggregate quantity per group (e.g. `--group-by material --sum GrossVolume`)
+
+  **UX improvements:**
+
+  - `info` command splits entity types into "Building elements" and "Other types" sections
+
+  ### SDK
+
+  - `bim.quantity(ref, name)` 2-arg shorthand now searches all quantity sets (previously required 3-arg form with explicit qset name)
+
+### Patch Changes
+
+- Updated dependencies [[`e20157b`](https://github.com/louistrue/ifc-lite/commit/e20157bd8c0a61e3ec99ea8bae963fba4862517c)]:
+  - @ifc-lite/sdk@1.14.5
+
 ## 0.3.0
 
 ### Minor Changes
