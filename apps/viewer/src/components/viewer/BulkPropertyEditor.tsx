@@ -146,8 +146,11 @@ export function BulkPropertyEditor({ trigger }: BulkPropertyEditorProps) {
   const [previewResult, setPreviewResult] = useState<BulkQueryPreview | null>(null);
   const [executeResult, setExecuteResult] = useState<BulkQueryResult | null>(null);
 
-  // Get list of models - includes both federated models and legacy single-model
+  // --- All expensive computation is gated behind `open` so IFC loading is never impacted ---
+
+  // Get list of models - only when dialog is open
   const modelList = useMemo(() => {
+    if (!open) return [];
     const list = Array.from(models.values()).map((m) => ({
       id: m.id,
       name: m.name,
@@ -162,17 +165,18 @@ export function BulkPropertyEditor({ trigger }: BulkPropertyEditorProps) {
     }
 
     return list;
-  }, [models, legacyIfcDataStore]);
+  }, [open, models, legacyIfcDataStore]);
 
-  // Auto-select first model
-  useMemo(() => {
-    if (modelList.length > 0 && !selectedModelId) {
+  // Auto-select first model when dialog opens
+  useEffect(() => {
+    if (open && modelList.length > 0 && !selectedModelId) {
       setSelectedModelId(modelList[0].id);
     }
-  }, [modelList, selectedModelId]);
+  }, [open, modelList, selectedModelId]);
 
   // Get selected model's data - supports both federated and legacy mode
   const selectedModel = useMemo(() => {
+    if (!open) return undefined;
     if (selectedModelId === '__legacy__' && legacyIfcDataStore && legacyGeometryResult) {
       // Return a synthetic FederatedModel-like object for legacy mode
       return {
@@ -185,64 +189,91 @@ export function BulkPropertyEditor({ trigger }: BulkPropertyEditorProps) {
       };
     }
     return models.get(selectedModelId);
-  }, [models, selectedModelId, legacyIfcDataStore, legacyGeometryResult]);
+  }, [open, models, selectedModelId, legacyIfcDataStore, legacyGeometryResult]);
 
-  // Get storeys from selected model
-  const availableStoreys = useMemo(() => {
-    if (!selectedModel?.ifcDataStore?.spatialHierarchy) return [];
-    const storeys: { id: number; name: string; elevation?: number }[] = [];
-    const hierarchy = selectedModel.ifcDataStore.spatialHierarchy;
+  // Loading state for initial dialog open computation
+  const [isInitializing, setIsInitializing] = useState(false);
 
-    for (const [storeyId] of hierarchy.byStorey) {
-      const name = selectedModel.ifcDataStore.entities.getName(storeyId) || `Storey #${storeyId}`;
-      const elevation = hierarchy.storeyElevations.get(storeyId);
-      storeys.push({ id: storeyId, name, elevation });
+  // Get storeys, available types, and typeEnum mapping — computed once on dialog open,
+  // deferred via setTimeout so the dialog shell renders instantly with a spinner.
+  const [availableStoreys, setAvailableStoreys] = useState<{ id: number; name: string; elevation?: number }[]>([]);
+  const [availableTypes, setAvailableTypes] = useState<{ ifcType: string; label: string }[]>([]);
+  const typeNameToEnumsRef = useRef<Map<string, number[]>>(new Map());
+  const [typeNameToEnums, setTypeNameToEnums] = useState<Map<string, number[]>>(new Map());
+  const initTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (initTimerRef.current) clearTimeout(initTimerRef.current);
+
+    if (!open || !selectedModel?.ifcDataStore) {
+      setAvailableStoreys([]);
+      setAvailableTypes([]);
+      typeNameToEnumsRef.current = new Map();
+      setTypeNameToEnums(new Map());
+      return;
     }
 
-    // Sort by elevation (highest first)
-    storeys.sort((a, b) => (b.elevation ?? 0) - (a.elevation ?? 0));
-    return storeys;
-  }, [selectedModel]);
+    setIsInitializing(true);
 
-  // Pre-compute typeEnum mapping once when model changes (avoids scanning all entities on every criteria change)
-  const { availableTypes, typeNameToEnums } = useMemo(() => {
-    if (!selectedModel?.ifcDataStore) return { availableTypes: [] as { ifcType: string; label: string }[], typeNameToEnums: new Map<string, number[]>() };
-    const entities = selectedModel.ifcDataStore.entities;
+    // Yield to browser so dialog shell + spinner paint first
+    initTimerRef.current = setTimeout(() => {
+      const dataStore = selectedModel.ifcDataStore;
+      const entities = dataStore.entities;
 
-    // Single pass: collect type names and their enum values
-    const enumToTypeName = new Map<number, string>();
-    for (let i = 0; i < entities.count; i++) {
-      const typeEnum = entities.typeEnum[i];
-      if (enumToTypeName.has(typeEnum)) continue;
-      const expressId = entities.expressId[i];
-      const typeName = entities.getTypeName(expressId);
-      if (typeName) {
-        enumToTypeName.set(typeEnum, typeName);
+      // Storeys
+      const storeys: { id: number; name: string; elevation?: number }[] = [];
+      if (dataStore.spatialHierarchy) {
+        const hierarchy = dataStore.spatialHierarchy;
+        for (const [storeyId] of hierarchy.byStorey) {
+          const name = entities.getName(storeyId) || `Storey #${storeyId}`;
+          const elevation = hierarchy.storeyElevations.get(storeyId);
+          storeys.push({ id: storeyId, name, elevation });
+        }
+        storeys.sort((a, b) => (b.elevation ?? 0) - (a.elevation ?? 0));
       }
-    }
 
-    // Build IFC_TYPE_MAP key -> typeEnum[] mapping
-    const nameToEnums = new Map<string, number[]>();
-    const presentTypes: { ifcType: string; label: string }[] = [];
-    for (const [ifcType, { label, pattern }] of Object.entries(IFC_TYPE_MAP)) {
-      const enums: number[] = [];
-      for (const [typeEnum, typeName] of enumToTypeName) {
-        if (typeName.includes(pattern)) {
-          enums.push(typeEnum);
+      // Type enum mapping — single pass
+      const enumToTypeName = new Map<number, string>();
+      for (let i = 0; i < entities.count; i++) {
+        const typeEnum = entities.typeEnum[i];
+        if (enumToTypeName.has(typeEnum)) continue;
+        const expressId = entities.expressId[i];
+        const typeName = entities.getTypeName(expressId);
+        if (typeName) {
+          enumToTypeName.set(typeEnum, typeName);
         }
       }
-      if (enums.length > 0) {
-        nameToEnums.set(ifcType, enums);
-        presentTypes.push({ ifcType, label });
+
+      const nameToEnums = new Map<string, number[]>();
+      const presentTypes: { ifcType: string; label: string }[] = [];
+      for (const [ifcType, { label, pattern }] of Object.entries(IFC_TYPE_MAP)) {
+        const enums: number[] = [];
+        for (const [typeEnum, typeName] of enumToTypeName) {
+          if (typeName.includes(pattern)) {
+            enums.push(typeEnum);
+          }
+        }
+        if (enums.length > 0) {
+          nameToEnums.set(ifcType, enums);
+          presentTypes.push({ ifcType, label });
+        }
       }
-    }
 
-    return { availableTypes: presentTypes, typeNameToEnums: nameToEnums };
-  }, [selectedModel]);
+      setAvailableStoreys(storeys);
+      setAvailableTypes(presentTypes);
+      typeNameToEnumsRef.current = nameToEnums;
+      setTypeNameToEnums(nameToEnums);
+      setIsInitializing(false);
+    }, 0);
 
-  // Ensure mutation view exists for selected model
+    return () => {
+      if (initTimerRef.current) clearTimeout(initTimerRef.current);
+    };
+  }, [open, selectedModel]);
+
+  // Ensure mutation view exists for selected model — only when dialog is open
   useEffect(() => {
-    if (!selectedModel?.ifcDataStore || !selectedModelId) return;
+    if (!open || !selectedModel?.ifcDataStore || !selectedModelId) return;
 
     // Check if mutation view already exists
     let mutationView = getMutationView(selectedModelId);
@@ -256,11 +287,11 @@ export function BulkPropertyEditor({ trigger }: BulkPropertyEditorProps) {
 
     // Register the mutation view
     registerMutationView(selectedModelId, mutationView);
-  }, [selectedModel, selectedModelId, getMutationView, registerMutationView]);
+  }, [open, selectedModel, selectedModelId, getMutationView, registerMutationView]);
 
-  // Create BulkQueryEngine instance - depend on mutationViews to re-render when view is registered
+  // Create BulkQueryEngine instance — only when dialog is open
   const queryEngine = useMemo(() => {
-    if (!selectedModel?.ifcDataStore) return null;
+    if (!open || !selectedModel?.ifcDataStore) return null;
     const mutationView = mutationViews.get(selectedModelId);
     if (!mutationView) return null;
 
@@ -272,7 +303,7 @@ export function BulkPropertyEditor({ trigger }: BulkPropertyEditorProps) {
       dataStore.properties || null,
       dataStore.strings || null
     );
-  }, [selectedModel, selectedModelId, mutationViews]);
+  }, [open, selectedModel, selectedModelId, mutationViews]);
 
   // Build selection criteria using pre-computed typeEnum mapping (no entity scan needed)
   const currentCriteria = useMemo((): SelectionCriteria => {
@@ -572,6 +603,12 @@ export function BulkPropertyEditor({ trigger }: BulkPropertyEditorProps) {
           </DialogDescription>
         </DialogHeader>
 
+        {isInitializing ? (
+          <div className="flex items-center justify-center py-12 gap-2 text-muted-foreground">
+            <Loader2 className="h-5 w-5 animate-spin" />
+            <span className="text-sm">Loading model data...</span>
+          </div>
+        ) : (
         <div className="space-y-6 py-4">
           {/* Model selector */}
           <div className="space-y-2">
@@ -872,6 +909,7 @@ export function BulkPropertyEditor({ trigger }: BulkPropertyEditorProps) {
             </Alert>
           )}
         </div>
+        )}
 
         <DialogFooter className="gap-2">
           <Button variant="outline" onClick={handleReset}>
