@@ -15,6 +15,7 @@ export function createModelAdapter(store: StoreApi): ModelBackendMethods {
         result.push({
           id: model.id,
           name: model.name,
+          schema: model.schemaVersion,
           schemaVersion: model.schemaVersion,
           entityCount: model.ifcDataStore?.entities?.count ?? 0,
           fileSize: model.fileSize,

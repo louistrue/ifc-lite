@@ -47,6 +47,8 @@ export type SchemaVersion = 'IFC2X3' | 'IFC4' | 'IFC4X3' | 'IFC5';
 export interface ModelInfo {
   id: string;
   name: string;
+  /** Alias for schemaVersion — convenient for scripts and eval expressions. */
+  schema: SchemaVersion;
   schemaVersion: SchemaVersion;
   entityCount: number;
   fileSize: number;

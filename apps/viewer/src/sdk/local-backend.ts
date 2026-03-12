@@ -82,6 +82,7 @@ export class LocalBackend implements BimBackend {
                   model: {
                     id: model.id,
                     name: model.name,
+                    schema: model.schemaVersion,
                     schemaVersion: model.schemaVersion,
                     entityCount: model.ifcDataStore?.entities?.count ?? 0,
                     fileSize: model.fileSize,
@@ -96,6 +97,7 @@ export class LocalBackend implements BimBackend {
               model: {
                 id: LEGACY_MODEL_ID,
                 name: 'Model',
+                schema: state.ifcDataStore.schemaVersion ?? 'IFC4',
                 schemaVersion: state.ifcDataStore.schemaVersion ?? 'IFC4',
                 entityCount: state.ifcDataStore.entities?.count ?? 0,
                 fileSize: state.ifcDataStore.source?.byteLength ?? 0,
