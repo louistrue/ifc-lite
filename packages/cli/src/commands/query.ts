@@ -6,6 +6,8 @@
  * ifc-lite query <file.ifc> [options]
  *
  * Query entities from an IFC file with type and property filters.
+ * Supports all entity data: properties, quantities, materials,
+ * classifications, attributes, relationships, type properties.
  */
 
 import { createHeadlessContext } from '../loader.js';
@@ -21,6 +23,13 @@ export async function queryCommand(args: string[]): Promise<void> {
   const propFilter = getFlag(args, '--where');
   const showProps = hasFlag(args, '--props');
   const showQuantities = hasFlag(args, '--quantities');
+  const showMaterials = hasFlag(args, '--materials');
+  const showClassifications = hasFlag(args, '--classifications');
+  const showAttributes = hasFlag(args, '--attributes');
+  const showRelationships = hasFlag(args, '--relationships');
+  const showTypeProps = hasFlag(args, '--type-props');
+  const showDocuments = hasFlag(args, '--documents');
+  const showAll = hasFlag(args, '--all');
   const jsonOutput = hasFlag(args, '--json');
   const countOnly = hasFlag(args, '--count');
   const spatial = hasFlag(args, '--spatial');
@@ -79,8 +88,10 @@ export async function queryCommand(args: string[]): Promise<void> {
   }
 
   const entities = q.toArray();
+  const needsDetail = showProps || showQuantities || showMaterials || showClassifications
+    || showAttributes || showRelationships || showTypeProps || showDocuments || showAll;
 
-  if (jsonOutput || showProps || showQuantities) {
+  if (jsonOutput || needsDetail) {
     const result = entities.map(e => {
       const entry: Record<string, unknown> = {
         type: e.type,
@@ -89,12 +100,14 @@ export async function queryCommand(args: string[]): Promise<void> {
         description: e.description || undefined,
         objectType: e.objectType || undefined,
       };
-      if (showProps) {
-        entry.properties = bim.properties(e.ref);
-      }
-      if (showQuantities) {
-        entry.quantities = bim.quantities(e.ref);
-      }
+      if (showAttributes || showAll) entry.attributes = bim.attributes(e.ref);
+      if (showProps || showAll) entry.properties = bim.properties(e.ref);
+      if (showQuantities || showAll) entry.quantities = bim.quantities(e.ref);
+      if (showMaterials || showAll) entry.materials = bim.materials(e.ref);
+      if (showClassifications || showAll) entry.classifications = bim.classifications(e.ref);
+      if (showTypeProps || showAll) entry.typeProperties = bim.typeProperties(e.ref);
+      if (showDocuments || showAll) entry.documents = bim.documents(e.ref);
+      if (showRelationships || showAll) entry.relationships = bim.relationships(e.ref);
       return entry;
     });
     printJson(result);

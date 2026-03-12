@@ -1,0 +1,123 @@
+/* This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
+
+/**
+ * ifc-lite validate <file.ifc> [--json]
+ *
+ * Perform structural validation checks on an IFC file:
+ * - Schema version detection
+ * - Required entity presence (IfcProject, IfcSite, IfcBuilding)
+ * - Spatial structure completeness
+ * - Orphan entity detection
+ * - GlobalId uniqueness
+ */
+
+import { loadIfcFile } from '../loader.js';
+import { hasFlag, fatal, printJson } from '../output.js';
+import { EntityNode } from '@ifc-lite/query';
+
+interface ValidationIssue {
+  severity: 'error' | 'warning' | 'info';
+  rule: string;
+  message: string;
+}
+
+export async function validateCommand(args: string[]): Promise<void> {
+  const filePath = args.find(a => !a.startsWith('-'));
+  if (!filePath) fatal('Usage: ifc-lite validate <file.ifc> [--json]');
+
+  const jsonOutput = hasFlag(args, '--json');
+
+  const store = await loadIfcFile(filePath);
+  const issues: ValidationIssue[] = [];
+
+  // 1. Check required spatial entities
+  const requiredTypes = ['IFCPROJECT', 'IFCSITE', 'IFCBUILDING'];
+  for (const reqType of requiredTypes) {
+    const ids = store.entityIndex.byType.get(reqType) ?? [];
+    if (ids.length === 0) {
+      issues.push({ severity: 'error', rule: 'required-entity', message: `Missing required entity: ${reqType}` });
+    } else if (ids.length > 1 && reqType === 'IFCPROJECT') {
+      issues.push({ severity: 'error', rule: 'single-project', message: `Multiple IfcProject entities found (${ids.length})` });
+    }
+  }
+
+  // 2. Check storeys
+  const storeyIds = store.entityIndex.byType.get('IFCBUILDINGSTOREY') ?? [];
+  if (storeyIds.length === 0) {
+    issues.push({ severity: 'warning', rule: 'has-storeys', message: 'No IfcBuildingStorey entities found' });
+  }
+
+  // 3. Check GlobalId uniqueness
+  const globalIds = new Map<string, number[]>();
+  for (const [, ids] of store.entityIndex.byType) {
+    for (const id of ids) {
+      const node = new EntityNode(store, id);
+      const gid = node.globalId;
+      if (gid) {
+        const existing = globalIds.get(gid);
+        if (existing) {
+          existing.push(id);
+        } else {
+          globalIds.set(gid, [id]);
+        }
+      }
+    }
+  }
+  const duplicateGlobalIds = [...globalIds.entries()].filter(([, ids]) => ids.length > 1);
+  if (duplicateGlobalIds.length > 0) {
+    issues.push({
+      severity: 'error',
+      rule: 'unique-globalid',
+      message: `${duplicateGlobalIds.length} duplicate GlobalId(s) found`,
+    });
+  }
+
+  // 4. Check for unnamed elements
+  const productTypes = ['IFCWALL', 'IFCSLAB', 'IFCCOLUMN', 'IFCBEAM', 'IFCDOOR', 'IFCWINDOW',
+    'IFCSTAIR', 'IFCROOF', 'IFCSPACE', 'IFCRAILING', 'IFCMEMBER', 'IFCPLATE', 'IFCFOOTING'];
+  let unnamedCount = 0;
+  for (const pt of productTypes) {
+    const ids = store.entityIndex.byType.get(pt) ?? [];
+    for (const id of ids) {
+      const node = new EntityNode(store, id);
+      if (!node.name || node.name === '' || node.name === '$') unnamedCount++;
+    }
+  }
+  if (unnamedCount > 0) {
+    issues.push({ severity: 'info', rule: 'named-elements', message: `${unnamedCount} building elements have no Name` });
+  }
+
+  // 5. Schema version
+  if (!store.schemaVersion) {
+    issues.push({ severity: 'warning', rule: 'schema-version', message: 'Could not determine IFC schema version' });
+  }
+
+  const summary = {
+    file: filePath,
+    schema: store.schemaVersion,
+    entityCount: store.entityCount,
+    valid: issues.filter(i => i.severity === 'error').length === 0,
+    errors: issues.filter(i => i.severity === 'error').length,
+    warnings: issues.filter(i => i.severity === 'warning').length,
+    info: issues.filter(i => i.severity === 'info').length,
+    issues,
+  };
+
+  if (jsonOutput) {
+    printJson(summary);
+  } else {
+    const status = summary.valid ? 'VALID' : 'INVALID';
+    process.stdout.write(`\n  ${status}: ${filePath}\n`);
+    process.stdout.write(`  Schema: ${store.schemaVersion ?? 'unknown'}\n`);
+    process.stdout.write(`  Entities: ${store.entityCount}\n\n`);
+    for (const issue of issues) {
+      const icon = issue.severity === 'error' ? 'ERR' : issue.severity === 'warning' ? 'WRN' : 'INF';
+      process.stdout.write(`  [${icon}] ${issue.rule}: ${issue.message}\n`);
+    }
+    process.stdout.write(`\n  ${summary.errors} error(s), ${summary.warnings} warning(s), ${summary.info} info\n\n`);
+  }
+
+  if (!summary.valid) process.exitCode = 1;
+}

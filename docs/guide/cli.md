@@ -1,6 +1,6 @@
 # CLI Toolkit
 
-The `@ifc-lite/cli` package provides a complete BIM toolkit for the terminal. Query, validate, export, create, and script IFC files — no browser or viewer required.
+The `@ifc-lite/cli` package provides a complete BIM toolkit for the terminal. Query, validate, export, create, merge, convert, diff, and script IFC files — no browser or viewer required.
 
 Designed for both **humans** and **LLM terminals** (Claude Code, Cursor, Windsurf, etc.).
 
@@ -33,6 +33,18 @@ ifc-lite ids model.ifc requirements.ids
 
 # Create an IFC file from scratch
 ifc-lite create wall --height 3 --thickness 0.2 --out wall.ifc
+
+# Merge multiple files
+ifc-lite merge arch.ifc struct.ifc mep.ifc --out federated.ifc
+
+# Convert schema version
+ifc-lite convert model.ifc --schema IFC4 --out model-ifc4.ifc
+
+# Compare two files
+ifc-lite diff model-v1.ifc model-v2.ifc
+
+# Validate structure
+ifc-lite validate model.ifc
 
 # Evaluate SDK expressions
 ifc-lite eval model.ifc "bim.query().byType('IfcWall').count()"
@@ -94,7 +106,7 @@ ifc-lite info model.ifc --json
 
 ### `query` — Query Entities
 
-Filter entities by type, properties, or spatial structure.
+Filter entities by type, properties, or spatial structure. Optionally include properties, quantities, materials, classifications, attributes, relationships, type properties, and documents.
 
 ```bash
 # By type
@@ -106,6 +118,12 @@ ifc-lite query model.ifc --type IfcWall --where "Pset_WallCommon.IsExternal=true
 
 # With properties and quantities included
 ifc-lite query model.ifc --type IfcWall --props --quantities --json
+
+# With materials, classifications, and relationships
+ifc-lite query model.ifc --type IfcWall --materials --classifications --relationships --json
+
+# All data at once
+ifc-lite query model.ifc --type IfcWall --all --json
 
 # Count only
 ifc-lite query model.ifc --type IfcDoor --count
@@ -125,6 +143,13 @@ ifc-lite query model.ifc --type IfcWall --limit 10 --offset 20
 | `--where <filter>` | Property filter: `PsetName.PropName=Value` |
 | `--props` | Include property sets in output |
 | `--quantities` | Include quantity sets in output |
+| `--materials` | Include material assignments |
+| `--classifications` | Include classification references |
+| `--attributes` | Include IFC schema attributes |
+| `--relationships` | Include relationship data |
+| `--type-props` | Include type-level properties |
+| `--documents` | Include linked documents |
+| `--all` | Include all data (properties, quantities, materials, etc.) |
 | `--count` | Return count instead of entities |
 | `--spatial` | Show spatial tree (storeys → elements) |
 | `--limit <N>` | Limit result count |
@@ -168,8 +193,11 @@ ifc-lite export model.ifc --format json --type IfcWall,IfcDoor
 ifc-lite export model.ifc --format csv --type IfcWall \
   --columns Name,Type,Pset_WallCommon.IsExternal,Pset_WallCommon.FireRating
 
-# IFC STEP re-export
-ifc-lite export model.ifc --format ifc --out filtered.ifc
+# IFC STEP re-export with schema conversion
+ifc-lite export model.ifc --format ifc --schema IFC4 --out filtered.ifc
+
+# Limit results
+ifc-lite export model.ifc --format csv --type IfcWall --limit 50
 
 # Write to file
 ifc-lite export model.ifc --format csv --out walls.csv
@@ -184,6 +212,7 @@ ifc-lite export model.ifc --format csv --out walls.csv
 | `--columns <cols>` | Comma-separated columns (supports `PsetName.PropName`) |
 | `--separator <sep>` | CSV separator (default: `,`) |
 | `--schema <ver>` | IFC schema for STEP export (`IFC2X3`, `IFC4`, `IFC4X3`) |
+| `--limit <N>` | Limit result count |
 | `--out <file>` | Write to file instead of stdout |
 
 ---
@@ -228,32 +257,78 @@ ifc-lite bcf add-comment --file issues.bcf --text "Fixed in revision 3" --out up
 
 ### `create` — Create IFC Files
 
-Generate IFC building elements from CLI flags or JSON input.
+Generate IFC building elements from CLI flags or JSON input. Supports **30+ element types** with property sets, quantities, materials, and colors.
 
 ```bash
-# Create a wall
+# Basic elements
 ifc-lite create wall --start 0,0,0 --end 5,0,0 --height 3 --thickness 0.2 --out wall.ifc
-
-# Create a slab
 ifc-lite create slab --width 10 --depth 8 --thickness 0.3 --out slab.ifc
-
-# Create a column
 ifc-lite create column --position 0,0,0 --height 3 --width 0.3 --depth 0.3 --out column.ifc
+ifc-lite create beam --start 0,0,3 --end 5,0,3 --width 0.2 --height 0.4 --out beam.ifc
 
-# Create from JSON (pipe-friendly)
+# Stairs, roofs, doors, windows
+ifc-lite create stair --number-of-risers 12 --riser-height 0.175 --tread-length 0.28 --width 1.2 --out stair.ifc
+ifc-lite create roof --width 10 --depth 8 --thickness 0.25 --position 0,0,3 --out roof.ifc
+ifc-lite create gable-roof --width 10 --depth 8 --slope 0.5 --thickness 0.25 --out gable.ifc
+ifc-lite create door --width 0.9 --height 2.1 --position 0,0,0 --out door.ifc
+ifc-lite create window --width 1.2 --height 1.5 --position 0,0,1 --out window.ifc
+
+# Structural elements
+ifc-lite create footing --width 2 --depth 2 --height 0.5 --predefined-type PAD_FOOTING --out footing.ifc
+ifc-lite create pile --length 10 --diameter 0.6 --position 0,0,0 --out pile.ifc
+ifc-lite create ramp --width 1.5 --length 5 --thickness 0.2 --rise 0.5 --out ramp.ifc
+ifc-lite create railing --start 0,0,0 --end 5,0,0 --height 1.0 --out railing.ifc
+ifc-lite create member --start 0,0,0 --end 3,0,3 --width 0.1 --height 0.1 --out brace.ifc
+
+# Special elements
+ifc-lite create space --width 5 --depth 4 --height 3 --long-name "Living Room" --out room.ifc
+ifc-lite create curtain-wall --start 0,0,0 --end 10,0,0 --height 3 --out curtain.ifc
+ifc-lite create furnishing --width 1 --depth 0.6 --height 0.8 --name "Desk" --out desk.ifc
+ifc-lite create proxy --width 1 --depth 1 --height 1 --name "Unknown Element" --out proxy.ifc
+ifc-lite create plate --width 2 --depth 1 --thickness 0.01 --out plate.ifc
+
+# Advanced profiles
+ifc-lite create circular-column --radius 0.15 --height 3 --out col.ifc
+ifc-lite create hollow-circular-column --radius 0.3 --wall-thickness 0.02 --height 3 --out hcol.ifc
+ifc-lite create i-shape-beam --overall-width 0.2 --overall-depth 0.4 --web-thickness 0.01 --flange-thickness 0.015 --out ib.ifc
+ifc-lite create l-shape-member --depth 0.1 --width 0.1 --thickness 0.01 --out lm.ifc
+ifc-lite create t-shape-member --flange-width 0.15 --depth 0.15 --web-thickness 0.008 --out tm.ifc
+ifc-lite create u-shape-member --depth 0.15 --flange-width 0.08 --web-thickness 0.008 --out um.ifc
+ifc-lite create rectangle-hollow-beam --xdim 0.1 --ydim 0.2 --wall-thickness 0.005 --out rhb.ifc
+
+# With property sets, materials, and colors
+ifc-lite create wall --out w.ifc \
+  --pset '{"Name":"Pset_WallCommon","Properties":[{"Name":"IsExternal","NominalValue":true}]}'
+ifc-lite create wall --out w.ifc \
+  --material '{"Name":"Concrete","Category":"Structural"}'
+ifc-lite create wall --out w.ifc --color 0.8,0.2,0.2
+
+# From JSON (pipe-friendly)
 echo '{"Start":[0,0,0],"End":[10,0,0],"Height":3,"Thickness":0.2}' \
   | ifc-lite create wall --from-json --out wall.ifc
 ```
 
-**Supported elements:** `wall`, `slab`, `column`, `beam`
+**Supported element types:**
 
-**Flags:**
+| Category | Types |
+|----------|-------|
+| Walls | `wall`, `curtain-wall` |
+| Floors/Roofs | `slab`, `roof`, `gable-roof` |
+| Columns | `column`, `circular-column`, `hollow-circular-column` |
+| Beams | `beam`, `i-shape-beam`, `rectangle-hollow-beam` |
+| Members | `member`, `l-shape-member`, `t-shape-member`, `u-shape-member` |
+| Openings | `door`, `window`, `wall-door`, `wall-window` |
+| Circulation | `stair`, `ramp`, `railing` |
+| Foundation | `footing`, `pile` |
+| Other | `space`, `plate`, `furnishing`, `proxy` |
+
+**Common Flags:**
 
 | Flag | Description |
 |------|-------------|
-| `--start <x,y,z>` | Start point (walls, beams) |
-| `--end <x,y,z>` | End point (walls, beams) |
-| `--position <x,y,z>` | Position (columns) |
+| `--start <x,y,z>` | Start point (walls, beams, railings) |
+| `--end <x,y,z>` | End point (walls, beams, railings) |
+| `--position <x,y,z>` | Position (columns, doors, slabs, etc.) |
 | `--height <N>` | Element height |
 | `--width <N>` | Element width |
 | `--depth <N>` | Element depth |
@@ -261,8 +336,149 @@ echo '{"Start":[0,0,0],"End":[10,0,0],"Height":3,"Thickness":0.2}' \
 | `--name <str>` | Element name |
 | `--project <str>` | Project name |
 | `--storey <str>` | Storey name |
+| `--elevation <N>` | Storey elevation |
+| `--pset <json>` | Add property set (JSON) |
+| `--qset <json>` | Add element quantity (JSON) |
+| `--material <json>` | Add material (JSON) |
+| `--color <r,g,b>` | Set color (0-1 per channel) |
 | `--from-json` | Read parameters from stdin JSON |
 | `--out <file>` | Output IFC file (required) |
+| `--json` | Output creation stats as JSON |
+
+---
+
+### `merge` — Merge IFC Files
+
+Combine multiple IFC files into a single federated model.
+
+```bash
+# Merge two files
+ifc-lite merge arch.ifc struct.ifc --out federated.ifc
+
+# Merge multiple files with schema conversion
+ifc-lite merge file1.ifc file2.ifc file3.ifc --schema IFC4 --out merged.ifc
+
+# JSON output with stats
+ifc-lite merge a.ifc b.ifc --out merged.ifc --json
+```
+
+The merger unifies spatial hierarchy (storeys, buildings) by name and elevation, offsets entity IDs to avoid collisions, and merges into a single IfcProject.
+
+**Flags:**
+
+| Flag | Description |
+|------|-------------|
+| `--schema <ver>` | Target schema (`IFC2X3`, `IFC4`, `IFC4X3`) |
+| `--out <file>` | Output file (required) |
+| `--json` | Output merge stats as JSON |
+
+---
+
+### `convert` — Schema Conversion
+
+Convert an IFC file between schema versions.
+
+```bash
+ifc-lite convert model.ifc --schema IFC4 --out model-ifc4.ifc
+ifc-lite convert old-model.ifc --schema IFC4X3 --out modern.ifc
+ifc-lite convert model.ifc --schema IFC2X3 --out legacy.ifc --json
+```
+
+Handles entity type mapping automatically (e.g., `IfcWallStandardCase` → `IfcWall` when upgrading from IFC2X3 to IFC4).
+
+**Flags:**
+
+| Flag | Description |
+|------|-------------|
+| `--schema <ver>` | Target schema: `IFC2X3`, `IFC4`, `IFC4X3`, `IFC5` (required) |
+| `--out <file>` | Output file (required) |
+| `--json` | Output conversion stats as JSON |
+
+---
+
+### `diff` — Compare IFC Files
+
+Compare two IFC files and report differences.
+
+```bash
+# Type-level comparison
+ifc-lite diff model-v1.ifc model-v2.ifc
+
+# With entity-level comparison by GlobalId
+ifc-lite diff model-v1.ifc model-v2.ifc --by-entity
+
+# JSON output
+ifc-lite diff model-v1.ifc model-v2.ifc --json
+```
+
+Reports:
+
+- Entity count differences
+- Type-level additions/removals
+- GlobalId-based entity tracking (with `--by-entity`)
+
+**Flags:**
+
+| Flag | Description |
+|------|-------------|
+| `--by-entity` | Compare entities by GlobalId |
+| `--json` | JSON output |
+
+---
+
+### `validate` — Structural Validation
+
+Check an IFC file for structural issues.
+
+```bash
+ifc-lite validate model.ifc
+ifc-lite validate model.ifc --json
+```
+
+Checks:
+
+- Required entities (IfcProject, IfcSite, IfcBuilding)
+- Single IfcProject presence
+- Building storeys existence
+- GlobalId uniqueness
+- Named elements
+
+Returns exit code 0 (valid) or 1 (errors found).
+
+**Flags:**
+
+| Flag | Description |
+|------|-------------|
+| `--json` | Full report as JSON |
+
+---
+
+### `bsdd` — buildingSMART Data Dictionary
+
+Query the bSDD API for IFC class information, property sets, and search.
+
+```bash
+# Get class info
+ifc-lite bsdd class IfcWall
+
+# Search for classes
+ifc-lite bsdd search "concrete wall"
+
+# List standard property sets
+ifc-lite bsdd psets IfcWall
+
+# List standard quantity sets
+ifc-lite bsdd qsets IfcSlab
+```
+
+**Subcommands:**
+
+| Subcommand | Description |
+|------------|-------------|
+| `class <IfcType>` | Get class info (definition, related types, properties) |
+| `search <query>` | Search bSDD for classes by keyword |
+| `psets <IfcType>` | List standard property sets and their properties |
+| `qsets <IfcType>` | List standard quantity sets |
 
 ---
 
@@ -365,6 +581,16 @@ ifc-lite export model.ifc --format csv --type IfcWall | grep "External"
 # Chain: create an element, then inspect it
 ifc-lite create wall --out /tmp/w.ifc --height 3 --thickness 0.2
 ifc-lite info /tmp/w.ifc --json
+
+# Merge and validate
+ifc-lite merge arch.ifc struct.ifc --out fed.ifc && ifc-lite validate fed.ifc
+
+# Convert and diff
+ifc-lite convert model.ifc --schema IFC4 --out v4.ifc
+ifc-lite diff model.ifc v4.ifc --json
+
+# Look up bSDD data for wall types
+ifc-lite bsdd psets IfcWall | jq '.["Pset_WallCommon"]'
 ```
 
 ## Using with LLM Terminals
@@ -390,6 +616,15 @@ Add this to your project's `CLAUDE.md` to help Claude Code use ifc-lite:
 Use `ifc-lite` CLI for BIM/IFC file operations:
 - `ifc-lite info <file>` — model summary
 - `ifc-lite query <file> --type <T> --json` — query entities
+- `ifc-lite query <file> --type <T> --all --json` — full entity data
+- `ifc-lite props <file> --id <N>` — single entity details
+- `ifc-lite export <file> --format csv --type <T>` — export data
+- `ifc-lite create <type> --out <file>` — create IFC elements (30+ types)
+- `ifc-lite merge <files...> --out <file>` — merge IFC files
+- `ifc-lite convert <file> --schema <VER> --out <file>` — convert schema
+- `ifc-lite diff <file1> <file2>` — compare IFC files
+- `ifc-lite validate <file>` — structural validation
+- `ifc-lite bsdd class <IfcType>` — bSDD class info
 - `ifc-lite eval <file> "<expr>"` — evaluate SDK expressions
 - `ifc-lite schema` — discover all SDK methods
 
@@ -404,3 +639,25 @@ Run `ifc-lite schema` to see the full API before writing eval expressions.
 3. **Run `schema` first** — discover the API before writing code
 4. **Pipe to `jq`** — for filtering and transforming JSON output
 5. **Use `--count` for quick checks** — avoid loading full entity data when just counting
+6. **Use `--all` with `query`** — get complete entity data in one call
+7. **Use `create --from-json`** — for programmatic element creation from generated JSON
+
+## Command Reference
+
+| Command | Description |
+|---------|-------------|
+| `info` | Model summary (schema, entities, storeys) |
+| `query` | Query entities by type/properties with full data access |
+| `props` | All properties for a single entity |
+| `export` | Export to CSV, JSON, or IFC STEP |
+| `ids` | Validate against IDS rules |
+| `bcf` | BCF collaboration (create, list, add-comment) |
+| `create` | Create IFC elements (30+ types with properties/materials/colors) |
+| `merge` | Merge multiple IFC files |
+| `convert` | Convert between IFC schema versions |
+| `diff` | Compare two IFC files |
+| `validate` | Structural validation checks |
+| `bsdd` | buildingSMART Data Dictionary lookup |
+| `eval` | Evaluate SDK expressions |
+| `run` | Execute scripts against model |
+| `schema` | Dump SDK API schema |

@@ -3,9 +3,10 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 /**
- * ifc-lite export <file.ifc> --format csv|json [options]
+ * ifc-lite export <file.ifc> --format csv|json|ifc [options]
  *
- * Export IFC data to CSV or JSON.
+ * Export IFC data to CSV, JSON, or IFC STEP format.
+ * Supports type filtering, column selection, and schema conversion on export.
  */
 
 import { writeFile } from 'node:fs/promises';
@@ -19,8 +20,9 @@ export async function exportCommand(args: string[]): Promise<void> {
   const type = getFlag(args, '--type');
   const columnsStr = getFlag(args, '--columns');
   const separator = getFlag(args, '--separator') ?? ',';
+  const limit = getFlag(args, '--limit');
 
-  if (!filePath) fatal('Usage: ifc-lite export <file.ifc> --format csv|json [--type IfcWall] [--columns Name,Type,GlobalId] [--out file]');
+  if (!filePath) fatal('Usage: ifc-lite export <file.ifc> --format csv|json|ifc [--type IfcWall] [--columns Name,Type,GlobalId] [--out file]');
 
   const { bim } = await createHeadlessContext(filePath);
 
@@ -28,6 +30,9 @@ export async function exportCommand(args: string[]): Promise<void> {
   let q = bim.query();
   if (type) {
     q = q.byType(...type.split(','));
+  }
+  if (limit) {
+    q = q.limit(parseInt(limit, 10));
   }
   const entities = q.toArray();
   const refs = entities.map(e => e.ref);
