@@ -1,11 +1,22 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
+import fs from 'fs';
+
+// Read version from root package.json
+const rootPkg = JSON.parse(
+  fs.readFileSync(path.resolve(__dirname, '../../package.json'), 'utf-8')
+);
 
 // https://vitejs.dev/config/
 // Tauri expects a fixed port, fail if that port is not available
 export default defineConfig({
   plugins: [react()],
+  define: {
+    __APP_VERSION__: JSON.stringify(rootPkg.version),
+    __BUILD_DATE__: JSON.stringify(new Date().toISOString()),
+    __RELEASE_HISTORY__: JSON.stringify([]),
+  },
   resolve: {
     alias: {
       // Point to viewer's source for shared components
@@ -20,6 +31,20 @@ export default defineConfig({
       '@ifc-lite/cache': path.resolve(__dirname, '../../packages/cache/src'),
       '@ifc-lite/ifcx': path.resolve(__dirname, '../../packages/ifcx/src'),
       '@ifc-lite/wasm': path.resolve(__dirname, '../../packages/wasm/pkg/ifc-lite.js'),
+      '@ifc-lite/sdk': path.resolve(__dirname, '../../packages/sdk/src'),
+      '@ifc-lite/lens': path.resolve(__dirname, '../../packages/lens/src'),
+      '@ifc-lite/mutations': path.resolve(__dirname, '../../packages/mutations/src'),
+      '@ifc-lite/bcf': path.resolve(__dirname, '../../packages/bcf/src'),
+      '@ifc-lite/drawing-2d': path.resolve(__dirname, '../../packages/drawing-2d/src'),
+      '@ifc-lite/encoding': path.resolve(__dirname, '../../packages/encoding/src'),
+      '@ifc-lite/ids': path.resolve(__dirname, '../../packages/ids/src'),
+      '@ifc-lite/lists': path.resolve(__dirname, '../../packages/lists/src'),
+      '@ifc-lite/server-client': path.resolve(__dirname, '../../packages/server-client/src'),
+      '@ifc-lite/sandbox/schema': path.resolve(__dirname, '../../packages/sandbox/src/bridge-schema.ts'),
+      '@ifc-lite/sandbox': path.resolve(__dirname, '../../packages/sandbox/src'),
+      '@ifc-lite/create': path.resolve(__dirname, '../../packages/create/src'),
+      '@ifc-lite/embed-protocol': path.resolve(__dirname, '../../packages/embed-protocol/src'),
+      '@ifc-lite/embed-sdk': path.resolve(__dirname, '../../packages/embed-sdk/src'),
     },
   },
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`

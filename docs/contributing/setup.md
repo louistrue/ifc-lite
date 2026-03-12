@@ -79,8 +79,14 @@ Guide to setting up a development environment for IFClite.
 ### 1. Clone Repository
 
 ```bash
-git clone https://github.com/louistrue/ifc-lite.git
+GIT_LFS_SKIP_SMUDGE=1 git clone https://github.com/louistrue/ifc-lite.git
 cd ifc-lite
+```
+
+This skips automatic Git LFS downloads during clone. For heavy benchmark or stress-test fixtures, fetch only the exact files you need later:
+
+```bash
+git lfs pull --include="tests/models/ara3d/AC20-FZK-Haus.ifc"
 ```
 
 ### 2. Install Dependencies

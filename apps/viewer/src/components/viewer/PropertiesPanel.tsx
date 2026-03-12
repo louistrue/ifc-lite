@@ -28,9 +28,11 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useViewerStore } from '@/store';
 import { useIfc } from '@/hooks/useIfc';
+import { configureMutationView } from '@/utils/configureMutationView';
 import { IfcQuery } from '@ifc-lite/query';
 import { MutablePropertyView } from '@ifc-lite/mutations';
-import { extractPropertiesOnDemand, extractQuantitiesOnDemand, extractClassificationsOnDemand, extractMaterialsOnDemand, extractTypePropertiesOnDemand, extractDocumentsOnDemand, extractRelationshipsOnDemand, type IfcDataStore } from '@ifc-lite/parser';
+import { extractClassificationsOnDemand, extractMaterialsOnDemand, extractTypePropertiesOnDemand, extractTypeEntityOwnProperties, extractDocumentsOnDemand, extractRelationshipsOnDemand, type IfcDataStore } from '@ifc-lite/parser';
+import { EntityFlags, RelationshipType } from '@ifc-lite/data';
 import type { EntityRef, FederatedModel } from '@/store/types';
 
 import { CoordVal, CoordRow } from './properties/CoordinateDisplay';
@@ -43,6 +45,44 @@ import { DocumentCard } from './properties/DocumentCard';
 import { RelationshipsCard } from './properties/RelationshipsCard';
 import type { PropertySet, QuantitySet } from './properties/encodingUtils';
 import { BsddCard } from './properties/BsddCard';
+
+type DisplayProperty = { name: string; value: unknown; isMutated: boolean };
+type DisplayPropertySet = {
+  name: string;
+  properties: DisplayProperty[];
+  isNewPset: boolean;
+  source?: PropertySet['source'];
+};
+
+function mergePropertySetLists(base: DisplayPropertySet[], incoming: DisplayPropertySet[]): DisplayPropertySet[] {
+  const merged = base.map(pset => ({
+    ...pset,
+    properties: [...pset.properties],
+  }));
+  const psetMap = new Map(merged.map(pset => [pset.name, pset]));
+
+  for (const incomingPset of incoming) {
+    const existing = psetMap.get(incomingPset.name);
+    if (!existing) {
+      const copy = {
+        ...incomingPset,
+        properties: [...incomingPset.properties],
+      };
+      merged.push(copy);
+      psetMap.set(copy.name, copy);
+      continue;
+    }
+
+    const existingPropMap = new Map(existing.properties.map(prop => [prop.name, prop]));
+    for (const prop of incomingPset.properties) {
+      if (!existingPropMap.has(prop.name)) {
+        existing.properties.push(prop as DisplayProperty);
+      }
+    }
+  }
+
+  return merged;
+}
 
 export function PropertiesPanel() {
   const selectedEntityId = useViewerStore((s) => s.selectedEntityId);
@@ -91,19 +131,7 @@ export function PropertiesPanel() {
     const dataStore = model.ifcDataStore;
     mutationView = new MutablePropertyView(dataStore.properties || null, modelId);
 
-    // Set up on-demand property extractor if available
-    if (dataStore.onDemandPropertyMap && dataStore.source?.length > 0) {
-      mutationView.setOnDemandExtractor((entityId: number) => {
-        return extractPropertiesOnDemand(dataStore as IfcDataStore, entityId);
-      });
-    }
-
-    // Set up on-demand quantity extractor if available
-    if (dataStore.onDemandQuantityMap && dataStore.source?.length > 0) {
-      mutationView.setQuantityExtractor((entityId: number) => {
-        return extractQuantitiesOnDemand(dataStore as IfcDataStore, entityId);
-      });
-    }
+    configureMutationView(mutationView, dataStore as IfcDataStore);
 
     registerMutationView(modelId, mutationView);
   }, [model, selectedEntity, getMutationView, registerMutationView]);
@@ -305,6 +333,16 @@ export function PropertiesPanel() {
     return modelQuery.entity(originalExpressId);
   }, [selectedEntity, modelQuery]);
 
+  // Check if the selected entity is a type entity (IfcWallType, etc.)
+  // Uses the entity type name to detect — type entity names end with "Type"
+  const isTypeEntity = useMemo(() => {
+    if (!selectedEntity) return false;
+    const dataStore = model?.ifcDataStore ?? ifcDataStore;
+    if (!dataStore?.entities) return false;
+    const typeName = dataStore.entities.getTypeName(selectedEntity.expressId);
+    return typeName.endsWith('Type');
+  }, [selectedEntity, model, ifcDataStore]);
+
   // Unified property/quantity access - EntityNode handles on-demand extraction automatically
   // These hooks must be called before any early return to maintain hook order
   // Use MutablePropertyView as primary source when available (it handles base + mutations)
@@ -367,12 +405,29 @@ export function PropertiesPanel() {
     if (!entityNode) return [];
 
     const rawProps = entityNode.properties();
-    return rawProps.map(pset => ({
+    let result = rawProps.map(pset => ({
       name: pset.name,
       properties: pset.properties.map(p => ({ name: p.name, value: p.value, isMutated: false })),
       isNewPset: false,
     }));
-  }, [entityNode, selectedEntity, mutationViews, mutationVersion]);
+
+    // For type entities, also extract HasPropertySets (attribute[5]) since they
+    // aren't linked via IfcRelDefinesByProperties and thus not in onDemandPropertyMap
+    if (isTypeEntity && expressId) {
+      const dataStore = (activeDataStore ?? ifcDataStore) as IfcDataStore | null;
+      if (dataStore) {
+        const typeOwnProps = extractTypeEntityOwnProperties(dataStore, expressId);
+        const mappedTypeOwn = typeOwnProps.map(pset => ({
+          name: pset.name,
+          properties: pset.properties.map(p => ({ name: p.name, value: p.value, isMutated: false })),
+          isNewPset: false,
+        }));
+        result = mergePropertySetLists(result, mappedTypeOwn);
+      }
+    }
+
+    return result;
+  }, [entityNode, selectedEntity, mutationViews, mutationVersion, isTypeEntity, activeDataStore, ifcDataStore]);
 
   const quantities: QuantitySet[] = useMemo(() => {
     let modelId = selectedEntity?.modelId;
@@ -467,17 +522,56 @@ export function PropertiesPanel() {
     if (!dataStore) return null;
     const result = extractTypePropertiesOnDemand(dataStore as IfcDataStore, selectedEntity.expressId);
     if (!result) return null;
-    // Convert to PropertySet format for PropertySetCard
+
+    let modelId = selectedEntity.modelId;
+    if (modelId === 'legacy') modelId = '__legacy__';
+    const mutationView = modelId ? mutationViews.get(modelId) : null;
+    const mutations = mutationView?.getMutationsForEntity(result.typeId) ?? [];
+    const mergedTypeProps = mutationView?.getForEntity(result.typeId) ?? [];
+
+    const mutatedKeys = new Set<string>();
+    const newPsetNames = new Set<string>();
+    for (const mutation of mutations) {
+      if (mutation.psetName && mutation.propName) {
+        mutatedKeys.add(`${mutation.psetName}:${mutation.propName}`);
+      }
+      if (mutation.type === 'CREATE_PROPERTY_SET' && mutation.psetName) {
+        newPsetNames.add(mutation.psetName);
+      }
+      if (mutation.type === 'CREATE_PROPERTY' && mutation.psetName) {
+        const existsInBase = result.properties.some(pset => pset.name === mutation.psetName);
+        if (!existsInBase) {
+          newPsetNames.add(mutation.psetName);
+        }
+      }
+    }
+
+    const sourcePsets = mergedTypeProps.length > 0
+      ? mergedTypeProps
+      : result.properties.map(pset => ({
+          name: pset.name,
+          globalId: pset.globalId || '',
+          properties: pset.properties.map(p => ({
+            name: p.name,
+            type: p.type,
+            value: p.value,
+          })),
+        }));
+
     return {
       typeName: result.typeName,
       typeId: result.typeId,
-      psets: result.properties.map(pset => ({
+      psets: sourcePsets.map(pset => ({
         name: pset.name,
-        properties: pset.properties.map(p => ({ name: p.name, value: p.value, isMutated: false })),
-        isNewPset: false,
+        properties: pset.properties.map(p => ({
+          name: p.name,
+          value: p.value,
+          isMutated: mutatedKeys.has(`${pset.name}:${p.name}`),
+        })),
+        isNewPset: newPsetNames.has(pset.name),
       })),
     };
-  }, [selectedEntity, model, ifcDataStore]);
+  }, [selectedEntity, model, ifcDataStore, mutationViews, mutationVersion]);
 
   // Spatial containment info for spatial containers (Project, Site, Building, Storey)
   const spatialContainment = useMemo(() => {
@@ -549,48 +643,82 @@ export function PropertiesPanel() {
     return stats.length > 0 ? stats : null;
   }, [selectedEntity, model, ifcDataStore]);
 
-  // Merge instance-level and type-level property sets into a single unified list.
-  // - Same-named psets: instance properties take precedence, type-level props are appended (deduped by name)
-  // - Type-only psets: added to the main list (no separate "Type" section)
-  // This matches how reference IFC viewers display properties.
-  const mergedProperties: PropertySet[] = useMemo(() => {
-    if (!typeProperties || typeProperties.psets.length === 0) return properties;
-    if (properties.length === 0) return typeProperties.psets;
+  // Separate occurrence (instance) and inherited type properties.
+  // Occurrence properties are displayed first, type properties in a separate section.
+  // When a pset exists at both levels, occurrence takes precedence; the type-only
+  // properties (not overridden at instance level) are shown in the inherited section.
+  const { occurrenceProperties, inheritedTypeProperties } = useMemo(() => {
+    const occ: PropertySet[] = properties.map(p => ({ ...p, source: 'instance' as const }));
 
-    const instanceByName = new Map<string, PropertySet>();
-    for (const pset of properties) {
-      instanceByName.set(pset.name, pset);
+    if (!typeProperties || typeProperties.psets.length === 0) {
+      return { occurrenceProperties: occ, inheritedTypeProperties: [] as PropertySet[] };
     }
 
-    // Start with instance psets, merging type-level props into matching ones
-    const result: PropertySet[] = [];
-    const merged = new Set<string>();
+    const instanceByName = new Set(properties.map(p => p.name));
+    const inherited: PropertySet[] = [];
 
-    for (const pset of properties) {
-      const typePset = typeProperties.psets.find(tp => tp.name === pset.name);
-      if (typePset) {
-        // Merge: add type-level properties not already present in instance pset
-        const existingNames = new Set(pset.properties.map(p => p.name));
-        const extraProps = typePset.properties.filter(p => !existingNames.has(p.name));
-        result.push({
-          ...pset,
-          properties: [...pset.properties, ...extraProps],
-        });
-        merged.add(pset.name);
-      } else {
-        result.push(pset);
-      }
-    }
-
-    // Add type-only psets that don't exist at instance level
     for (const typePset of typeProperties.psets) {
-      if (!merged.has(typePset.name) && !instanceByName.has(typePset.name)) {
-        result.push(typePset);
+      if (instanceByName.has(typePset.name)) {
+        // Pset exists at instance level - add type-only props that aren't overridden
+        const instancePset = properties.find(p => p.name === typePset.name)!;
+        const instancePropNames = new Set(instancePset.properties.map(p => p.name));
+        const extraProps = typePset.properties.filter(p => !instancePropNames.has(p.name));
+        if (extraProps.length > 0) {
+          inherited.push({ ...typePset, properties: extraProps, source: 'type' });
+        }
+      } else {
+        // Type-only pset - show fully in inherited section
+        inherited.push({ ...typePset, source: 'type' });
       }
     }
 
-    return result;
+    return { occurrenceProperties: occ, inheritedTypeProperties: inherited };
   }, [properties, typeProperties]);
+
+  const typeEditImpact = useMemo(() => {
+    if (!editMode || !selectedEntity) return null;
+    const dataStore = model?.ifcDataStore ?? ifcDataStore;
+    if (!dataStore?.relationships) return null;
+
+    if (isTypeEntity) {
+      const typeId = selectedEntity.expressId;
+      const affectedOccurrenceIds = dataStore.relationships.getRelated(
+        typeId,
+        RelationshipType.DefinesByType,
+        'forward'
+      );
+
+      return {
+        mode: 'type' as const,
+        typeId,
+        typeEntityName: dataStore.entities.getTypeName(typeId),
+        affectedCount: affectedOccurrenceIds.length,
+      };
+    }
+
+    if (typeProperties && inheritedTypeProperties.length > 0) {
+      const affectedOccurrenceIds = dataStore.relationships.getRelated(
+        typeProperties.typeId,
+        RelationshipType.DefinesByType,
+        'forward'
+      );
+
+      return {
+        mode: 'inherited' as const,
+        typeId: typeProperties.typeId,
+        typeEntityName: dataStore.entities.getTypeName(typeProperties.typeId),
+        affectedCount: affectedOccurrenceIds.length,
+      };
+    }
+
+    return null;
+  }, [editMode, selectedEntity, model, ifcDataStore, isTypeEntity, typeProperties, inheritedTypeProperties]);
+
+  // Combined list of all properties for bSDD deduplication and edit toolbar
+  const mergedProperties: PropertySet[] = useMemo(
+    () => [...occurrenceProperties, ...inheritedTypeProperties],
+    [occurrenceProperties, inheritedTypeProperties]
+  );
 
   // Build a set of existing property keys ("PsetName:PropName") for bSDD deduplication
   const existingProps = useMemo(() => {
@@ -925,24 +1053,30 @@ export function PropertiesPanel() {
 
       {/* Tabs */}
       <Tabs defaultValue="properties" className="flex-1 flex flex-col overflow-hidden">
-        <TabsList className="tabs-list w-full justify-start rounded-none h-9 p-0 shrink-0 flex" style={{ backgroundColor: 'var(--tabs-bg)', borderBottom: '1px solid var(--tabs-border)' }}>
+        <TabsList className="properties-tabs-list w-full shrink-0">
           <TabsTrigger
             value="properties"
-            className="tab-trigger flex-1 min-w-0 rounded-none border-b-2 border-transparent data-[state=active]:border-primary uppercase text-[11px] tracking-wide h-full px-2"
+            title="Properties"
+            className="properties-tab-trigger flex-1 min-w-0 uppercase text-[11px] tracking-wide"
           >
-            Properties
+            <FileText className="h-3 w-3 shrink-0 panel-compact-icon" />
+            <span className="panel-compact-text">Properties</span>
           </TabsTrigger>
           <TabsTrigger
             value="quantities"
-            className="tab-trigger flex-1 min-w-0 rounded-none border-b-2 border-transparent data-[state=active]:border-primary uppercase text-[11px] tracking-wide h-full px-2"
+            title="Quantities"
+            className="properties-tab-trigger flex-1 min-w-0 uppercase text-[11px] tracking-wide"
           >
-            Quantities
+            <Calculator className="h-3 w-3 shrink-0 panel-compact-icon" />
+            <span className="panel-compact-text">Quantities</span>
           </TabsTrigger>
           <TabsTrigger
             value="bsdd"
-            className="tab-trigger flex-1 min-w-0 rounded-none border-b-2 border-transparent data-[state=active]:border-primary uppercase text-[11px] tracking-wide h-full px-2"
+            title="bSDD"
+            className="properties-tab-trigger flex-1 min-w-0 uppercase text-[11px] tracking-wide"
           >
-            bSDD
+            <Tag className="h-3 w-3 shrink-0 panel-compact-icon" />
+            <span className="panel-compact-text">bSDD</span>
           </TabsTrigger>
         </TabsList>
 
@@ -963,22 +1097,56 @@ export function PropertiesPanel() {
               <p className="text-sm text-zinc-500 dark:text-zinc-500 text-center py-8 font-mono">No property sets</p>
             ) : (
               <div className="space-y-3 w-full overflow-hidden">
-                {/* Type badge - show which type this element inherits from */}
-                {typeProperties && typeProperties.psets.length > 0 && (
-                  <div className="flex items-center gap-2 px-1 pb-0.5 text-[11px] text-indigo-600/70 dark:text-indigo-400/60">
-                    <Building2 className="h-3 w-3 shrink-0" />
-                    <span className="font-medium truncate">Type: {typeProperties.typeName}</span>
-                  </div>
+                {/* Occurrence/Type Properties (based on whether entity itself is a type) */}
+                {occurrenceProperties.length > 0 && (
+                  <>
+                    {(isTypeEntity || (typeProperties && typeProperties.psets.length > 0)) && (
+                      <div className="flex items-center gap-2 px-1 pb-0.5 text-[11px] text-zinc-500 dark:text-zinc-400 uppercase tracking-wider font-semibold">
+                        {isTypeEntity ? (
+                          <>
+                            <Building2 className="h-3 w-3 shrink-0 text-indigo-500" />
+                            Type Properties:
+                          </>
+                        ) : 'Occurrence Properties:'}
+                      </div>
+                    )}
+                    {occurrenceProperties.map((pset: PropertySet) => (
+                      <PropertySetCard
+                        key={`occ-${pset.name}`}
+                        pset={pset}
+                        modelId={selectedEntity?.modelId}
+                        entityId={selectedEntity?.expressId}
+                        enableEditing={editMode}
+                        isTypeProperty={isTypeEntity}
+                        typeEditScope={isTypeEntity ? typeEditImpact ?? undefined : undefined}
+                      />
+                    ))}
+                  </>
                 )}
-                {mergedProperties.map((pset: PropertySet) => (
-                  <PropertySetCard
-                    key={pset.name}
-                    pset={pset}
-                    modelId={selectedEntity?.modelId}
-                    entityId={selectedEntity?.expressId}
-                    enableEditing={editMode}
-                  />
-                ))}
+
+                {/* Inherited Type Properties */}
+                {inheritedTypeProperties.length > 0 && typeProperties && (
+                  <>
+                    {occurrenceProperties.length > 0 && (
+                      <div className="border-t border-indigo-200 dark:border-indigo-800/50 pt-2 mt-2" />
+                    )}
+                    <div className="flex items-center gap-2 px-1 pb-0.5 text-[11px] text-indigo-600/70 dark:text-indigo-400/60 uppercase tracking-wider font-semibold">
+                      <Building2 className="h-3 w-3 shrink-0" />
+                      <span className="truncate">Inherited Type Properties</span>
+                    </div>
+                    {inheritedTypeProperties.map((pset: PropertySet) => (
+                      <PropertySetCard
+                        key={`type-${pset.name}`}
+                        pset={pset}
+                        modelId={selectedEntity?.modelId}
+                        entityId={typeProperties.typeId}
+                        enableEditing={editMode}
+                        isTypeProperty
+                        typeEditScope={typeEditImpact?.mode === 'inherited' ? typeEditImpact : undefined}
+                      />
+                    ))}
+                  </>
+                )}
 
                 {/* Classifications */}
                 {classifications.length > 0 && (

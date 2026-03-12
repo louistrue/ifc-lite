@@ -53,6 +53,27 @@ export function Viewport({ geometry, geometryVersion, coordinateInfo, computedIs
   const rendererRef = useRef<Renderer | null>(null);
   const [isInitialized, setIsInitialized] = useState(false);
 
+  const focusViewportForKeyboardShortcuts = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const activeElement = document.activeElement;
+    if (activeElement instanceof HTMLElement && activeElement !== canvas) {
+      const isEditable =
+        activeElement.tagName === 'INPUT' ||
+        activeElement.tagName === 'TEXTAREA' ||
+        activeElement.isContentEditable;
+
+      if (isEditable) {
+        activeElement.blur();
+      }
+    }
+
+    if (document.activeElement !== canvas) {
+      canvas.focus({ preventScroll: true });
+    }
+  }, []);
+
   // Selection state
   const { selectedEntityId, selectedEntityIds, setSelectedEntityId, setSelectedEntity, toggleSelection, models } = useSelectionState();
   const selectedEntity = useViewerStore((s) => s.selectedEntity);
@@ -835,7 +856,9 @@ export function Viewport({ geometry, geometryVersion, coordinateInfo, computedIs
     <canvas
       ref={canvasRef}
       data-viewport="main"
+      tabIndex={-1}
       className="w-full h-full block"
+      onPointerDown={focusViewportForKeyboardShortcuts}
     />
   );
 }

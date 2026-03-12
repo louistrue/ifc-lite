@@ -12,13 +12,14 @@
 
 import { useRef, useEffect } from 'react';
 import { EditorView, keymap, lineNumbers, highlightActiveLine, highlightActiveLineGutter, drawSelection } from '@codemirror/view';
-import { EditorState, Compartment } from '@codemirror/state';
+import { EditorState, Compartment, Transaction } from '@codemirror/state';
 import { javascript } from '@codemirror/lang-javascript';
 import { autocompletion, type CompletionContext, type CompletionResult, type Completion } from '@codemirror/autocomplete';
-import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
+import { defaultKeymap, history, historyKeymap, indentWithTab, undo, redo, undoDepth, redoDepth } from '@codemirror/commands';
 import { syntaxHighlighting, defaultHighlightStyle, bracketMatching, indentOnInput } from '@codemirror/language';
 import { highlightSelectionMatches } from '@codemirror/search';
 import { NAMESPACE_SCHEMAS } from '@ifc-lite/sandbox/schema';
+import type { ScriptEditorSelection, ScriptEditorTextChange } from '@/lib/llm/types';
 
 /** Shared structural styles (mode-agnostic) */
 const baseTheme = EditorView.theme({
@@ -201,20 +202,44 @@ function bimCompletions(context: CompletionContext): CompletionResult | null {
 interface CodeEditorProps {
   value: string;
   onChange: (value: string) => void;
+  onSelectionChange?: (selection: ScriptEditorSelection) => void;
+  onHistoryChange?: (canUndo: boolean, canRedo: boolean) => void;
+  registerApplyAdapter?: ((adapter: {
+    apply: (
+      nextContent: string,
+      selection: ScriptEditorSelection,
+      options?: { userEvent?: string; changes?: ScriptEditorTextChange[] },
+    ) => void;
+    undo: () => void;
+    redo: () => void;
+  } | null) => void);
   onRun?: () => void;
   onSave?: () => void;
   className?: string;
 }
 
-export function CodeEditor({ value, onChange, onRun, onSave, className }: CodeEditorProps) {
+export function CodeEditor({
+  value,
+  onChange,
+  onSelectionChange,
+  onHistoryChange,
+  registerApplyAdapter,
+  onRun,
+  onSave,
+  className,
+}: CodeEditorProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
   const onChangeRef = useRef(onChange);
+  const onSelectionChangeRef = useRef(onSelectionChange);
+  const onHistoryChangeRef = useRef(onHistoryChange);
   const onRunRef = useRef(onRun);
   const onSaveRef = useRef(onSave);
 
   // Keep callback refs up to date without recreating the editor
   onChangeRef.current = onChange;
+  onSelectionChangeRef.current = onSelectionChange;
+  onHistoryChangeRef.current = onHistoryChange;
   onRunRef.current = onRun;
   onSaveRef.current = onSave;
 
@@ -238,6 +263,16 @@ export function CodeEditor({ value, onChange, onRun, onSave, className }: CodeEd
     const updateListener = EditorView.updateListener.of((update) => {
       if (update.docChanged) {
         onChangeRef.current(update.state.doc.toString());
+      }
+      if (update.selectionSet || update.docChanged) {
+        const main = update.state.selection.main;
+        onSelectionChangeRef.current?.({ from: main.from, to: main.to });
+      }
+      if (update.docChanged) {
+        onHistoryChangeRef.current?.(
+          undoDepth(update.state) > 0,
+          redoDepth(update.state) > 0,
+        );
       }
     });
 
@@ -274,6 +309,35 @@ export function CodeEditor({ value, onChange, onRun, onSave, className }: CodeEd
     });
 
     viewRef.current = view;
+    const initialSelection = view.state.selection.main;
+    onSelectionChangeRef.current?.({ from: initialSelection.from, to: initialSelection.to });
+    onHistoryChangeRef.current?.(undoDepth(view.state) > 0, redoDepth(view.state) > 0);
+    registerApplyAdapter?.({
+      apply: (nextContent, selection, options) => {
+        const active = viewRef.current;
+        if (!active) return;
+        const safeFrom = Math.max(0, Math.min(selection.from, nextContent.length));
+        const safeTo = Math.max(safeFrom, Math.min(selection.to, nextContent.length));
+        const changes = options?.changes && options.changes.length > 0
+          ? options.changes
+          : [{ from: 0, to: active.state.doc.length, insert: nextContent }];
+        active.dispatch({
+          changes,
+          selection: { anchor: safeFrom, head: safeTo },
+          annotations: options?.userEvent ? [Transaction.userEvent.of(options.userEvent)] : undefined,
+        });
+      },
+      undo: () => {
+        const active = viewRef.current;
+        if (!active) return;
+        undo(active);
+      },
+      redo: () => {
+        const active = viewRef.current;
+        if (!active) return;
+        redo(active);
+      },
+    });
 
     // Watch for light/dark mode changes on <html> class
     const observer = new MutationObserver(() => {
@@ -282,13 +346,15 @@ export function CodeEditor({ value, onChange, onRun, onSave, className }: CodeEd
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
 
     return () => {
+      onHistoryChangeRef.current?.(false, false);
+      registerApplyAdapter?.(null);
       observer.disconnect();
       view.destroy();
       viewRef.current = null;
     };
     // Only create once — value is set via initial doc
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [registerApplyAdapter]);
 
   // Sync external value changes into the editor (e.g., loading a different script)
   const lastExternalValue = useRef(value);

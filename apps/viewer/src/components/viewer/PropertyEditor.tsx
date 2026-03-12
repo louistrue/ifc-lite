@@ -68,7 +68,14 @@ interface PropertyEditorProps {
   propName: string;
   currentValue: unknown;
   currentType?: PropertyValueType;
+  editScope?: PropertyEditScope;
   onClose?: () => void;
+}
+
+export interface PropertyEditScope {
+  mode: 'type' | 'inherited';
+  typeEntityName: string;
+  affectedCount: number;
 }
 
 /**
@@ -82,6 +89,7 @@ export function PropertyEditor({
   propName,
   currentValue,
   currentType = PropertyValueType.String,
+  editScope,
   onClose,
 }: PropertyEditorProps) {
   const setProperty = useViewerStore((s) => s.setProperty);
@@ -91,7 +99,11 @@ export function PropertyEditor({
   const [value, setValue] = useState<string>(formatValue(currentValue));
   const [valueType, setValueType] = useState<PropertyValueType>(detectValueType(currentValue, currentType));
   const [isEditing, setIsEditing] = useState(false);
+  const [showScopeConfirm, setShowScopeConfirm] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const initialValue = formatValue(currentValue);
+  const initialType = detectValueType(currentValue, currentType);
+  const isUnchanged = value === initialValue && valueType === initialType;
 
   // Focus input when entering edit mode
   useEffect(() => {
@@ -101,7 +113,7 @@ export function PropertyEditor({
     }
   }, [isEditing]);
 
-  const handleSave = useCallback(() => {
+  const commitSave = useCallback(() => {
     const parsedValue = parseValue(value, valueType);
 
     // Normalize model ID for legacy models
@@ -112,9 +124,18 @@ export function PropertyEditor({
 
     setProperty(normalizedModelId, entityId, psetName, propName, parsedValue, valueType);
     bumpMutationVersion();
+    setShowScopeConfirm(false);
     setIsEditing(false);
     onClose?.();
   }, [modelId, entityId, psetName, propName, value, valueType, setProperty, bumpMutationVersion, onClose]);
+
+  const handleSave = useCallback(() => {
+    if (editScope && !showScopeConfirm && !isUnchanged) {
+      setShowScopeConfirm(true);
+      return;
+    }
+    commitSave();
+  }, [editScope, showScopeConfirm, isUnchanged, commitSave]);
 
   const handleDelete = useCallback(() => {
     // Normalize model ID for legacy models
@@ -125,6 +146,7 @@ export function PropertyEditor({
 
     deleteProperty(normalizedModelId, entityId, psetName, propName);
     bumpMutationVersion();
+    setShowScopeConfirm(false);
     setIsEditing(false);
     onClose?.();
   }, [modelId, entityId, psetName, propName, deleteProperty, bumpMutationVersion, onClose]);
@@ -132,6 +154,7 @@ export function PropertyEditor({
   const handleCancel = useCallback(() => {
     setValue(formatValue(currentValue));
     setValueType(detectValueType(currentValue, currentType));
+    setShowScopeConfirm(false);
     setIsEditing(false);
     onClose?.();
   }, [currentValue, currentType, onClose]);
@@ -142,9 +165,13 @@ export function PropertyEditor({
       handleSave();
     } else if (e.key === 'Escape') {
       e.preventDefault();
-      handleCancel();
+      if (showScopeConfirm) {
+        setShowScopeConfirm(false);
+      } else {
+        handleCancel();
+      }
     }
-  }, [handleSave, handleCancel]);
+  }, [handleSave, handleCancel, showScopeConfirm]);
 
   const displayValue = formatDisplayValue(currentValue);
 
@@ -193,7 +220,10 @@ export function PropertyEditor({
           <Input
             ref={inputRef}
             value={value}
-            onChange={(e) => setValue(e.target.value)}
+            onChange={(e) => {
+              setValue(e.target.value);
+              if (showScopeConfirm) setShowScopeConfirm(false);
+            }}
             onKeyDown={handleKeyDown}
             className="h-7 text-xs font-mono flex-1 bg-white dark:bg-zinc-900"
             placeholder="Enter value"
@@ -214,7 +244,7 @@ export function PropertyEditor({
               <Check className="h-3.5 w-3.5 text-green-600" />
             </Button>
           </TooltipTrigger>
-          <TooltipContent>Save (Enter)</TooltipContent>
+          <TooltipContent>{editScope && !showScopeConfirm && !isUnchanged ? 'Review scope (Enter)' : 'Save (Enter)'}</TooltipContent>
         </Tooltip>
         <Tooltip>
           <TooltipTrigger asChild>
@@ -261,6 +291,7 @@ export function PropertyEditor({
             className="h-5 px-2 text-[10px]"
             onClick={() => {
               setValueType(type);
+              if (showScopeConfirm) setShowScopeConfirm(false);
               // Convert value if switching to/from boolean
               if (type === PropertyValueType.Boolean || type === PropertyValueType.Logical) {
                 const boolVal = value.toLowerCase() === 'true' || value === '1' || value === 'yes';
@@ -272,6 +303,37 @@ export function PropertyEditor({
           </Button>
         ))}
       </div>
+
+      {showScopeConfirm && editScope && (
+        <div className="border border-indigo-200 dark:border-indigo-800/60 bg-white/75 dark:bg-zinc-950/60 px-2.5 py-2 text-[11px]">
+          <div className="font-medium text-zinc-900 dark:text-zinc-100">
+            {editScope.mode === 'type'
+              ? `Apply this change on ${editScope.typeEntityName}?`
+              : `Write this inherited value back to ${editScope.typeEntityName}?`}
+          </div>
+          <div className="mt-0.5 text-zinc-600 dark:text-zinc-400">
+            {editScope.affectedCount} {editScope.affectedCount === 1 ? 'occurrence' : 'occurrences'} may reflect the update unless locally overridden.
+          </div>
+          <div className="mt-2 flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-6 rounded-none border-indigo-300 text-[10px] uppercase tracking-wide hover:bg-indigo-50 dark:border-indigo-700 dark:hover:bg-indigo-950/30"
+              onClick={commitSave}
+            >
+              Apply To Type
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 rounded-none px-2 text-[10px] uppercase tracking-wide"
+              onClick={() => setShowScopeConfirm(false)}
+            >
+              Keep Editing
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -398,9 +460,9 @@ export function NewPropertyDialog({ modelId, entityId, entityType, existingPsets
   return (
     <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (!o) resetForm(); }}>
       <DialogTrigger asChild>
-        <Button variant="outline" size="sm" className="h-7">
-          <Plus className="h-3 w-3 mr-1" />
-          Property
+        <Button variant="outline" size="sm" title="Property" className="panel-action-button h-7 min-w-0">
+          <Plus className="h-3 w-3 shrink-0 panel-compact-icon" />
+          <span className="panel-compact-text">Property</span>
         </Button>
       </DialogTrigger>
       <DialogContent className="sm:max-w-lg">
@@ -656,9 +718,9 @@ export function AddClassificationDialog({ modelId, entityId, entityType }: AddCl
       if (!o) { setSystem(''); setCustomSystem(''); setIdentification(''); setName(''); }
     }}>
       <DialogTrigger asChild>
-        <Button variant="outline" size="sm" className="h-7">
-          <Tag className="h-3 w-3 mr-1" />
-          Classification
+        <Button variant="outline" size="sm" title="Classification" className="panel-action-button h-7 min-w-0">
+          <Tag className="h-3 w-3 shrink-0 panel-compact-icon" />
+          <span className="panel-compact-text">Classification</span>
         </Button>
       </DialogTrigger>
       <DialogContent className="sm:max-w-md">
@@ -801,9 +863,9 @@ export function AddMaterialDialog({ modelId, entityId, entityType }: AddMaterial
       if (!o) { setMaterialName(''); setCategory(''); setDescription(''); }
     }}>
       <DialogTrigger asChild>
-        <Button variant="outline" size="sm" className="h-7">
-          <Layers className="h-3 w-3 mr-1" />
-          Material
+        <Button variant="outline" size="sm" title="Material" className="panel-action-button h-7 min-w-0">
+          <Layers className="h-3 w-3 shrink-0 panel-compact-icon" />
+          <span className="panel-compact-text">Material</span>
         </Button>
       </DialogTrigger>
       <DialogContent className="sm:max-w-md">
@@ -987,9 +1049,9 @@ export function AddQuantityDialog({ modelId, entityId, entityType, existingQtos 
   return (
     <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (!o) resetForm(); }}>
       <DialogTrigger asChild>
-        <Button variant="outline" size="sm" className="h-7">
-          <Ruler className="h-3 w-3 mr-1" />
-          Quantity
+        <Button variant="outline" size="sm" title="Quantity" className="panel-action-button h-7 min-w-0">
+          <Ruler className="h-3 w-3 shrink-0 panel-compact-icon" />
+          <span className="panel-compact-text">Quantity</span>
         </Button>
       </DialogTrigger>
       <DialogContent className="sm:max-w-lg">
@@ -1178,7 +1240,7 @@ interface EditToolbarProps {
  */
 export function EditToolbar({ modelId, entityId, entityType, existingPsets, existingQtos, schemaVersion }: EditToolbarProps) {
   return (
-    <div className="flex items-center justify-between gap-2 mb-3 pb-2 border-b border-purple-200 dark:border-purple-800 bg-purple-50/30 dark:bg-purple-950/20 -mx-3 -mt-3 px-3 pt-3">
+    <div className="panel-container flex items-center justify-between gap-2 mb-3 pb-2 border-b border-purple-200 dark:border-purple-800 bg-purple-50/30 dark:bg-purple-950/20 -mx-3 -mt-3 px-3 pt-3">
       <div className="flex items-center gap-1.5 flex-wrap">
         <NewPropertyDialog
           modelId={modelId}

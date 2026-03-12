@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import {
   Search,
@@ -39,12 +39,19 @@ export function HierarchyPanel() {
   const setSelectedEntityIds = useViewerStore((s) => s.setSelectedEntityIds);
   const setSelectedEntity = useViewerStore((s) => s.setSelectedEntity);
   const setSelectedEntities = useViewerStore((s) => s.setSelectedEntities);
+  const toGlobalId = useViewerStore((s) => s.toGlobalId);
   const setSelectedModelId = useViewerStore((s) => s.setSelectedModelId);
   const selectedStoreys = useViewerStore((s) => s.selectedStoreys);
   const setStoreySelection = useViewerStore((s) => s.setStoreySelection);
   const setStoreysSelection = useViewerStore((s) => s.setStoreysSelection);
   const clearStoreySelection = useViewerStore((s) => s.clearStoreySelection);
   const isolateEntities = useViewerStore((s) => s.isolateEntities);
+  const isolatedEntities = useViewerStore((s) => s.isolatedEntities);
+  const clearIsolation = useViewerStore((s) => s.clearIsolation);
+  const classFilter = useViewerStore((s) => s.classFilter);
+  const setClassFilter = useViewerStore((s) => s.setClassFilter);
+  const clearClassFilter = useViewerStore((s) => s.clearClassFilter);
+  const clearAllFilters = useViewerStore((s) => s.clearAllFilters);
   const setHierarchyBasketSelection = useViewerStore((s) => s.setHierarchyBasketSelection);
 
   const hiddenEntities = useViewerStore((s) => s.hiddenEntities);
@@ -52,6 +59,26 @@ export function HierarchyPanel() {
   const showEntities = useViewerStore((s) => s.showEntities);
   const toggleEntityVisibility = useViewerStore((s) => s.toggleEntityVisibility);
   const clearSelection = useViewerStore((s) => s.clearSelection);
+
+  // Derive label for type isolation (from Type tab) by checking mesh ifcType
+  const typeIsolationLabel = useMemo(() => {
+    if (!isolatedEntities || isolatedEntities.size === 0) return null;
+    const sampleId = isolatedEntities.values().next().value!;
+    for (const [, model] of models) {
+      const gr = model.geometryResult;
+      if (!gr?.meshes) continue;
+      const offset = model.idOffset ?? 0;
+      const mesh = gr.meshes.find((m: { expressId: number }) => m.expressId + offset === sampleId);
+      if (mesh?.ifcType) return mesh.ifcType;
+    }
+    if (geometryResult?.meshes) {
+      const mesh = geometryResult.meshes.find((m: { expressId: number }) => m.expressId === sampleId);
+      if (mesh?.ifcType) return mesh.ifcType;
+    }
+    return `${isolatedEntities.size} elements`;
+  }, [isolatedEntities, models, geometryResult]);
+
+  const hasActiveFilters = selectedStoreys.size > 0 || isolatedEntities !== null || classFilter !== null;
 
   // Resizable panel split (percentage for storeys section, 0.5 = 50%)
   const [splitRatio, setSplitRatio] = useState(0.5);
@@ -79,6 +106,7 @@ export function HierarchyPanel() {
   const storeysRef = useRef<HTMLDivElement>(null);
   const modelsRef = useRef<HTMLDivElement>(null);
   const parentRef = useRef<HTMLDivElement>(null); // Legacy single-model mode
+
 
   // Virtualizers for both sections
   const storeysVirtualizer = useVirtualizer({
@@ -196,15 +224,52 @@ export function HierarchyPanel() {
       }]);
     }
 
-    // Type group nodes - click to isolate entities, expand via chevron only
+    // Type group nodes - click to filter/isolate entities, expand via chevron only
     if (node.type === 'type-group') {
       const elements = getNodeElements(node);
       if (elements.length > 0) {
-        // Clear multi-selection highlight — isolate shows the class members,
-        // but we don't want every element highlighted/selected
+        // Clear multi-selection highlight
         setSelectedEntityIds([]);
         setSelectedEntity(resolveEntityRef(elements[0]));
+        if (groupingMode === 'type') {
+          // Class tab → class filter (combinable with storey + type isolation)
+          setClassFilter(elements, node.ifcType || node.name);
+        } else {
+          // Type tab → type isolation (combinable with storey + class filter)
+          isolateEntities(elements);
+        }
+      }
+      return;
+    }
+
+    // IFC type entity nodes (e.g. IfcWallType/W01) - select type entity for property panel + isolate instances
+    if (node.type === 'ifc-type') {
+      const modelId = node.modelIds[0];
+      const typeExpressId = node.entityExpressId;
+      if (!typeExpressId) return;
+
+      // Clear multi-selection first (before setting new selection, since
+      // setSelectedEntityIds([]) resets selectedEntityId to null)
+      setSelectedEntityIds([]);
+
+      if (modelId && modelId !== 'legacy') {
+        setSelectedEntityId(toGlobalId(modelId, typeExpressId));
+        setSelectedEntity({ modelId, expressId: typeExpressId });
+        setActiveModel(modelId);
+      } else {
+        setSelectedEntityId(typeExpressId);
+        setSelectedEntity({ modelId: 'legacy', expressId: typeExpressId });
+      }
+
+      // Isolate instances of this type
+      const elements = getNodeElements(node);
+      if (elements.length > 0) {
         isolateEntities(elements);
+      }
+
+      // Toggle expand
+      if (node.hasChildren) {
+        toggleExpand(node.id);
       }
       return;
     }
@@ -285,48 +350,74 @@ export function HierarchyPanel() {
           setStoreysSelection(storeyIds);
         }
       }
+    } else if (node.type === 'IfcSpace') {
+      const spaceId = node.expressIds[0];
+      const modelId = node.modelIds[0];
+      const globalId = node.globalIds[0] ?? spaceId;
+
+      setSelectedEntityIds([]);
+
+      if (modelId && modelId !== 'legacy') {
+        setSelectedEntityId(globalId);
+        setSelectedEntity({ modelId, expressId: spaceId });
+        setActiveModel(modelId);
+      } else {
+        setSelectedEntityId(globalId);
+        setSelectedEntity({ modelId: 'legacy', expressId: spaceId });
+      }
+
+      if (node.hasChildren) {
+        toggleExpand(node.id);
+      }
     } else if (node.type === 'element') {
       // Element click - select it
-      const elementId = node.expressIds[0];  // Original expressId
+      const elementId = node.expressIds[0];
       const modelId = node.modelIds[0];
+      const globalId = node.globalIds[0] ?? elementId;
 
       // Clear multi-selection (e.g. from a prior type-group click) so only
       // this single element is highlighted, matching Viewport pick behavior
       setSelectedEntityIds([]);
 
       if (modelId !== 'legacy') {
-        // Multi-model: need to convert to globalId for renderer
-        const model = models.get(modelId);
-        const globalId = elementId + (model?.idOffset ?? 0);
         setSelectedEntityId(globalId);
         setSelectedEntity({ modelId, expressId: elementId });
         setActiveModel(modelId);
       } else {
-        // Legacy single-model: expressId = globalId (offset is 0)
-        setSelectedEntityId(elementId);
-        // Also set selectedEntity for property panel (was missing, causing blank panel)
-        setSelectedEntity(resolveEntityRef(elementId));
+        setSelectedEntityId(globalId);
+        setSelectedEntity(resolveEntityRef(globalId));
       }
     }
-  }, [selectedStoreys, setStoreysSelection, clearStoreySelection, setSelectedEntityId, setSelectedEntityIds, setSelectedEntity, setSelectedEntities, setActiveModel, toggleExpand, unifiedStoreys, models, isolateEntities, getNodeElements, setHierarchyBasketSelection]);
+  }, [selectedStoreys, setStoreysSelection, clearStoreySelection, setSelectedEntityId, setSelectedEntityIds, setSelectedEntity, setSelectedEntities, setActiveModel, toggleExpand, unifiedStoreys, models, isolateEntities, getNodeElements, setHierarchyBasketSelection, toGlobalId, groupingMode, setClassFilter]);
 
   // Compute selection and visibility state for a node
   const computeNodeState = useCallback((node: TreeNode): { isSelected: boolean; nodeHidden: boolean; modelVisible?: boolean } => {
     // Determine if node is selected
+    // For ifc-type nodes, check if the type entity itself is selected
     const isSelected = node.type === 'unified-storey'
       ? node.expressIds.some(id => selectedStoreys.has(id))
       : node.type === 'IfcBuildingStorey'
         ? selectedStoreys.has(node.expressIds[0])
-        : node.type === 'element'
-          ? selectedEntityId === node.expressIds[0]
-          : false;
+        : node.type === 'IfcSpace' || node.type === 'element'
+          ? selectedEntityId === (node.globalIds[0] ?? node.expressIds[0])
+          : node.type === 'ifc-type'
+            ? (() => {
+                const typeExpressId = node.entityExpressId;
+                if (!typeExpressId) return false;
+                const mId = node.modelIds[0];
+                const gId = mId && mId !== 'legacy'
+                  ? toGlobalId(mId, typeExpressId)
+                  : typeExpressId;
+                return selectedEntityId === gId;
+              })()
+            : false;
 
     // Compute visibility inline - for elements check directly, for storeys use getNodeElements
     let nodeHidden = false;
     if (node.type === 'element') {
-      nodeHidden = hiddenEntities.has(node.expressIds[0]);
-    } else if (node.type === 'IfcBuildingStorey' || node.type === 'unified-storey' ||
-               node.type === 'type-group' ||
+      nodeHidden = hiddenEntities.has(node.globalIds[0] ?? node.expressIds[0]);
+    } else if (node.type === 'IfcBuildingStorey' || node.type === 'IfcSpace' || node.type === 'unified-storey' ||
+               node.type === 'type-group' || node.type === 'ifc-type' ||
                (node.type === 'model-header' && node.id.startsWith('contrib-'))) {
       const elements = getNodeElements(node);
       nodeHidden = elements.length > 0 && elements.every(id => hiddenEntities.has(id));
@@ -340,7 +431,7 @@ export function HierarchyPanel() {
     }
 
     return { isSelected, nodeHidden, modelVisible };
-  }, [selectedStoreys, selectedEntityId, hiddenEntities, getNodeElements, models]);
+  }, [selectedStoreys, selectedEntityId, hiddenEntities, getNodeElements, models, toGlobalId]);
 
   if (!ifcDataStore && models.size === 0) {
     return (
@@ -392,25 +483,37 @@ export function HierarchyPanel() {
       <Button
         variant={groupingMode === 'spatial' ? 'default' : 'outline'}
         size="sm"
-        className="h-6 text-[10px] flex-1 rounded-none uppercase tracking-wider"
+        className="h-6 text-[10px] flex-1 min-w-0 rounded-none uppercase tracking-wider"
         onClick={() => setGroupingMode('spatial')}
+        title="Spatial"
       >
-        <Building2 className="h-3 w-3 mr-1" />
-        Spatial
+        <Building2 className="h-3 w-3 shrink-0 panel-compact-icon" />
+        <span className="panel-compact-text">Spatial</span>
       </Button>
       <Button
         variant={groupingMode === 'type' ? 'default' : 'outline'}
         size="sm"
-        className="h-6 text-[10px] flex-1 rounded-none uppercase tracking-wider"
+        className="h-6 text-[10px] flex-1 min-w-0 rounded-none uppercase tracking-wider"
         onClick={() => setGroupingMode('type')}
+        title="Class"
       >
-        <Layers className="h-3 w-3 mr-1" />
-        By Class
+        <Layers className="h-3 w-3 shrink-0 panel-compact-icon" />
+        <span className="panel-compact-text">Class</span>
+      </Button>
+      <Button
+        variant={groupingMode === 'ifc-type' ? 'default' : 'outline'}
+        size="sm"
+        className="h-6 text-[10px] flex-1 min-w-0 rounded-none uppercase tracking-wider"
+        onClick={() => setGroupingMode('ifc-type')}
+        title="Type"
+      >
+        <FileBox className="h-3 w-3 shrink-0 panel-compact-icon" />
+        <span className="panel-compact-text">Type</span>
       </Button>
     </div>
   );
 
-  // In type grouping mode, always use flat tree layout (even for multi-model)
+  // In type/ifc-type grouping mode, always use flat tree layout (even for multi-model)
   if (isMultiModel && groupingMode === 'spatial') {
     return (
       <div ref={containerRef} className="h-full flex flex-col border-r-2 border-zinc-200 dark:border-zinc-800 bg-white dark:bg-black">
@@ -479,21 +582,44 @@ export function HierarchyPanel() {
         </div>
 
         {/* Footer status */}
-        {selectedStoreys.size > 0 ? (
+        {hasActiveFilters ? (
           <div className="p-2 border-t-2 border-zinc-200 dark:border-zinc-800 bg-primary text-white dark:bg-primary">
-            <div className="flex items-center justify-between text-xs font-medium">
-              <span className="uppercase tracking-wide">
-                {selectedStoreys.size} {selectedStoreys.size === 1 ? 'STOREY' : 'STOREYS'} FILTERED
-              </span>
-              <div className="flex items-center gap-2">
+            <div className="flex items-center justify-between text-xs font-medium gap-2">
+              <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+                {selectedStoreys.size > 0 && (
+                  <span className="inline-flex items-center gap-1 bg-white/15 rounded px-1.5 py-0.5 text-[10px] uppercase tracking-wide">
+                    {selectedStoreys.size} {selectedStoreys.size === 1 ? 'Storey' : 'Storeys'}
+                    <button onClick={clearStoreySelection} className="ml-0.5 opacity-60 hover:opacity-100 text-xs leading-none" aria-label="Clear storey filter">&times;</button>
+                  </span>
+                )}
+                {classFilter !== null && (
+                  <>
+                    {selectedStoreys.size > 0 && <span className="text-[10px] opacity-50">+</span>}
+                    <span className="inline-flex items-center gap-1 bg-white/15 rounded px-1.5 py-0.5 text-[10px] uppercase tracking-wide">
+                      {classFilter.label}
+                      <button onClick={clearClassFilter} className="ml-0.5 opacity-60 hover:opacity-100 text-xs leading-none" aria-label="Clear class filter">&times;</button>
+                    </span>
+                  </>
+                )}
+                {isolatedEntities !== null && (
+                  <>
+                    {(selectedStoreys.size > 0 || classFilter !== null) && <span className="text-[10px] opacity-50">+</span>}
+                    <span className="inline-flex items-center gap-1 bg-white/15 rounded px-1.5 py-0.5 text-[10px] uppercase tracking-wide">
+                      {typeIsolationLabel}
+                      <button onClick={clearIsolation} className="ml-0.5 opacity-60 hover:opacity-100 text-xs leading-none" aria-label="Clear type filter">&times;</button>
+                    </span>
+                  </>
+                )}
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
                 <span className="opacity-70 text-[10px] font-mono">ESC</span>
                 <Button
                   variant="ghost"
                   size="sm"
                   className="h-6 text-[10px] uppercase border border-white/20 hover:bg-white/20 hover:text-white rounded-none px-2"
-                  onClick={clearStoreySelection}
+                  onClick={() => { clearStoreySelection(); clearAllFilters(); }}
                 >
-                  Clear
+                  Clear all
                 </Button>
               </div>
             </div>
@@ -523,7 +649,7 @@ export function HierarchyPanel() {
       </div>
 
       {/* Section Header */}
-      <SectionHeader icon={groupingMode === 'type' ? Layers : Building2} title={groupingMode === 'type' ? 'By Class' : 'Hierarchy'} count={filteredNodes.length} />
+      <SectionHeader icon={groupingMode === 'spatial' ? Building2 : groupingMode === 'type' ? Layers : FileBox} title={groupingMode === 'spatial' ? 'Hierarchy' : groupingMode === 'type' ? 'By Class' : 'By Type'} count={filteredNodes.length} />
 
       {/* Tree */}
       <div ref={parentRef} className="flex-1 overflow-auto scrollbar-thin bg-white dark:bg-black">
@@ -542,21 +668,44 @@ export function HierarchyPanel() {
       </div>
 
       {/* Footer status */}
-      {selectedStoreys.size > 0 ? (
+      {hasActiveFilters ? (
         <div className="p-2 border-t-2 border-zinc-200 dark:border-zinc-800 bg-primary text-white dark:bg-primary">
-          <div className="flex items-center justify-between text-xs font-medium">
-            <span className="uppercase tracking-wide">
-              {selectedStoreys.size} {selectedStoreys.size === 1 ? 'STOREY' : 'STOREYS'} FILTERED
-            </span>
-            <div className="flex items-center gap-2">
+          <div className="flex items-center justify-between text-xs font-medium gap-2">
+            <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+              {selectedStoreys.size > 0 && (
+                <span className="inline-flex items-center gap-1 bg-white/15 rounded px-1.5 py-0.5 text-[10px] uppercase tracking-wide">
+                  {selectedStoreys.size} {selectedStoreys.size === 1 ? 'Storey' : 'Storeys'}
+                  <button onClick={clearStoreySelection} className="ml-0.5 opacity-60 hover:opacity-100 text-xs leading-none" aria-label="Clear storey filter">&times;</button>
+                </span>
+              )}
+              {classFilter !== null && (
+                <>
+                  {selectedStoreys.size > 0 && <span className="text-[10px] opacity-50">+</span>}
+                  <span className="inline-flex items-center gap-1 bg-white/15 rounded px-1.5 py-0.5 text-[10px] uppercase tracking-wide">
+                    {classFilter.label}
+                    <button onClick={clearClassFilter} className="ml-0.5 opacity-60 hover:opacity-100 text-xs leading-none" aria-label="Clear class filter">&times;</button>
+                  </span>
+                </>
+              )}
+              {isolatedEntities !== null && (
+                <>
+                  {(selectedStoreys.size > 0 || classFilter !== null) && <span className="text-[10px] opacity-50">+</span>}
+                  <span className="inline-flex items-center gap-1 bg-white/15 rounded px-1.5 py-0.5 text-[10px] uppercase tracking-wide">
+                    {typeIsolationLabel}
+                    <button onClick={clearIsolation} className="ml-0.5 opacity-60 hover:opacity-100 text-xs leading-none" aria-label="Clear type filter">&times;</button>
+                  </span>
+                </>
+              )}
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
               <span className="opacity-70 text-[10px] font-mono">ESC</span>
               <Button
                 variant="ghost"
                 size="sm"
                 className="h-6 text-[10px] uppercase border border-white/20 hover:bg-white/20 hover:text-white rounded-none px-2"
-                onClick={clearStoreySelection}
+                onClick={() => { clearStoreySelection(); clearAllFilters(); }}
               >
-                Clear
+                Clear all
               </Button>
             </div>
           </div>

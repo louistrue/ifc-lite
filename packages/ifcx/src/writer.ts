@@ -8,9 +8,20 @@
  * Exports IFC data to IFCX JSON format.
  */
 
-import type { IfcxFile, IfcxNode, IfcxHeader } from './types.js';
+import type { IfcxFile, IfcxNode, IfcxHeader, ImportNode } from './types.js';
 import type { EntityTable, PropertyTable, PropertySet, SpatialHierarchy } from '@ifc-lite/data';
 import type { MutablePropertyView } from '@ifc-lite/mutations';
+
+// ============================================================================
+// Standard IFCX schema imports
+// ============================================================================
+
+/** Standard IFC5 schema package URIs, keyed by the attribute prefix they provide. */
+const IFCX_SCHEMA_IMPORTS = {
+  IFC_CORE: 'https://ifcx.dev/@standards.buildingsmart.org/ifc/core/ifc@v5a.ifcx',
+  IFC_PROP: 'https://ifcx.dev/@standards.buildingsmart.org/ifc/core/prop@v5a.ifcx',
+  USD: 'https://ifcx.dev/@openusd.org/usd@v1.ifcx',
+} as const;
 
 /**
  * Options for IFCX export
@@ -81,7 +92,7 @@ export class IfcxWriter {
 
     const file: IfcxFile = {
       header,
-      imports: [],
+      imports: collectRequiredImports(nodes),
       schemas: {},
       data: nodes,
     };
@@ -142,23 +153,23 @@ export class IfcxWriter {
       // Build attributes
       const attributes: Record<string, unknown> = {};
 
-      // Add IFC class
+      // Add IFC class (requires both code and uri per official schema)
       const typeName = this.getTypeName(typeEnum);
       if (typeName) {
-        attributes['bsi::ifc::class'] = { code: typeName };
+        attributes['bsi::ifc::class'] = {
+          code: typeName,
+          uri: `https://identifier.buildingsmart.org/uri/buildingsmart/ifc/5/class/${typeName}`,
+        };
       }
 
-      // Add basic attributes
-      if (globalId) {
-        attributes['bsi::ifc::globalId'] = globalId;
-      }
+      // IFC5 uses bsi::ifc::prop:: namespace for name/description (not bsi::ifc::name)
       if (name) {
-        attributes['bsi::ifc::name'] = name;
+        attributes['bsi::ifc::prop::Name'] = name;
       }
 
       const description = this.getString(entities.description[i]);
       if (description) {
-        attributes['bsi::ifc::description'] = description;
+        attributes['bsi::ifc::prop::Description'] = description;
       }
 
       // Add properties if requested
@@ -258,7 +269,7 @@ export class IfcxWriter {
   /**
    * Get type name from enum
    */
-  private getTypeName(typeEnum: number): string {
+  private getTypeName(typeEnum: number): string | undefined {
     // Map common type enums to IFC class names
     const typeMap: Record<number, string> = {
       1: 'IfcProject',
@@ -289,14 +300,14 @@ export class IfcxWriter {
       40: 'IfcOpeningElement',
     };
 
-    return typeMap[typeEnum] || `IfcElement_${typeEnum}`;
+    return typeMap[typeEnum] || undefined;
   }
 
   /**
    * Generate path for an entity
    */
   private generatePath(expressId: number, typeEnum: number): string {
-    const typeName = this.getTypeName(typeEnum);
+    const typeName = this.getTypeName(typeEnum) || 'IfcElement';
     return `ifc:${typeName}.${expressId}`;
   }
 
@@ -306,6 +317,47 @@ export class IfcxWriter {
   private generateId(): string {
     return `ifcx_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
   }
+}
+
+/**
+ * Scan data nodes and return the list of standard IFCX import URIs needed
+ * for the attribute namespaces actually used.
+ */
+function collectRequiredImports(nodes: IfcxNode[]): ImportNode[] {
+  let needsIfcCore = false;
+  let needsIfcProp = false;
+  let needsUsd = false;
+
+  for (const node of nodes) {
+    if (!node.attributes) continue;
+    for (const key of Object.keys(node.attributes)) {
+      // IFC core schemas: class, presentation, material, spaceBoundary
+      if (!needsIfcCore && (
+        key === 'bsi::ifc::class' ||
+        key.startsWith('bsi::ifc::presentation::') ||
+        key === 'bsi::ifc::material' ||
+        key === 'bsi::ifc::spaceBoundary'
+      )) {
+        needsIfcCore = true;
+      }
+      // IFC property schemas: bsi::ifc::prop::*
+      if (!needsIfcProp && key.startsWith('bsi::ifc::prop::')) {
+        needsIfcProp = true;
+      }
+      // USD schemas: usd::*
+      if (!needsUsd && key.startsWith('usd::')) {
+        needsUsd = true;
+      }
+      if (needsIfcCore && needsIfcProp && needsUsd) break;
+    }
+    if (needsIfcCore && needsIfcProp && needsUsd) break;
+  }
+
+  const imports: ImportNode[] = [];
+  if (needsIfcCore) imports.push({ uri: IFCX_SCHEMA_IMPORTS.IFC_CORE });
+  if (needsIfcProp) imports.push({ uri: IFCX_SCHEMA_IMPORTS.IFC_PROP });
+  if (needsUsd) imports.push({ uri: IFCX_SCHEMA_IMPORTS.USD });
+  return imports;
 }
 
 /**

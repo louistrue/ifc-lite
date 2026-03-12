@@ -9,6 +9,7 @@ import { ToolOverlays } from './ToolOverlays';
 import { Section2DPanel } from './Section2DPanel';
 import { BasketPresentationDock } from './BasketPresentationDock';
 import { useViewerStore } from '@/store';
+import { collectIfcBuildingStoreyElementsWithIfcSpace } from '@/store/basketVisibleSet';
 import { useIfc } from '@/hooks/useIfc';
 import { useWebGPU } from '@/hooks/useWebGPU';
 import { Upload, MousePointer, Layers, Info, Command, AlertTriangle, ChevronDown, ExternalLink, Plus } from 'lucide-react';
@@ -27,6 +28,7 @@ export function ViewportContainer() {
   const selectedStoreys = useViewerStore((s) => s.selectedStoreys);
   const typeVisibility = useViewerStore((s) => s.typeVisibility);
   const isolatedEntities = useViewerStore((s) => s.isolatedEntities);
+  const classFilter = useViewerStore((s) => s.classFilter);
   // Multi-model support: get all loaded models from store (for merged geometry)
   const storeModels = useViewerStore((s) => s.models);
   const resetViewerState = useViewerStore((s) => s.resetViewerState);
@@ -251,15 +253,8 @@ export function ViewportContainer() {
   // Now supports multi-model: aggregates elements from all models for selected storeys
   // IMPORTANT: Returns globalIds (meshes use globalIds after federation registry transformation)
   const computedIsolatedIds = useMemo(() => {
-    // If manual isolation is active, use that (already contains globalIds)
-    if (isolatedEntities !== null) {
-      return isolatedEntities;
-    }
-
-    // If storeys are selected, compute combined element IDs from all selected storeys
-    // across ALL models (multi-model support)
-    // NOTE: Storey hierarchy uses original expressIds, but meshes use globalIds
-    // We must transform expressIds -> globalIds using the model's offset
+    // Compute storey isolation if storeys are selected
+    let storeyIsolation: Set<number> | null = null;
     if (selectedStoreys.size > 0) {
       const combinedGlobalIds = new Set<number>();
 
@@ -268,46 +263,56 @@ export function ViewportContainer() {
         const hierarchy = model.ifcDataStore?.spatialHierarchy;
         if (!hierarchy) continue;
 
-        // Get this model's offset directly from the model (no need for registry)
         const offset = model.idOffset ?? 0;
 
         for (const storeyId of selectedStoreys) {
-          // Note: storeyId itself might be a globalId if the user selected via mesh click,
-          // or an original ID if selected via hierarchy panel. The byStorey map uses original IDs.
-          // For now, try both the storeyId and storeyId - offset
-          const storeyElementIds = hierarchy.byStorey.get(storeyId) || hierarchy.byStorey.get(storeyId - offset);
+          const localStoreyId = hierarchy.byStorey.has(storeyId) ? storeyId : storeyId - offset;
+          const storeyElementIds = collectIfcBuildingStoreyElementsWithIfcSpace(hierarchy, localStoreyId);
           if (storeyElementIds) {
             for (const originalExpressId of storeyElementIds) {
-              // Transform to globalId
-              const globalId = originalExpressId + offset;
-              combinedGlobalIds.add(globalId);
+              combinedGlobalIds.add(originalExpressId + offset);
             }
           }
         }
       }
 
-      // Also check legacy ifcDataStore (for single-model mode without federation)
-      // In this case, offset is 0, so globalId = expressId
+      // Legacy single-model mode (offset = 0)
       if (ifcDataStore?.spatialHierarchy && storeModels.size === 0) {
         const hierarchy = ifcDataStore.spatialHierarchy;
         for (const storeyId of selectedStoreys) {
-          const storeyElementIds = hierarchy.byStorey.get(storeyId);
+          const storeyElementIds = collectIfcBuildingStoreyElementsWithIfcSpace(hierarchy, storeyId);
           if (storeyElementIds) {
             for (const id of storeyElementIds) {
-              combinedGlobalIds.add(id); // offset = 0 for legacy single-model
+              combinedGlobalIds.add(id);
             }
           }
         }
       }
 
       if (combinedGlobalIds.size > 0) {
-        return combinedGlobalIds;
+        storeyIsolation = combinedGlobalIds;
       }
     }
 
-    // No isolation active
-    return null;
-  }, [storeModels, ifcDataStore, selectedStoreys, isolatedEntities]);
+    // Collect all active filters and intersect them
+    const filters: Set<number>[] = [];
+    if (storeyIsolation !== null) filters.push(storeyIsolation);
+    if (classFilter !== null) filters.push(classFilter.ids);
+    if (isolatedEntities !== null) filters.push(isolatedEntities);
+
+    if (filters.length === 0) return null;
+    if (filters.length === 1) return filters[0];
+
+    // Intersect all active filters — start from smallest for efficiency
+    const sorted = filters.sort((a, b) => a.size - b.size);
+    const intersection = new Set<number>();
+    for (const id of sorted[0]) {
+      if (sorted.every(s => s.has(id))) {
+        intersection.add(id);
+      }
+    }
+    return intersection;
+  }, [storeModels, ifcDataStore, selectedStoreys, isolatedEntities, classFilter]);
 
   // Grid Pattern
   const GridPattern = () => (

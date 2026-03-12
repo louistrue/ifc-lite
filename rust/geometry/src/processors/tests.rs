@@ -117,6 +117,69 @@ fn test_boolean_result_with_half_space() {
 }
 
 #[test]
+fn test_polygonal_bounded_half_space_respects_boundary() {
+    let content = r#"
+#1=IFCRECTANGLEPROFILEDEF(.AREA.,$,$,10.0,4.0);
+#2=IFCDIRECTION((0.0,0.0,1.0));
+#3=IFCEXTRUDEDAREASOLID(#1,$,#2,5.0);
+#4=IFCCARTESIANPOINT((-5.0,0.0));
+#5=IFCCARTESIANPOINT((5.0,0.0));
+#6=IFCCARTESIANPOINT((5.0,3.0));
+#7=IFCCARTESIANPOINT((-5.0,3.0));
+#8=IFCPOLYLINE((#4,#5,#6,#7,#4));
+#9=IFCCARTESIANPOINT((0.0,0.0,5.0));
+#10=IFCDIRECTION((0.0,1.0,0.0));
+#11=IFCDIRECTION((1.0,0.0,0.0));
+#12=IFCAXIS2PLACEMENT3D(#9,#10,#11);
+#13=IFCPLANE(#12);
+#14=IFCAXIS2PLACEMENT3D(#9,#10,#11);
+#15=IFCPOLYGONALBOUNDEDHALFSPACE(#13,.F.,#14,#8);
+#16=IFCBOOLEANCLIPPINGRESULT(.DIFFERENCE.,#3,#15);
+"#;
+
+    let mut decoder = EntityDecoder::new(content);
+    let schema = IfcSchema::new();
+    let processor = BooleanClippingProcessor::new();
+
+    let entity = decoder.decode_by_id(16).unwrap();
+    let mesh = processor.process(&entity, &mut decoder, &schema).unwrap();
+
+    assert!(!mesh.is_empty(), "Bounded half-space should still produce geometry");
+
+    let mut has_outer_base = false;
+    let mut has_outer_top = false;
+    let mut has_clipped_top = false;
+
+    for position in mesh.positions.chunks_exact(3) {
+        let y = position[1] as f64;
+        let z = position[2] as f64;
+
+        if y > 1.9 && z < 0.1 {
+            has_outer_base = true;
+        }
+        if y > 1.9 && z > 4.9 {
+            has_outer_top = true;
+        }
+        if y.abs() < 0.1 && z > 4.9 {
+            has_clipped_top = true;
+        }
+    }
+
+    assert!(
+        has_outer_base,
+        "The polygon boundary should only clip the upper strip, not the whole wall side"
+    );
+    assert!(
+        !has_outer_top,
+        "The clipped strip should be removed at the top of the bounded region"
+    );
+    assert!(
+        has_clipped_top,
+        "The bounded clip should create a new top edge at the cut boundary"
+    );
+}
+
+#[test]
 fn test_764_column_file() {
     use crate::router::GeometryRouter;
 

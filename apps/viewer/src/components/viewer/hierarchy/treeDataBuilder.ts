@@ -2,9 +2,9 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-import { IfcTypeEnum, type SpatialNode } from '@ifc-lite/data';
+import { IfcTypeEnum, EntityFlags, RelationshipType, type SpatialNode } from '@ifc-lite/data';
 import type { IfcDataStore } from '@ifc-lite/parser';
-import type { FederatedModel } from '@/store';
+import { useViewerStore, type FederatedModel } from '@/store';
 import type { TreeNode, NodeType, StoreyData, UnifiedStorey } from './types';
 
 /** Helper to create elevation key (with 0.5m tolerance for matching) */
@@ -19,8 +19,72 @@ export function getNodeType(ifcType: IfcTypeEnum): NodeType {
     case IfcTypeEnum.IfcSite: return 'IfcSite';
     case IfcTypeEnum.IfcBuilding: return 'IfcBuilding';
     case IfcTypeEnum.IfcBuildingStorey: return 'IfcBuildingStorey';
+    case IfcTypeEnum.IfcSpace: return 'IfcSpace';
     default: return 'element';
   }
+}
+
+function resolveTreeGlobalId(
+  modelId: string,
+  expressId: number,
+  models: Map<string, FederatedModel>
+): number {
+  if (modelId === 'legacy' || !models.has(modelId)) {
+    return expressId;
+  }
+
+  return useViewerStore.getState().toGlobalId(modelId, expressId);
+}
+
+function collectDescendantSpaceElements(
+  spatialNode: SpatialNode,
+  hierarchy: IfcDataStore['spatialHierarchy'],
+  cache: Map<number, Set<number>>
+): Set<number> {
+  const cached = cache.get(spatialNode.expressId);
+  if (cached) return cached;
+
+  const elementIds = new Set<number>();
+
+  for (const child of spatialNode.children || []) {
+    if (getNodeType(child.type) === 'IfcSpace') {
+      for (const elementId of hierarchy?.bySpace.get(child.expressId) ?? []) {
+        elementIds.add(elementId);
+      }
+    }
+
+    for (const elementId of collectDescendantSpaceElements(child, hierarchy, cache)) {
+      elementIds.add(elementId);
+    }
+  }
+
+  cache.set(spatialNode.expressId, elementIds);
+  return elementIds;
+}
+
+function getSpatialNodeElements(
+  spatialNode: SpatialNode,
+  dataStore: IfcDataStore,
+  nodeType: NodeType,
+  descendantSpaceCache: Map<number, Set<number>>
+): number[] {
+  if (nodeType === 'IfcSpace') {
+    return (dataStore.spatialHierarchy?.bySpace.get(spatialNode.expressId) as number[]) || [];
+  }
+
+  if (nodeType !== 'IfcBuildingStorey') {
+    return [];
+  }
+
+  const storeyElements =
+    (dataStore.spatialHierarchy?.byStorey.get(spatialNode.expressId) as number[]) || [];
+  const descendantSpaceElements = collectDescendantSpaceElements(
+    spatialNode,
+    dataStore.spatialHierarchy,
+    descendantSpaceCache
+  );
+
+  return storeyElements.filter((elementId) => !descendantSpaceElements.has(elementId));
 }
 
 /** Build unified storey data for multi-model mode */
@@ -82,11 +146,8 @@ export function getUnifiedStoreyElements(
   const allElements = new Array<number>(totalLength);
   let idx = 0;
   for (const storey of unifiedStorey.storeys) {
-    const model = models.get(storey.modelId);
-    const offset = model?.idOffset ?? 0;
-    // Direct assignment instead of spread for better performance
     for (const id of storey.elements) {
-      allElements[idx++] = id + offset;
+      allElements[idx++] = resolveTreeGlobalId(storey.modelId, id, models);
     }
   }
   return allElements;
@@ -96,13 +157,15 @@ export function getUnifiedStoreyElements(
 function buildSpatialNodes(
   spatialNode: SpatialNode,
   modelId: string,
+  models: Map<string, FederatedModel>,
   dataStore: IfcDataStore,
   depth: number,
   parentNodeId: string,
   stopAtBuilding: boolean,
   idOffset: number,
   expandedNodes: Set<string>,
-  nodes: TreeNode[]
+  nodes: TreeNode[],
+  descendantSpaceCache: Map<number, Set<number>>
 ): void {
   const nodeId = `${parentNodeId}-${spatialNode.expressId}`;
   const nodeType = getNodeType(spatialNode.type);
@@ -113,11 +176,7 @@ function buildSpatialNodes(
     return;
   }
 
-  // For storeys, get elements from byStorey map
-  let elements: number[] = [];
-  if (nodeType === 'IfcBuildingStorey') {
-    elements = (dataStore.spatialHierarchy?.byStorey.get(spatialNode.expressId) as number[]) || [];
-  }
+  const elements = getSpatialNodeElements(spatialNode, dataStore, nodeType, descendantSpaceCache);
 
   // Check if has children
   // In stopAtBuilding mode, buildings have no children (storeys shown separately)
@@ -126,11 +185,13 @@ function buildSpatialNodes(
   );
   const hasChildren = stopAtBuilding
     ? (nodeType !== 'IfcBuilding' && hasNonStoreyChildren)
-    : (spatialNode.children?.length > 0) || (nodeType === 'IfcBuildingStorey' && elements.length > 0);
+    : (spatialNode.children?.length > 0) ||
+      ((nodeType === 'IfcBuildingStorey' || nodeType === 'IfcSpace') && elements.length > 0);
 
   nodes.push({
     id: nodeId,
     expressIds: [spatialNode.expressId],
+    globalIds: [resolveTreeGlobalId(modelId, spatialNode.expressId, models)],
     modelIds: [modelId],
     name: (spatialNode.name && spatialNode.name.toLowerCase() !== 'unknown')
       ? spatialNode.name
@@ -140,7 +201,7 @@ function buildSpatialNodes(
     hasChildren,
     isExpanded: isNodeExpanded,
     isVisible: true, // Visibility computed lazily during render
-    elementCount: nodeType === 'IfcBuildingStorey' ? elements.length : undefined,
+    elementCount: nodeType === 'IfcBuildingStorey' || nodeType === 'IfcSpace' ? elements.length : undefined,
     storeyElevation: spatialNode.elevation,
     // Store idOffset for lazy visibility computation
     _idOffset: idOffset,
@@ -153,22 +214,36 @@ function buildSpatialNodes(
       : spatialNode.children || [];
 
     for (const child of sortedChildren) {
-      buildSpatialNodes(child, modelId, dataStore, depth + 1, nodeId, stopAtBuilding, idOffset, expandedNodes, nodes);
+      buildSpatialNodes(
+        child,
+        modelId,
+        models,
+        dataStore,
+        depth + 1,
+        nodeId,
+        stopAtBuilding,
+        idOffset,
+        expandedNodes,
+        nodes,
+        descendantSpaceCache
+      );
     }
 
     // For storeys (single-model only), add elements
-    if (!stopAtBuilding && nodeType === 'IfcBuildingStorey' && elements.length > 0) {
+    if (!stopAtBuilding && (nodeType === 'IfcBuildingStorey' || nodeType === 'IfcSpace') && elements.length > 0) {
       for (const elementId of elements) {
-        const globalId = elementId + idOffset;
+        const globalId = resolveTreeGlobalId(modelId, elementId, models);
         const entityType = dataStore.entities?.getTypeName(elementId) || 'Unknown';
         const entityName = dataStore.entities?.getName(elementId) || `${entityType} #${elementId}`;
 
         nodes.push({
           id: `element-${modelId}-${elementId}`,
-          expressIds: [globalId],  // Store global ID for visibility operations
+          expressIds: [elementId],
+          globalIds: [globalId],
           modelIds: [modelId],
           name: entityName,
           type: 'element',
+          ifcType: entityType,
           depth: depth + 1,
           hasChildren: false,
           isExpanded: false,
@@ -200,6 +275,7 @@ export function buildTreeData(
       nodes.push({
         id: storeyNodeId,
         expressIds: allStoreyIds,
+        globalIds: unified.storeys.map((s) => s.storeyId + (models.get(s.modelId)?.idOffset ?? 0)),
         modelIds: unified.storeys.map(s => s.modelId),
         name: unified.name,
         type: 'unified-storey',
@@ -225,6 +301,7 @@ export function buildTreeData(
           nodes.push({
             id: contribNodeId,
             expressIds: [storey.storeyId],
+            globalIds: [resolveTreeGlobalId(storey.modelId, storey.storeyId, models)],
             modelIds: [storey.modelId],
             name: modelName,
             type: 'model-header',
@@ -240,16 +317,18 @@ export function buildTreeData(
           if (contribExpanded) {
             const dataStore = model?.ifcDataStore;
             for (const elementId of storey.elements) {
-              const globalId = elementId + offset;
+              const globalId = resolveTreeGlobalId(storey.modelId, elementId, models);
               const entityType = dataStore?.entities?.getTypeName(elementId) || 'Unknown';
               const entityName = dataStore?.entities?.getName(elementId) || `${entityType} #${elementId}`;
 
               nodes.push({
                 id: `element-${storey.modelId}-${elementId}`,
-                expressIds: [globalId],  // Store global ID for visibility operations
+                expressIds: [elementId],
+                globalIds: [globalId],
                 modelIds: [storey.modelId],
                 name: entityName,
                 type: 'element',
+                ifcType: entityType,
                 depth: 2,
                 hasChildren: false,
                 isExpanded: false,
@@ -265,6 +344,7 @@ export function buildTreeData(
     nodes.push({
       id: 'models-header',
       expressIds: [],
+      globalIds: [],
       modelIds: [],
       name: 'Models',
       type: 'model-header',
@@ -283,6 +363,7 @@ export function buildTreeData(
       nodes.push({
         id: modelNodeId,
         expressIds: [],
+        globalIds: [],
         modelIds: [modelId],
         name: model.name,
         type: 'model-header',
@@ -295,16 +376,19 @@ export function buildTreeData(
 
       // If expanded, show Project -> Site -> Building (stop at building, no storeys)
       if (isModelExpanded && model.ifcDataStore?.spatialHierarchy?.project) {
+        const descendantSpaceCache = new Map<number, Set<number>>();
         buildSpatialNodes(
           model.ifcDataStore.spatialHierarchy.project,
           modelId,
+          models,
           model.ifcDataStore,
           1,
           modelNodeId,
           true,  // stopAtBuilding = true
           model.idOffset ?? 0,
           expandedNodes,
-          nodes
+          nodes,
+          descendantSpaceCache
         );
       }
     }
@@ -312,30 +396,36 @@ export function buildTreeData(
     // Single model: show full spatial hierarchy (including storeys)
     const [modelId, model] = Array.from(models.entries())[0];
     if (model.ifcDataStore?.spatialHierarchy?.project) {
+      const descendantSpaceCache = new Map<number, Set<number>>();
       buildSpatialNodes(
         model.ifcDataStore.spatialHierarchy.project,
         modelId,
+        models,
         model.ifcDataStore,
         0,
         'root',
         false,  // stopAtBuilding = false (show full hierarchy)
         model.idOffset ?? 0,
         expandedNodes,
-        nodes
+        nodes,
+        descendantSpaceCache
       );
     }
   } else if (ifcDataStore?.spatialHierarchy?.project) {
     // Legacy single-model mode (no offset)
+    const descendantSpaceCache = new Map<number, Set<number>>();
     buildSpatialNodes(
       ifcDataStore.spatialHierarchy.project,
       'legacy',
+      models,
       ifcDataStore,
       0,
       'root',
       false,
       0,
       expandedNodes,
-      nodes
+      nodes,
+      descendantSpaceCache
     );
   }
 
@@ -355,10 +445,10 @@ export function buildTypeTree(
   // Collect entities grouped by IFC class across all models
   const typeGroups = new Map<string, Array<{ expressId: number; globalId: number; name: string; modelId: string }>>();
 
-  const processDataStore = (dataStore: IfcDataStore, modelId: string, idOffset: number) => {
+  const processDataStore = (dataStore: IfcDataStore, modelId: string) => {
     for (let i = 0; i < dataStore.entities.count; i++) {
       const expressId = dataStore.entities.expressId[i];
-      const globalId = expressId + idOffset;
+      const globalId = resolveTreeGlobalId(modelId, expressId, models);
 
       // Only include entities that have geometry
       if (geometricIds && geometricIds.size > 0 && !geometricIds.has(globalId)) continue;
@@ -377,11 +467,11 @@ export function buildTypeTree(
   if (models.size > 0) {
     for (const [modelId, model] of models) {
       if (model.ifcDataStore) {
-        processDataStore(model.ifcDataStore, modelId, model.idOffset ?? 0);
+        processDataStore(model.ifcDataStore, modelId);
       }
     }
   } else if (ifcDataStore) {
-    processDataStore(ifcDataStore, 'legacy', 0);
+    processDataStore(ifcDataStore, 'legacy');
   }
 
   // Sort types alphabetically
@@ -399,10 +489,12 @@ export function buildTypeTree(
 
     nodes.push({
       id: groupNodeId,
-      expressIds: groupGlobalIds,
+      expressIds: entities.map((e) => e.expressId),
+      globalIds: groupGlobalIds,
       modelIds: [],
       name: typeName,
       type: 'type-group',
+      ifcType: typeName,
       depth: 0,
       hasChildren: entities.length > 0,
       isExpanded,
@@ -417,15 +509,176 @@ export function buildTypeTree(
         const suffix = isMultiModel ? ` [${models.get(entity.modelId)?.name || entity.modelId}]` : '';
         nodes.push({
           id: `element-${entity.modelId}-${entity.expressId}`,
-          expressIds: [entity.globalId],
+          expressIds: [entity.expressId],
+          globalIds: [entity.globalId],
           modelIds: [entity.modelId],
           name: entity.name + suffix,
           type: 'element',
+          ifcType: typeName,
           depth: 1,
           hasChildren: false,
           isExpanded: false,
           isVisible: true,
         });
+      }
+    }
+  }
+
+  return nodes;
+}
+
+/** Build tree data grouped by IFC type entities (IfcWallType, IfcDoorType, etc.).
+ *  Shows each type entity as a parent node with its typed instances (occurrences) as children.
+ *  Uses IfcRelDefinesByType relationships to find type→occurrence mappings.
+ *  Entities without a type are grouped under an "Untyped" section per IFC class. */
+export function buildIfcTypeTree(
+  models: Map<string, FederatedModel>,
+  ifcDataStore: IfcDataStore | null | undefined,
+  expandedNodes: Set<string>,
+  isMultiModel: boolean,
+  geometricIds?: Set<number>,
+): TreeNode[] {
+  // Collect type entities and their typed instances
+  interface TypeEntry {
+    typeExpressId: number;
+    typeName: string;      // e.g. "W01"
+    typeClassName: string;  // e.g. "IfcWallType"
+    modelId: string;
+    globalId: number;
+    instances: Array<{ expressId: number; globalId: number; name: string; modelId: string; ifcType: string }>;
+  }
+
+  // Group by type class name (e.g. "IfcWallType") → individual types
+  const typeClassGroups = new Map<string, TypeEntry[]>();
+
+  const processDataStore = (dataStore: IfcDataStore, modelId: string) => {
+    if (!dataStore.relationships) return;
+
+    // Find all type entities (entities with IS_TYPE flag)
+    for (let i = 0; i < dataStore.entities.count; i++) {
+      const flags = dataStore.entities.flags[i];
+      if (!(flags & EntityFlags.IS_TYPE)) continue;
+
+      const expressId = dataStore.entities.expressId[i];
+      const typeClassName = dataStore.entities.getTypeName(expressId);
+
+      // Skip relationship entities and non-product types
+      if (typeClassName.startsWith('IfcRel') || typeClassName === 'Unknown') continue;
+      const typeName = dataStore.entities.getName(expressId) || `#${expressId}`;
+
+      // Get instances via DefinesByType (forward: type → occurrences)
+      const instanceIds = dataStore.relationships.getRelated(expressId, RelationshipType.DefinesByType, 'forward');
+      const instances: TypeEntry['instances'] = [];
+
+      for (const instId of instanceIds) {
+        const instGlobalId = resolveTreeGlobalId(modelId, instId, models);
+        if (geometricIds && geometricIds.size > 0 && !geometricIds.has(instGlobalId)) continue;
+        const instName = dataStore.entities.getName(instId) || `#${instId}`;
+        const instIfcType = dataStore.entities.getTypeName(instId) || 'Unknown';
+        instances.push({ expressId: instId, globalId: instGlobalId, name: instName, modelId, ifcType: instIfcType });
+      }
+
+      const entry: TypeEntry = {
+        typeExpressId: expressId,
+        typeName,
+        typeClassName,
+        modelId,
+        globalId: resolveTreeGlobalId(modelId, expressId, models),
+        instances,
+      };
+
+      if (!typeClassGroups.has(typeClassName)) {
+        typeClassGroups.set(typeClassName, []);
+      }
+      typeClassGroups.get(typeClassName)!.push(entry);
+    }
+  };
+
+  if (models.size > 0) {
+    for (const [modelId, model] of models) {
+      if (model.ifcDataStore) {
+        processDataStore(model.ifcDataStore, modelId);
+      }
+    }
+  } else if (ifcDataStore) {
+    processDataStore(ifcDataStore, 'legacy');
+  }
+
+  const nodes: TreeNode[] = [];
+
+  // Sort type class groups alphabetically
+  const sortedClassNames = Array.from(typeClassGroups.keys()).sort();
+
+  for (const className of sortedClassNames) {
+    const types = typeClassGroups.get(className)!;
+    const classNodeId = `typeclass-${className}`;
+    const isClassExpanded = expandedNodes.has(classNodeId);
+
+    // Total instances across all types in this class
+    const totalInstances = types.reduce((sum, t) => sum + t.instances.length, 0);
+    // Collect all instance globalIds for visibility/isolation
+    const allInstanceGlobalIds = types.flatMap(t => t.instances.map(i => i.globalId));
+
+    nodes.push({
+      id: classNodeId,
+      expressIds: types.flatMap(t => t.instances.map(i => i.expressId)),
+      globalIds: allInstanceGlobalIds,
+      modelIds: [],
+      name: className,
+      type: 'type-group',
+      ifcType: className,
+      depth: 0,
+      hasChildren: types.length > 0,
+      isExpanded: isClassExpanded,
+      isVisible: true,
+      elementCount: totalInstances,
+    });
+
+    if (isClassExpanded) {
+      // Sort types by name
+      types.sort((a, b) => a.typeName.localeCompare(b.typeName));
+
+      for (const typeEntry of types) {
+        const typeNodeId = `ifctype-${typeEntry.modelId}-${typeEntry.typeExpressId}`;
+        const isTypeExpanded = expandedNodes.has(typeNodeId);
+        const instanceGlobalIds = typeEntry.instances.map(i => i.globalId);
+        const suffix = isMultiModel ? ` [${models.get(typeEntry.modelId)?.name || typeEntry.modelId}]` : '';
+
+        nodes.push({
+          id: typeNodeId,
+          expressIds: typeEntry.instances.map(i => i.expressId),
+          globalIds: instanceGlobalIds,
+          entityExpressId: typeEntry.typeExpressId,
+          modelIds: [typeEntry.modelId],
+          name: `${typeEntry.typeName}${suffix}`,
+          type: 'ifc-type',
+          ifcType: typeEntry.typeClassName,
+          depth: 1,
+          hasChildren: typeEntry.instances.length > 0,
+          isExpanded: isTypeExpanded,
+          isVisible: true,
+          elementCount: typeEntry.instances.length,
+        });
+
+        if (isTypeExpanded) {
+          typeEntry.instances.sort((a, b) => a.name.localeCompare(b.name));
+          for (const inst of typeEntry.instances) {
+            const instSuffix = isMultiModel ? ` [${models.get(inst.modelId)?.name || inst.modelId}]` : '';
+            nodes.push({
+              id: `element-${inst.modelId}-${inst.expressId}`,
+              expressIds: [inst.expressId],
+              globalIds: [inst.globalId],
+              modelIds: [inst.modelId],
+              name: inst.name + instSuffix,
+              type: 'element',
+              ifcType: inst.ifcType,
+              depth: 2,
+              hasChildren: false,
+              isExpanded: false,
+              isVisible: true,
+            });
+          }
+        }
       }
     }
   }

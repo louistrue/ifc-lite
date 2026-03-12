@@ -6,8 +6,8 @@
  * Property set display component with edit support.
  */
 
-import { Sparkles, PenLine } from 'lucide-react';
-import { PropertyEditor } from '../PropertyEditor';
+import { Sparkles, PenLine, Building2 } from 'lucide-react';
+import { PropertyEditor, type PropertyEditScope } from '../PropertyEditor';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Badge } from '@/components/ui/badge';
@@ -19,24 +19,31 @@ export interface PropertySetCardProps {
   modelId?: string;
   entityId?: number;
   enableEditing?: boolean;
+  /** Whether this property set is inherited from the type entity */
+  isTypeProperty?: boolean;
+  typeEditScope?: PropertyEditScope;
 }
 
-export function PropertySetCard({ pset, modelId, entityId, enableEditing }: PropertySetCardProps) {
+export function PropertySetCard({ pset, modelId, entityId, enableEditing, isTypeProperty, typeEditScope }: PropertySetCardProps) {
   // Check if any property in this set is mutated
   const hasMutations = pset.properties.some(p => p.isMutated);
   const isNewPset = pset.isNewPset;
 
-  // Dynamic styling based on mutation state
+  // Dynamic styling based on mutation state and source
   const borderClass = isNewPset
     ? 'border-2 border-amber-400/50 dark:border-amber-500/30'
     : hasMutations
     ? 'border-2 border-purple-300/50 dark:border-purple-500/30'
+    : isTypeProperty
+    ? 'border-2 border-indigo-200/60 dark:border-indigo-800/40'
     : 'border-2 border-zinc-200 dark:border-zinc-800';
 
   const bgClass = isNewPset
     ? 'bg-amber-50/30 dark:bg-amber-950/20'
     : hasMutations
     ? 'bg-purple-50/20 dark:bg-purple-950/10'
+    : isTypeProperty
+    ? 'bg-indigo-50/20 dark:bg-indigo-950/10'
     : 'bg-white dark:bg-zinc-950';
 
   return (
@@ -56,6 +63,14 @@ export function PropertySetCard({ pset, modelId, entityId, enableEditing }: Prop
               <PenLine className="h-3.5 w-3.5 text-purple-500 shrink-0" />
             </TooltipTrigger>
             <TooltipContent>Has modified properties</TooltipContent>
+          </Tooltip>
+        )}
+        {isTypeProperty && !isNewPset && !hasMutations && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Building2 className="h-3.5 w-3.5 text-indigo-400 shrink-0" />
+            </TooltipTrigger>
+            <TooltipContent>Inherited from type — edits apply to all instances of this type</TooltipContent>
           </Tooltip>
         )}
         <span className="font-bold text-xs text-zinc-900 dark:text-zinc-100 truncate flex-1 min-w-0">{decodeIfcString(pset.name)}</span>
@@ -115,6 +130,7 @@ export function PropertySetCard({ pset, modelId, entityId, enableEditing }: Prop
                       psetName={pset.name}
                       propName={prop.name}
                       currentValue={prop.value}
+                      editScope={typeEditScope}
                     />
                   ) : (
                     <span className={`font-mono select-all break-words ${isMutated ? 'text-purple-900 dark:text-purple-100 font-semibold' : 'text-zinc-900 dark:text-zinc-100'}`}>

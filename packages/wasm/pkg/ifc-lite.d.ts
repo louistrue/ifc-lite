@@ -183,8 +183,8 @@ export class GpuInstancedGeometryCollection {
     [Symbol.dispose](): void;
     get(index: number): GpuInstancedGeometry | undefined;
     /**
-     * Get geometry by index with zero-copy access
-     * Returns a reference that provides pointer access
+     * Get geometry by index with pointer access over owned buffers.
+     * This avoids exposing references tied to collection lifetime.
      */
     getRef(index: number): GpuInstancedGeometryRef | undefined;
     constructor();
@@ -192,8 +192,8 @@ export class GpuInstancedGeometryCollection {
 }
 
 /**
- * Reference to geometry in collection for zero-copy access
- * This avoids cloning when accessing geometry data
+ * Pointer-friendly geometry view with owned backing storage.
+ * Owning buffers prevents dangling pointers after collection mutation/drop.
  */
 export class GpuInstancedGeometryRef {
     private constructor();
@@ -927,7 +927,6 @@ export interface InitOutput {
     readonly __wbg_gpugeometry_free: (a: number, b: number) => void;
     readonly __wbg_gpuinstancedgeometry_free: (a: number, b: number) => void;
     readonly __wbg_gpuinstancedgeometrycollection_free: (a: number, b: number) => void;
-    readonly __wbg_gpuinstancedgeometryref_free: (a: number, b: number) => void;
     readonly __wbg_gpumeshmetadata_free: (a: number, b: number) => void;
     readonly __wbg_ifcapi_free: (a: number, b: number) => void;
     readonly __wbg_instancedata_free: (a: number, b: number) => void;
@@ -986,21 +985,8 @@ export interface InitOutput {
     readonly gpuinstancedgeometry_vertexDataLen: (a: number) => number;
     readonly gpuinstancedgeometry_vertexDataPtr: (a: number) => number;
     readonly gpuinstancedgeometrycollection_get: (a: number, b: number) => number;
-    readonly gpuinstancedgeometrycollection_getRef: (a: number, b: number) => number;
     readonly gpuinstancedgeometrycollection_length: (a: number) => number;
     readonly gpuinstancedgeometrycollection_new: () => number;
-    readonly gpuinstancedgeometryref_geometryId: (a: number) => bigint;
-    readonly gpuinstancedgeometryref_indicesByteLength: (a: number) => number;
-    readonly gpuinstancedgeometryref_indicesLen: (a: number) => number;
-    readonly gpuinstancedgeometryref_indicesPtr: (a: number) => number;
-    readonly gpuinstancedgeometryref_instanceCount: (a: number) => number;
-    readonly gpuinstancedgeometryref_instanceDataByteLength: (a: number) => number;
-    readonly gpuinstancedgeometryref_instanceDataLen: (a: number) => number;
-    readonly gpuinstancedgeometryref_instanceDataPtr: (a: number) => number;
-    readonly gpuinstancedgeometryref_instanceExpressIdsPtr: (a: number) => number;
-    readonly gpuinstancedgeometryref_vertexDataByteLength: (a: number) => number;
-    readonly gpuinstancedgeometryref_vertexDataLen: (a: number) => number;
-    readonly gpuinstancedgeometryref_vertexDataPtr: (a: number) => number;
     readonly gpumeshmetadata_color: (a: number, b: number) => void;
     readonly gpumeshmetadata_expressId: (a: number) => number;
     readonly gpumeshmetadata_ifcTypeIdx: (a: number) => number;
@@ -1093,6 +1079,10 @@ export interface InitOutput {
     readonly zerocopymesh_positions_ptr: (a: number) => number;
     readonly zerocopymesh_vertex_count: (a: number) => number;
     readonly init: () => void;
+    readonly gpuinstancedgeometryref_indicesLen: (a: number) => number;
+    readonly gpuinstancedgeometryref_instanceCount: (a: number) => number;
+    readonly gpuinstancedgeometryref_instanceDataLen: (a: number) => number;
+    readonly gpuinstancedgeometryref_vertexDataLen: (a: number) => number;
     readonly instancedmeshcollection_length: (a: number) => number;
     readonly instancedmeshcollection_totalGeometries: (a: number) => number;
     readonly meshcollectionwithrtc_length: (a: number) => number;
@@ -1103,18 +1093,28 @@ export interface InitOutput {
     readonly __wbg_set_rtcoffsetjs_x: (a: number, b: number) => void;
     readonly __wbg_set_rtcoffsetjs_y: (a: number, b: number) => void;
     readonly __wbg_set_rtcoffsetjs_z: (a: number, b: number) => void;
+    readonly gpuinstancedgeometryref_geometryId: (a: number) => bigint;
     readonly instancedgeometry_geometryId: (a: number) => bigint;
     readonly meshcollection_rtcOffsetX: (a: number) => number;
     readonly symboliccircle_expressId: (a: number) => number;
+    readonly gpuinstancedgeometryref_indicesByteLength: (a: number) => number;
+    readonly gpuinstancedgeometryref_instanceDataByteLength: (a: number) => number;
+    readonly gpuinstancedgeometryref_vertexDataByteLength: (a: number) => number;
+    readonly gpuinstancedgeometrycollection_getRef: (a: number, b: number) => number;
     readonly zerocopymesh_triangle_count: (a: number) => number;
+    readonly gpuinstancedgeometryref_indicesPtr: (a: number) => number;
+    readonly gpuinstancedgeometryref_instanceDataPtr: (a: number) => number;
+    readonly gpuinstancedgeometryref_instanceExpressIdsPtr: (a: number) => number;
+    readonly gpuinstancedgeometryref_vertexDataPtr: (a: number) => number;
     readonly zerocopymesh_indices_ptr: (a: number) => number;
     readonly zerocopymesh_normals_ptr: (a: number) => number;
+    readonly __wbg_gpuinstancedgeometryref_free: (a: number, b: number) => void;
     readonly get_memory: () => number;
-    readonly __wasm_bindgen_func_elem_1032: (a: number, b: number) => void;
-    readonly __wasm_bindgen_func_elem_480: (a: number, b: number) => void;
-    readonly __wasm_bindgen_func_elem_1037: (a: number, b: number, c: number, d: number) => void;
-    readonly __wasm_bindgen_func_elem_1070: (a: number, b: number, c: number, d: number) => void;
-    readonly __wasm_bindgen_func_elem_484: (a: number, b: number) => void;
+    readonly __wasm_bindgen_func_elem_1016: (a: number, b: number) => void;
+    readonly __wasm_bindgen_func_elem_465: (a: number, b: number) => void;
+    readonly __wasm_bindgen_func_elem_1021: (a: number, b: number, c: number, d: number) => void;
+    readonly __wasm_bindgen_func_elem_1054: (a: number, b: number, c: number, d: number) => void;
+    readonly __wasm_bindgen_func_elem_469: (a: number, b: number) => void;
     readonly __wbindgen_export: (a: number) => void;
     readonly __wbindgen_export2: (a: number, b: number, c: number) => void;
     readonly __wbindgen_export3: (a: number, b: number) => number;

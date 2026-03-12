@@ -218,6 +218,7 @@ function activateBottomPanel(panel: 'script' | 'list') {
   s.setListPanelVisible(false);
 
   if (!isActive) {
+    s.setRightPanelCollapsed(false);
     if (panel === 'script') s.setScriptPanelVisible(true);
     else s.setListPanelVisible(true);
   }

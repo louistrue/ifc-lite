@@ -53,6 +53,15 @@ export interface ModelInfo {
   loadedAt: number;
 }
 
+export interface FileAttachmentInfo {
+  name: string;
+  type: string;
+  size: number;
+  rowCount?: number;
+  columns?: string[];
+  hasTextContent: boolean;
+}
+
 // ============================================================================
 // Entity Data (serializable — crosses sandbox/transport boundary)
 // ============================================================================
@@ -87,6 +96,75 @@ export interface QuantityData {
   name: string;
   type: number;
   value: number;
+}
+
+export interface EntityAttributeData {
+  name: string;
+  value: string;
+}
+
+export interface ClassificationData {
+  system?: string;
+  identification?: string;
+  name?: string;
+  location?: string;
+  description?: string;
+  path?: string[];
+}
+
+export interface MaterialLayerData {
+  materialName?: string;
+  thickness?: number;
+  isVentilated?: boolean;
+  name?: string;
+  category?: string;
+}
+
+export interface MaterialProfileData {
+  materialName?: string;
+  name?: string;
+  category?: string;
+}
+
+export interface MaterialConstituentData {
+  materialName?: string;
+  name?: string;
+  fraction?: number;
+  category?: string;
+}
+
+export interface MaterialData {
+  type: 'Material' | 'MaterialLayerSet' | 'MaterialProfileSet' | 'MaterialConstituentSet' | 'MaterialList';
+  name?: string;
+  description?: string;
+  layers?: MaterialLayerData[];
+  profiles?: MaterialProfileData[];
+  constituents?: MaterialConstituentData[];
+  materials?: string[];
+}
+
+export interface TypePropertiesData {
+  typeName: string;
+  typeId: number;
+  properties: PropertySetData[];
+}
+
+export interface DocumentData {
+  name?: string;
+  description?: string;
+  location?: string;
+  identification?: string;
+  purpose?: string;
+  intendedUse?: string;
+  revision?: string;
+  confidentiality?: string;
+}
+
+export interface EntityRelationshipsData {
+  voids: Array<{ id: number; name?: string; type: string }>;
+  fills: Array<{ id: number; name?: string; type: string }>;
+  groups: Array<{ id: number; name?: string }>;
+  connections: Array<{ id: number; name?: string; type: string }>;
 }
 
 // ============================================================================
@@ -226,8 +304,14 @@ export interface ModelBackendMethods {
 export interface QueryBackendMethods {
   entities(descriptor: QueryDescriptor): EntityData[];
   entityData(ref: EntityRef): EntityData | null;
+  attributes(ref: EntityRef): EntityAttributeData[];
   properties(ref: EntityRef): PropertySetData[];
   quantities(ref: EntityRef): QuantitySetData[];
+  classifications(ref: EntityRef): ClassificationData[];
+  materials(ref: EntityRef): MaterialData | null;
+  typeProperties(ref: EntityRef): TypePropertiesData | null;
+  documents(ref: EntityRef): DocumentData[];
+  relationships(ref: EntityRef): EntityRelationshipsData;
   related(ref: EntityRef, relType: string, direction: 'forward' | 'inverse'): EntityRef[];
 }
 
@@ -256,6 +340,7 @@ export interface ViewerBackendMethods {
 
 export interface MutateBackendMethods {
   setProperty(ref: EntityRef, psetName: string, propName: string, value: string | number | boolean): void;
+  setAttribute(ref: EntityRef, attrName: string, value: string): void;
   deleteProperty(ref: EntityRef, psetName: string, propName: string): void;
   batchBegin(label: string): void;
   batchEnd(label: string): void;
@@ -284,6 +369,13 @@ export interface LensBackendMethods {
   getActive(): string | null;
 }
 
+export interface FilesBackendMethods {
+  list(): FileAttachmentInfo[];
+  text(name: string): string | null;
+  csv(name: string): Record<string, string>[] | null;
+  csvColumns(name: string): string[];
+}
+
 // ============================================================================
 // Backend Interface (implemented by local store or remote proxy)
 // ============================================================================
@@ -307,6 +399,7 @@ export interface BimBackend {
   readonly spatial: SpatialBackendMethods;
   readonly export: ExportBackendMethods;
   readonly lens: LensBackendMethods;
+  readonly files: FilesBackendMethods;
 
   /** Subscribe to viewer events */
   subscribe(event: BimEventType, handler: (data: unknown) => void): () => void;

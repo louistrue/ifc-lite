@@ -35,11 +35,21 @@ import {
 
 // Re-export types
 export * from './types.js';
-export { composeIfcx, findRoots, getDescendants, getPathToRoot } from './composition.js';
+export { composeIfcx, findRoots, getDescendants } from './composition.js';
 export { extractEntities } from './entity-extractor.js';
 export { extractProperties, isQuantityProperty } from './property-extractor.js';
 export { extractGeometry, type MeshData } from './geometry-extractor.js';
 export { buildHierarchy } from './hierarchy-builder.js';
+export {
+  findTraversalRoots,
+  findTraversalSeeds,
+  walkComposedFrames,
+  getFrameLineage,
+  getNodeLineage,
+  collectIncomingEdgeNames,
+  buildReachableAttributeIndex,
+  type TraversalFrame,
+} from './traversal.js';
 
 // Re-export federated composition
 export {

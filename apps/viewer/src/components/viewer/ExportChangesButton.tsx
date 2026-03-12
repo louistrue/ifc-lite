@@ -13,9 +13,10 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useViewerStore } from '@/store';
+import { configureMutationView } from '@/utils/configureMutationView';
 import { StepExporter } from '@ifc-lite/export';
 import { MutablePropertyView } from '@ifc-lite/mutations';
-import { extractPropertiesOnDemand, extractQuantitiesOnDemand, type IfcDataStore } from '@ifc-lite/parser';
+import type { IfcDataStore } from '@ifc-lite/parser';
 import { toast } from '@/components/ui/toast';
 
 interface ExportChangesButtonProps {
@@ -80,19 +81,7 @@ export function ExportChangesButton({ className }: ExportChangesButtonProps) {
     const dataStore = modelInfo.ifcDataStore;
     mutationView = new MutablePropertyView(dataStore.properties || null, modelInfo.id);
 
-    // Set up on-demand property extraction
-    if (dataStore.onDemandPropertyMap && dataStore.source?.length > 0) {
-      mutationView.setOnDemandExtractor((entityId: number) => {
-        return extractPropertiesOnDemand(dataStore as IfcDataStore, entityId);
-      });
-    }
-
-    // Set up on-demand quantity extraction
-    if (dataStore.onDemandQuantityMap && dataStore.source?.length > 0) {
-      mutationView.setQuantityExtractor((entityId: number) => {
-        return extractQuantitiesOnDemand(dataStore as IfcDataStore, entityId);
-      });
-    }
+    configureMutationView(mutationView, dataStore as IfcDataStore);
 
     registerMutationView(modelInfo.id, mutationView);
   }, [modelInfo, getMutationView, registerMutationView]);

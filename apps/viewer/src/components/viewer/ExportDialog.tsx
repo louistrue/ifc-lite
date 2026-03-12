@@ -49,10 +49,11 @@ import {
   AlertTitle,
 } from '@/components/ui/alert';
 import { useViewerStore } from '@/store';
+import { configureMutationView } from '@/utils/configureMutationView';
 import { toast } from '@/components/ui/toast';
-import { StepExporter, MergedExporter, Ifc5Exporter, type MergeModelInput } from '@ifc-lite/export';
+import { StepExporter, MergedExporter, Ifc5Exporter, IFC5_KNOWN_PROP_NAMES, type MergeModelInput } from '@ifc-lite/export';
 import { MutablePropertyView } from '@ifc-lite/mutations';
-import { extractPropertiesOnDemand, extractQuantitiesOnDemand, type IfcDataStore } from '@ifc-lite/parser';
+import type { IfcDataStore } from '@ifc-lite/parser';
 
 type ExportScope = 'single' | 'merged';
 type SchemaVersion = 'IFC2X3' | 'IFC4' | 'IFC4X3' | 'IFC5';
@@ -83,6 +84,7 @@ export function ExportDialog({ trigger }: ExportDialogProps) {
   const [applyMutations, setApplyMutations] = useState(true);
   const [changesOnly, setChangesOnly] = useState(false);
   const [visibleOnly, setVisibleOnly] = useState(false);
+  const [onlyKnownProperties, setOnlyKnownProperties] = useState(true);
   const [isExporting, setIsExporting] = useState(false);
   const [exportResult, setExportResult] = useState<{ success: boolean; message: string } | null>(null);
 
@@ -147,19 +149,7 @@ export function ExportDialog({ trigger }: ExportDialogProps) {
     const dataStore = selectedModel.ifcDataStore;
     mutationView = new MutablePropertyView(dataStore.properties || null, selectedModelId);
 
-    // Set up on-demand property extraction if the data store supports it
-    if (dataStore.onDemandPropertyMap && dataStore.source?.length > 0) {
-      mutationView.setOnDemandExtractor((entityId: number) => {
-        return extractPropertiesOnDemand(dataStore as IfcDataStore, entityId);
-      });
-    }
-
-    // Set up on-demand quantity extraction if the data store supports it
-    if (dataStore.onDemandQuantityMap && dataStore.source?.length > 0) {
-      mutationView.setQuantityExtractor((entityId: number) => {
-        return extractQuantitiesOnDemand(dataStore as IfcDataStore, entityId);
-      });
-    }
+    configureMutationView(mutationView, dataStore as IfcDataStore);
 
     // Register the mutation view
     registerMutationView(selectedModelId, mutationView);
@@ -254,6 +244,29 @@ export function ExportDialog({ trigger }: ExportDialogProps) {
     }
     return localIds.size > 0 ? localIds : null;
   }, [models, isolatedEntities, isolatedEntitiesByModel]);
+
+  // Detect if the model has properties that would be filtered by onlyKnownProperties.
+  // Only relevant for IFC5 exports — show the toggle only when there's something to filter.
+  const hasFilterableProperties = useMemo(() => {
+    if (!isIfc5 || !selectedModel?.ifcDataStore) return false;
+    const mutationView = getMutationView(selectedModelId);
+    const propSource = mutationView || selectedModel.ifcDataStore.properties;
+    if (!propSource) return false;
+
+    // Sample a few entities to check for unknown property names
+    const entities = selectedModel.ifcDataStore.entities;
+    const limit = Math.min(entities.count, 50);
+    for (let i = 0; i < limit; i++) {
+      const id = entities.expressId[i];
+      const psets = propSource.getForEntity(id);
+      for (const pset of psets) {
+        for (const prop of pset.properties) {
+          if (!IFC5_KNOWN_PROP_NAMES.has(prop.name)) return true;
+        }
+      }
+    }
+    return false;
+  }, [isIfc5, selectedModel, selectedModelId, getMutationView]);
 
   // Compute output format description for UI
   const outputInfo = useMemo(() => {
@@ -367,6 +380,7 @@ export function ExportDialog({ trigger }: ExportDialogProps) {
           visibleOnly: effectiveVisibleOnly,
           hiddenEntityIds: localHidden,
           isolatedEntityIds: localIsolated,
+          onlyKnownProperties,
           author: 'ifc-lite',
         });
 
@@ -451,7 +465,7 @@ export function ExportDialog({ trigger }: ExportDialogProps) {
     } finally {
       setIsExporting(false);
     }
-  }, [selectedModel, selectedModelId, schema, isIfc5, exportScope, includeGeometry, applyMutations, changesOnly, visibleOnly, getMutationView, getLocalHiddenIds, getLocalIsolatedIds, modifiedCount, models]);
+  }, [selectedModel, selectedModelId, schema, isIfc5, exportScope, includeGeometry, applyMutations, changesOnly, visibleOnly, onlyKnownProperties, getMutationView, getLocalHiddenIds, getLocalIsolatedIds, modifiedCount, models]);
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -591,6 +605,19 @@ export function ExportDialog({ trigger }: ExportDialogProps) {
                 </p>
               </div>
               <Switch checked={changesOnly} onCheckedChange={setChangesOnly} />
+            </div>
+          )}
+
+          {/* IFC5: strict property schema filtering */}
+          {isIfc5 && hasFilterableProperties && (
+            <div className="flex items-center justify-between">
+              <div>
+                <Label>Only Known IFC5 Properties</Label>
+                <p className="text-xs text-muted-foreground">
+                  Skip properties without an official IFC5 schema (avoids viewer warnings)
+                </p>
+              </div>
+              <Switch checked={onlyKnownProperties} onCheckedChange={setOnlyKnownProperties} />
             </div>
           )}
 
