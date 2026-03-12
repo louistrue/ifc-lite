@@ -7,7 +7,7 @@
  * Full integration with BulkQueryEngine
  */
 
-import { useState, useCallback, useMemo, useEffect } from 'react';
+import { useState, useCallback, useMemo, useEffect, useTransition, useRef } from 'react';
 import {
   Search,
   Play,
@@ -204,27 +204,40 @@ export function BulkPropertyEditor({ trigger }: BulkPropertyEditorProps) {
     return storeys;
   }, [selectedModel]);
 
-  // Get available entity types from the model
-  const availableTypes = useMemo(() => {
-    if (!selectedModel?.ifcDataStore) return [];
+  // Pre-compute typeEnum mapping once when model changes (avoids scanning all entities on every criteria change)
+  const { availableTypes, typeNameToEnums } = useMemo(() => {
+    if (!selectedModel?.ifcDataStore) return { availableTypes: [] as { ifcType: string; label: string }[], typeNameToEnums: new Map<string, number[]>() };
     const entities = selectedModel.ifcDataStore.entities;
-    const typeSet = new Set<string>();
 
+    // Single pass: collect type names and their enum values
+    const enumToTypeName = new Map<number, string>();
     for (let i = 0; i < entities.count; i++) {
+      const typeEnum = entities.typeEnum[i];
+      if (enumToTypeName.has(typeEnum)) continue;
       const expressId = entities.expressId[i];
       const typeName = entities.getTypeName(expressId);
       if (typeName) {
-        typeSet.add(typeName);
+        enumToTypeName.set(typeEnum, typeName);
       }
     }
 
-    // Map to our UI format, filtering to common types
-    return Object.entries(IFC_TYPE_MAP)
-      .filter(([ifcType]) => {
-        const { pattern } = IFC_TYPE_MAP[ifcType];
-        return Array.from(typeSet).some(t => t.includes(pattern));
-      })
-      .map(([ifcType, { label }]) => ({ ifcType, label }));
+    // Build IFC_TYPE_MAP key -> typeEnum[] mapping
+    const nameToEnums = new Map<string, number[]>();
+    const presentTypes: { ifcType: string; label: string }[] = [];
+    for (const [ifcType, { label, pattern }] of Object.entries(IFC_TYPE_MAP)) {
+      const enums: number[] = [];
+      for (const [typeEnum, typeName] of enumToTypeName) {
+        if (typeName.includes(pattern)) {
+          enums.push(typeEnum);
+        }
+      }
+      if (enums.length > 0) {
+        nameToEnums.set(ifcType, enums);
+        presentTypes.push({ ifcType, label });
+      }
+    }
+
+    return { availableTypes: presentTypes, typeNameToEnums: nameToEnums };
   }, [selectedModel]);
 
   // Ensure mutation view exists for selected model
@@ -261,35 +274,19 @@ export function BulkPropertyEditor({ trigger }: BulkPropertyEditorProps) {
     );
   }, [selectedModel, selectedModelId, mutationViews]);
 
-  // Build selection criteria for the query engine (memoized for live count)
+  // Build selection criteria using pre-computed typeEnum mapping (no entity scan needed)
   const currentCriteria = useMemo((): SelectionCriteria => {
     const criteria: SelectionCriteria = {};
 
-    // Filter by entity types - need to find type enum IDs
-    if (selectedTypes.length > 0 && selectedModel?.ifcDataStore) {
-      const entities = selectedModel.ifcDataStore.entities;
+    // Use pre-computed typeNameToEnums map instead of scanning all entities
+    if (selectedTypes.length > 0) {
       const typeEnums: number[] = [];
-
-      // Find type enum values that match our selected types
-      const seenEnums = new Set<number>();
-      for (let i = 0; i < entities.count; i++) {
-        const typeEnum = entities.typeEnum[i];
-        if (seenEnums.has(typeEnum)) continue;
-        seenEnums.add(typeEnum);
-
-        const expressId = entities.expressId[i];
-        const typeName = entities.getTypeName(expressId);
-        if (typeName) {
-          for (const selectedType of selectedTypes) {
-            const { pattern } = IFC_TYPE_MAP[selectedType] || { pattern: selectedType };
-            if (typeName.includes(pattern)) {
-              typeEnums.push(typeEnum);
-              break;
-            }
-          }
+      for (const selectedType of selectedTypes) {
+        const enums = typeNameToEnums.get(selectedType);
+        if (enums) {
+          typeEnums.push(...enums);
         }
       }
-
       if (typeEnums.length > 0) {
         criteria.entityTypes = typeEnums;
       }
@@ -326,63 +323,98 @@ export function BulkPropertyEditor({ trigger }: BulkPropertyEditorProps) {
     }
 
     return criteria;
-  }, [selectedTypes, selectedStoreys, namePattern, filters, selectedModel]);
+  }, [selectedTypes, selectedStoreys, namePattern, filters, typeNameToEnums]);
 
-  // Live entity count based on current criteria
-  const liveMatchCount = useMemo(() => {
-    if (!queryEngine) return 0;
+  // Deferred computation: run select() once and derive both match count and property discovery
+  // Uses useTransition to keep UI responsive during heavy computation
+  const [isPending, startTransition] = useTransition();
+  const [matchResult, setMatchResult] = useState<{
+    count: number;
+    psets: Map<string, Set<string>>;
+    allProps: Set<string>;
+  }>({ count: 0, psets: new Map(), allProps: new Set() });
+
+  // Debounce timer for property discovery
+  const discoveryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    // Clear any pending debounce
+    if (discoveryTimerRef.current) {
+      clearTimeout(discoveryTimerRef.current);
+    }
+
+    if (!queryEngine) {
+      setMatchResult({ count: 0, psets: new Map(), allProps: new Set() });
+      return;
+    }
+
+    // Match count is cheap — compute immediately for fast feedback
+    let count = 0;
+    let matchedIds: number[] = [];
     try {
-      const matchedIds = queryEngine.select(currentCriteria);
-      return matchedIds.length;
+      matchedIds = queryEngine.select(currentCriteria);
+      count = matchedIds.length;
     } catch {
-      return 0;
-    }
-  }, [queryEngine, currentCriteria]);
-
-  // Discover available properties from matched entities (sample first 100 for performance)
-  const discoveredProperties = useMemo(() => {
-    if (!selectedModel?.ifcDataStore || !queryEngine) return { psets: new Map<string, Set<string>>(), allProps: new Set<string>() };
-
-    const psets = new Map<string, Set<string>>();
-    const allProps = new Set<string>();
-    const dataStore = selectedModel.ifcDataStore;
-
-    try {
-      // Get matching entity IDs
-      let entityIds = queryEngine.select(currentCriteria);
-      // Sample first 100 entities for performance
-      if (entityIds.length > 100) {
-        entityIds = entityIds.slice(0, 100);
-      }
-
-      // Extract properties from each entity
-      for (const entityId of entityIds) {
-        let properties: Array<{ name: string; properties: Array<{ name: string }> }> = [];
-
-        // Use on-demand extraction if available
-        if (dataStore.onDemandPropertyMap && dataStore.source?.length > 0) {
-          properties = extractPropertiesOnDemand(dataStore as IfcDataStore, entityId);
-        } else if (dataStore.properties) {
-          properties = dataStore.properties.getForEntity(entityId);
-        }
-
-        for (const pset of properties) {
-          if (!psets.has(pset.name)) {
-            psets.set(pset.name, new Set());
-          }
-          const propSet = psets.get(pset.name)!;
-          for (const prop of pset.properties) {
-            propSet.add(prop.name);
-            allProps.add(prop.name);
-          }
-        }
-      }
-    } catch (e) {
-      console.error('Error discovering properties:', e);
+      // leave at 0
     }
 
-    return { psets, allProps };
-  }, [selectedModel, queryEngine, currentCriteria]);
+    // Update count immediately (no transition needed — it's fast)
+    setMatchResult(prev => {
+      if (prev.count === count && count === 0) return prev;
+      return { ...prev, count };
+    });
+
+    // Debounce property discovery (expensive) by 250ms
+    const capturedIds = matchedIds;
+    discoveryTimerRef.current = setTimeout(() => {
+      startTransition(() => {
+        const psets = new Map<string, Set<string>>();
+        const allProps = new Set<string>();
+
+        if (selectedModel?.ifcDataStore && capturedIds.length > 0) {
+          const dataStore = selectedModel.ifcDataStore;
+          // Sample first 100 entities for performance
+          const sampleIds = capturedIds.length > 100 ? capturedIds.slice(0, 100) : capturedIds;
+
+          try {
+            for (const entityId of sampleIds) {
+              let properties: Array<{ name: string; properties: Array<{ name: string }> }> = [];
+
+              if (dataStore.onDemandPropertyMap && dataStore.source?.length > 0) {
+                properties = extractPropertiesOnDemand(dataStore as IfcDataStore, entityId);
+              } else if (dataStore.properties) {
+                properties = dataStore.properties.getForEntity(entityId);
+              }
+
+              for (const pset of properties) {
+                if (!psets.has(pset.name)) {
+                  psets.set(pset.name, new Set());
+                }
+                const propSet = psets.get(pset.name)!;
+                for (const prop of pset.properties) {
+                  propSet.add(prop.name);
+                  allProps.add(prop.name);
+                }
+              }
+            }
+          } catch (e) {
+            console.error('Error discovering properties:', e);
+          }
+        }
+
+        setMatchResult({ count, psets, allProps });
+      });
+    }, 250);
+
+    return () => {
+      if (discoveryTimerRef.current) {
+        clearTimeout(discoveryTimerRef.current);
+      }
+    };
+  }, [queryEngine, currentCriteria, selectedModel]);
+
+  const liveMatchCount = matchResult.count;
+  const discoveredProperties = { psets: matchResult.psets, allProps: matchResult.allProps };
 
   // Flatten discovered properties for selectors
   const psetOptions = useMemo(() => {
@@ -566,6 +598,7 @@ export function BulkPropertyEditor({ trigger }: BulkPropertyEditorProps) {
                 Selection Criteria
               </Label>
               <Badge variant={liveMatchCount > 0 ? 'default' : 'secondary'} className="text-xs">
+                {isPending && <Loader2 className="h-3 w-3 mr-1 animate-spin" />}
                 {liveMatchCount} {liveMatchCount === 1 ? 'entity' : 'entities'} matched
               </Badge>
             </div>
