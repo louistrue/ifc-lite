@@ -47,6 +47,7 @@ import {
   AlertDescription,
   AlertTitle,
 } from '@/components/ui/alert';
+import { Progress } from '@/components/ui/progress';
 import { Separator } from '@/components/ui/separator';
 import { useViewerStore } from '@/store';
 import { useIfc } from '@/hooks/useIfc';
@@ -143,6 +144,8 @@ export function BulkPropertyEditor({ trigger }: BulkPropertyEditorProps) {
 
   // Execution state
   const [isExecuting, setIsExecuting] = useState(false);
+  const [executeProgress, setExecuteProgress] = useState<{ done: number; total: number } | null>(null);
+  const executeCancelRef = useRef(false);
   const [previewResult, setPreviewResult] = useState<BulkQueryPreview | null>(null);
   const [executeResult, setExecuteResult] = useState<BulkQueryResult | null>(null);
 
@@ -536,24 +539,58 @@ export function BulkPropertyEditor({ trigger }: BulkPropertyEditorProps) {
     }
   }, [queryEngine, currentCriteria, buildAction]);
 
-  // Execute bulk update
+  // Execute bulk update — chunked so the UI stays responsive with a live progress bar
   const handleExecute = useCallback(async () => {
     if (!queryEngine || liveMatchCount === 0) return;
 
     setIsExecuting(true);
     setExecuteResult(null);
+    setExecuteProgress({ done: 0, total: 0 });
+    executeCancelRef.current = false;
+
+    // Yield to paint the initial "Applying..." state
+    await new Promise(r => setTimeout(r, 0));
 
     try {
       const action = buildAction();
-      console.log('[BulkPropertyEditor] Executing action:', action, 'on', liveMatchCount, 'entities');
-      const result = queryEngine.execute({ select: currentCriteria, action });
-      console.log('[BulkPropertyEditor] Execute result:', result);
+
+      // Step 1: select matching IDs
+      const entityIds = queryEngine.select(currentCriteria);
+      const total = entityIds.length;
+      setExecuteProgress({ done: 0, total });
+
+      // Step 2: chunked mutation — process CHUNK_SIZE entities then yield to browser
+      const CHUNK_SIZE = 500;
+      const mutations: import('@ifc-lite/mutations').BulkQueryResult['mutations'] = [];
+      const errors: string[] = [];
+
+      for (let i = 0; i < total; i += CHUNK_SIZE) {
+        if (executeCancelRef.current) break;
+
+        const end = Math.min(i + CHUNK_SIZE, total);
+        for (let j = i; j < end; j++) {
+          try {
+            const mutation = queryEngine.applyAction(entityIds[j], action);
+            if (mutation) mutations.push(mutation);
+          } catch (error) {
+            errors.push(`Entity ${entityIds[j]}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+          }
+        }
+
+        setExecuteProgress({ done: end, total });
+        // Yield to browser so progress bar and spinner update
+        await new Promise(r => setTimeout(r, 0));
+      }
+
+      const result: BulkQueryResult = {
+        mutations,
+        affectedEntityCount: mutations.length,
+        success: errors.length === 0 && !executeCancelRef.current,
+        errors: errors.length > 0 ? errors : undefined,
+      };
       setExecuteResult(result);
 
-      // Bump mutation version to trigger re-renders in PropertiesPanel
-      // (BulkQueryEngine applies mutations directly to MutablePropertyView, bypassing store)
       if (result.mutations.length > 0) {
-        console.log('[BulkPropertyEditor] Bumping mutation version after', result.mutations.length, 'mutations');
         bumpMutationVersion();
       }
     } catch (error) {
@@ -566,6 +603,7 @@ export function BulkPropertyEditor({ trigger }: BulkPropertyEditorProps) {
       });
     } finally {
       setIsExecuting(false);
+      setExecuteProgress(null);
     }
   }, [queryEngine, liveMatchCount, currentCriteria, buildAction, bumpMutationVersion]);
 
@@ -896,6 +934,22 @@ export function BulkPropertyEditor({ trigger }: BulkPropertyEditorProps) {
             </Alert>
           )}
 
+          {/* Execute Progress */}
+          {isExecuting && executeProgress && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-sm text-muted-foreground">
+                <span className="flex items-center gap-2">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Applying changes...
+                </span>
+                <span>
+                  {executeProgress.done.toLocaleString()} / {executeProgress.total.toLocaleString()} entities
+                </span>
+              </div>
+              <Progress value={executeProgress.total > 0 ? (executeProgress.done / executeProgress.total) * 100 : 0} />
+            </div>
+          )}
+
           {/* Execute Result */}
           {executeResult && (
             <Alert variant={executeResult.success ? 'default' : 'destructive'}>
@@ -903,7 +957,7 @@ export function BulkPropertyEditor({ trigger }: BulkPropertyEditorProps) {
               <AlertTitle>{executeResult.success ? 'Success' : 'Error'}</AlertTitle>
               <AlertDescription>
                 {executeResult.success
-                  ? `Applied ${executeResult.mutations.length} mutations to ${executeResult.affectedEntityCount} entities`
+                  ? `Applied ${executeResult.mutations.length.toLocaleString()} mutations to ${executeResult.affectedEntityCount.toLocaleString()} entities`
                   : executeResult.errors?.join(', ') || 'Unknown error'}
               </AlertDescription>
             </Alert>
@@ -912,29 +966,28 @@ export function BulkPropertyEditor({ trigger }: BulkPropertyEditorProps) {
         )}
 
         <DialogFooter className="gap-2">
-          <Button variant="outline" onClick={handleReset}>
-            Reset
-          </Button>
-          <Button variant="secondary" onClick={handlePreview} disabled={!queryEngine}>
-            <Eye className="h-4 w-4 mr-2" />
-            Preview
-          </Button>
-          <Button
-            onClick={handleExecute}
-            disabled={liveMatchCount === 0 || !targetProp || (actionType !== 'SET_ATTRIBUTE' && !targetPset) || isExecuting}
-          >
-            {isExecuting ? (
-              <>
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                Applying...
-              </>
-            ) : (
-              <>
+          {isExecuting ? (
+            <Button variant="destructive" onClick={() => { executeCancelRef.current = true; }}>
+              Cancel
+            </Button>
+          ) : (
+            <>
+              <Button variant="outline" onClick={handleReset}>
+                Reset
+              </Button>
+              <Button variant="secondary" onClick={handlePreview} disabled={!queryEngine}>
+                <Eye className="h-4 w-4 mr-2" />
+                Preview
+              </Button>
+              <Button
+                onClick={handleExecute}
+                disabled={liveMatchCount === 0 || !targetProp || (actionType !== 'SET_ATTRIBUTE' && !targetPset)}
+              >
                 <Play className="h-4 w-4 mr-2" />
                 Apply to {liveMatchCount} entities
-              </>
-            )}
-          </Button>
+              </Button>
+            </>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>

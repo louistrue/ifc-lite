@@ -290,9 +290,9 @@ export class BulkQueryEngine {
   }
 
   /**
-   * Apply an action to a single entity
+   * Apply an action to a single entity (public for chunked execution from UI)
    */
-  private applyAction(entityId: number, action: BulkAction): Mutation | null {
+  applyAction(entityId: number, action: BulkAction): Mutation | null {
     switch (action.type) {
       case 'SET_PROPERTY':
         return this.mutationView.setProperty(
