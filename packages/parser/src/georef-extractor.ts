@@ -19,6 +19,7 @@
  */
 
 import type { IfcEntity } from './entity-extractor';
+import { getString, getNumber, getReference } from './attribute-helpers.js';
 
 export interface MapConversion {
   id: number;
@@ -261,29 +262,3 @@ export function getCoordinateSystemDescription(georef: GeoreferenceInfo): string
   return parts.join(' ');
 }
 
-// Helper functions
-
-function getString(value: unknown): string | undefined {
-  if (value === null || value === undefined) return undefined;
-  if (typeof value === 'string') return value;
-  return String(value);
-}
-
-function getNumber(value: unknown): number | undefined {
-  if (value === null || value === undefined) return undefined;
-  if (typeof value === 'number') return value;
-  if (typeof value === 'string') {
-    const num = parseFloat(value);
-    return isNaN(num) ? undefined : num;
-  }
-  return undefined;
-}
-
-function getReference(value: unknown): number | undefined {
-  if (value === null || value === undefined) return undefined;
-  if (typeof value === 'number') return value;
-  if (typeof value === 'string' && value.startsWith('#')) {
-    return parseInt(value.substring(1));
-  }
-  return undefined;
-}

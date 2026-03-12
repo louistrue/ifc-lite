@@ -22,6 +22,7 @@
  */
 
 import type { IfcEntity } from './entity-extractor';
+import { getString, getReference, getReferences, getStringList } from './attribute-helpers.js';
 
 export interface Classification {
   id: number;
@@ -285,33 +286,3 @@ export function getClassificationSystemName(
   return undefined;
 }
 
-// Helper functions
-
-function getString(value: unknown): string | undefined {
-  if (value === null || value === undefined) return undefined;
-  if (typeof value === 'string') return value;
-  return String(value);
-}
-
-function getReference(value: unknown): number | undefined {
-  if (value === null || value === undefined) return undefined;
-  if (typeof value === 'number') return value;
-  if (typeof value === 'string' && value.startsWith('#')) {
-    return parseInt(value.substring(1));
-  }
-  return undefined;
-}
-
-function getReferences(value: unknown): number[] | undefined {
-  if (!Array.isArray(value)) return undefined;
-  return value
-    .map(v => getReference(v))
-    .filter((ref): ref is number => ref !== undefined);
-}
-
-function getStringList(value: unknown): string[] | undefined {
-  if (!Array.isArray(value)) return undefined;
-  return value
-    .map(v => getString(v))
-    .filter((str): str is string => str !== undefined);
-}
