@@ -144,6 +144,10 @@ export function useRenderUpdates(params: UseRenderUpdatesParams): void {
     }
 
     // Step 2: Single render call
+    const sectionOpt = buildSectionOption(activeTool, sectionPlane, sectionRange);
+    if (sectionOpt) {
+      console.debug('[RenderUpdates] section →', sectionOpt.axis, 'pos=' + sectionOpt.position, 'en=' + sectionOpt.enabled, 'range=', sectionOpt.min, sectionOpt.max);
+    }
     renderer.render({
       hiddenIds: hiddenEntities,
       isolatedIds: isolatedEntities,
@@ -152,7 +156,7 @@ export function useRenderUpdates(params: UseRenderUpdatesParams): void {
       selectedModelIndex,
       clearColor: clearColorRef.current,
       visualEnhancement: visualEnhancementRef.current,
-      sectionPlane: buildSectionOption(activeTool, sectionPlane, sectionRange),
+      sectionPlane: sectionOpt,
       buildingRotation: coordinateInfo?.buildingRotation,
     });
   }, [

@@ -114,6 +114,8 @@ export class Renderer {
 
     // Error rate limiting (log at most once per second)
     private lastRenderErrorTime: number = 0;
+    private _sectionDebugThrottle: number = 0;
+    private _renderDebugThrottle: number = 0;
     private readonly RENDER_ERROR_THROTTLE_MS = 1000;
 
     // Pooled per-frame buffers to avoid GC pressure from per-batch Float32Array allocations
@@ -278,6 +280,14 @@ export class Renderer {
      */
     render(options: RenderOptions = {}): void {
         if (!this.device.isInitialized() || !this.pipeline) return;
+
+        // DEBUG: Track render calls with/without section data
+        if (!this._renderDebugThrottle || Date.now() - this._renderDebugThrottle > 200) {
+            this._renderDebugThrottle = Date.now();
+            const hasSP = !!options.sectionPlane;
+            const spEnabled = options.sectionPlane?.enabled;
+            console.debug('[Render]', hasSP ? `section=${options.sectionPlane!.axis}@${options.sectionPlane!.position}% en=${spEnabled}` : 'NO-SECTION', new Error().stack?.split('\n')[2]?.trim());
+        }
 
         // Validate canvas dimensions
         // Align width to 64 pixels for WebGPU texture row alignment (256 bytes / 4 bytes per pixel)
@@ -496,6 +506,23 @@ export class Renderer {
                     const distance = minVal + (options.sectionPlane.position / 100) * range;
 
                     sectionPlaneData = { normal, distance, enabled: true };
+
+                    // DEBUG: Log section plane calculation
+                    if (!this._sectionDebugThrottle || Date.now() - this._sectionDebugThrottle > 500) {
+                        this._sectionDebugThrottle = Date.now();
+                        console.debug('[Section3D]', {
+                            axis: options.sectionPlane.axis,
+                            position: options.sectionPlane.position,
+                            normal,
+                            distance: distance.toFixed(3),
+                            range: `${minVal.toFixed(3)} → ${maxVal.toFixed(3)}`,
+                            boundsY: `${boundsMin.y.toFixed(3)} → ${boundsMax.y.toFixed(3)}`,
+                            hasMinMax: options.sectionPlane.min !== undefined,
+                            flipped: options.sectionPlane.flipped,
+                            batchCount: this.scene.getBatchedMeshes().length,
+                            meshCount: meshes.length,
+                        });
+                    }
                 }
             }
 
@@ -709,6 +736,17 @@ export class Renderer {
                 tplFlags[1] = sectionPlaneData?.enabled ? 1 : 0;
                 tplFlags[2] = edgeEnabledU32;
                 tplFlags[3] = edgeIntensityMilliU32;
+
+                // DEBUG: Log uniform template values for section plane
+                if (sectionPlaneData && (!this._sectionDebugThrottle || Date.now() - this._sectionDebugThrottle > 1000)) {
+                    this._sectionDebugThrottle = Date.now();
+                    console.debug('[UniformTemplate]', {
+                        'tpl[40-43] (sectionPlane)': [tpl[40], tpl[41], tpl[42], tpl[43]],
+                        'flags[0-3]': [tplFlags[0], tplFlags[1], tplFlags[2], tplFlags[3]],
+                        'sectionEnabled (flags[1])': tplFlags[1],
+                        batchCount: opaqueBatches.length + transparentBatches.length,
+                    });
+                }
 
                 // Helper function to render a batch — patches color into the shared template
                 const renderBatch = (batch: typeof allBatchedMeshes[0]) => {
