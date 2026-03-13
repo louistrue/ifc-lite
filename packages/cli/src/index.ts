@@ -29,6 +29,7 @@ import { statsCommand } from './commands/stats.js';
 import { mutateCommand } from './commands/mutate.js';
 import { askCommand } from './commands/ask.js';
 import { viewCommand } from './commands/view.js';
+import { analyzeCommand } from './commands/analyze.js';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -74,6 +75,7 @@ const HELP = `
     mutate    <file.ifc> --id N --set P=V --out F  Modify properties/attributes and save
     ask       <file.ifc> "<question>"            Natural language BIM queries
     view      <file.ifc> [--port N]              Interactive 3D viewer in browser
+    analyze   <file.ifc> --viewer <port>        Query + visualize analysis results
 
   Options:
     --help, -h       Show help
@@ -124,6 +126,10 @@ const HELP = `
     ifc-lite view model.ifc
     ifc-lite view model.ifc --port 3456
     curl -X POST http://localhost:3456/api/command -H 'Content-Type: application/json' -d '{"action":"colorize","type":"IfcWall","color":[1,0,0,1]}'
+    ifc-lite analyze model.ifc --viewer 3456 --type IfcWall --missing "Pset_WallCommon.FireRating" --color red
+    ifc-lite analyze model.ifc --viewer 3456 --type IfcSlab --where "GrossArea>100" --color orange --isolate
+    ifc-lite analyze model.ifc --viewer 3456 --type IfcWall --heatmap "Qto_WallBaseQuantities.GrossSideArea"
+    ifc-lite analyze model.ifc --viewer 3456 --rules rules.json --json
 
   Pipe-friendly:
     ifc-lite query model.ifc --type IfcWall --json | jq '.[].name'
@@ -213,6 +219,9 @@ async function main(): Promise<void> {
       break;
     case 'view':
       await viewCommand(commandArgs);
+      break;
+    case 'analyze':
+      await analyzeCommand(commandArgs);
       break;
     default:
       process.stderr.write(`Unknown command: ${command}\n`);

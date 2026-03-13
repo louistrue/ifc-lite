@@ -985,11 +985,15 @@ function handleCommand(cmd) {
     // ── Add geometry (live creation streaming) ──
     case 'addGeometry': {
       if (!wasmApi || !cmd.ifcContent) break;
+      // Offset incoming IDs to avoid collision with already-loaded entities
+      const idOffset = entityMap.size > 0
+        ? Math.max(...entityMap.keys()) + 10000
+        : 0;
       wasmApi.parseMeshesAsync(cmd.ifcContent, {
         batchSize: 50,
         onBatch: (meshes) => {
           const batch = meshes.map(m => ({
-            expressId: m.expressId,
+            expressId: m.expressId + idOffset,
             ifcType: m.ifcType || 'Created',
             positions: m.positions,
             normals: m.normals,
@@ -997,6 +1001,12 @@ function handleCommand(cmd) {
             color: [m.color[0], m.color[1], m.color[2], m.color[3] ?? 1],
           }));
           addMeshBatch(batch);
+          // Auto-highlight new geometry in green
+          for (const m of batch) {
+            colorOverrides.set(m.expressId, [0.2, 0.9, 0.4, 1]);
+            markColorDirty(m.expressId);
+          }
+          refreshColors();
           document.getElementById('model-stats').textContent =
             totalTriangles.toLocaleString() + ' triangles, ' +
             entityMap.size.toLocaleString() + ' entities';

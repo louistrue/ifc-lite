@@ -21,7 +21,7 @@ import { writeFile } from 'node:fs/promises';
 import { IfcCreator } from '@ifc-lite/create';
 import { getFlag, hasFlag, fatal, printJson } from '../output.js';
 
-const ELEMENT_TYPES = [
+export const ELEMENT_TYPES = [
   'wall', 'slab', 'column', 'beam', 'stair', 'roof', 'gable-roof',
   'door', 'window', 'wall-door', 'wall-window', 'ramp', 'railing',
   'plate', 'member', 'footing', 'pile', 'space', 'curtain-wall',
@@ -136,7 +136,7 @@ export async function createCommand(args: string[]): Promise<void> {
   }
 }
 
-function addElement(creator: IfcCreator, storey: number, elementType: string, params: Record<string, unknown>): number {
+export function addElement(creator: IfcCreator, storey: number, elementType: string, params: Record<string, unknown>): number {
   const p = params;
   switch (elementType.toLowerCase()) {
     case 'wall':

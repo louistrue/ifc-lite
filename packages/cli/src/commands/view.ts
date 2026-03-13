@@ -151,6 +151,9 @@ export async function viewCommand(args: string[]): Promise<void> {
 
   const viewerHtml = getViewerHtml(fileName);
 
+  // Track IFC content created via /api/create for export
+  const createdSegments: string[] = [];
+
   const server = createServer(async (req, res) => {
     const url = new URL(req.url ?? '/', `http://${req.headers.host}`);
     const path = url.pathname;
@@ -234,6 +237,75 @@ export async function viewCommand(args: string[]): Promise<void> {
       return;
     }
 
+    // Create element API — POST /api/create
+    if (path === '/api/create' && req.method === 'POST') {
+      try {
+        const body = await readBody(req);
+        const { type, params, storey, project } = JSON.parse(body) as {
+          type: string;
+          params?: Record<string, unknown>;
+          storey?: string;
+          project?: string;
+        };
+        if (!type) {
+          res.writeHead(400, { 'Content-Type': MIME['.json'] });
+          res.end(JSON.stringify({ ok: false, error: 'Missing "type" field' }));
+          return;
+        }
+
+        // Dynamic import to avoid loading @ifc-lite/create unless needed
+        const { IfcCreator } = await import('@ifc-lite/create');
+        const { addElement: addEl, ELEMENT_TYPES } = await import('./create.js');
+
+        if (!ELEMENT_TYPES.includes(type.toLowerCase())) {
+          res.writeHead(400, { 'Content-Type': MIME['.json'] });
+          res.end(JSON.stringify({ ok: false, error: `Unknown type: ${type}`, validTypes: ELEMENT_TYPES }));
+          return;
+        }
+
+        const creator = new IfcCreator({ Name: project ?? 'Live Edit' });
+        const storeyId = creator.addIfcBuildingStorey({
+          Name: storey ?? 'Created',
+          Elevation: (params?.Position as number[] | undefined)?.[1] ?? 0,
+        });
+
+        addEl(creator, storeyId, type, params ?? {});
+        const result = creator.toIfc();
+
+        // Stream to viewer
+        broadcast({ action: 'addGeometry', ifcContent: result.content });
+        createdSegments.push(result.content);
+
+        res.writeHead(200, { 'Content-Type': MIME['.json'] });
+        res.end(JSON.stringify({
+          ok: true,
+          entities: result.entities,
+          ifcSize: result.stats.fileSize,
+        }));
+      } catch (e: unknown) {
+        res.writeHead(400, { 'Content-Type': MIME['.json'] });
+        res.end(JSON.stringify({ ok: false, error: (e as Error).message }));
+      }
+      return;
+    }
+
+    // Export created geometry — GET /api/export
+    if (path === '/api/export' && req.method === 'GET') {
+      if (createdSegments.length === 0) {
+        res.writeHead(200, { 'Content-Type': MIME['.json'] });
+        res.end(JSON.stringify({ ok: false, error: 'No geometry has been created yet' }));
+        return;
+      }
+      const combined = createdSegments.join('\n');
+      res.writeHead(200, {
+        'Content-Type': MIME['.ifc'],
+        'Content-Disposition': `attachment; filename="created-${fileName}"`,
+        'Content-Length': Buffer.byteLength(combined).toString(),
+      });
+      res.end(combined);
+      return;
+    }
+
     // Viewer status — useful for Claude Code to check if viewer is running
     if (path === '/api/status' && req.method === 'GET') {
       res.writeHead(200, { 'Content-Type': MIME['.json'] });
@@ -241,6 +313,7 @@ export async function viewCommand(args: string[]): Promise<void> {
         ok: true,
         model: fileName,
         clients: sseClients.size,
+        createdSegments: createdSegments.length,
       }));
       return;
     }

@@ -18,6 +18,7 @@ ifc-lite eval <file.ifc> "<expression>"             # Evaluate SDK expressions
 ifc-lite run <script.js> <file.ifc>                 # Execute scripts with SDK
 ifc-lite schema                                     # Dump full API schema as JSON
 ifc-lite view <file.ifc>                             # Interactive 3D viewer in browser
+ifc-lite analyze <file.ifc> --viewer 3456 --type T   # Query + visualize analysis
 ```
 
 ### 3D Viewer (CLI → Browser)
@@ -59,6 +60,41 @@ curl -X POST http://localhost:3456/api/command \
 ```
 
 Supported actions: `colorize`, `isolate`, `highlight`, `xray`, `flyto`, `colorByStorey`, `showall`, `reset`.
+
+### Analysis Overlay (Query + Visualize)
+
+Run property/quantity checks and push results to the viewer:
+
+```bash
+# Highlight walls missing fire rating
+ifc-lite analyze model.ifc --viewer 3456 \
+  --type IfcWall --missing "Pset_WallCommon.FireRating" --color red
+
+# Large slabs (area > 100m²)
+ifc-lite analyze model.ifc --viewer 3456 \
+  --type IfcSlab --where "GrossArea>100" --color orange --isolate
+
+# Heatmap by wall area
+ifc-lite analyze model.ifc --viewer 3456 \
+  --type IfcWall --heatmap "Qto_WallBaseQuantities.GrossSideArea" --palette blue-red
+
+# Batch rules from JSON file
+ifc-lite analyze model.ifc --viewer 3456 --rules rules.json --json
+```
+
+### Live Element Creation via REST
+
+Create elements that appear live in the viewer:
+
+```bash
+# Create a wall via REST API
+curl -X POST http://localhost:3456/api/create \
+  -H 'Content-Type: application/json' \
+  -d '{"type":"wall","params":{"Height":3,"Start":[0,0,0],"End":[5,0,0]}}'
+
+# Export all created geometry
+curl http://localhost:3456/api/export > created.ifc
+```
 
 Always use `--json` for machine-readable output. Run `ifc-lite schema` to discover all available SDK methods before writing `eval` expressions. The `eval` command provides the full `bim.*` SDK API — see `ifc-lite schema` for the complete reference.
 
