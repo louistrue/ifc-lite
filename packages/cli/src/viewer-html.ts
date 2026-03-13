@@ -934,7 +934,18 @@ function handleCommand(cmd) {
     case 'section': {
       sectionEnabled = true;
       const axis = (cmd.axis || 'y').toLowerCase();
-      const pos = cmd.position ?? 0;
+      const axisIdx = axis === 'x' ? 0 : axis === 'z' ? 2 : 1;
+      // Support "center", percentage strings like "50%", or absolute numbers
+      let pos;
+      const rawPos = cmd.position;
+      if (rawPos === 'center' || rawPos === undefined) {
+        pos = (boundsMin[axisIdx] + boundsMax[axisIdx]) / 2;
+      } else if (typeof rawPos === 'string' && rawPos.endsWith('%')) {
+        const pct = parseFloat(rawPos) / 100;
+        pos = boundsMin[axisIdx] + (boundsMax[axisIdx] - boundsMin[axisIdx]) * pct;
+      } else {
+        pos = Number(rawPos) || 0;
+      }
       sectionPlane = [
         axis === 'x' ? 1 : 0,
         axis === 'y' ? 1 : 0,
@@ -947,12 +958,17 @@ function handleCommand(cmd) {
       sectionEnabled = false;
       break;
 
-    // ── Color by storey (Y-based binning) ──
+    // ── Color by storey (Y-based binning, adaptive to model scale) ──
     case 'colorByStorey': {
+      // Compute adaptive bin size from model Y extent instead of hardcoded 3m
+      const yExtent = boundsMax[1] - boundsMin[1];
+      // Aim for ~3-10 storeys; clamp bin size to reasonable range
+      const targetStoreys = Math.max(3, Math.min(10, Math.round(yExtent / 3)));
+      const binSize = Math.max(yExtent / targetStoreys, 0.01);
       const yGroups = new Map();
       for (const [eid, info] of entityMap) {
         const avgY = (info.boundsMin[1] + info.boundsMax[1]) / 2;
-        const bin = Math.floor(avgY / 3);
+        const bin = Math.floor((avgY - boundsMin[1]) / binSize);
         if (!yGroups.has(bin)) yGroups.set(bin, []);
         yGroups.get(bin).push(eid);
       }
@@ -1084,13 +1100,19 @@ function render() {
 // ═══════════════════════════════════════════════════════════════════
 // 8. SSE CLIENT
 // ═══════════════════════════════════════════════════════════════════
+let sseRetryDelay = 1000;
 function connectSSE() {
   const es = new EventSource('/events');
+  es.onopen = () => { sseRetryDelay = 1000; }; // Reset backoff on success
   es.onmessage = (e) => {
     try { handleCommand(JSON.parse(e.data)); }
     catch (err) { console.error('SSE parse error:', err); }
   };
-  es.onerror = () => { es.close(); setTimeout(connectSSE, 2000); };
+  es.onerror = () => {
+    es.close();
+    setTimeout(connectSSE, sseRetryDelay);
+    sseRetryDelay = Math.min(sseRetryDelay * 2, 30000);
+  };
 }
 
 // ═══════════════════════════════════════════════════════════════════

@@ -122,16 +122,16 @@ export async function viewCommand(args: string[]): Promise<void> {
   }
   const filePath = positional[0];
 
-  // Validate file exists
+  // Validate file exists and get size
+  let ifcSize: number;
   try {
-    await stat(filePath);
+    const ifcStat = await stat(filePath);
+    ifcSize = ifcStat.size;
   } catch {
     fatal(`File not found: ${filePath}`);
   }
 
   const fileName = basename(filePath);
-  const ifcStat = await stat(filePath);
-  const ifcSize = ifcStat.size;
   const wasmDir = resolveWasmDir();
 
   // Read WASM assets
@@ -379,8 +379,10 @@ function setupStdinCommands(port: number): void {
         break;
       case 'section': {
         const axis = parts[1] ?? 'y';
-        const pos = parseFloat(parts[2] ?? '0');
-        command = { action: 'section', axis, position: pos };
+        const rawPos = parts[2] ?? 'center';
+        // Pass percentage strings and "center" through to the viewer
+        const position = rawPos === 'center' || rawPos.endsWith('%') ? rawPos : parseFloat(rawPos);
+        command = { action: 'section', axis, position };
         break;
       }
       case 'clearSection':
