@@ -6,4 +6,4 @@
 export {
   createStreamingViewerAdapter,
   createStreamingVisibilityAdapter,
-} from '@ifc-lite/viewer';
+} from '@ifc-lite/viewer-core';

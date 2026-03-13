@@ -14,7 +14,6 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { createReadStream } from 'node:fs';
 import { readFile, stat } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
-import { createRequire } from 'node:module';
 import { getViewerHtml } from './viewer-html.js';
 
 /** Valid command actions that the viewer understands */
@@ -76,11 +75,13 @@ export interface ViewerServer {
 }
 
 /** Resolve the path to @ifc-lite/wasm package */
-function resolveWasmDir(): string {
-  const require = createRequire(import.meta.url);
+async function resolveWasmDir(): Promise<string> {
   try {
-    const pkgJson = require.resolve('@ifc-lite/wasm/package.json');
-    return dirname(pkgJson);
+    // Use import.meta.resolve which understands ESM "exports" maps
+    const entryUrl = import.meta.resolve('@ifc-lite/wasm');
+    // entryUrl = file:///…/packages/wasm/pkg/ifc-lite.js → we need …/packages/wasm
+    const entryPath = entryUrl.replace(/^file:\/\//, '');
+    return resolve(dirname(entryPath), '..');
   } catch {
     // Fallback: resolve from monorepo root
     return resolve(dirname(import.meta.url.replace('file://', '')), '..', '..', '..', 'wasm');
@@ -107,7 +108,7 @@ export async function startViewerServer(opts: ViewerServerOptions): Promise<View
     ifcSize = ifcStat.size;
   }
 
-  const wasmDir = resolveWasmDir();
+  const wasmDir = await resolveWasmDir();
 
   // Read WASM assets
   const wasmJs = await readFile(resolve(wasmDir, 'pkg', 'ifc-lite.js'));

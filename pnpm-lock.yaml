@@ -565,9 +565,9 @@ importers:
       '@ifc-lite/sdk':
         specifier: workspace:^
         version: link:../sdk
-      '@ifc-lite/viewer':
+      '@ifc-lite/viewer-core':
         specifier: workspace:^
-        version: link:../../apps/viewer
+        version: link:../viewer
       '@ifc-lite/wasm':
         specifier: workspace:^
         version: link:../wasm

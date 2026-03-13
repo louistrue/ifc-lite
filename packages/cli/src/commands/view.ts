@@ -16,7 +16,7 @@ import {
   VALID_ACTIONS,
   type CreateHandler,
   type ViewerServer,
-} from '@ifc-lite/viewer';
+} from '@ifc-lite/viewer-core';
 
 export { VALID_ACTIONS };
 
