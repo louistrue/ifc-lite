@@ -565,6 +565,9 @@ importers:
       '@ifc-lite/sdk':
         specifier: workspace:^
         version: link:../sdk
+      '@ifc-lite/wasm':
+        specifier: workspace:^
+        version: link:../wasm
     devDependencies:
       '@types/node':
         specifier: ^20.0.0
