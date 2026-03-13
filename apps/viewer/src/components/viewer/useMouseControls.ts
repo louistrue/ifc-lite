@@ -986,6 +986,13 @@ export function useMouseControls(params: UseMouseControlsParams): void {
           isolatedIds: isolatedEntitiesRef.current,
         });
         if (result?.intersection) {
+          const pt = result.intersection.point;
+          // If section is already active, only pick faces on the visible side
+          const sp = sectionPlaneRef.current;
+          if (sp.enabled) {
+            const dist = sp.normal.x * pt.x + sp.normal.y * pt.y + sp.normal.z * pt.z - sp.distance;
+            if (dist > 0.01) return; // Point is on the clipped side — ignore
+          }
           setSectionPlaneFromFace(result.intersection.normal, result.intersection.point);
         }
         return;
