@@ -212,7 +212,14 @@ async function runRule(
 
   const matchedIds = matched.map(e => e.ref.expressId);
 
-  // Push visualization
+  // Push visualization — isolate BEFORE colorize so colors aren't wiped
+  if (rule.isolate && matchedIds.length > 0) {
+    await sendViewerCommand(viewerPort, {
+      action: 'isolateEntities',
+      ids: matchedIds,
+    });
+  }
+
   if (rule.heatmap) {
     const palette = rule.palette ?? 'blue-red';
     const values = matched.map(e => ({
@@ -224,12 +231,21 @@ async function runRule(
     const max = Math.max(...numericValues);
     const range = max - min || 1;
 
+    // Batch by color bucket (~20 steps) to minimize HTTP roundtrips
+    const BUCKET_COUNT = 20;
+    const buckets = new Map<number, number[]>();
     for (const v of values) {
       const t = (v.value - min) / range;
+      const bucket = Math.min(BUCKET_COUNT - 1, Math.floor(t * BUCKET_COUNT));
+      if (!buckets.has(bucket)) buckets.set(bucket, []);
+      buckets.get(bucket)!.push(v.id);
+    }
+    for (const [bucket, ids] of buckets) {
+      const t = (bucket + 0.5) / BUCKET_COUNT;
       const color = interpolateColor(t, palette);
       await sendViewerCommand(viewerPort, {
         action: 'colorizeEntities',
-        ids: [v.id],
+        ids,
         color,
       });
     }
@@ -239,13 +255,6 @@ async function runRule(
       action: 'colorizeEntities',
       ids: matchedIds,
       color,
-    });
-  }
-
-  if (rule.isolate && matchedIds.length > 0) {
-    await sendViewerCommand(viewerPort, {
-      action: 'isolateEntities',
-      ids: matchedIds,
     });
   }
 

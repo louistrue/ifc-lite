@@ -354,6 +354,9 @@ const typeCounts = new Map();
 // WASM API reference (for addGeometry)
 let wasmApi = null;
 
+// Track entity IDs added via addGeometry (for removeCreated)
+const createdEntityIds = new Set();
+
 function updateBounds(pos) {
   for (let i = 0; i < pos.length; i += 3) {
     const x = pos[i], y = pos[i+1], z = pos[i+2];
@@ -1001,8 +1004,9 @@ function handleCommand(cmd) {
             color: [m.color[0], m.color[1], m.color[2], m.color[3] ?? 1],
           }));
           addMeshBatch(batch);
-          // Auto-highlight new geometry in green
+          // Track and auto-highlight new geometry in green
           for (const m of batch) {
+            createdEntityIds.add(m.expressId);
             colorOverrides.set(m.expressId, [0.2, 0.9, 0.4, 1]);
             markColorDirty(m.expressId);
           }
@@ -1012,6 +1016,50 @@ function handleCommand(cmd) {
             entityMap.size.toLocaleString() + ' entities';
         },
       }).catch(err => console.error('addGeometry error:', err));
+      break;
+    }
+
+    // ── Programmatic camera views (for CLI/LLM) ──
+    case 'setView': {
+      // Named views: front, back, left, right, top, bottom, iso
+      // theta = azimuth around Y, phi = angle from Y+ (0=top, PI/2=horizon)
+      const VIEWS = {
+        front:  { theta: 0,               phi: Math.PI * 0.4 },
+        back:   { theta: Math.PI,          phi: Math.PI * 0.4 },
+        left:   { theta: Math.PI * 1.5,    phi: Math.PI * 0.4 },
+        right:  { theta: Math.PI * 0.5,    phi: Math.PI * 0.4 },
+        top:    { theta: 0,               phi: 0.05 },
+        bottom: { theta: 0,               phi: Math.PI - 0.05 },
+        iso:    { theta: Math.PI * 0.25,   phi: Math.PI * 0.3 },
+      };
+      const view = cmd.view?.toLowerCase();
+      const preset = VIEWS[view];
+      if (preset) {
+        camAnimating = true;
+        camAnimStart = performance.now();
+        camAnimDuration = 500;
+        camAnimFrom = { target: [...camTarget], dist: camDist };
+        camAnimTo = { target: [...camTarget], dist: camDist };
+        // Animate theta/phi by setting target directly after animation
+        camTheta = preset.theta;
+        camPhi = preset.phi;
+        camVelTheta = camVelPhi = 0;
+      }
+      break;
+    }
+
+    // ── Remove created geometry ──
+    case 'removeCreated': {
+      // Hide all entities added via addGeometry by making them fully transparent
+      for (const eid of createdEntityIds) {
+        colorOverrides.set(eid, [0, 0, 0, 0]);
+        markColorDirty(eid);
+      }
+      createdEntityIds.clear();
+      refreshColors();
+      document.getElementById('model-stats').textContent =
+        totalTriangles.toLocaleString() + ' triangles, ' +
+        entityMap.size.toLocaleString() + ' entities';
       break;
     }
 
@@ -1142,45 +1190,51 @@ async function loadModel() {
 
     loadingText.textContent = 'Downloading model...';
     const resp = await fetch('/model.ifc');
-    const buffer = await resp.arrayBuffer();
-    const content = new TextDecoder().decode(buffer);
-    loadingText.textContent = 'Parsing geometry...';
 
-    let cameraFitted = false;
-    await api.parseMeshesAsync(content, {
-      batchSize: 50,
-      onBatch: (meshes, progress) => {
-        const batch = meshes.map(m => ({
-          expressId: m.expressId,
-          ifcType: m.ifcType || 'Unknown',
-          positions: m.positions,
-          normals: m.normals,
-          indices: m.indices,
-          color: [m.color[0], m.color[1], m.color[2], m.color[3] ?? 1],
-        }));
-        addMeshBatch(batch);
-        progressBar.style.width = progress.percent + '%';
+    if (resp.status === 204) {
+      // Empty mode — no model to load, just wait for commands
+      statsEl.textContent = 'Empty scene — waiting for geometry';
+    } else {
+      const buffer = await resp.arrayBuffer();
+      const content = new TextDecoder().decode(buffer);
+      loadingText.textContent = 'Parsing geometry...';
 
-        if (!cameraFitted && totalVertices > 0) {
-          fitCamera();
-          cameraFitted = true;
-        }
+      let cameraFitted = false;
+      await api.parseMeshesAsync(content, {
+        batchSize: 50,
+        onBatch: (meshes, progress) => {
+          const batch = meshes.map(m => ({
+            expressId: m.expressId,
+            ifcType: m.ifcType || 'Unknown',
+            positions: m.positions,
+            normals: m.normals,
+            indices: m.indices,
+            color: [m.color[0], m.color[1], m.color[2], m.color[3] ?? 1],
+          }));
+          addMeshBatch(batch);
+          progressBar.style.width = progress.percent + '%';
 
-        statsEl.textContent = totalTriangles.toLocaleString() + ' triangles, ' +
-          entityMap.size.toLocaleString() + ' entities (' + Math.round(progress.percent) + '%)';
-      },
-      onComplete: () => {
-        progressBar.style.width = '100%';
-        setTimeout(() => { document.getElementById('progress-wrap').style.opacity = '0'; }, 1000);
-      },
-    });
+          if (!cameraFitted && totalVertices > 0) {
+            fitCamera();
+            cameraFitted = true;
+          }
 
-    if (totalVertices > 0) fitCamera();
+          statsEl.textContent = totalTriangles.toLocaleString() + ' triangles, ' +
+            entityMap.size.toLocaleString() + ' entities (' + Math.round(progress.percent) + '%)';
+        },
+        onComplete: () => {
+          progressBar.style.width = '100%';
+          setTimeout(() => { document.getElementById('progress-wrap').style.opacity = '0'; }, 1000);
+        },
+      });
 
-    statsEl.textContent = totalTriangles.toLocaleString() + ' triangles, ' +
-      entityMap.size.toLocaleString() + ' entities';
-    statsEl.title = [...typeCounts.entries()].sort((a,b) => b[1]-a[1]).slice(0, 8)
-      .map(([t,c]) => t + ': ' + c).join(', ');
+      if (totalVertices > 0) fitCamera();
+
+      statsEl.textContent = totalTriangles.toLocaleString() + ' triangles, ' +
+        entityMap.size.toLocaleString() + ' entities';
+      statsEl.title = [...typeCounts.entries()].sort((a,b) => b[1]-a[1]).slice(0, 8)
+        .map(([t,c]) => t + ': ' + c).join(', ');
+    }
 
     document.getElementById('loading').style.display = 'none';
 

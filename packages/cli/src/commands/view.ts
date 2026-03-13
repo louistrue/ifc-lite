@@ -47,7 +47,7 @@ const VALID_ACTIONS = new Set([
   'colorize', 'isolate', 'xray', 'flyto', 'highlight',
   'colorizeEntities', 'isolateEntities', 'hideEntities', 'showEntities', 'resetColorEntities',
   'section', 'clearSection', 'colorByStorey', 'addGeometry',
-  'showall', 'reset', 'picked',
+  'showall', 'reset', 'picked', 'setView', 'removeCreated',
 ]);
 
 /** Active SSE connections */
@@ -115,23 +115,26 @@ export async function viewCommand(args: string[]): Promise<void> {
     return;
   }
 
-  // Find the IFC file argument
+  // Find the IFC file argument (optional with --empty)
+  const emptyMode = hasFlag(args, '--empty');
   const positional = args.filter(a => !a.startsWith('-') && !['--port', '--send'].includes(args[args.indexOf(a) - 1] ?? ''));
-  if (positional.length === 0) {
-    fatal('Usage: ifc-lite view <file.ifc> [--port N] [--no-open]');
+  if (positional.length === 0 && !emptyMode) {
+    fatal('Usage: ifc-lite view <file.ifc> [--port N] [--no-open]\n       ifc-lite view --empty --port N');
   }
-  const filePath = positional[0];
+  const filePath = emptyMode ? null : positional[0];
 
   // Validate file exists and get size
-  let ifcSize: number;
-  try {
-    const ifcStat = await stat(filePath);
-    ifcSize = ifcStat.size;
-  } catch {
-    fatal(`File not found: ${filePath}`);
+  let ifcSize = 0;
+  if (filePath) {
+    try {
+      const ifcStat = await stat(filePath);
+      ifcSize = ifcStat.size;
+    } catch {
+      fatal(`File not found: ${filePath}`);
+    }
   }
 
-  const fileName = basename(filePath);
+  const fileName = filePath ? basename(filePath) : 'Empty Scene';
   const wasmDir = resolveWasmDir();
 
   // Read WASM assets
@@ -177,6 +180,12 @@ export async function viewCommand(args: string[]): Promise<void> {
     }
 
     if (path === '/model.ifc' && req.method === 'GET') {
+      if (!filePath) {
+        // Empty mode — no model to serve
+        res.writeHead(204);
+        res.end();
+        return;
+      }
       res.writeHead(200, {
         'Content-Type': MIME['.ifc'],
         'Content-Length': ifcSize.toString(),
@@ -241,13 +250,18 @@ export async function viewCommand(args: string[]): Promise<void> {
     if (path === '/api/create' && req.method === 'POST') {
       try {
         const body = await readBody(req);
-        const { type, params, storey, project } = JSON.parse(body) as {
+        const parsed = JSON.parse(body);
+
+        // Support both single element and batch array
+        interface CreateRequest {
           type: string;
           params?: Record<string, unknown>;
           storey?: string;
           project?: string;
-        };
-        if (!type) {
+        }
+        const elements: CreateRequest[] = Array.isArray(parsed) ? parsed : [parsed];
+
+        if (elements.length === 0 || !elements[0].type) {
           res.writeHead(400, { 'Content-Type': MIME['.json'] });
           res.end(JSON.stringify({ ok: false, error: 'Missing "type" field' }));
           return;
@@ -257,19 +271,25 @@ export async function viewCommand(args: string[]): Promise<void> {
         const { IfcCreator } = await import('@ifc-lite/create');
         const { addElement: addEl, ELEMENT_TYPES } = await import('./create.js');
 
-        if (!ELEMENT_TYPES.includes(type.toLowerCase())) {
-          res.writeHead(400, { 'Content-Type': MIME['.json'] });
-          res.end(JSON.stringify({ ok: false, error: `Unknown type: ${type}`, validTypes: ELEMENT_TYPES }));
-          return;
+        // Validate all types before creating any
+        for (const el of elements) {
+          if (!ELEMENT_TYPES.includes(el.type.toLowerCase())) {
+            res.writeHead(400, { 'Content-Type': MIME['.json'] });
+            res.end(JSON.stringify({ ok: false, error: `Unknown type: ${el.type}`, validTypes: ELEMENT_TYPES }));
+            return;
+          }
         }
 
-        const creator = new IfcCreator({ Name: project ?? 'Live Edit' });
+        // Create all elements in a single IFC file
+        const creator = new IfcCreator({ Name: elements[0].project ?? 'Live Edit' });
         const storeyId = creator.addIfcBuildingStorey({
-          Name: storey ?? 'Created',
-          Elevation: (params?.Position as number[] | undefined)?.[1] ?? 0,
+          Name: elements[0].storey ?? 'Created',
+          Elevation: 0,
         });
 
-        addEl(creator, storeyId, type, params ?? {});
+        for (const el of elements) {
+          addEl(creator, storeyId, el.type, el.params ?? {});
+        }
         const result = creator.toIfc();
 
         // Stream to viewer
@@ -279,6 +299,7 @@ export async function viewCommand(args: string[]): Promise<void> {
         res.writeHead(200, { 'Content-Type': MIME['.json'] });
         res.end(JSON.stringify({
           ok: true,
+          count: elements.length,
           entities: result.entities,
           ifcSize: result.stats.fileSize,
         }));
@@ -286,6 +307,16 @@ export async function viewCommand(args: string[]): Promise<void> {
         res.writeHead(400, { 'Content-Type': MIME['.json'] });
         res.end(JSON.stringify({ ok: false, error: (e as Error).message }));
       }
+      return;
+    }
+
+    // Clear created geometry — POST /api/clear-created
+    if (path === '/api/clear-created' && req.method === 'POST') {
+      const count = createdSegments.length;
+      createdSegments.length = 0;
+      broadcast({ action: 'removeCreated' });
+      res.writeHead(200, { 'Content-Type': MIME['.json'] });
+      res.end(JSON.stringify({ ok: true, cleared: count }));
       return;
     }
 
@@ -370,7 +401,7 @@ function openBrowser(url: string): void {
 function setupStdinCommands(port: number): void {
   if (!process.stdin.isTTY) return;
 
-  process.stderr.write('  Interactive commands: colorize, isolate, showall, reset, quit\n');
+  process.stderr.write('  Interactive commands: colorize, isolate, view, showall, reset, quit\n');
   process.stderr.write('  > ');
 
   process.stdin.setEncoding('utf-8');
@@ -453,6 +484,15 @@ function setupStdinCommands(port: number): void {
         }
         break;
       }
+      case 'view': {
+        const viewName = parts[1];
+        if (!viewName) {
+          process.stderr.write('  Usage: view <front|back|left|right|top|iso>\n');
+        } else {
+          command = { action: 'setView', view: viewName };
+        }
+        break;
+      }
       case 'storey':
       case 'colorByStorey':
         command = { action: 'colorByStorey' };
@@ -469,6 +509,11 @@ function setupStdinCommands(port: number): void {
       case 'clearsection':
         command = { action: 'clearSection' };
         break;
+      case 'clear':
+      case 'clearCreated':
+        // Use our own REST endpoint to clear server + viewer state
+        fetch(`http://localhost:${port}/api/clear-created`, { method: 'POST' }).catch(() => {});
+        break;
       case 'showall':
         command = { action: 'showall' };
         break;
@@ -481,7 +526,7 @@ function setupStdinCommands(port: number): void {
           command = JSON.parse(line);
         } catch {
           process.stderr.write(`  Unknown command: ${action}\n`);
-          process.stderr.write('  Commands: colorize, isolate, xray, highlight, flyto, storey, showall, reset, quit\n');
+          process.stderr.write('  Commands: colorize, isolate, xray, highlight, flyto, view, storey, section, clear, showall, reset, quit\n');
         }
     }
 

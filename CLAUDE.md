@@ -59,7 +59,9 @@ curl -X POST http://localhost:3456/api/command \
   -d '{"action":"reset"}'
 ```
 
-Supported actions: `colorize`, `isolate`, `highlight`, `xray`, `flyto`, `colorByStorey`, `showall`, `reset`.
+Supported actions: `colorize`, `isolate`, `highlight`, `xray`, `flyto`, `colorByStorey`, `setView`, `showall`, `reset`.
+
+**Coordinate convention**: IFC uses Z-up, the 3D viewer uses Y-up internally. The WASM parser handles the conversion automatically. When using `/api/create`, pass coordinates in IFC Z-up convention (e.g. `[x, y, z]` where Z is up).
 
 ### Analysis Overlay (Query + Visualize)
 
@@ -92,8 +94,19 @@ curl -X POST http://localhost:3456/api/create \
   -H 'Content-Type: application/json' \
   -d '{"type":"wall","params":{"Height":3,"Start":[0,0,0],"End":[5,0,0]}}'
 
+# Batch create multiple elements in one request
+curl -X POST http://localhost:3456/api/create \
+  -H 'Content-Type: application/json' \
+  -d '[{"type":"wall","params":{"Height":3,"Start":[0,0,0],"End":[5,0,0]}},{"type":"column","params":{"Height":3,"Position":[5,0,0]}}]'
+
+# Clear all created geometry
+curl -X POST http://localhost:3456/api/clear-created
+
 # Export all created geometry
 curl http://localhost:3456/api/export > created.ifc
+
+# Open empty viewer (no model, just wait for commands)
+ifc-lite view --empty --port 3456
 ```
 
 Always use `--json` for machine-readable output. Run `ifc-lite schema` to discover all available SDK methods before writing `eval` expressions. The `eval` command provides the full `bim.*` SDK API — see `ifc-lite schema` for the complete reference.
