@@ -18,9 +18,6 @@ import type {
   EntityRef,
 } from '@ifc-lite/sdk';
 
-/** RGBA color with values 0–1 */
-type RGBAColor = { r: number; g: number; b: number; a?: number };
-
 /** Post a command to the running viewer server. Fire-and-forget. */
 function sendCommand(port: number, cmd: Record<string, unknown>): void {
   fetch(`http://localhost:${port}/api/command`, {
@@ -41,20 +38,20 @@ function refsToIds(refs: EntityRef[]): number[] {
  */
 export function createStreamingViewerAdapter(port: number): ViewerBackendMethods {
   return {
-    colorize(refs: EntityRef[], color: RGBAColor): void {
+    colorize(refs: EntityRef[], color: [number, number, number, number]): void {
       sendCommand(port, {
         action: 'colorizeEntities',
         ids: refsToIds(refs),
-        color: [color.r, color.g, color.b, color.a ?? 1],
+        color,
       });
     },
 
-    colorizeAll(batches: Array<{ refs: EntityRef[]; color: RGBAColor }>): void {
+    colorizeAll(batches: Array<{ refs: EntityRef[]; color: [number, number, number, number] }>): void {
       for (const batch of batches) {
         sendCommand(port, {
           action: 'colorizeEntities',
           ids: refsToIds(batch.refs),
-          color: [batch.color.r, batch.color.g, batch.color.b, batch.color.a ?? 1],
+          color: batch.color,
         });
       }
     },
