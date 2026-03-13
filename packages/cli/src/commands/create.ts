@@ -108,7 +108,7 @@ export async function createCommand(args: string[]): Promise<void> {
           ifcContent: result.content,
         }),
       });
-      const status = await resp.json();
+      const status = (await resp.json()) as { ok: boolean; error?: string };
       if (status.ok) {
         process.stderr.write(`Streamed to viewer on port ${port}\n`);
       } else {

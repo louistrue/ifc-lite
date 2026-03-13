@@ -17,7 +17,9 @@ import type {
   VisibilityBackendMethods,
   EntityRef,
 } from '@ifc-lite/sdk';
-import type { RGBAColor } from '@ifc-lite/sdk';
+
+/** RGBA color with values 0–1 */
+type RGBAColor = { r: number; g: number; b: number; a?: number };
 
 /** Post a command to the running viewer server. Fire-and-forget. */
 function sendCommand(port: number, cmd: Record<string, unknown>): void {
