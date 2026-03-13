@@ -18,7 +18,7 @@
  */
 
 import { createHeadlessContext, createStreamingContext } from '../loader.js';
-import { printJson, fatal, hasFlag, getFlag } from '../output.js';
+import { printJson, fatal, hasFlag, getFlag, validateViewerPort } from '../output.js';
 
 /** Known flags that take a value argument */
 const EVAL_VALUE_FLAGS = new Set(['--type', '--limit', '--viewer']);
@@ -29,7 +29,8 @@ export async function evalCommand(args: string[]): Promise<void> {
   const jsonOutput = hasFlag(args, '--json');
   const typeFilter = getFlag(args, '--type');
   const limitStr = getFlag(args, '--limit');
-  const viewerPort = getFlag(args, '--viewer');
+  const viewerPortRaw = getFlag(args, '--viewer');
+  const viewerPort = validateViewerPort(viewerPortRaw);
 
   // Parse positional args, skipping known flags and their values.
   // Known value flags (--type, --limit) and boolean flags (--json) are always
@@ -64,7 +65,7 @@ export async function evalCommand(args: string[]): Promise<void> {
   // Use streaming context if --viewer is specified, so bim.viewer.* calls
   // are forwarded to the running 3D viewer in real time.
   const { bim } = viewerPort
-    ? await createStreamingContext(filePath, parseInt(viewerPort, 10))
+    ? await createStreamingContext(filePath, viewerPort)
     : await createHeadlessContext(filePath);
 
   // When --type is specified, iterate entities and evaluate per-entity with `ref` in scope

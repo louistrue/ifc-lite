@@ -19,7 +19,7 @@
 
 import { writeFile } from 'node:fs/promises';
 import { IfcCreator } from '@ifc-lite/create';
-import { getFlag, hasFlag, fatal, printJson } from '../output.js';
+import { getFlag, hasFlag, fatal, printJson, validateViewerPort } from '../output.js';
 
 export const ELEMENT_TYPES = [
   'wall', 'slab', 'column', 'beam', 'stair', 'roof', 'gable-roof',
@@ -37,7 +37,7 @@ export async function createCommand(args: string[]): Promise<void> {
   }
 
   const outPath = getFlag(args, '--out');
-  const viewerPort = getFlag(args, '--viewer');
+  const viewerPort = validateViewerPort(getFlag(args, '--viewer'));
 
   const projectName = getFlag(args, '--project') ?? 'CLI Project';
   const storeyName = getFlag(args, '--storey') ?? 'Ground Floor';
@@ -99,12 +99,8 @@ export async function createCommand(args: string[]): Promise<void> {
   // Stream to viewer (if --viewer specified)
   let viewerOk = false;
   if (viewerPort) {
-    const port = parseInt(viewerPort, 10);
-    if (isNaN(port) || port < 1 || port > 65535) {
-      fatal(`Invalid --viewer port: ${viewerPort}`);
-    }
     try {
-      const resp = await fetch(`http://localhost:${port}/api/command`, {
+      const resp = await fetch(`http://localhost:${viewerPort}/api/command`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -118,13 +114,13 @@ export async function createCommand(args: string[]): Promise<void> {
         const status = (await resp.json()) as { ok: boolean; error?: string };
         if (status.ok) {
           viewerOk = true;
-          process.stderr.write(`Streamed to viewer on port ${port}\n`);
+          process.stderr.write(`Streamed to viewer on port ${viewerPort}\n`);
         } else {
           process.stderr.write(`Viewer error: ${status.error}\n`);
         }
       }
     } catch {
-      process.stderr.write(`Could not connect to viewer on port ${port}\n`);
+      process.stderr.write(`Could not connect to viewer on port ${viewerPort}\n`);
     }
   }
 

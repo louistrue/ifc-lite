@@ -361,6 +361,11 @@ const typeCounts = new Map();
 // WASM API reference (for addGeometry)
 let wasmApi = null;
 
+// Federated ID tracking — each addGeometry call gets its own ID namespace
+// to avoid collisions between separately-loaded IFC fragments
+let nextIdNamespace = 0;       // Increments per addGeometry call
+const ID_NAMESPACE_SIZE = 100000; // IDs per namespace
+
 // Track entity IDs added via addGeometry (for removeCreated)
 const createdEntityIds = new Set();
 
@@ -879,7 +884,8 @@ function resolveColor(c) {
 }
 
 function matchesType(info, type) {
-  return info.ifcType === type || info.ifcType === 'Ifc' + type || info.ifcType.slice(3) === type;
+  // Require exact IFC EXPRESS name match (e.g. "IfcWall", not "Wall")
+  return info.ifcType === type;
 }
 
 function getEntityBoundsForFilter(filterFn) {
@@ -1045,10 +1051,9 @@ function handleCommand(cmd) {
     // ── Add geometry (live creation streaming) ──
     case 'addGeometry': {
       if (!wasmApi || !cmd.ifcContent) break;
-      // Offset incoming IDs to avoid collision with already-loaded entities
-      const idOffset = entityMap.size > 0
-        ? Math.max(...entityMap.keys()) + 10000
-        : 0;
+      // Each addGeometry call gets a unique ID namespace to prevent collisions
+      nextIdNamespace++;
+      const idOffset = nextIdNamespace * ID_NAMESPACE_SIZE;
       wasmApi.parseMeshesAsync(cmd.ifcContent, {
         batchSize: 50,
         onBatch: (meshes) => {

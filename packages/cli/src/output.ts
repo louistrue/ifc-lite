@@ -101,6 +101,18 @@ export function hasFlag(args: string[], flag: string): boolean {
 }
 
 /**
+ * Validate and parse a --viewer port string. Calls fatal() on invalid input.
+ */
+export function validateViewerPort(raw: string | undefined, flagName = '--viewer'): number | undefined {
+  if (raw === undefined) return undefined;
+  const port = parseInt(raw, 10);
+  if (isNaN(port) || port < 1 || port > 65535) {
+    fatal(`Invalid ${flagName} port: "${raw}" (must be 1–65535)`);
+  }
+  return port;
+}
+
+/**
  * Get positional arguments (non-flag arguments).
  */
 export function getPositionalArgs(args: string[]): string[] {

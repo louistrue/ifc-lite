@@ -17,7 +17,7 @@
 
 import { readFile } from 'node:fs/promises';
 import { createStreamingContext } from '../loader.js';
-import { fatal, getFlag, hasFlag, printJson } from '../output.js';
+import { fatal, getFlag, hasFlag, printJson, validateViewerPort } from '../output.js';
 import type { BimContext, EntityRef, EntityData } from '@ifc-lite/sdk';
 
 interface AnalyzeRule {
@@ -278,7 +278,7 @@ export async function analyzeCommand(args: string[]): Promise<void> {
   if (!viewerPortStr) {
     fatal('Usage: ifc-lite analyze <file.ifc> --viewer <port> [options]\n\n--viewer is required to push results to the 3D viewer.');
   }
-  const viewerPort = parseInt(viewerPortStr, 10);
+  const viewerPort = validateViewerPort(viewerPortStr)!;
 
   const rulesFile = getFlag(args, '--rules');
   const jsonOutput = hasFlag(args, '--json');

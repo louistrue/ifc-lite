@@ -19,10 +19,10 @@
 
 import { readFile } from 'node:fs/promises';
 import { createHeadlessContext, createStreamingContext } from '../loader.js';
-import { fatal, getFlag } from '../output.js';
+import { fatal, getFlag, validateViewerPort } from '../output.js';
 
 export async function runCommand(args: string[]): Promise<void> {
-  const viewerPort = getFlag(args, '--viewer');
+  const viewerPort = validateViewerPort(getFlag(args, '--viewer'));
   const positional = args.filter((a, i) => !a.startsWith('-') && args[i - 1] !== '--viewer');
   if (positional.length < 2) fatal('Usage: ifc-lite run <script.js> <file.ifc> [--viewer PORT]');
 
@@ -32,7 +32,7 @@ export async function runCommand(args: string[]): Promise<void> {
 
   // Use streaming context if --viewer is specified
   const { bim } = viewerPort
-    ? await createStreamingContext(filePath, parseInt(viewerPort, 10))
+    ? await createStreamingContext(filePath, viewerPort)
     : await createHeadlessContext(filePath);
 
   // Execute script with bim context available
