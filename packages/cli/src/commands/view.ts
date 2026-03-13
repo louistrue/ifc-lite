@@ -35,11 +35,20 @@
  */
 
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import { createReadStream } from 'node:fs';
 import { readFile, stat } from 'node:fs/promises';
 import { basename, dirname, resolve } from 'node:path';
 import { createRequire } from 'node:module';
 import { fatal, getFlag, hasFlag } from '../output.js';
 import { getViewerHtml } from '../viewer-html.js';
+
+/** Valid command actions that the viewer understands */
+const VALID_ACTIONS = new Set([
+  'colorize', 'isolate', 'xray', 'flyto', 'highlight',
+  'colorizeEntities', 'isolateEntities', 'hideEntities', 'showEntities', 'resetColorEntities',
+  'section', 'clearSection', 'colorByStorey', 'addGeometry',
+  'showall', 'reset', 'picked',
+]);
 
 /** Active SSE connections */
 const sseClients: Set<ServerResponse> = new Set();
@@ -121,15 +130,21 @@ export async function viewCommand(args: string[]): Promise<void> {
   }
 
   const fileName = basename(filePath);
-  const ifcBuffer = await readFile(filePath);
+  const ifcStat = await stat(filePath);
+  const ifcSize = ifcStat.size;
   const wasmDir = resolveWasmDir();
 
   // Read WASM assets
-  let wasmJs: Buffer;
   let wasmBinary: Buffer;
+  let wasmJsCached: string;
   try {
-    wasmJs = await readFile(resolve(wasmDir, 'pkg', 'ifc-lite.js'));
+    const wasmJs = await readFile(resolve(wasmDir, 'pkg', 'ifc-lite.js'));
     wasmBinary = await readFile(resolve(wasmDir, 'pkg', 'ifc-lite_bg.wasm'));
+    // Cache the rewritten JS at startup instead of on every request
+    wasmJsCached = wasmJs.toString().replace(
+      /new URL\('ifc-lite_bg\.wasm', import\.meta\.url\)/g,
+      "new URL('/wasm/ifc-lite_bg.wasm', location.origin)",
+    );
   } catch {
     fatal('Could not find @ifc-lite/wasm package. Ensure it is built (pnpm build in packages/wasm).');
   }
@@ -161,20 +176,15 @@ export async function viewCommand(args: string[]): Promise<void> {
     if (path === '/model.ifc' && req.method === 'GET') {
       res.writeHead(200, {
         'Content-Type': MIME['.ifc'],
-        'Content-Length': ifcBuffer.byteLength.toString(),
+        'Content-Length': ifcSize.toString(),
       });
-      res.end(ifcBuffer);
+      createReadStream(filePath).pipe(res);
       return;
     }
 
     if (path === '/wasm/ifc-lite.js' && req.method === 'GET') {
-      // Rewrite import.meta.url references so the WASM binary resolves correctly
-      const jsContent = wasmJs.toString().replace(
-        /new URL\('ifc-lite_bg\.wasm', import\.meta\.url\)/g,
-        "new URL('/wasm/ifc-lite_bg.wasm', location.origin)",
-      );
       res.writeHead(200, { 'Content-Type': MIME['.js'] });
-      res.end(jsContent);
+      res.end(wasmJsCached);
       return;
     }
 
@@ -205,6 +215,15 @@ export async function viewCommand(args: string[]): Promise<void> {
       try {
         const body = await readBody(req);
         const command = JSON.parse(body);
+        if (!command.action || !VALID_ACTIONS.has(command.action)) {
+          res.writeHead(400, { 'Content-Type': MIME['.json'] });
+          res.end(JSON.stringify({
+            ok: false,
+            error: `Unknown action: ${command.action ?? '(none)'}`,
+            validActions: [...VALID_ACTIONS],
+          }));
+          return;
+        }
         broadcast(command);
         res.writeHead(200, { 'Content-Type': MIME['.json'] });
         res.end(JSON.stringify({ ok: true, action: command.action, clients: sseClients.size }));
@@ -237,7 +256,7 @@ export async function viewCommand(args: string[]): Promise<void> {
     const url = `http://localhost:${port}`;
 
     process.stderr.write(`\n  3D Viewer started → ${url}\n`);
-    process.stderr.write(`  Model: ${fileName} (${(ifcBuffer.byteLength / 1024 / 1024).toFixed(1)} MB)\n`);
+    process.stderr.write(`  Model: ${fileName} (${(ifcSize / 1024 / 1024).toFixed(1)} MB)\n`);
     process.stderr.write(`\n  Send commands via REST API:\n`);
     process.stderr.write(`    curl -X POST ${url}/api/command -H 'Content-Type: application/json' \\\n`);
     process.stderr.write(`      -d '{"action":"colorize","type":"IfcWall","color":[1,0,0,1]}'\n`);

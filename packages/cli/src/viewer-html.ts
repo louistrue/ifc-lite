@@ -243,6 +243,26 @@ void main(){
   fragColor = vec4(0.5, 0.5, 0.6, alpha);
 }\`;
 
+// ── Pick shader (encodes expressId per vertex, uploaded once) ──
+const PICK_VS2 = \`#version 300 es
+precision highp float;
+layout(location=0) in vec3 aPos;
+layout(location=1) in vec4 aPickCol;
+uniform mat4 uMVP;
+flat out vec4 vPickCol;
+void main(){
+  gl_Position = uMVP * vec4(aPos, 1.0);
+  vPickCol = aPickCol;
+}\`;
+
+const PICK_FS2 = \`#version 300 es
+precision highp float;
+flat in vec4 vPickCol;
+out vec4 fragColor;
+void main(){
+  fragColor = vPickCol;
+}\`;
+
 function compileShader(src, type) {
   const s = gl.createShader(type);
   gl.shaderSource(s, src);
@@ -280,6 +300,10 @@ const gGridY = gl.getUniformLocation(gridProg, 'uGridY');
 const gGridScale = gl.getUniformLocation(gridProg, 'uGridScale');
 const gGridExtent = gl.getUniformLocation(gridProg, 'uGridExtent');
 
+// Pick program (uses per-vertex entity ID colors, uploaded once)
+const pickProg = createProgram(PICK_VS2, PICK_FS2);
+const pMVP = gl.getUniformLocation(pickProg, 'uMVP');
+
 // Grid geometry (unit quad)
 const gridVao = gl.createVertexArray();
 gl.bindVertexArray(gridVao);
@@ -305,6 +329,7 @@ let positions = [];   // Float32Array segments
 let normals = [];
 let indices = [];
 let colors = [];      // Per-vertex RGBA
+let pickColors = [];  // Per-vertex entity-ID encoding (uploaded once)
 let totalVertices = 0;
 let totalIndices = 0;
 let totalTriangles = 0;
@@ -315,6 +340,8 @@ let posBuffer = null;
 let normBuffer = null;
 let colBuffer = null;
 let idxBuffer = null;
+let pickVao = null;    // Separate VAO for pick pass
+let pickColBuffer = null;
 let drawCount = 0;
 
 // Model bounds
@@ -399,6 +426,16 @@ function addMeshBatch(meshes) {
     }
     colors.push(vc);
 
+    // Per-vertex pick color (entity ID encoded as RGB, uploaded once)
+    const pc = new Float32Array(vCount * 4);
+    const pr = ((mesh.expressId >> 16) & 255) / 255;
+    const pg = ((mesh.expressId >> 8) & 255) / 255;
+    const pb = (mesh.expressId & 255) / 255;
+    for (let i = 0; i < vCount; i++) {
+      pc[i*4] = pr; pc[i*4+1] = pg; pc[i*4+2] = pb; pc[i*4+3] = 1;
+    }
+    pickColors.push(pc);
+
     updateBounds(mesh.positions);
     totalVertices += vCount;
     totalIndices += iCount;
@@ -411,6 +448,7 @@ function uploadGeometry() {
   const allPos = mergeFloat32(positions, totalVertices * 3);
   const allNorm = mergeFloat32(normals, totalVertices * 3);
   const allCol = mergeFloat32(colors, totalVertices * 4);
+  const allPick = mergeFloat32(pickColors, totalVertices * 4);
   const allIdx = mergeUint32(indices, totalIndices);
 
   if (!vao) {
@@ -419,8 +457,11 @@ function uploadGeometry() {
     normBuffer = gl.createBuffer();
     colBuffer = gl.createBuffer();
     idxBuffer = gl.createBuffer();
+    pickVao = gl.createVertexArray();
+    pickColBuffer = gl.createBuffer();
   }
 
+  // Main render VAO
   gl.bindVertexArray(vao);
 
   gl.bindBuffer(gl.ARRAY_BUFFER, posBuffer);
@@ -440,6 +481,22 @@ function uploadGeometry() {
 
   gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, idxBuffer);
   gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, allIdx, gl.STATIC_DRAW);
+
+  gl.bindVertexArray(null);
+
+  // Pick VAO (shares posBuffer + idxBuffer, uses pickColBuffer for entity IDs)
+  gl.bindVertexArray(pickVao);
+
+  gl.bindBuffer(gl.ARRAY_BUFFER, posBuffer);
+  gl.enableVertexAttribArray(0);
+  gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 0, 0);
+
+  gl.bindBuffer(gl.ARRAY_BUFFER, pickColBuffer);
+  gl.bufferData(gl.ARRAY_BUFFER, allPick, gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(1);
+  gl.vertexAttribPointer(1, 4, gl.FLOAT, false, 0, 0);
+
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, idxBuffer);
 
   gl.bindVertexArray(null);
   drawCount = totalIndices;
@@ -622,41 +679,22 @@ function ensurePickFbo() {
 }
 
 canvas.addEventListener('click', (e) => {
-  if (!vao || drawCount === 0) return;
+  if (!pickVao || drawCount === 0) return;
   ensurePickFbo();
   const mvp = getMVP();
 
-  // Render entity IDs into pick FBO
+  // Render entity IDs into pick FBO using dedicated pick shader + pick VAO
   gl.bindFramebuffer(gl.FRAMEBUFFER, pickFbo);
   gl.viewport(0, 0, pickW, pickH);
   gl.clearColor(0, 0, 0, 0);
   gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
   gl.disable(gl.BLEND);
 
-  // Temporarily swap color buffer with entity ID encoding
-  const pickColors = new Float32Array(totalVertices * 4);
-  for (const [eid, info] of entityMap) {
-    const r = ((eid >> 16) & 255) / 255;
-    const g = ((eid >> 8) & 255) / 255;
-    const b = (eid & 255) / 255;
-    for (const seg of info.segments) {
-      for (let i = 0; i < seg.vertexCount; i++) {
-        const vi = (seg.vertexStart + i) * 4;
-        pickColors[vi] = r; pickColors[vi+1] = g; pickColors[vi+2] = b; pickColors[vi+3] = 1;
-      }
-    }
-  }
-
-  gl.bindVertexArray(vao);
-  gl.bindBuffer(gl.ARRAY_BUFFER, colBuffer);
-  gl.bufferData(gl.ARRAY_BUFFER, pickColors, gl.STATIC_DRAW);
-
-  gl.useProgram(prog);
-  gl.uniformMatrix4fv(uMVP, false, mvp);
-  gl.uniformMatrix4fv(uNormMat, false, mat4.create());
-  gl.uniform1i(uSectionEnabled, 0);
-  gl.uniform1f(uEdgeStrength, 0.0); // no edges in pick pass
+  gl.useProgram(pickProg);
+  gl.uniformMatrix4fv(pMVP, false, mvp);
+  gl.bindVertexArray(pickVao);
   gl.drawElements(gl.TRIANGLES, drawCount, gl.UNSIGNED_INT, 0);
+  gl.bindVertexArray(null);
 
   // Read pixel
   const dpr = Math.min(window.devicePixelRatio, 2);
@@ -665,8 +703,6 @@ canvas.addEventListener('click', (e) => {
   const pixel = new Uint8Array(4);
   gl.readPixels(px, py, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel);
 
-  // Restore colors
-  refreshColors();
   gl.bindFramebuffer(gl.FRAMEBUFFER, null);
   gl.viewport(0, 0, canvas.width, canvas.height);
   gl.enable(gl.BLEND);
@@ -674,7 +710,6 @@ canvas.addEventListener('click', (e) => {
   const pickedId = (pixel[0] << 16) | (pixel[1] << 8) | pixel[2];
   if (pickedId > 0 && entityMap.has(pickedId)) {
     showPickInfo(pickedId);
-    // Report to CLI
     const info = entityMap.get(pickedId);
     fetch('/api/command', {
       method: 'POST',
@@ -723,14 +758,54 @@ function applyColorOverrides(colArray) {
   }
 }
 
+// Track which entity IDs have changed since last refreshColors
+let colorDirtyAll = true; // true = full rebuild needed (initial load, reset)
+const colorDirtyEntities = new Set();
+
+function markColorDirty(eid) { colorDirtyEntities.add(eid); }
+function markAllColorsDirty() { colorDirtyAll = true; }
+
 function refreshColors() {
   if (!vao) return;
-  const col = mergeFloat32(colors, totalVertices * 4);
-  applyColorOverrides(col);
-  gl.bindVertexArray(vao);
+
+  if (colorDirtyAll) {
+    // Full rebuild — needed after initial load or reset
+    const col = mergeFloat32(colors, totalVertices * 4);
+    applyColorOverrides(col);
+    gl.bindVertexArray(vao);
+    gl.bindBuffer(gl.ARRAY_BUFFER, colBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, col, gl.STATIC_DRAW);
+    gl.bindVertexArray(null);
+    colorDirtyAll = false;
+    colorDirtyEntities.clear();
+    return;
+  }
+
+  // Partial update — only update changed entities via bufferSubData
+  if (colorDirtyEntities.size === 0) return;
   gl.bindBuffer(gl.ARRAY_BUFFER, colBuffer);
-  gl.bufferData(gl.ARRAY_BUFFER, col, gl.STATIC_DRAW);
-  gl.bindVertexArray(null);
+  for (const eid of colorDirtyEntities) {
+    const info = entityMap.get(eid);
+    if (!info) continue;
+    const override = colorOverrides.get(eid);
+    for (const seg of info.segments) {
+      const buf = new Float32Array(seg.vertexCount * 4);
+      if (override) {
+        for (let i = 0; i < seg.vertexCount; i++) {
+          buf[i*4] = override[0]; buf[i*4+1] = override[1];
+          buf[i*4+2] = override[2]; buf[i*4+3] = override[3];
+        }
+      } else {
+        // Restore default color from the original colors array
+        const dc = info.defaultColor;
+        for (let i = 0; i < seg.vertexCount; i++) {
+          buf[i*4] = dc[0]; buf[i*4+1] = dc[1]; buf[i*4+2] = dc[2]; buf[i*4+3] = dc[3];
+        }
+      }
+      gl.bufferSubData(gl.ARRAY_BUFFER, seg.vertexStart * 4 * 4, buf);
+    }
+  }
+  colorDirtyEntities.clear();
 }
 
 const NAMED_COLORS = {
@@ -772,7 +847,7 @@ function handleCommand(cmd) {
     case 'colorize': {
       const color = resolveColor(cmd.color);
       for (const [eid, info] of entityMap) {
-        if (matchesType(info, cmd.type)) colorOverrides.set(eid, color);
+        if (matchesType(info, cmd.type)) { colorOverrides.set(eid, color); markColorDirty(eid); }
       }
       refreshColors();
       break;
@@ -785,6 +860,7 @@ function handleCommand(cmd) {
         } else {
           colorOverrides.delete(eid);
         }
+        markColorDirty(eid);
       }
       refreshColors();
       break;
@@ -795,6 +871,7 @@ function handleCommand(cmd) {
         if (matchesType(info, cmd.type)) {
           const dc = info.defaultColor;
           colorOverrides.set(eid, [dc[0], dc[1], dc[2], opacity]);
+          markColorDirty(eid);
         }
       }
       refreshColors();
@@ -815,7 +892,7 @@ function handleCommand(cmd) {
     // ── Entity ID-based commands (from streaming adapter) ──
     case 'colorizeEntities': {
       const color = resolveColor(cmd.color);
-      for (const id of cmd.ids) colorOverrides.set(id, color);
+      for (const id of cmd.ids) { colorOverrides.set(id, color); markColorDirty(id); }
       refreshColors();
       break;
     }
@@ -827,27 +904,28 @@ function handleCommand(cmd) {
         } else {
           colorOverrides.delete(eid);
         }
+        markColorDirty(eid);
       }
       refreshColors();
       break;
     }
     case 'hideEntities': {
-      for (const id of cmd.ids) colorOverrides.set(id, [0, 0, 0, 0]);
+      for (const id of cmd.ids) { colorOverrides.set(id, [0, 0, 0, 0]); markColorDirty(id); }
       refreshColors();
       break;
     }
     case 'showEntities': {
-      for (const id of cmd.ids) colorOverrides.delete(id);
+      for (const id of cmd.ids) { colorOverrides.delete(id); markColorDirty(id); }
       refreshColors();
       break;
     }
     case 'resetColorEntities': {
-      for (const id of cmd.ids) colorOverrides.delete(id);
+      for (const id of cmd.ids) { colorOverrides.delete(id); markColorDirty(id); }
       refreshColors();
       break;
     }
     case 'highlight': {
-      for (const id of (cmd.ids || [])) colorOverrides.set(id, [1, 0.9, 0, 1]);
+      for (const id of (cmd.ids || [])) { colorOverrides.set(id, [1, 0.9, 0, 1]); markColorDirty(id); }
       refreshColors();
       break;
     }
@@ -883,6 +961,7 @@ function handleCommand(cmd) {
         const color = STOREY_PALETTE[i % STOREY_PALETTE.length];
         for (const eid of yGroups.get(sortedBins[i])) colorOverrides.set(eid, color);
       }
+      markAllColorsDirty();
       refreshColors();
       break;
     }
@@ -913,11 +992,13 @@ function handleCommand(cmd) {
     // ── General ──
     case 'showall':
       colorOverrides.clear();
+      markAllColorsDirty();
       refreshColors();
       break;
     case 'reset':
       colorOverrides.clear();
       sectionEnabled = false;
+      markAllColorsDirty();
       refreshColors();
       fitCamera();
       break;
@@ -1089,6 +1170,7 @@ window.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
     colorOverrides.clear();
     sectionEnabled = false;
+    markAllColorsDirty();
     refreshColors();
     document.getElementById('pick-info').style.display = 'none';
   }
