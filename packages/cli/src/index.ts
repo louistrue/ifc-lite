@@ -28,6 +28,7 @@ import { bsddCommand } from './commands/bsdd.js';
 import { statsCommand } from './commands/stats.js';
 import { mutateCommand } from './commands/mutate.js';
 import { askCommand } from './commands/ask.js';
+import { viewCommand } from './commands/view.js';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -72,6 +73,7 @@ const HELP = `
     stats     <file.ifc>                          Auto-calculated model KPIs and health check
     mutate    <file.ifc> --id N --set P=V --out F  Modify properties/attributes and save
     ask       <file.ifc> "<question>"            Natural language BIM queries
+    view      <file.ifc> [--port N]              Interactive 3D viewer in browser
 
   Options:
     --help, -h       Show help
@@ -119,6 +121,9 @@ const HELP = `
     ifc-lite ask model.ifc "how many walls?"
     ifc-lite ask model.ifc "window-wall ratio" --json
     ifc-lite ask model.ifc "list materials" --explain
+    ifc-lite view model.ifc
+    ifc-lite view model.ifc --port 3456
+    curl -X POST http://localhost:3456/api/command -H 'Content-Type: application/json' -d '{"action":"colorize","type":"IfcWall","color":[1,0,0,1]}'
 
   Pipe-friendly:
     ifc-lite query model.ifc --type IfcWall --json | jq '.[].name'
@@ -205,6 +210,9 @@ async function main(): Promise<void> {
       break;
     case 'ask':
       await askCommand(commandArgs);
+      break;
+    case 'view':
+      await viewCommand(commandArgs);
       break;
     default:
       process.stderr.write(`Unknown command: ${command}\n`);

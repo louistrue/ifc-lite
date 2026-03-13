@@ -1,0 +1,376 @@
+/* This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
+
+/**
+ * ifc-lite view <file.ifc> [--port N] [--no-open]
+ *
+ * Launch an interactive 3D viewer in the browser, connected to the CLI via
+ * HTTP + SSE.  The viewer loads, parses, and renders the IFC model using
+ * the @ifc-lite/wasm geometry engine (WebGL 2).
+ *
+ * A REST API on the same port lets external tools (Claude Code, curl, …)
+ * send live commands:
+ *
+ *   curl -X POST http://localhost:PORT/api/command \
+ *     -H 'Content-Type: application/json' \
+ *     -d '{"action":"colorize","type":"IfcWall","color":[1,0,0,1]}'
+ *
+ * Supported actions:
+ *   colorize   { type, color }           Color entities by IFC type
+ *   isolate    { types }                 Show only specified types
+ *   highlight  { ids }                   Highlight specific express IDs
+ *   showall                              Reset visibility
+ *   reset                                Reset all colors + visibility
+ *   flyto      { type | ids }            Fly camera to entities
+ *   xray       { type, opacity? }        Make a type semi-transparent
+ *   colorByStorey                        Auto-color by building storey
+ */
+
+import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import { readFile, stat } from 'node:fs/promises';
+import { basename, dirname, resolve } from 'node:path';
+import { createRequire } from 'node:module';
+import { fatal, getFlag, hasFlag } from '../output.js';
+import { getViewerHtml } from '../viewer-html.js';
+
+/** Active SSE connections */
+const sseClients: Set<ServerResponse> = new Set();
+
+/** Broadcast a command to all connected viewers */
+function broadcast(data: Record<string, unknown>): void {
+  const payload = `data: ${JSON.stringify(data)}\n\n`;
+  for (const res of sseClients) {
+    res.write(payload);
+  }
+}
+
+/** Read full request body as string */
+function readBody(req: IncomingMessage): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    req.on('data', (c: Buffer) => chunks.push(c));
+    req.on('end', () => resolve(Buffer.concat(chunks).toString()));
+    req.on('error', reject);
+  });
+}
+
+/** Resolve the path to @ifc-lite/wasm package */
+function resolveWasmDir(): string {
+  const require = createRequire(import.meta.url);
+  try {
+    const pkgJson = require.resolve('@ifc-lite/wasm/package.json');
+    return dirname(pkgJson);
+  } catch {
+    // Fallback: resolve from monorepo root
+    return resolve(dirname(import.meta.url.replace('file://', '')), '..', '..', '..', 'wasm');
+  }
+}
+
+/** MIME types for served files */
+const MIME: Record<string, string> = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'application/javascript; charset=utf-8',
+  '.wasm': 'application/wasm',
+  '.ifc': 'application/octet-stream',
+  '.json': 'application/json; charset=utf-8',
+};
+
+export async function viewCommand(args: string[]): Promise<void> {
+  const noOpen = hasFlag(args, '--no-open');
+  const portStr = getFlag(args, '--port');
+  const requestedPort = portStr ? parseInt(portStr, 10) : 0;
+
+  // Check for --send mode: send a command to an already-running viewer
+  const sendPayload = getFlag(args, '--send');
+  if (sendPayload && portStr) {
+    const port = parseInt(portStr, 10);
+    try {
+      const resp = await fetch(`http://localhost:${port}/api/command`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: sendPayload,
+      });
+      const result = await resp.json();
+      process.stdout.write(JSON.stringify(result) + '\n');
+    } catch (e: unknown) {
+      fatal(`Could not connect to viewer at port ${port}: ${(e as Error).message}`);
+    }
+    return;
+  }
+
+  // Find the IFC file argument
+  const positional = args.filter(a => !a.startsWith('-') && !['--port', '--send'].includes(args[args.indexOf(a) - 1] ?? ''));
+  if (positional.length === 0) {
+    fatal('Usage: ifc-lite view <file.ifc> [--port N] [--no-open]');
+  }
+  const filePath = positional[0];
+
+  // Validate file exists
+  try {
+    await stat(filePath);
+  } catch {
+    fatal(`File not found: ${filePath}`);
+  }
+
+  const fileName = basename(filePath);
+  const ifcBuffer = await readFile(filePath);
+  const wasmDir = resolveWasmDir();
+
+  // Read WASM assets
+  let wasmJs: Buffer;
+  let wasmBinary: Buffer;
+  try {
+    wasmJs = await readFile(resolve(wasmDir, 'pkg', 'ifc-lite.js'));
+    wasmBinary = await readFile(resolve(wasmDir, 'pkg', 'ifc-lite_bg.wasm'));
+  } catch {
+    fatal('Could not find @ifc-lite/wasm package. Ensure it is built (pnpm build in packages/wasm).');
+  }
+
+  const viewerHtml = getViewerHtml(fileName);
+
+  const server = createServer(async (req, res) => {
+    const url = new URL(req.url ?? '/', `http://${req.headers.host}`);
+    const path = url.pathname;
+
+    // CORS headers for API
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204);
+      res.end();
+      return;
+    }
+
+    // Routes
+    if (path === '/' && req.method === 'GET') {
+      res.writeHead(200, { 'Content-Type': MIME['.html'] });
+      res.end(viewerHtml);
+      return;
+    }
+
+    if (path === '/model.ifc' && req.method === 'GET') {
+      res.writeHead(200, {
+        'Content-Type': MIME['.ifc'],
+        'Content-Length': ifcBuffer.byteLength.toString(),
+      });
+      res.end(ifcBuffer);
+      return;
+    }
+
+    if (path === '/wasm/ifc-lite.js' && req.method === 'GET') {
+      // Rewrite import.meta.url references so the WASM binary resolves correctly
+      const jsContent = wasmJs.toString().replace(
+        /new URL\('ifc-lite_bg\.wasm', import\.meta\.url\)/g,
+        "new URL('/wasm/ifc-lite_bg.wasm', location.origin)",
+      );
+      res.writeHead(200, { 'Content-Type': MIME['.js'] });
+      res.end(jsContent);
+      return;
+    }
+
+    if (path === '/wasm/ifc-lite_bg.wasm' && req.method === 'GET') {
+      res.writeHead(200, {
+        'Content-Type': MIME['.wasm'],
+        'Content-Length': wasmBinary.byteLength.toString(),
+      });
+      res.end(wasmBinary);
+      return;
+    }
+
+    // SSE endpoint — CLI pushes commands to browser
+    if (path === '/events' && req.method === 'GET') {
+      res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+      });
+      res.write('data: {"action":"connected"}\n\n');
+      sseClients.add(res);
+      req.on('close', () => sseClients.delete(res));
+      return;
+    }
+
+    // Command API — external tools send commands to the viewer
+    if (path === '/api/command' && req.method === 'POST') {
+      try {
+        const body = await readBody(req);
+        const command = JSON.parse(body);
+        broadcast(command);
+        res.writeHead(200, { 'Content-Type': MIME['.json'] });
+        res.end(JSON.stringify({ ok: true, action: command.action, clients: sseClients.size }));
+      } catch (e: unknown) {
+        res.writeHead(400, { 'Content-Type': MIME['.json'] });
+        res.end(JSON.stringify({ ok: false, error: (e as Error).message }));
+      }
+      return;
+    }
+
+    // Viewer status — useful for Claude Code to check if viewer is running
+    if (path === '/api/status' && req.method === 'GET') {
+      res.writeHead(200, { 'Content-Type': MIME['.json'] });
+      res.end(JSON.stringify({
+        ok: true,
+        model: fileName,
+        clients: sseClients.size,
+      }));
+      return;
+    }
+
+    // 404
+    res.writeHead(404, { 'Content-Type': 'text/plain' });
+    res.end('Not Found');
+  });
+
+  server.listen(requestedPort, () => {
+    const addr = server.address();
+    const port = typeof addr === 'object' && addr ? addr.port : requestedPort;
+    const url = `http://localhost:${port}`;
+
+    process.stderr.write(`\n  3D Viewer started → ${url}\n`);
+    process.stderr.write(`  Model: ${fileName} (${(ifcBuffer.byteLength / 1024 / 1024).toFixed(1)} MB)\n`);
+    process.stderr.write(`\n  Send commands via REST API:\n`);
+    process.stderr.write(`    curl -X POST ${url}/api/command -H 'Content-Type: application/json' \\\n`);
+    process.stderr.write(`      -d '{"action":"colorize","type":"IfcWall","color":[1,0,0,1]}'\n`);
+    process.stderr.write(`\n  Or use the CLI:\n`);
+    process.stderr.write(`    ifc-lite view --port ${port} --send '{"action":"isolate","types":["IfcWall"]}'\n`);
+    process.stderr.write(`\n  Press Ctrl+C to stop.\n\n`);
+
+    if (!noOpen) {
+      openBrowser(url);
+    }
+
+    // Interactive stdin commands
+    setupStdinCommands(port);
+  });
+}
+
+/** Open URL in default browser (cross-platform) */
+function openBrowser(url: string): void {
+  const { platform } = process;
+  let cmd: string;
+  if (platform === 'darwin') cmd = `open "${url}"`;
+  else if (platform === 'win32') cmd = `start "${url}"`;
+  else cmd = `xdg-open "${url}"`;
+
+  import('node:child_process').then(({ exec }) => {
+    exec(cmd, () => { /* ignore errors */ });
+  });
+}
+
+/** Listen for interactive commands on stdin */
+function setupStdinCommands(port: number): void {
+  if (!process.stdin.isTTY) return;
+
+  process.stderr.write('  Interactive commands: colorize, isolate, showall, reset, quit\n');
+  process.stderr.write('  > ');
+
+  process.stdin.setEncoding('utf-8');
+  process.stdin.on('data', (data: string) => {
+    const line = data.trim();
+    if (!line) {
+      process.stderr.write('  > ');
+      return;
+    }
+
+    if (line === 'quit' || line === 'exit' || line === 'q') {
+      process.exit(0);
+    }
+
+    const parts = line.split(/\s+/);
+    const action = parts[0];
+
+    const COLORS: Record<string, [number, number, number, number]> = {
+      red: [1, 0, 0, 1],
+      green: [0, 0.7, 0, 1],
+      blue: [0, 0.3, 1, 1],
+      yellow: [1, 0.9, 0, 1],
+      orange: [1, 0.5, 0, 1],
+      purple: [0.6, 0.2, 0.8, 1],
+      cyan: [0, 0.8, 0.8, 1],
+      white: [1, 1, 1, 1],
+      pink: [1, 0.4, 0.7, 1],
+    };
+
+    let command: Record<string, unknown> | null = null;
+
+    switch (action) {
+      case 'colorize': {
+        const type = parts[1];
+        const colorName = parts[2] ?? 'red';
+        const color = COLORS[colorName] ?? [1, 0, 0, 1];
+        if (!type) {
+          process.stderr.write('  Usage: colorize <IfcType> [color]\n');
+        } else {
+          command = { action: 'colorize', type, color };
+        }
+        break;
+      }
+      case 'isolate': {
+        const types = parts.slice(1);
+        if (types.length === 0) {
+          process.stderr.write('  Usage: isolate <IfcType> [IfcType...]\n');
+        } else {
+          command = { action: 'isolate', types };
+        }
+        break;
+      }
+      case 'xray': {
+        const type = parts[1];
+        const opacity = parseFloat(parts[2] ?? '0.15');
+        if (!type) {
+          process.stderr.write('  Usage: xray <IfcType> [opacity]\n');
+        } else {
+          command = { action: 'xray', type, opacity };
+        }
+        break;
+      }
+      case 'highlight': {
+        const ids = parts.slice(1).map(Number).filter(n => !isNaN(n));
+        if (ids.length === 0) {
+          process.stderr.write('  Usage: highlight <id> [id...]\n');
+        } else {
+          command = { action: 'highlight', ids };
+        }
+        break;
+      }
+      case 'flyto': {
+        const type = parts[1];
+        if (!type) {
+          process.stderr.write('  Usage: flyto <IfcType | id>\n');
+        } else if (/^\d+$/.test(type)) {
+          command = { action: 'flyto', ids: [parseInt(type, 10)] };
+        } else {
+          command = { action: 'flyto', type };
+        }
+        break;
+      }
+      case 'storey':
+      case 'colorByStorey':
+        command = { action: 'colorByStorey' };
+        break;
+      case 'showall':
+        command = { action: 'showall' };
+        break;
+      case 'reset':
+        command = { action: 'reset' };
+        break;
+      default:
+        // Try parsing as JSON
+        try {
+          command = JSON.parse(line);
+        } catch {
+          process.stderr.write(`  Unknown command: ${action}\n`);
+          process.stderr.write('  Commands: colorize, isolate, xray, highlight, flyto, storey, showall, reset, quit\n');
+        }
+    }
+
+    if (command) {
+      broadcast(command);
+      process.stderr.write(`  → sent: ${JSON.stringify(command)}\n`);
+    }
+    process.stderr.write('  > ');
+  });
+}

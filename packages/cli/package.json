@@ -34,7 +34,8 @@
     "@ifc-lite/create": "workspace:^",
     "@ifc-lite/encoding": "workspace:^",
     "@ifc-lite/sandbox": "workspace:^",
-    "@ifc-lite/mutations": "workspace:^"
+    "@ifc-lite/mutations": "workspace:^",
+    "@ifc-lite/wasm": "workspace:^"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
