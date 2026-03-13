@@ -11,6 +11,7 @@ import { basename } from 'node:path';
 import { IfcParser, type IfcDataStore } from '@ifc-lite/parser';
 import { createBimContext, type BimContext } from '@ifc-lite/sdk';
 import { HeadlessBackend } from './headless-backend.js';
+import { createStreamingViewerAdapter, createStreamingVisibilityAdapter } from './streaming-viewer.js';
 
 /**
  * Parse an IFC file from disk into an IfcDataStore.
@@ -61,6 +62,27 @@ export async function loadIfcFile(filePath: string): Promise<IfcDataStore> {
 export async function createHeadlessContext(filePath: string): Promise<{ bim: BimContext; store: IfcDataStore }> {
   const store = await loadIfcFile(filePath);
   const backend = new HeadlessBackend(store, basename(filePath));
+  const bim = createBimContext({ backend });
+  return { bim, store };
+}
+
+/**
+ * Create a BimContext that streams viewer commands to a running `ifc-lite view` server.
+ *
+ * SDK calls like `bim.viewer.colorize(...)` and `bim.viewer.isolate(...)` are
+ * forwarded to the viewer via its REST API, updating the 3D view in real time.
+ */
+export async function createStreamingContext(
+  filePath: string,
+  viewerPort: number,
+): Promise<{ bim: BimContext; store: IfcDataStore }> {
+  const store = await loadIfcFile(filePath);
+  const backend = new HeadlessBackend(store, basename(filePath));
+
+  // Replace the no-op viewer/visibility adapters with streaming ones
+  (backend as any).viewer = createStreamingViewerAdapter(viewerPort);
+  (backend as any).visibility = createStreamingVisibilityAdapter(viewerPort);
+
   const bim = createBimContext({ backend });
   return { bim, store };
 }

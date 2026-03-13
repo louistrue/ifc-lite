@@ -37,7 +37,7 @@ export async function createCommand(args: string[]): Promise<void> {
   }
 
   const outPath = getFlag(args, '--out');
-  if (!outPath) fatal('--out is required for create command');
+  const viewerPort = getFlag(args, '--viewer');
 
   const projectName = getFlag(args, '--project') ?? 'CLI Project';
   const storeyName = getFlag(args, '--storey') ?? 'Ground Floor';
@@ -90,16 +90,48 @@ export async function createCommand(args: string[]): Promise<void> {
   }
 
   const result = creator.toIfc();
-  await writeFile(outPath, result.content, 'utf-8');
+
+  // Write to file (if --out specified)
+  if (outPath) {
+    await writeFile(outPath, result.content, 'utf-8');
+  }
+
+  // Stream to viewer (if --viewer specified)
+  if (viewerPort) {
+    const port = parseInt(viewerPort, 10);
+    try {
+      const resp = await fetch(`http://localhost:${port}/api/command`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'addGeometry',
+          ifcContent: result.content,
+        }),
+      });
+      const status = await resp.json();
+      if (status.ok) {
+        process.stderr.write(`Streamed to viewer on port ${port}\n`);
+      } else {
+        process.stderr.write(`Viewer error: ${status.error}\n`);
+      }
+    } catch {
+      process.stderr.write(`Could not connect to viewer on port ${port}\n`);
+    }
+  }
+
+  if (!outPath && !viewerPort) {
+    fatal('--out or --viewer is required for create command');
+  }
 
   if (jsonOutput) {
     printJson({
-      file: outPath,
+      file: outPath ?? null,
       entityCount: result.stats.entityCount,
       fileSize: result.stats.fileSize,
       entities: result.entities,
+      streamedToViewer: !!viewerPort,
     });
-  } else {
+  } else if (outPath) {
     process.stderr.write(`IFC written to ${outPath} (${result.stats.entityCount} entities)\n`);
   }
 }

@@ -3,32 +3,37 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 /**
- * ifc-lite run <script.js> <file.ifc>
+ * ifc-lite run <script.js> <file.ifc> [--viewer PORT]
  *
  * Execute a JavaScript file against the BIM SDK.
  * The `bim` object is available globally in the script.
  *
+ * With --viewer PORT, bim.viewer.* calls are streamed to a running
+ * `ifc-lite view` instance, updating the 3D view in real time.
+ *
  * Example script:
  *   const walls = bim.query().byType('IfcWall').toArray();
  *   console.log(`Found ${walls.length} walls`);
- *   for (const wall of walls) {
- *     const props = bim.properties(wall.ref);
- *     console.log(wall.name, props.length, 'property sets');
- *   }
+ *   bim.viewer.colorize(walls.map(w => w.ref), 'red');
  */
 
 import { readFile } from 'node:fs/promises';
-import { createHeadlessContext } from '../loader.js';
-import { fatal } from '../output.js';
+import { createHeadlessContext, createStreamingContext } from '../loader.js';
+import { fatal, getFlag } from '../output.js';
 
 export async function runCommand(args: string[]): Promise<void> {
-  const positional = args.filter(a => !a.startsWith('-'));
-  if (positional.length < 2) fatal('Usage: ifc-lite run <script.js> <file.ifc>');
+  const viewerPort = getFlag(args, '--viewer');
+  const positional = args.filter((a, i) => !a.startsWith('-') && args[i - 1] !== '--viewer');
+  if (positional.length < 2) fatal('Usage: ifc-lite run <script.js> <file.ifc> [--viewer PORT]');
 
   const [scriptPath, filePath] = positional;
 
   const scriptContent = await readFile(scriptPath, 'utf-8');
-  const { bim } = await createHeadlessContext(filePath);
+
+  // Use streaming context if --viewer is specified
+  const { bim } = viewerPort
+    ? await createStreamingContext(filePath, parseInt(viewerPort, 10))
+    : await createHeadlessContext(filePath);
 
   // Execute script with bim context available
   const wrappedScript = `

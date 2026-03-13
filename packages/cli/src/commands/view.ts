@@ -17,14 +17,21 @@
  *     -d '{"action":"colorize","type":"IfcWall","color":[1,0,0,1]}'
  *
  * Supported actions:
- *   colorize   { type, color }           Color entities by IFC type
- *   isolate    { types }                 Show only specified types
- *   highlight  { ids }                   Highlight specific express IDs
- *   showall                              Reset visibility
- *   reset                                Reset all colors + visibility
- *   flyto      { type | ids }            Fly camera to entities
- *   xray       { type, opacity? }        Make a type semi-transparent
- *   colorByStorey                        Auto-color by building storey
+ *   colorize       { type, color }         Color entities by IFC type
+ *   colorizeEntities { ids, color }       Color specific entities by ID
+ *   isolate        { types }              Show only specified types
+ *   isolateEntities { ids }               Show only specific entities
+ *   highlight      { ids }                Highlight specific express IDs
+ *   hideEntities   { ids }                Hide specific entities
+ *   showEntities   { ids }                Show specific entities
+ *   showall                               Reset visibility
+ *   reset                                 Reset all colors + visibility
+ *   flyto          { type | ids }         Fly camera to entities
+ *   xray           { type, opacity? }     Make a type semi-transparent
+ *   section        { axis, position }     Add section plane (axis: x|y|z)
+ *   clearSection                          Remove section plane
+ *   colorByStorey                         Auto-color by building storey
+ *   addGeometry    { ifcContent }         Parse and add new IFC geometry
  */
 
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
@@ -350,6 +357,16 @@ function setupStdinCommands(port: number): void {
       case 'storey':
       case 'colorByStorey':
         command = { action: 'colorByStorey' };
+        break;
+      case 'section': {
+        const axis = parts[1] ?? 'y';
+        const pos = parseFloat(parts[2] ?? '0');
+        command = { action: 'section', axis, position: pos };
+        break;
+      }
+      case 'clearSection':
+      case 'clearsection':
+        command = { action: 'clearSection' };
         break;
       case 'showall':
         command = { action: 'showall' };

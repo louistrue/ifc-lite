@@ -17,11 +17,11 @@
  *   ifc-lite eval model.ifc "bim.query().byType('IfcDoor').toArray().map(d => d.name)"
  */
 
-import { createHeadlessContext } from '../loader.js';
+import { createHeadlessContext, createStreamingContext } from '../loader.js';
 import { printJson, fatal, hasFlag, getFlag } from '../output.js';
 
 /** Known flags that take a value argument */
-const EVAL_VALUE_FLAGS = new Set(['--type', '--limit']);
+const EVAL_VALUE_FLAGS = new Set(['--type', '--limit', '--viewer']);
 /** Known boolean flags (no value) */
 const EVAL_BOOLEAN_FLAGS = new Set(['--json']);
 
@@ -29,6 +29,7 @@ export async function evalCommand(args: string[]): Promise<void> {
   const jsonOutput = hasFlag(args, '--json');
   const typeFilter = getFlag(args, '--type');
   const limitStr = getFlag(args, '--limit');
+  const viewerPort = getFlag(args, '--viewer');
 
   // Parse positional args, skipping known flags and their values.
   // Known value flags (--type, --limit) and boolean flags (--json) are always
@@ -60,7 +61,11 @@ export async function evalCommand(args: string[]): Promise<void> {
   const [filePath, ...exprParts] = positional;
   const expression = exprParts.join(' ');
 
-  const { bim } = await createHeadlessContext(filePath);
+  // Use streaming context if --viewer is specified, so bim.viewer.* calls
+  // are forwarded to the running 3D viewer in real time.
+  const { bim } = viewerPort
+    ? await createStreamingContext(filePath, parseInt(viewerPort, 10))
+    : await createHeadlessContext(filePath);
 
   // When --type is specified, iterate entities and evaluate per-entity with `ref` in scope
   if (typeFilter) {
