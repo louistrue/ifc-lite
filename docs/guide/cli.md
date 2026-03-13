@@ -52,6 +52,70 @@ ifc-lite eval model.ifc "bim.query().byType('IfcWall').count()"
 
 ## Commands
 
+### `view` — 3D Viewer
+
+Launch an interactive WebGL 2 viewer in the browser. Control it from the terminal, scripts, or AI assistants via REST API.
+
+```bash
+ifc-lite view model.ifc                          # Open in browser
+ifc-lite view model.ifc --port 3456 --no-open    # Fixed port, no auto-open
+ifc-lite view --empty --port 3456                 # Empty scene for live creation
+```
+
+While running, type interactive commands (`colorize IfcWall red`, `isolate IfcSlab`, `view top`, `reset`) or send commands from another terminal:
+
+```bash
+ifc-lite view --port 3456 --send '{"action":"colorize","type":"IfcWall","color":[1,0,0,1]}'
+```
+
+The viewer exposes a REST API for external tool integration (`/api/command`, `/api/create`, `/api/export`, `/api/status`). See the full [3D Viewer & Analysis](viewer-api.md) guide for details.
+
+**Flags:**
+
+| Flag | Description |
+|------|-------------|
+| `--port <N>` | Listen on a specific port (default: random) |
+| `--no-open` | Don't auto-open the browser |
+| `--empty` | Start with an empty scene |
+| `--send <json>` | Send a command to an already-running viewer |
+
+---
+
+### `analyze` — Visual Analysis
+
+Query entities and push color overlays to a running viewer. Requires a viewer to be running first.
+
+```bash
+# Start viewer, then analyze
+ifc-lite view model.ifc --port 3456 --no-open &
+
+ifc-lite analyze model.ifc --viewer 3456 --type IfcWall --color red
+ifc-lite analyze model.ifc --viewer 3456 --type IfcWall --missing "Pset_WallCommon.FireRating" --color red
+ifc-lite analyze model.ifc --viewer 3456 --type IfcSlab --heatmap "Qto_SlabBaseQuantities.GrossArea"
+ifc-lite analyze model.ifc --viewer 3456 --type IfcDoor --isolate --color green --flyto
+ifc-lite analyze model.ifc --viewer 3456 --rules rules.json --json
+```
+
+Supports property filters (`--where`), missing-property checks (`--missing`), heatmaps (`--heatmap`), and batch rules from a JSON file (`--rules`). See the full [3D Viewer & Analysis](viewer-api.md#analyze--visual-analysis-overlay) guide.
+
+**Flags:**
+
+| Flag | Description |
+|------|-------------|
+| `--viewer <port>` | Port of running viewer (**required**) |
+| `--type <T>` | IFC type to analyze |
+| `--missing <Pset.Prop>` | Find entities missing a property |
+| `--where <expr>` | Property filter (e.g. `GrossArea>100`) |
+| `--color <name>` | Color matched entities |
+| `--heatmap <Pset.Prop>` | Gradient color by numeric value |
+| `--palette <name>` | Heatmap palette: `blue-red`, `green-red`, `rainbow` |
+| `--isolate` | Hide non-matching entities |
+| `--flyto` | Fly camera to results |
+| `--rules <file>` | Batch rules from JSON |
+| `--json` | Machine-readable output |
+
+---
+
 ### `info` — Model Summary
 
 Print schema version, entity counts, storeys, and top entity types.
@@ -625,6 +689,8 @@ Use `ifc-lite` CLI for BIM/IFC file operations:
 - `ifc-lite diff <file1> <file2>` — compare IFC files
 - `ifc-lite validate <file>` — structural validation
 - `ifc-lite bsdd class <IfcType>` — bSDD class info
+- `ifc-lite view <file> --port <N>` — launch 3D viewer with REST API
+- `ifc-lite analyze <file> --viewer <port> --type <T>` — visual analysis overlay
 - `ifc-lite eval <file> "<expr>"` — evaluate SDK expressions
 - `ifc-lite schema` — discover all SDK methods
 
@@ -646,6 +712,8 @@ Run `ifc-lite schema` to see the full API before writing eval expressions.
 
 | Command | Description |
 |---------|-------------|
+| `view` | Launch interactive 3D viewer with REST API |
+| `analyze` | Visual analysis overlay on running viewer |
 | `info` | Model summary (schema, entities, storeys) |
 | `query` | Query entities by type/properties with full data access |
 | `props` | All properties for a single entity |
