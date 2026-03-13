@@ -16,16 +16,27 @@ cd C:\Users\mass\GitHub\Linkajou\ifc-lite
 cargo build -p ifc-lite-server --release
 
 
-# Build alt + copy to linkajou
+# Build alt + copy to linkajou (BAT)
 cd C:\Users\mass\GitHub\Linkajou\ifc-lite\apps\server
+
 $env:MAX_FILE_SIZE_MB="2048"   # or your value
 cargo build --release -p ifc-lite-server 
 cargo build --release -p ifc-lite-ffi
+cd C:\Users\mass\GitHub\Linkajou\ifc-lite\
 cp target/release/ifc_lite_ffi.dll ../LINK_EP.LINK_RH/tools/ifc-lite/
 cp target/release/ifc-lite-server.exe ../LINK_EP.LINK_RH/tools/ifc-lite/
 
+
+
 #evt kør server
 cargo run --release
+
+
+
+
+
+
+
 
 
 
@@ -47,10 +58,7 @@ cp target/release/ifc-lite-server.exe ../LINK_EP.LINK_RH/tools/ifc-lite/
 
 
 
-### new
- I did not build (per your WSL rule).
-  Run in Windows PowerShell:
-
+### new (POWERSHELL)
 cd Linkajou\ifc-lite
 cargo build --release -p ifc-lite-ffi
 cargo build --release -p ifc-lite-server
