@@ -5,92 +5,20 @@
 /**
  * ifc-lite view <file.ifc> [--port N] [--no-open]
  *
- * Launch an interactive 3D viewer in the browser, connected to the CLI via
- * HTTP + SSE.  The viewer loads, parses, and renders the IFC model using
- * the @ifc-lite/wasm geometry engine (WebGL 2).
- *
- * A REST API on the same port lets external tools (Claude Code, curl, …)
- * send live commands:
- *
- *   curl -X POST http://localhost:PORT/api/command \
- *     -H 'Content-Type: application/json' \
- *     -d '{"action":"colorize","type":"IfcWall","color":[1,0,0,1]}'
- *
- * Supported actions:
- *   colorize       { type, color }         Color entities by IFC type
- *   colorizeEntities { ids, color }       Color specific entities by ID
- *   isolate        { types }              Show only specified types
- *   isolateEntities { ids }               Show only specific entities
- *   highlight      { ids }                Highlight specific express IDs
- *   hideEntities   { ids }                Hide specific entities
- *   showEntities   { ids }                Show specific entities
- *   showall                               Reset visibility
- *   reset                                 Reset all colors + visibility
- *   flyto          { type | ids }         Fly camera to entities
- *   xray           { type, opacity? }     Make a type semi-transparent
- *   section        { axis, position }     Add section plane (axis: x|y|z)
- *   clearSection                          Remove section plane
- *   colorByStorey                         Auto-color by building storey
- *   addGeometry    { ifcContent }         Parse and add new IFC geometry
+ * Thin CLI wrapper around @ifc-lite/viewer — launches the viewer server
+ * and wires up arg parsing, stdin interaction, and browser opening.
  */
 
-import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import { createReadStream } from 'node:fs';
-import { readFile, stat } from 'node:fs/promises';
-import { basename, dirname, resolve } from 'node:path';
-import { createRequire } from 'node:module';
+import { basename } from 'node:path';
 import { fatal, getFlag, hasFlag } from '../output.js';
-import { getViewerHtml } from '../viewer-html.js';
+import {
+  startViewerServer,
+  VALID_ACTIONS,
+  type CreateHandler,
+  type ViewerServer,
+} from '@ifc-lite/viewer';
 
-/** Valid command actions that the viewer understands */
-const VALID_ACTIONS = new Set([
-  'colorize', 'isolate', 'xray', 'flyto', 'highlight',
-  'colorizeEntities', 'isolateEntities', 'hideEntities', 'showEntities', 'resetColorEntities',
-  'section', 'clearSection', 'colorByStorey', 'addGeometry',
-  'showall', 'reset', 'picked', 'setView', 'removeCreated', 'camera',
-]);
-
-/** Active SSE connections */
-const sseClients: Set<ServerResponse> = new Set();
-
-/** Broadcast a command to all connected viewers */
-function broadcast(data: Record<string, unknown>): void {
-  const payload = `data: ${JSON.stringify(data)}\n\n`;
-  for (const res of sseClients) {
-    res.write(payload);
-  }
-}
-
-/** Read full request body as string */
-function readBody(req: IncomingMessage): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const chunks: Buffer[] = [];
-    req.on('data', (c: Buffer) => chunks.push(c));
-    req.on('end', () => resolve(Buffer.concat(chunks).toString()));
-    req.on('error', reject);
-  });
-}
-
-/** Resolve the path to @ifc-lite/wasm package */
-function resolveWasmDir(): string {
-  const require = createRequire(import.meta.url);
-  try {
-    const pkgJson = require.resolve('@ifc-lite/wasm/package.json');
-    return dirname(pkgJson);
-  } catch {
-    // Fallback: resolve from monorepo root
-    return resolve(dirname(import.meta.url.replace('file://', '')), '..', '..', '..', 'wasm');
-  }
-}
-
-/** MIME types for served files */
-const MIME: Record<string, string> = {
-  '.html': 'text/html; charset=utf-8',
-  '.js': 'application/javascript; charset=utf-8',
-  '.wasm': 'application/wasm',
-  '.ifc': 'application/octet-stream',
-  '.json': 'application/json; charset=utf-8',
-};
+export { VALID_ACTIONS };
 
 export async function viewCommand(args: string[]): Promise<void> {
   const noOpen = hasFlag(args, '--no-open');
@@ -128,269 +56,64 @@ export async function viewCommand(args: string[]): Promise<void> {
     fatal('Usage: ifc-lite view <file.ifc> [--port N] [--no-open]\n       ifc-lite view --empty --port N');
   }
   const filePath = emptyMode ? null : positional[0];
-
-  // Validate file exists and get size
-  let ifcSize = 0;
-  if (filePath) {
-    try {
-      const ifcStat = await stat(filePath);
-      ifcSize = ifcStat.size;
-    } catch {
-      fatal(`File not found: ${filePath}`);
-    }
-  }
-
   const fileName = filePath ? basename(filePath) : 'Empty Scene';
-  const wasmDir = resolveWasmDir();
 
-  // Read WASM assets
-  let wasmBinary: Buffer;
-  let wasmJsCached: string;
+  // Build create handler using CLI's addElement
+  const createHandler: CreateHandler = async (elements) => {
+    const { IfcCreator } = await import('@ifc-lite/create');
+    const { addElement: addEl, ELEMENT_TYPES } = await import('./create.js');
+
+    for (const el of elements) {
+      if (!ELEMENT_TYPES.includes(el.type.toLowerCase())) {
+        throw new Error(`Unknown type: ${el.type}. Valid: ${ELEMENT_TYPES.join(', ')}`);
+      }
+    }
+
+    const creator = new IfcCreator({ Name: elements[0].project ?? 'Live Edit' });
+    const storeyId = creator.addIfcBuildingStorey({
+      Name: elements[0].storey ?? 'Created',
+      Elevation: 0,
+    });
+
+    for (const el of elements) {
+      addEl(creator, storeyId, el.type, el.params ?? {});
+    }
+    return creator.toIfc();
+  };
+
+  let viewer: ViewerServer;
   try {
-    const wasmJs = await readFile(resolve(wasmDir, 'pkg', 'ifc-lite.js'));
-    wasmBinary = await readFile(resolve(wasmDir, 'pkg', 'ifc-lite_bg.wasm'));
-    // Cache the rewritten JS at startup instead of on every request
-    wasmJsCached = wasmJs.toString().replace(
-      /new URL\('ifc-lite_bg\.wasm', import\.meta\.url\)/g,
-      "new URL('/wasm/ifc-lite_bg.wasm', location.origin)",
-    );
-  } catch {
-    fatal('Could not find @ifc-lite/wasm package. Ensure it is built (pnpm build in packages/wasm).');
+    viewer = await startViewerServer({
+      filePath,
+      fileName,
+      port: requestedPort,
+      createHandler,
+      onReady: (port, url) => {
+        process.stderr.write(`\n  3D Viewer started → ${url}\n`);
+        process.stderr.write(`  Model: ${fileName}\n`);
+        process.stderr.write(`\n  Send commands via REST API:\n`);
+        process.stderr.write(`    curl -X POST ${url}/api/command -H 'Content-Type: application/json' \\\n`);
+        process.stderr.write(`      -d '{"action":"colorize","type":"IfcWall","color":[1,0,0,1]}'\n`);
+        process.stderr.write(`\n  Or use the CLI:\n`);
+        process.stderr.write(`    ifc-lite view --port ${port} --send '{"action":"isolate","types":["IfcWall"]}'\n`);
+        process.stderr.write(`\n  Press Ctrl+C to stop.\n\n`);
+
+        if (!noOpen) {
+          openBrowser(url);
+        }
+
+        setupStdinCommands(port, viewer);
+      },
+      onError: (err) => {
+        if (err.code === 'EADDRINUSE') {
+          fatal(`Port ${requestedPort} is already in use. Use --port to pick a different port.`);
+        }
+        fatal(`Server error: ${err.message}`);
+      },
+    });
+  } catch (e: unknown) {
+    fatal(`Failed to start viewer: ${(e as Error).message}`);
   }
-
-  const viewerHtml = getViewerHtml(fileName);
-
-  // Track IFC content created via /api/create for export
-  const createdSegments: string[] = [];
-
-  const server = createServer(async (req, res) => {
-    const url = new URL(req.url ?? '/', `http://${req.headers.host}`);
-    const path = url.pathname;
-
-    // CORS headers — restrict to localhost origins only
-    const origin = req.headers.origin ?? '';
-    if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) {
-      res.setHeader('Access-Control-Allow-Origin', origin);
-    }
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-
-    if (req.method === 'OPTIONS') {
-      res.writeHead(204);
-      res.end();
-      return;
-    }
-
-    // Routes
-    if (path === '/' && req.method === 'GET') {
-      res.writeHead(200, { 'Content-Type': MIME['.html'] });
-      res.end(viewerHtml);
-      return;
-    }
-
-    if (path === '/model.ifc' && req.method === 'GET') {
-      if (!filePath) {
-        // Empty mode — no model to serve
-        res.writeHead(204);
-        res.end();
-        return;
-      }
-      res.writeHead(200, {
-        'Content-Type': MIME['.ifc'],
-        'Content-Length': ifcSize.toString(),
-      });
-      createReadStream(filePath).pipe(res);
-      return;
-    }
-
-    if (path === '/wasm/ifc-lite.js' && req.method === 'GET') {
-      res.writeHead(200, { 'Content-Type': MIME['.js'] });
-      res.end(wasmJsCached);
-      return;
-    }
-
-    if (path === '/wasm/ifc-lite_bg.wasm' && req.method === 'GET') {
-      res.writeHead(200, {
-        'Content-Type': MIME['.wasm'],
-        'Content-Length': wasmBinary.byteLength.toString(),
-      });
-      res.end(wasmBinary);
-      return;
-    }
-
-    // SSE endpoint — CLI pushes commands to browser
-    if (path === '/events' && req.method === 'GET') {
-      res.writeHead(200, {
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
-        'Connection': 'keep-alive',
-      });
-      res.write('data: {"action":"connected"}\n\n');
-      sseClients.add(res);
-      req.on('close', () => sseClients.delete(res));
-      return;
-    }
-
-    // Command API — external tools send commands to the viewer
-    if (path === '/api/command' && req.method === 'POST') {
-      try {
-        const body = await readBody(req);
-        const command = JSON.parse(body);
-        if (!command.action || !VALID_ACTIONS.has(command.action)) {
-          res.writeHead(400, { 'Content-Type': MIME['.json'] });
-          res.end(JSON.stringify({
-            ok: false,
-            error: `Unknown action: ${command.action ?? '(none)'}`,
-            validActions: [...VALID_ACTIONS],
-          }));
-          return;
-        }
-        broadcast(command);
-        res.writeHead(200, { 'Content-Type': MIME['.json'] });
-        res.end(JSON.stringify({ ok: true, action: command.action, clients: sseClients.size }));
-      } catch (e: unknown) {
-        res.writeHead(400, { 'Content-Type': MIME['.json'] });
-        res.end(JSON.stringify({ ok: false, error: (e as Error).message }));
-      }
-      return;
-    }
-
-    // Create element API — POST /api/create
-    if (path === '/api/create' && req.method === 'POST') {
-      try {
-        const body = await readBody(req);
-        const parsed = JSON.parse(body);
-
-        // Support both single element and batch array
-        interface CreateRequest {
-          type: string;
-          params?: Record<string, unknown>;
-          storey?: string;
-          project?: string;
-        }
-        const elements: CreateRequest[] = Array.isArray(parsed) ? parsed : [parsed];
-
-        if (elements.length === 0 || !elements[0].type) {
-          res.writeHead(400, { 'Content-Type': MIME['.json'] });
-          res.end(JSON.stringify({ ok: false, error: 'Missing "type" field' }));
-          return;
-        }
-
-        // Dynamic import to avoid loading @ifc-lite/create unless needed
-        const { IfcCreator } = await import('@ifc-lite/create');
-        const { addElement: addEl, ELEMENT_TYPES } = await import('./create.js');
-
-        // Validate all types before creating any
-        for (const el of elements) {
-          if (!ELEMENT_TYPES.includes(el.type.toLowerCase())) {
-            res.writeHead(400, { 'Content-Type': MIME['.json'] });
-            res.end(JSON.stringify({ ok: false, error: `Unknown type: ${el.type}`, validTypes: ELEMENT_TYPES }));
-            return;
-          }
-        }
-
-        // Create all elements in a single IFC file
-        const creator = new IfcCreator({ Name: elements[0].project ?? 'Live Edit' });
-        const storeyId = creator.addIfcBuildingStorey({
-          Name: elements[0].storey ?? 'Created',
-          Elevation: 0,
-        });
-
-        for (const el of elements) {
-          addEl(creator, storeyId, el.type, el.params ?? {});
-        }
-        const result = creator.toIfc();
-
-        // Stream to viewer
-        broadcast({ action: 'addGeometry', ifcContent: result.content });
-        createdSegments.push(result.content);
-
-        res.writeHead(200, { 'Content-Type': MIME['.json'] });
-        res.end(JSON.stringify({
-          ok: true,
-          count: elements.length,
-          entities: result.entities,
-          ifcSize: result.stats.fileSize,
-        }));
-      } catch (e: unknown) {
-        res.writeHead(400, { 'Content-Type': MIME['.json'] });
-        res.end(JSON.stringify({ ok: false, error: (e as Error).message }));
-      }
-      return;
-    }
-
-    // Clear created geometry — POST /api/clear-created
-    if (path === '/api/clear-created' && req.method === 'POST') {
-      const count = createdSegments.length;
-      createdSegments.length = 0;
-      broadcast({ action: 'removeCreated' });
-      res.writeHead(200, { 'Content-Type': MIME['.json'] });
-      res.end(JSON.stringify({ ok: true, cleared: count }));
-      return;
-    }
-
-    // Export created geometry — GET /api/export
-    if (path === '/api/export' && req.method === 'GET') {
-      if (createdSegments.length === 0) {
-        res.writeHead(200, { 'Content-Type': MIME['.json'] });
-        res.end(JSON.stringify({ ok: false, error: 'No geometry has been created yet' }));
-        return;
-      }
-      const combined = createdSegments.join('\n');
-      res.writeHead(200, {
-        'Content-Type': MIME['.ifc'],
-        'Content-Disposition': `attachment; filename="created-${fileName}"`,
-        'Content-Length': Buffer.byteLength(combined).toString(),
-      });
-      res.end(combined);
-      return;
-    }
-
-    // Viewer status — useful for Claude Code to check if viewer is running
-    if (path === '/api/status' && req.method === 'GET') {
-      res.writeHead(200, { 'Content-Type': MIME['.json'] });
-      res.end(JSON.stringify({
-        ok: true,
-        model: fileName,
-        clients: sseClients.size,
-        createdSegments: createdSegments.length,
-      }));
-      return;
-    }
-
-    // 404
-    res.writeHead(404, { 'Content-Type': 'text/plain' });
-    res.end('Not Found');
-  });
-
-  server.on('error', (err: NodeJS.ErrnoException) => {
-    if (err.code === 'EADDRINUSE') {
-      fatal(`Port ${requestedPort} is already in use. Use --port to pick a different port.`);
-    }
-    fatal(`Server error: ${err.message}`);
-  });
-
-  server.listen(requestedPort, () => {
-    const addr = server.address();
-    const port = typeof addr === 'object' && addr ? addr.port : requestedPort;
-    const url = `http://localhost:${port}`;
-
-    process.stderr.write(`\n  3D Viewer started → ${url}\n`);
-    process.stderr.write(`  Model: ${fileName} (${(ifcSize / 1024 / 1024).toFixed(1)} MB)\n`);
-    process.stderr.write(`\n  Send commands via REST API:\n`);
-    process.stderr.write(`    curl -X POST ${url}/api/command -H 'Content-Type: application/json' \\\n`);
-    process.stderr.write(`      -d '{"action":"colorize","type":"IfcWall","color":[1,0,0,1]}'\n`);
-    process.stderr.write(`\n  Or use the CLI:\n`);
-    process.stderr.write(`    ifc-lite view --port ${port} --send '{"action":"isolate","types":["IfcWall"]}'\n`);
-    process.stderr.write(`\n  Press Ctrl+C to stop.\n\n`);
-
-    if (!noOpen) {
-      openBrowser(url);
-    }
-
-    // Interactive stdin commands
-    setupStdinCommands(port);
-  });
 }
 
 /** Open URL in default browser (cross-platform) */
@@ -407,7 +130,7 @@ function openBrowser(url: string): void {
 }
 
 /** Listen for interactive commands on stdin */
-function setupStdinCommands(port: number): void {
+function setupStdinCommands(port: number, viewer: ViewerServer): void {
   if (!process.stdin.isTTY) return;
 
   process.stderr.write('  Interactive commands: colorize, isolate, view, showall, reset, quit\n');
@@ -509,7 +232,6 @@ function setupStdinCommands(port: number): void {
       case 'section': {
         const axis = parts[1] ?? 'y';
         const rawPos = parts[2] ?? 'center';
-        // Pass percentage strings and "center" through to the viewer
         const position = rawPos === 'center' || rawPos.endsWith('%') ? rawPos : parseFloat(rawPos);
         command = { action: 'section', axis, position };
         break;
@@ -520,7 +242,6 @@ function setupStdinCommands(port: number): void {
         break;
       case 'clear':
       case 'clearCreated':
-        // Use our own REST endpoint to clear server + viewer state
         fetch(`http://localhost:${port}/api/clear-created`, { method: 'POST' }).catch(() => {});
         break;
       case 'showall':
@@ -530,7 +251,6 @@ function setupStdinCommands(port: number): void {
         command = { action: 'reset' };
         break;
       default:
-        // Try parsing as JSON
         try {
           command = JSON.parse(line);
         } catch {
@@ -540,7 +260,7 @@ function setupStdinCommands(port: number): void {
     }
 
     if (command) {
-      broadcast(command);
+      viewer.broadcast(command);
       process.stderr.write(`  → sent: ${JSON.stringify(command)}\n`);
     }
     process.stderr.write('  > ');

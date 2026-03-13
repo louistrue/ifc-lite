@@ -1,11 +1,8 @@
 {
-  "name": "@ifc-lite/cli",
-  "version": "0.5.1",
-  "description": "CLI toolkit for IFC files — query, validate, export, create, and script BIM data",
+  "name": "@ifc-lite/viewer",
+  "version": "0.1.0",
+  "description": "Interactive 3D viewer for IFC models — WebGL 2 browser viewer with REST API",
   "type": "module",
-  "bin": {
-    "ifc-lite": "./dist/index.js"
-  },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
@@ -16,27 +13,16 @@
   },
   "scripts": {
     "build": "tsc",
-    "dev": "tsc --watch",
-    "start": "node dist/index.js"
+    "dev": "tsc --watch"
   },
   "files": [
     "dist",
     "README.md"
   ],
   "dependencies": {
-    "@ifc-lite/parser": "workspace:^",
-    "@ifc-lite/query": "workspace:^",
-    "@ifc-lite/data": "workspace:^",
     "@ifc-lite/sdk": "workspace:^",
-    "@ifc-lite/export": "workspace:^",
-    "@ifc-lite/ids": "workspace:^",
-    "@ifc-lite/bcf": "workspace:^",
     "@ifc-lite/create": "workspace:^",
-    "@ifc-lite/encoding": "workspace:^",
-    "@ifc-lite/sandbox": "workspace:^",
-    "@ifc-lite/mutations": "workspace:^",
-    "@ifc-lite/wasm": "workspace:^",
-    "@ifc-lite/viewer": "workspace:^"
+    "@ifc-lite/wasm": "workspace:^"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
@@ -50,17 +36,17 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/louistrue/ifc-lite.git",
-    "directory": "packages/cli"
+    "directory": "packages/viewer"
   },
   "homepage": "https://louistrue.github.io/ifc-lite/",
   "bugs": "https://github.com/louistrue/ifc-lite/issues",
   "keywords": [
     "ifc",
     "bim",
-    "cli",
+    "viewer",
+    "3d",
+    "webgl",
     "aec",
-    "building",
-    "construction",
     "ifc-lite"
   ],
   "publishConfig": {

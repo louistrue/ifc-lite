@@ -2,8 +2,16 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-// Re-export from @ifc-lite/viewer for backward compatibility
+export { getViewerHtml } from './viewer-html.js';
+export {
+  startViewerServer,
+  VALID_ACTIONS,
+  type ViewerServerOptions,
+  type ViewerServer,
+  type CreateHandler,
+  type CreateResult,
+} from './server.js';
 export {
   createStreamingViewerAdapter,
   createStreamingVisibilityAdapter,
-} from '@ifc-lite/viewer';
+} from './streaming-viewer.js';

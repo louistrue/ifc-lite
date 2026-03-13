@@ -565,6 +565,9 @@ importers:
       '@ifc-lite/sdk':
         specifier: workspace:^
         version: link:../sdk
+      '@ifc-lite/viewer':
+        specifier: workspace:^
+        version: link:../../apps/viewer
       '@ifc-lite/wasm':
         specifier: workspace:^
         version: link:../wasm
@@ -920,6 +923,25 @@ importers:
         specifier: workspace:^
         version: link:../geometry
     devDependencies:
+      typescript:
+        specifier: ^5.3.0
+        version: 5.9.3
+
+  packages/viewer:
+    dependencies:
+      '@ifc-lite/create':
+        specifier: workspace:^
+        version: link:../create
+      '@ifc-lite/sdk':
+        specifier: workspace:^
+        version: link:../sdk
+      '@ifc-lite/wasm':
+        specifier: workspace:^
+        version: link:../wasm
+    devDependencies:
+      '@types/node':
+        specifier: ^20.0.0
+        version: 20.19.28
       typescript:
         specifier: ^5.3.0
         version: 5.9.3
