@@ -562,7 +562,7 @@ window.addEventListener('mousemove', (e) => {
     camTarget[1] += camVelPanY;
     camTarget[2] += camVelPanZ;
   } else {
-    camVelTheta = -dx * 0.004;
+    camVelTheta = dx * 0.004;
     camVelPhi = -dy * 0.004;
     camTheta += camVelTheta;
     camPhi = Math.max(0.05, Math.min(Math.PI - 0.05, camPhi + camVelPhi));
