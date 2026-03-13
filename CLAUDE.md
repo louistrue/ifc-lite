@@ -61,7 +61,11 @@ curl -X POST http://localhost:3456/api/command \
 
 Supported actions: `colorize`, `isolate`, `highlight`, `xray`, `flyto`, `colorByStorey`, `setView`, `showall`, `reset`.
 
-**Coordinate convention**: IFC uses Z-up, the 3D viewer uses Y-up internally. The WASM parser handles the conversion automatically. When using `/api/create`, pass coordinates in IFC Z-up convention (e.g. `[x, y, z]` where Z is up).
+Entity-level actions: `colorizeEntities`, `isolateEntities`, `hideEntities`, `showEntities`, `resetColorEntities` (all take `ids` array).
+
+Internal/advanced: `section`, `clearSection`, `addGeometry`, `removeCreated`, `camera`, `picked`.
+
+**Coordinate convention**: IFC uses Z-up, the 3D viewer uses Y-up internally. The geometry layer handles the conversion automatically during mesh parsing. When using `/api/create`, pass coordinates in IFC Z-up convention (e.g. `[x, y, z]` where Z is up).
 
 ### Analysis Overlay (Query + Visualize)
 

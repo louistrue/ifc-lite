@@ -21,12 +21,19 @@
  */
 
 export function getViewerHtml(modelName: string): string {
+  // Escape HTML special characters to prevent injection via crafted filenames
+  const safe = modelName
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>${modelName} — ifc-lite 3D</title>
+<title>${safe} — ifc-lite 3D</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 html,body{width:100%;height:100%;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:#1a1a2e}
@@ -53,12 +60,12 @@ canvas:active{cursor:grabbing}
 <body>
 <div id="loading" class="loading-screen">
   <div class="spinner"></div>
-  <h1>Loading ${modelName}</h1>
+  <h1>Loading ${safe}</h1>
   <p id="loading-text">Initializing WASM engine...</p>
 </div>
 <canvas id="c" tabindex="0"></canvas>
 <div id="overlay">
-  <div id="info"><h2>${modelName}</h2><span id="model-stats">Loading...</span></div>
+  <div id="info"><h2>${safe}</h2><span id="model-stats">Loading...</span></div>
   <div id="status"><span id="fps"></span></div>
 </div>
 <div id="progress-wrap"><div id="progress-bar"></div></div>
@@ -381,6 +388,8 @@ function computeEntityBounds(posArr, startVert, vertCount) {
 }
 
 function addMeshBatch(meshes) {
+  const prevVerts = totalVertices;
+  const prevIndices = totalIndices;
   for (const mesh of meshes) {
     const vStart = totalVertices;
     const vCount = mesh.positions.length / 3;
@@ -444,65 +453,111 @@ function addMeshBatch(meshes) {
     totalIndices += iCount;
     totalTriangles += iCount / 3;
   }
-  uploadGeometry();
+  uploadGeometry(prevVerts, prevIndices);
 }
 
-function uploadGeometry() {
-  const allPos = mergeFloat32(positions, totalVertices * 3);
-  const allNorm = mergeFloat32(normals, totalVertices * 3);
-  const allCol = mergeFloat32(colors, totalVertices * 4);
-  const allPick = mergeFloat32(pickColors, totalVertices * 4);
-  const allIdx = mergeUint32(indices, totalIndices);
+// GPU buffer capacity tracking for append-only uploads
+let gpuCapVerts = 0;
+let gpuCapIndices = 0;
 
-  if (!vao) {
-    vao = gl.createVertexArray();
-    posBuffer = gl.createBuffer();
-    normBuffer = gl.createBuffer();
-    colBuffer = gl.createBuffer();
-    idxBuffer = gl.createBuffer();
-    pickVao = gl.createVertexArray();
-    pickColBuffer = gl.createBuffer();
+function uploadGeometry(prevVerts = 0, prevIndices = 0) {
+  const needsRebuild = !vao || totalVertices > gpuCapVerts || totalIndices > gpuCapIndices;
+
+  if (needsRebuild) {
+    // Allocate with 2x headroom to reduce future rebuilds
+    gpuCapVerts = Math.max(totalVertices * 2, 65536);
+    gpuCapIndices = Math.max(totalIndices * 2, 196608);
+
+    if (!vao) {
+      vao = gl.createVertexArray();
+      posBuffer = gl.createBuffer();
+      normBuffer = gl.createBuffer();
+      colBuffer = gl.createBuffer();
+      idxBuffer = gl.createBuffer();
+      pickVao = gl.createVertexArray();
+      pickColBuffer = gl.createBuffer();
+    }
+
+    // Full re-upload: merge all arrays and allocate new GPU buffers
+    const allPos = mergeFloat32(positions, totalVertices * 3);
+    const allNorm = mergeFloat32(normals, totalVertices * 3);
+    const allCol = mergeFloat32(colors, totalVertices * 4);
+    const allPick = mergeFloat32(pickColors, totalVertices * 4);
+    const allIdx = mergeUint32(indices, totalIndices);
+
+    // Main render VAO
+    gl.bindVertexArray(vao);
+
+    gl.bindBuffer(gl.ARRAY_BUFFER, posBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, gpuCapVerts * 3 * 4, gl.DYNAMIC_DRAW);
+    gl.bufferSubData(gl.ARRAY_BUFFER, 0, allPos);
+    gl.enableVertexAttribArray(0);
+    gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 0, 0);
+
+    gl.bindBuffer(gl.ARRAY_BUFFER, normBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, gpuCapVerts * 3 * 4, gl.DYNAMIC_DRAW);
+    gl.bufferSubData(gl.ARRAY_BUFFER, 0, allNorm);
+    gl.enableVertexAttribArray(1);
+    gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 0, 0);
+
+    gl.bindBuffer(gl.ARRAY_BUFFER, colBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, gpuCapVerts * 4 * 4, gl.DYNAMIC_DRAW);
+    gl.bufferSubData(gl.ARRAY_BUFFER, 0, allCol);
+    gl.enableVertexAttribArray(2);
+    gl.vertexAttribPointer(2, 4, gl.FLOAT, false, 0, 0);
+
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, idxBuffer);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, gpuCapIndices * 4, gl.DYNAMIC_DRAW);
+    gl.bufferSubData(gl.ELEMENT_ARRAY_BUFFER, 0, allIdx);
+
+    gl.bindVertexArray(null);
+
+    // Pick VAO
+    gl.bindVertexArray(pickVao);
+    gl.bindBuffer(gl.ARRAY_BUFFER, posBuffer);
+    gl.enableVertexAttribArray(0);
+    gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 0, 0);
+
+    gl.bindBuffer(gl.ARRAY_BUFFER, pickColBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, gpuCapVerts * 4 * 4, gl.DYNAMIC_DRAW);
+    gl.bufferSubData(gl.ARRAY_BUFFER, 0, allPick);
+    gl.enableVertexAttribArray(1);
+    gl.vertexAttribPointer(1, 4, gl.FLOAT, false, 0, 0);
+
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, idxBuffer);
+    gl.bindVertexArray(null);
+  } else if (prevVerts < totalVertices) {
+    // Append-only: just upload the new data at the end of existing buffers
+    const newPos = mergeFloat32(positions.slice(getChunkIndex(prevVerts)), (totalVertices - prevVerts) * 3);
+    const newNorm = mergeFloat32(normals.slice(getChunkIndex(prevVerts)), (totalVertices - prevVerts) * 3);
+    const newCol = mergeFloat32(colors.slice(getChunkIndex(prevVerts)), (totalVertices - prevVerts) * 4);
+    const newPick = mergeFloat32(pickColors.slice(getChunkIndex(prevVerts)), (totalVertices - prevVerts) * 4);
+    const newIdx = mergeUint32(indices.slice(getChunkIndex(prevIndices, true)), totalIndices - prevIndices);
+
+    gl.bindBuffer(gl.ARRAY_BUFFER, posBuffer);
+    gl.bufferSubData(gl.ARRAY_BUFFER, prevVerts * 3 * 4, newPos);
+    gl.bindBuffer(gl.ARRAY_BUFFER, normBuffer);
+    gl.bufferSubData(gl.ARRAY_BUFFER, prevVerts * 3 * 4, newNorm);
+    gl.bindBuffer(gl.ARRAY_BUFFER, colBuffer);
+    gl.bufferSubData(gl.ARRAY_BUFFER, prevVerts * 4 * 4, newCol);
+    gl.bindBuffer(gl.ARRAY_BUFFER, pickColBuffer);
+    gl.bufferSubData(gl.ARRAY_BUFFER, prevVerts * 4 * 4, newPick);
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, idxBuffer);
+    gl.bufferSubData(gl.ELEMENT_ARRAY_BUFFER, prevIndices * 4, newIdx);
   }
-
-  // Main render VAO
-  gl.bindVertexArray(vao);
-
-  gl.bindBuffer(gl.ARRAY_BUFFER, posBuffer);
-  gl.bufferData(gl.ARRAY_BUFFER, allPos, gl.STATIC_DRAW);
-  gl.enableVertexAttribArray(0);
-  gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 0, 0);
-
-  gl.bindBuffer(gl.ARRAY_BUFFER, normBuffer);
-  gl.bufferData(gl.ARRAY_BUFFER, allNorm, gl.STATIC_DRAW);
-  gl.enableVertexAttribArray(1);
-  gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 0, 0);
-
-  gl.bindBuffer(gl.ARRAY_BUFFER, colBuffer);
-  gl.bufferData(gl.ARRAY_BUFFER, allCol, gl.STATIC_DRAW);
-  gl.enableVertexAttribArray(2);
-  gl.vertexAttribPointer(2, 4, gl.FLOAT, false, 0, 0);
-
-  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, idxBuffer);
-  gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, allIdx, gl.STATIC_DRAW);
-
-  gl.bindVertexArray(null);
-
-  // Pick VAO (shares posBuffer + idxBuffer, uses pickColBuffer for entity IDs)
-  gl.bindVertexArray(pickVao);
-
-  gl.bindBuffer(gl.ARRAY_BUFFER, posBuffer);
-  gl.enableVertexAttribArray(0);
-  gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 0, 0);
-
-  gl.bindBuffer(gl.ARRAY_BUFFER, pickColBuffer);
-  gl.bufferData(gl.ARRAY_BUFFER, allPick, gl.STATIC_DRAW);
-  gl.enableVertexAttribArray(1);
-  gl.vertexAttribPointer(1, 4, gl.FLOAT, false, 0, 0);
-
-  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, idxBuffer);
-
-  gl.bindVertexArray(null);
   drawCount = totalIndices;
+}
+
+// Map a vertex/index count to the corresponding chunk array index
+function getChunkIndex(targetCount, isIndices = false) {
+  let count = 0;
+  const arr = isIndices ? indices : positions;
+  const divisor = isIndices ? 1 : 3;
+  for (let i = 0; i < arr.length; i++) {
+    count += arr[i].length / divisor;
+    if (count >= targetCount) return i;
+  }
+  return arr.length;
 }
 
 function mergeFloat32(arrays, totalLen) {
@@ -936,11 +991,13 @@ function handleCommand(cmd) {
     // ── Section plane ──
     case 'section': {
       sectionEnabled = true;
-      const axis = (cmd.axis || 'y').toLowerCase();
+      // Accept both flat (cmd.axis/cmd.position) and nested (cmd.section.axis/position) formats
+      const sec = cmd.section || cmd;
+      const axis = (sec.axis || 'y').toLowerCase();
       const axisIdx = axis === 'x' ? 0 : axis === 'z' ? 2 : 1;
       // Support "center", percentage strings like "50%", or absolute numbers
       let pos;
-      const rawPos = cmd.position;
+      const rawPos = sec.position;
       if (rawPos === 'center' || rawPos === undefined) {
         pos = (boundsMin[axisIdx] + boundsMax[axisIdx]) / 2;
       } else if (typeof rawPos === 'string' && rawPos.endsWith('%')) {

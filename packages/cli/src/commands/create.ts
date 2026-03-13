@@ -97,8 +97,12 @@ export async function createCommand(args: string[]): Promise<void> {
   }
 
   // Stream to viewer (if --viewer specified)
+  let viewerOk = false;
   if (viewerPort) {
     const port = parseInt(viewerPort, 10);
+    if (isNaN(port) || port < 1 || port > 65535) {
+      fatal(`Invalid --viewer port: ${viewerPort}`);
+    }
     try {
       const resp = await fetch(`http://localhost:${port}/api/command`, {
         method: 'POST',
@@ -108,11 +112,16 @@ export async function createCommand(args: string[]): Promise<void> {
           ifcContent: result.content,
         }),
       });
-      const status = (await resp.json()) as { ok: boolean; error?: string };
-      if (status.ok) {
-        process.stderr.write(`Streamed to viewer on port ${port}\n`);
+      if (!resp.ok) {
+        process.stderr.write(`Viewer HTTP ${resp.status}: ${resp.statusText}\n`);
       } else {
-        process.stderr.write(`Viewer error: ${status.error}\n`);
+        const status = (await resp.json()) as { ok: boolean; error?: string };
+        if (status.ok) {
+          viewerOk = true;
+          process.stderr.write(`Streamed to viewer on port ${port}\n`);
+        } else {
+          process.stderr.write(`Viewer error: ${status.error}\n`);
+        }
       }
     } catch {
       process.stderr.write(`Could not connect to viewer on port ${port}\n`);
@@ -123,13 +132,18 @@ export async function createCommand(args: string[]): Promise<void> {
     fatal('--out or --viewer is required for create command');
   }
 
+  // Fail if viewer-only mode and streaming failed
+  if (viewerPort && !outPath && !viewerOk) {
+    fatal('Failed to stream geometry to viewer (no --out fallback)');
+  }
+
   if (jsonOutput) {
     printJson({
       file: outPath ?? null,
       entityCount: result.stats.entityCount,
       fileSize: result.stats.fileSize,
       entities: result.entities,
-      streamedToViewer: !!viewerPort,
+      streamedToViewer: viewerOk,
     });
   } else if (outPath) {
     process.stderr.write(`IFC written to ${outPath} (${result.stats.entityCount} entities)\n`);

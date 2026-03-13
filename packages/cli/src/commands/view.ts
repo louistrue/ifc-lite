@@ -47,7 +47,7 @@ const VALID_ACTIONS = new Set([
   'colorize', 'isolate', 'xray', 'flyto', 'highlight',
   'colorizeEntities', 'isolateEntities', 'hideEntities', 'showEntities', 'resetColorEntities',
   'section', 'clearSection', 'colorByStorey', 'addGeometry',
-  'showall', 'reset', 'picked', 'setView', 'removeCreated',
+  'showall', 'reset', 'picked', 'setView', 'removeCreated', 'camera',
 ]);
 
 /** Active SSE connections */
@@ -107,8 +107,14 @@ export async function viewCommand(args: string[]): Promise<void> {
         headers: { 'Content-Type': 'application/json' },
         body: sendPayload,
       });
-      const result = await resp.json();
+      if (!resp.ok) {
+        fatal(`Viewer HTTP ${resp.status}: ${resp.statusText}`);
+      }
+      const result = (await resp.json()) as { ok: boolean; error?: string };
       process.stdout.write(JSON.stringify(result) + '\n');
+      if (!result.ok) {
+        process.exitCode = 1;
+      }
     } catch (e: unknown) {
       fatal(`Could not connect to viewer at port ${port}: ${(e as Error).message}`);
     }
@@ -161,8 +167,11 @@ export async function viewCommand(args: string[]): Promise<void> {
     const url = new URL(req.url ?? '/', `http://${req.headers.host}`);
     const path = url.pathname;
 
-    // CORS headers for API
-    res.setHeader('Access-Control-Allow-Origin', '*');
+    // CORS headers — restrict to localhost origins only
+    const origin = req.headers.origin ?? '';
+    if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+    }
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
