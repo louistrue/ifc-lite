@@ -250,6 +250,13 @@ export async function viewCommand(args: string[]): Promise<void> {
     res.end('Not Found');
   });
 
+  server.on('error', (err: NodeJS.ErrnoException) => {
+    if (err.code === 'EADDRINUSE') {
+      fatal(`Port ${requestedPort} is already in use. Use --port to pick a different port.`);
+    }
+    fatal(`Server error: ${err.message}`);
+  });
+
   server.listen(requestedPort, () => {
     const addr = server.address();
     const port = typeof addr === 'object' && addr ? addr.port : requestedPort;
