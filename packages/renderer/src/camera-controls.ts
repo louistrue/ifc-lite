@@ -248,21 +248,21 @@ export class CameraControls {
     const distance = Math.sqrt(dir.x * dir.x + dir.y * dir.y + dir.z * dir.z);
     // Normalize delta (wheel events can have large values)
     const normalizedDelta = Math.sign(delta) * Math.min(Math.abs(delta) * 0.001, 0.1);
-    // Dolly amount scales with distance so zoom feels consistent at any scale
-    const dollyAmount = -normalizedDelta * distance;
-
-    // Forward direction (camera towards target)
-    const forward = {
-      x: -dir.x / distance,
-      y: -dir.y / distance,
-      z: -dir.z / distance,
-    };
+    const zoomFactor = 1 + normalizedDelta;
 
     // If mouse position provided, zoom towards that point
     if (mouseX !== undefined && mouseY !== undefined && canvasWidth && canvasHeight) {
       // Convert mouse to normalized device coordinates (-1 to 1)
       const ndcX = (mouseX / canvasWidth) * 2 - 1;
       const ndcY = 1 - (mouseY / canvasHeight) * 2; // Flip Y
+
+      // Calculate offset from center in world space
+      // Use the camera's right and up vectors
+      const forward = {
+        x: -dir.x / distance,
+        y: -dir.y / distance,
+        z: -dir.z / distance,
+      };
 
       // Right = forward x up
       const up = this.state.camera.up;
@@ -298,26 +298,29 @@ export class CameraControls {
         z: this.state.camera.target.z + right.z * ndcX * halfWidth + actualUp.z * ndcY * halfHeight,
       };
 
-      // Shift target towards mouse point proportional to dolly amount
-      const shiftFactor = dollyAmount / distance;
-      this.state.camera.target.x += (mouseWorldPoint.x - this.state.camera.target.x) * shiftFactor;
-      this.state.camera.target.y += (mouseWorldPoint.y - this.state.camera.target.y) * shiftFactor;
-      this.state.camera.target.z += (mouseWorldPoint.z - this.state.camera.target.z) * shiftFactor;
+      // Move target towards mouse point while zooming (establishes new orbit center)
+      const moveAmount = (1 - zoomFactor); // Negative when zooming in
+
+      this.state.camera.target.x += (mouseWorldPoint.x - this.state.camera.target.x) * moveAmount;
+      this.state.camera.target.y += (mouseWorldPoint.y - this.state.camera.target.y) * moveAmount;
+      this.state.camera.target.z += (mouseWorldPoint.z - this.state.camera.target.z) * moveAmount;
     }
 
     if (this.state.projectionMode === 'orthographic') {
-      // Orthographic: scale view volume
-      const zoomFactor = 1 + normalizedDelta;
-      this.state.orthoSize = Math.max(0.001, this.state.orthoSize * zoomFactor);
+      // Orthographic: only scale view volume — camera distance is irrelevant for ortho rendering.
+      this.state.orthoSize = Math.max(0.01, this.state.orthoSize * zoomFactor);
+      // Reposition camera to maintain same distance/direction from (possibly panned) target
+      this.state.camera.position.x = this.state.camera.target.x + dir.x;
+      this.state.camera.position.y = this.state.camera.target.y + dir.y;
+      this.state.camera.position.z = this.state.camera.target.z + dir.z;
+    } else {
+      // Perspective: scale distance
+      const newDistance = Math.max(0.1, distance * zoomFactor);
+      const scale = newDistance / distance;
+      this.state.camera.position.x = this.state.camera.target.x + dir.x * scale;
+      this.state.camera.position.y = this.state.camera.target.y + dir.y * scale;
+      this.state.camera.position.z = this.state.camera.target.z + dir.z * scale;
     }
-
-    // Dolly: move both camera and target along view direction
-    this.state.camera.position.x += forward.x * dollyAmount;
-    this.state.camera.position.y += forward.y * dollyAmount;
-    this.state.camera.position.z += forward.z * dollyAmount;
-    this.state.camera.target.x += forward.x * dollyAmount;
-    this.state.camera.target.y += forward.y * dollyAmount;
-    this.state.camera.target.z += forward.z * dollyAmount;
 
     this.updateMatrices();
   }
