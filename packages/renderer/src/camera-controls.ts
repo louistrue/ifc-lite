@@ -132,23 +132,38 @@ export class CameraControls {
     const phiClamped = Math.max(0.15, Math.min(Math.PI - 0.15, phi));
 
     // Calculate new camera position around pivot
-    const newPosX = pivot.x + distance * Math.sin(phiClamped) * Math.sin(theta);
-    const newPosY = pivot.y + distance * Math.cos(phiClamped);
-    const newPosZ = pivot.z + distance * Math.sin(phiClamped) * Math.cos(theta);
+    this.state.camera.position.x = pivot.x + distance * Math.sin(phiClamped) * Math.sin(theta);
+    this.state.camera.position.y = pivot.y + distance * Math.cos(phiClamped);
+    this.state.camera.position.z = pivot.z + distance * Math.sin(phiClamped) * Math.cos(theta);
 
-    // Calculate the delta that the camera position moved
-    const moveDx = newPosX - this.state.camera.position.x;
-    const moveDy = newPosY - this.state.camera.position.y;
-    const moveDz = newPosZ - this.state.camera.position.z;
-
-    // Move both position AND target by the same delta.
-    // This keeps the lookAt direction consistent while orbiting around the pivot.
-    this.state.camera.position.x = newPosX;
-    this.state.camera.position.y = newPosY;
-    this.state.camera.position.z = newPosZ;
-    this.state.camera.target.x += moveDx;
-    this.state.camera.target.y += moveDy;
-    this.state.camera.target.z += moveDz;
+    // If orbiting around a separate orbit center (not camera.target),
+    // apply the same rotation to camera.target so the look direction
+    // rotates with the camera (not a translation — a rotation).
+    if (this.orbitCenter) {
+      const tDir = {
+        x: this.state.camera.target.x - pivot.x,
+        y: this.state.camera.target.y - pivot.y,
+        z: this.state.camera.target.z - pivot.z,
+      };
+      const tDist = Math.sqrt(tDir.x * tDir.x + tDir.y * tDir.y + tDir.z * tDir.z);
+      if (tDist > 1e-6) {
+        let tPhi = Math.acos(Math.max(-1, Math.min(1, tDir.y / tDist)));
+        const tSinPhi = Math.sin(tPhi);
+        let tTheta: number;
+        if (tSinPhi > 0.05) {
+          tTheta = Math.atan2(tDir.x, tDir.z);
+        } else {
+          tTheta = 0;
+          tPhi = tPhi < Math.PI / 2 ? 0.15 : Math.PI - 0.15;
+        }
+        // Apply the same angular delta
+        tTheta += dx;
+        const tPhiNew = Math.max(0.15, Math.min(Math.PI - 0.15, tPhi + dy));
+        this.state.camera.target.x = pivot.x + tDist * Math.sin(tPhiNew) * Math.sin(tTheta);
+        this.state.camera.target.y = pivot.y + tDist * Math.cos(tPhiNew);
+        this.state.camera.target.z = pivot.z + tDist * Math.sin(tPhiNew) * Math.cos(tTheta);
+      }
+    }
 
     this.updateMatrices();
   }
