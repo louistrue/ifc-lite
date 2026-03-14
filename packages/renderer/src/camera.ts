@@ -89,29 +89,18 @@ export class Camera {
   }
 
   /**
-   * Smoothly animate camera.target (= orbit center) to a new point.
-   * Camera position is adjusted to maintain the current viewing direction
-   * and distance, so the transition feels like a smooth re-center.
-   * This is the standard CAD behavior when selecting an object to orbit around.
+   * Set the orbit center without moving the camera.
+   * Future orbit() calls will rotate around this point.
+   * Pass null to revert to orbiting around camera.target.
    */
-  async setOrbitTarget(point: Vec3, duration = 200): Promise<void> {
-    // Keep current viewing direction and distance
-    const dir = {
-      x: this.state.camera.position.x - this.state.camera.target.x,
-      y: this.state.camera.position.y - this.state.camera.target.y,
-      z: this.state.camera.position.z - this.state.camera.target.z,
-    };
-    const endPos = {
-      x: point.x + dir.x,
-      y: point.y + dir.y,
-      z: point.z + dir.z,
-    };
-    return this.animator.animateTo(endPos, point, duration);
+  setOrbitCenter(center: Vec3 | null): void {
+    this.controls.setOrbitCenter(center);
   }
 
   /**
-   * Orbit camera.position around camera.target (Y-up coordinate system).
-   * Only position moves — target stays fixed as the orbit center.
+   * Orbit camera around the current pivot (Y-up coordinate system).
+   * If orbitCenter is set, both position and target rotate around it.
+   * Otherwise, position rotates around target (standard orbit).
    */
   orbit(deltaX: number, deltaY: number, addVelocity = false): void {
     this.animator.resetPresetTracking();
@@ -244,10 +233,11 @@ export class Camera {
   }
 
   /**
-   * Reset camera state (stop inertia, cancel animations)
+   * Reset camera state (clear orbit center, stop inertia, cancel animations)
    * Called when loading a new model to ensure clean state
    */
   reset(): void {
+    this.controls.setOrbitCenter(null);
     this.animator.reset();
   }
 

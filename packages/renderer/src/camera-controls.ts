@@ -3,14 +3,14 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 /**
- * Camera orbit, pan, and zoom controls with spherical coordinate math.
- * Extracted from Camera class using composition pattern.
+ * Camera orbit, pan, and zoom controls.
  *
- * Design: camera.target is ALWAYS the orbit center (same as Three.js
- * OrbitControls, Blender, Revit, BabylonJS ArcRotateCamera).
- * Orbit rotates camera.position around camera.target on a sphere.
- * camera.target never changes during orbit — only via zoom, pan,
- * selection, or explicit setTarget calls.
+ * Orbit uses a pivot point:
+ * - Default pivot = camera.target (standard orbit)
+ * - When orbitCenter is set (e.g. selected object), both position AND target
+ *   rotate around it. This preserves the viewing direction while orbiting
+ *   around the selected object — standard BIM behavior where selecting an
+ *   object doesn't move the camera, only changes the orbit pivot.
  */
 
 import type { Camera as CameraType, Vec3, Mat4 } from './types.js';
@@ -35,76 +35,193 @@ export interface CameraInternalState {
 
 /**
  * Handles core camera movement: orbit, pan, and zoom.
- * Uses spherical coordinates for orbit with Y-up convention.
- *
- * Orbit center = camera.target, always. This is the universal best practice
- * across Three.js, Blender, Revit, and BabylonJS.
  */
 export class CameraControls {
+  /** Optional orbit pivot (set on object selection). null = orbit around camera.target. */
+  private orbitCenter: Vec3 | null = null;
+
   constructor(
     private readonly state: CameraInternalState,
     private readonly updateMatrices: () => void,
   ) {}
 
   /**
-   * Orbit camera.position around camera.target (Y-up turntable style).
-   * Only camera.position moves. camera.target stays fixed.
+   * Set the orbit center without moving the camera.
+   * Future orbit() calls will rotate around this point.
+   * Pass null to revert to orbiting around camera.target.
+   */
+  setOrbitCenter(center: Vec3 | null): void {
+    this.orbitCenter = center ? { ...center } : null;
+  }
+
+  /**
+   * Orbit the camera around a pivot point (Y-up turntable style).
+   *
+   * Two modes:
+   * 1. No orbitCenter: standard orbit — position rotates around target on a sphere.
+   * 2. With orbitCenter: both position AND target rotate around the orbit center.
+   *    This preserves the camera's viewing direction while pivoting around
+   *    the selected object. No camera jump on selection.
    */
   orbit(deltaX: number, deltaY: number): void {
-    // Always ensure Y-up for consistent orbit behavior
     this.state.camera.up = { x: 0, y: 1, z: 0 };
 
-    // Invert controls: mouse movement direction = model rotation direction
     const dx = -deltaX * 0.01;
     const dy = -deltaY * 0.01;
 
-    const pivot = this.state.camera.target;
+    const pivot = this.orbitCenter ?? this.state.camera.target;
 
+    if (this.orbitCenter === null) {
+      // Standard orbit: only position moves, target stays fixed
+      this.orbitPositionAroundPivot(pivot, dx, dy);
+    } else {
+      // BIM orbit: rotate both position and target around the orbit center.
+      // This keeps the viewing direction stable — no camera jump.
+      this.rotateAroundPivot(pivot, dx, dy);
+    }
+
+    this.updateMatrices();
+  }
+
+  /**
+   * Standard spherical orbit: rotate camera.position around pivot (= target).
+   * Only position changes. Used when no explicit orbit center is set.
+   */
+  private orbitPositionAroundPivot(pivot: Vec3, dx: number, dy: number): void {
     const dir = {
       x: this.state.camera.position.x - pivot.x,
       y: this.state.camera.position.y - pivot.y,
       z: this.state.camera.position.z - pivot.z,
     };
-
     const distance = Math.sqrt(dir.x * dir.x + dir.y * dir.y + dir.z * dir.z);
     if (distance < 1e-6) return;
 
-    // Y-up coordinate system using standard spherical coordinates
-    // theta: horizontal rotation around Y axis
-    // phi: vertical angle from Y axis (0 = top, PI = bottom)
     let currentPhi = Math.acos(Math.max(-1, Math.min(1, dir.y / distance)));
 
-    // When at poles (top/bottom view), use a stable theta based on current direction
-    // to avoid gimbal lock issues
     let theta: number;
     const sinPhi = Math.sin(currentPhi);
     if (sinPhi > 0.05) {
-      // Normal case - calculate theta from horizontal position
       theta = Math.atan2(dir.x, dir.z);
     } else {
-      // At a pole - determine which one and push away
-      theta = 0; // Default theta when at pole
+      theta = 0;
       if (currentPhi < Math.PI / 2) {
-        // Top pole (phi ~ 0) - push down
         currentPhi = 0.15;
       } else {
-        // Bottom pole (phi ~ PI) - push up
         currentPhi = Math.PI - 0.15;
       }
     }
 
     theta += dx;
-    const phi = currentPhi + dy;
+    const phiClamped = Math.max(0.15, Math.min(Math.PI - 0.15, currentPhi + dy));
 
-    // Clamp phi to prevent gimbal lock (stay away from exact poles)
-    const phiClamped = Math.max(0.15, Math.min(Math.PI - 0.15, phi));
-
-    // Calculate new camera position around target
     this.state.camera.position.x = pivot.x + distance * Math.sin(phiClamped) * Math.sin(theta);
     this.state.camera.position.y = pivot.y + distance * Math.cos(phiClamped);
     this.state.camera.position.z = pivot.z + distance * Math.sin(phiClamped) * Math.cos(theta);
+  }
 
-    this.updateMatrices();
+  /**
+   * BIM orbit: rotate both position and target around a pivot using
+   * Y-axis (horizontal) and camera-right-axis (vertical) rotations.
+   *
+   * Uses simple axis-angle rotation (trig decomposition, not Rodrigues'):
+   * - Horizontal: rotate around world Y axis through pivot
+   * - Vertical: rotate around camera's right axis through pivot, clamped
+   */
+  private rotateAroundPivot(pivot: Vec3, dx: number, dy: number): void {
+    // --- Horizontal rotation (around Y axis) ---
+    const cosH = Math.cos(dx);
+    const sinH = Math.sin(dx);
+
+    // Rotate position around Y axis through pivot
+    let px = this.state.camera.position.x - pivot.x;
+    let pz = this.state.camera.position.z - pivot.z;
+    this.state.camera.position.x = pivot.x + px * cosH - pz * sinH;
+    this.state.camera.position.z = pivot.z + px * sinH + pz * cosH;
+
+    // Rotate target around Y axis through pivot
+    let tx = this.state.camera.target.x - pivot.x;
+    let tz = this.state.camera.target.z - pivot.z;
+    this.state.camera.target.x = pivot.x + tx * cosH - tz * sinH;
+    this.state.camera.target.z = pivot.z + tx * sinH + tz * cosH;
+
+    // --- Vertical rotation (around camera's right axis) ---
+    // Clamp to prevent going over the poles
+    // Check elevation of camera relative to pivot
+    const dirToPivot = {
+      x: pivot.x - this.state.camera.position.x,
+      y: pivot.y - this.state.camera.position.y,
+      z: pivot.z - this.state.camera.position.z,
+    };
+    const distToPivot = Math.sqrt(dirToPivot.x * dirToPivot.x + dirToPivot.y * dirToPivot.y + dirToPivot.z * dirToPivot.z);
+    if (distToPivot < 1e-6) return;
+
+    // Current elevation angle of camera relative to pivot
+    const currentElevation = Math.asin(Math.max(-1, Math.min(1,
+      (this.state.camera.position.y - pivot.y) / distToPivot)));
+
+    // Clamp dy to prevent flipping over poles (keep within ~±85°)
+    const maxElev = 1.48; // ~85 degrees
+    const clampedDy = Math.max(-maxElev - currentElevation, Math.min(maxElev - currentElevation, dy));
+
+    if (Math.abs(clampedDy) < 1e-6) return;
+
+    // Camera forward direction (normalized)
+    const fwd = {
+      x: this.state.camera.target.x - this.state.camera.position.x,
+      y: this.state.camera.target.y - this.state.camera.position.y,
+      z: this.state.camera.target.z - this.state.camera.position.z,
+    };
+    const fwdLen = Math.sqrt(fwd.x * fwd.x + fwd.y * fwd.y + fwd.z * fwd.z);
+    if (fwdLen < 1e-6) return;
+    fwd.x /= fwdLen;
+    fwd.y /= fwdLen;
+    fwd.z /= fwdLen;
+
+    // Right axis = forward × Y-up (horizontal component only)
+    const right = {
+      x: fwd.z,
+      y: 0,
+      z: -fwd.x,
+    };
+    const rightLen = Math.sqrt(right.x * right.x + right.z * right.z);
+    if (rightLen < 1e-6) return;
+    right.x /= rightLen;
+    right.z /= rightLen;
+    // right.y is always 0 — this is a horizontal axis
+
+    // Rotate position around right axis through pivot
+    this.rotatePointAroundAxis(this.state.camera.position, pivot, right, clampedDy);
+
+    // Rotate target around right axis through pivot
+    this.rotatePointAroundAxis(this.state.camera.target, pivot, right, clampedDy);
+  }
+
+  /**
+   * Rotate a point around an arbitrary axis through a pivot by angle theta.
+   * Uses the axis-angle rotation formula (Rodrigues):
+   *   v' = v cos(θ) + (k × v) sin(θ) + k(k·v)(1 - cos(θ))
+   * where v = point - pivot, k = unit axis.
+   * Mutates the point in place.
+   */
+  private rotatePointAroundAxis(point: Vec3, pivot: Vec3, axis: Vec3, angle: number): void {
+    const vx = point.x - pivot.x;
+    const vy = point.y - pivot.y;
+    const vz = point.z - pivot.z;
+
+    const cosA = Math.cos(angle);
+    const sinA = Math.sin(angle);
+
+    // k × v
+    const crossX = axis.y * vz - axis.z * vy;
+    const crossY = axis.z * vx - axis.x * vz;
+    const crossZ = axis.x * vy - axis.y * vx;
+
+    // k · v
+    const dot = axis.x * vx + axis.y * vy + axis.z * vz;
+
+    point.x = pivot.x + vx * cosA + crossX * sinA + axis.x * dot * (1 - cosA);
+    point.y = pivot.y + vy * cosA + crossY * sinA + axis.y * dot * (1 - cosA);
+    point.z = pivot.z + vz * cosA + crossZ * sinA + axis.z * dot * (1 - cosA);
   }
 
   /**
@@ -145,12 +262,23 @@ export class CameraControls {
     }
 
     const panSpeed = distance * 0.001;
-    this.state.camera.target.x += (right.x * deltaX + up.x * deltaY) * panSpeed;
-    this.state.camera.target.y += (right.y * deltaX + up.y * deltaY) * panSpeed;
-    this.state.camera.target.z += (right.z * deltaX + up.z * deltaY) * panSpeed;
-    this.state.camera.position.x += (right.x * deltaX + up.x * deltaY) * panSpeed;
-    this.state.camera.position.y += (right.y * deltaX + up.y * deltaY) * panSpeed;
-    this.state.camera.position.z += (right.z * deltaX + up.z * deltaY) * panSpeed;
+    const offsetX = (right.x * deltaX + up.x * deltaY) * panSpeed;
+    const offsetY = (right.y * deltaX + up.y * deltaY) * panSpeed;
+    const offsetZ = (right.z * deltaX + up.z * deltaY) * panSpeed;
+
+    this.state.camera.target.x += offsetX;
+    this.state.camera.target.y += offsetY;
+    this.state.camera.target.z += offsetZ;
+    this.state.camera.position.x += offsetX;
+    this.state.camera.position.y += offsetY;
+    this.state.camera.position.z += offsetZ;
+
+    // Also move orbit center if set (so pan doesn't break the orbit pivot)
+    if (this.orbitCenter) {
+      this.orbitCenter.x += offsetX;
+      this.orbitCenter.y += offsetY;
+      this.orbitCenter.z += offsetZ;
+    }
 
     this.updateMatrices();
   }

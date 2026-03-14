@@ -127,16 +127,20 @@ export function Viewport({ geometry, geometryVersion, coordinateInfo, computedIs
   const handlePickForSelectionRef = useRef(handlePickForSelection);
   useEffect(() => { handlePickForSelectionRef.current = handlePickForSelection; }, [handlePickForSelection]);
 
-  // When an object is selected, smoothly animate orbit center (= camera.target)
-  // to the object's center. This is the standard CAD/BIM behavior (Revit, Blender,
-  // Three.js OrbitControls): orbit center = lookAt target, always.
-  // On deselection, target stays where it is (no change).
+  // Update orbit center when selection changes.
+  // When an object is selected, orbit center silently moves to its center
+  // (no camera movement — only affects future orbit rotation).
+  // When deselected, clear orbit center so orbit uses camera.target instead.
   useEffect(() => {
     const renderer = rendererRef.current;
-    if (!renderer || !isInitialized || !selectedEntityId) return;
-    const center = getEntityCenter(geometry, selectedEntityId);
-    if (center) {
-      renderer.getCamera().setOrbitTarget(center, 200);
+    if (!renderer || !isInitialized) return;
+    if (selectedEntityId) {
+      const center = getEntityCenter(geometry, selectedEntityId);
+      if (center) {
+        renderer.getCamera().setOrbitCenter(center);
+      }
+    } else {
+      renderer.getCamera().setOrbitCenter(null);
     }
   }, [selectedEntityId, isInitialized, geometry]);
 
