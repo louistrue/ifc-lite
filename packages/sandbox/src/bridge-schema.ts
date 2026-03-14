@@ -1476,7 +1476,7 @@ export const NAMESPACE_SCHEMAS: NamespaceSchema[] = [
         args: ['entityRefs', 'dump'],
         paramNames: ['entities', 'options'],
         tsParamTypes: [undefined, '{ schema?: "IFC2X3" | "IFC4" | "IFC4X3"; filename?: string; includeMutations?: boolean; visibleOnly?: boolean }'],
-        tsReturn: 'string',
+        tsReturn: 'string | Uint8Array',
         call: (sdk, args) => {
           return sdk.export.ifc(
             args[0] as EntityRef[],

@@ -220,12 +220,13 @@ export async function mutateCommand(args: string[]): Promise<void> {
   });
 
   // Apply attribute mutations via STEP text post-processing
-  let outputContent = result.content;
   if (attributeMutations.length > 0) {
-    outputContent = applyAttributeMutations(outputContent, attributeMutations);
+    const textContent = new TextDecoder().decode(result.content);
+    const outputContent = applyAttributeMutations(textContent, attributeMutations);
+    await writeFile(outPath, outputContent, 'utf-8');
+  } else {
+    await writeFile(outPath, result.content);
   }
-
-  await writeFile(outPath, outputContent, 'utf-8');
 
   const mutationDescs = mutations.map(m =>
     m.isAttribute ? m.propName : `${m.psetName}.${m.propName}`

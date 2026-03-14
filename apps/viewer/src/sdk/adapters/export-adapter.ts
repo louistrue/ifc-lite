@@ -369,7 +369,7 @@ export function createExportAdapter(store: StoreApi): ExportBackendMethods {
       return exporter.export(exportOptions).content;
     },
 
-    download(content: string, filename: string, mimeType?: string) {
+    download(content: string | Uint8Array, filename: string, mimeType?: string) {
       triggerDownload(content, filename, mimeType ?? 'text/plain');
       return undefined;
     },
@@ -377,7 +377,7 @@ export function createExportAdapter(store: StoreApi): ExportBackendMethods {
 }
 
 /** Trigger a browser file download */
-function triggerDownload(content: string, filename: string, mimeType: string): void {
+function triggerDownload(content: string | Uint8Array, filename: string, mimeType: string): void {
   if (typeof document === 'undefined') {
     throw new Error('download() requires a browser environment (document is unavailable)');
   }

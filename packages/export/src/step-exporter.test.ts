@@ -9,6 +9,9 @@ import { PropertyValueType } from '@ifc-lite/data';
 import { MutablePropertyView as LiveMutablePropertyView } from '@ifc-lite/mutations';
 import { StepExporter } from './step-exporter.js';
 
+/** Decode Uint8Array content to string for test assertions */
+const decode = (bytes: Uint8Array) => new TextDecoder().decode(bytes);
+
 function buildMockDataStore(entries: Array<[number, string, string]>): IfcDataStore {
   const encoder = new TextEncoder();
   const parts: Uint8Array[] = [];
@@ -166,7 +169,7 @@ describe('StepExporter', () => {
       applyMutations: true,
     });
 
-    expect(result.content).toContain(
+    expect(decode(result.content)).toContain(
       "#1=IFCCOLUMN('g',$,'Updated Name',$,'CSV Type',$,$,'CSV-TAG',.USERDEFINED.);",
     );
     expect(result.stats.modifiedEntityCount).toBe(1);
@@ -205,10 +208,10 @@ describe('StepExporter', () => {
     const exporter = new StepExporter(store, mutationView);
     const result = exporter.export({ schema: 'IFC4', applyMutations: true });
 
-    expect(result.content).toContain("IFCLABEL('Edited type value')");
-    expect(result.content).not.toContain("IFCLABEL('This is Pset of the WallType')");
-    expect(result.content).not.toContain("#114=IFCPROPERTYSET('3wkd_mjInDCfOthy7w_A6V'");
-    expect(result.content).not.toMatch(/IFCRELDEFINESBYPROPERTIES\([^;]*\(#67\),#/);
-    expect(result.content).toMatch(/#67=IFCWALLTYPE\([^;]*\(#72,#\d+\)[^;]*\);/);
+    expect(decode(result.content)).toContain("IFCLABEL('Edited type value')");
+    expect(decode(result.content)).not.toContain("IFCLABEL('This is Pset of the WallType')");
+    expect(decode(result.content)).not.toContain("#114=IFCPROPERTYSET('3wkd_mjInDCfOthy7w_A6V'");
+    expect(decode(result.content)).not.toMatch(/IFCRELDEFINESBYPROPERTIES\([^;]*\(#67\),#/);
+    expect(decode(result.content)).toMatch(/#67=IFCWALLTYPE\([^;]*\(#72,#\d+\)[^;]*\);/);
   });
 });

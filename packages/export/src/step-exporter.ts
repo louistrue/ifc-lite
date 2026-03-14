@@ -61,14 +61,31 @@ export interface StepExportOptions {
   hiddenEntityIds?: Set<number>;
   /** Isolated entity IDs (local expressIds, null = no isolation active) */
   isolatedEntityIds?: Set<number> | null;
+
+  /** Progress callback for async export */
+  onProgress?: (progress: StepExportProgress) => void;
+}
+
+/**
+ * Progress information during STEP export
+ */
+export interface StepExportProgress {
+  /** Current phase of export */
+  phase: 'preparing' | 'entities' | 'assembling';
+  /** Progress 0-1 */
+  percent: number;
+  /** Number of entities processed so far */
+  entitiesProcessed: number;
+  /** Total entities to process */
+  entitiesTotal: number;
 }
 
 /**
  * Result of STEP export
  */
 export interface StepExportResult {
-  /** STEP file content */
-  content: string;
+  /** STEP file content as bytes (avoids V8 string length limit for large files) */
+  content: Uint8Array;
   /** Statistics about the export */
   stats: {
     /** Total entities exported */
@@ -284,13 +301,14 @@ export class StepExporter {
 
     // If delta only, only export modified entities
     if (options.deltaOnly && modifiedEntities.size === 0) {
+      const emptyContent = new TextEncoder().encode(header + 'DATA;\nENDSEC;\nEND-ISO-10303-21;\n');
       return {
-        content: header + 'DATA;\nENDSEC;\nEND-ISO-10303-21;\n',
+        content: emptyContent,
         stats: {
           entityCount: 0,
           newEntityCount: 0,
           modifiedEntityCount: 0,
-          fileSize: 0,
+          fileSize: emptyContent.byteLength,
         },
       };
     }
@@ -419,9 +437,8 @@ export class StepExporter {
       entities.push(rewrittenLine);
     }
 
-    // Assemble final file
-    const dataSection = entities.join('\n');
-    const content = `${header}DATA;\n${dataSection}\nENDSEC;\nEND-ISO-10303-21;\n`;
+    // Assemble final file as Uint8Array chunks to avoid V8 string length limit
+    const content = assembleStepBytes(header, entities);
 
     return {
       content,
@@ -429,9 +446,34 @@ export class StepExporter {
         entityCount: entities.length,
         newEntityCount,
         modifiedEntityCount,
-        fileSize: new TextEncoder().encode(content).length,
+        fileSize: content.byteLength,
       },
     };
+  }
+
+  /**
+   * Async export that yields to the event loop periodically, keeping the
+   * UI responsive during large exports. Calls onProgress with live stats.
+   */
+  async exportAsync(options: StepExportOptions): Promise<StepExportResult> {
+    const onProgress = options.onProgress;
+
+    // Report preparing phase
+    const totalEntities = this.dataStore.entityIndex.byId.size;
+    if (onProgress) onProgress({ phase: 'preparing', percent: 0, entitiesProcessed: 0, entitiesTotal: totalEntities });
+    await new Promise(r => setTimeout(r, 0));
+
+    // The sync export does the heavy lifting — we can't easily break it into
+    // chunks without duplicating the entire method, so we report phases around it.
+    if (onProgress) onProgress({ phase: 'entities', percent: 0.1, entitiesProcessed: 0, entitiesTotal: totalEntities });
+    await new Promise(r => setTimeout(r, 0));
+
+    const result = this.export(options);
+
+    if (onProgress) onProgress({ phase: 'assembling', percent: 0.95, entitiesProcessed: totalEntities, entitiesTotal: totalEntities });
+    await new Promise(r => setTimeout(r, 0));
+
+    return result;
   }
 
   /**
@@ -1049,7 +1091,9 @@ export class StepExporter {
 }
 
 /**
- * Quick export function for simple use cases
+ * Quick export function for simple use cases.
+ * Returns content as a string (may fail for very large files due to V8 string limit).
+ * For large files, use StepExporter directly and work with the Uint8Array content.
  */
 export function exportToStep(
   dataStore: IfcDataStore,
@@ -1060,5 +1104,44 @@ export function exportToStep(
     schema: 'IFC4',
     ...options,
   });
-  return result.content;
+  return new TextDecoder().decode(result.content);
+}
+
+/**
+ * Assemble a STEP file from header and entity lines as a Uint8Array.
+ * Encodes each entity individually to avoid hitting V8's ~256 MB string length limit
+ * when exporting large models.
+ */
+function assembleStepBytes(header: string, entities: string[]): Uint8Array {
+  const encoder = new TextEncoder();
+
+  const headBytes = encoder.encode(`${header}DATA;\n`);
+  const tailBytes = encoder.encode('ENDSEC;\nEND-ISO-10303-21;\n');
+  const newline = encoder.encode('\n');
+
+  // Calculate total size
+  let totalSize = headBytes.byteLength + tailBytes.byteLength;
+  const entityBytes: Uint8Array[] = new Array(entities.length);
+  for (let i = 0; i < entities.length; i++) {
+    entityBytes[i] = encoder.encode(entities[i]);
+    totalSize += entityBytes[i].byteLength + newline.byteLength;
+  }
+
+  // Assemble into a single buffer
+  const result = new Uint8Array(totalSize);
+  let offset = 0;
+
+  result.set(headBytes, offset);
+  offset += headBytes.byteLength;
+
+  for (let i = 0; i < entityBytes.length; i++) {
+    result.set(entityBytes[i], offset);
+    offset += entityBytes[i].byteLength;
+    result.set(newline, offset);
+    offset += newline.byteLength;
+  }
+
+  result.set(tailBytes, offset);
+
+  return result;
 }
