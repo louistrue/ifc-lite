@@ -33,6 +33,8 @@ export class CameraAnimator {
   private animationEndTarget: Vec3 | null = null;
   private animationStartUp: Vec3 | null = null;
   private animationEndUp: Vec3 | null = null;
+  private animationStartOrthoSize: number | null = null;
+  private animationEndOrthoSize: number | null = null;
   private animationEasing: ((t: number) => number) | null = null;
 
   // First-person mode
@@ -98,6 +100,11 @@ export class CameraAnimator {
         this.state.camera.target.y = this.animationStartTarget.y + (this.animationEndTarget.y - this.animationStartTarget.y) * t;
         this.state.camera.target.z = this.animationStartTarget.z + (this.animationEndTarget.z - this.animationStartTarget.z) * t;
 
+        // Interpolate orthoSize if animating orthographic zoom
+        if (this.animationStartOrthoSize !== null && this.animationEndOrthoSize !== null) {
+          this.state.orthoSize = this.animationStartOrthoSize + (this.animationEndOrthoSize - this.animationStartOrthoSize) * t;
+        }
+
         // Interpolate up vector if animating with up
         if (this.animationStartUp && this.animationEndUp) {
           // SLERP-like interpolation for up vector (normalized lerp)
@@ -132,6 +139,9 @@ export class CameraAnimator {
           this.state.camera.up.y = this.animationEndUp.y;
           this.state.camera.up.z = this.animationEndUp.z;
         }
+        if (this.animationEndOrthoSize !== null) {
+          this.state.orthoSize = this.animationEndOrthoSize;
+        }
         this.updateMatrices();
 
         this.animationStartTime = 0;
@@ -142,6 +152,8 @@ export class CameraAnimator {
         this.animationEndTarget = null;
         this.animationStartUp = null;
         this.animationEndUp = null;
+        this.animationStartOrthoSize = null;
+        this.animationEndOrthoSize = null;
         this.animationEasing = null;
       }
     }
@@ -197,7 +209,12 @@ export class CameraAnimator {
       z: center.z + distance * 0.6,
     };
 
-    return this.animateTo(endPos, endTarget, duration);
+    // Calculate orthoSize for orthographic mode so zoom level resets properly
+    const endOrthoSize = this.state.projectionMode === 'orthographic'
+      ? Math.max(maxSize / 2, maxSize / 2 / this.state.camera.aspect) * 1.5
+      : undefined;
+
+    return this.animateTo(endPos, endTarget, duration, endOrthoSize);
   }
 
   /**
@@ -295,7 +312,12 @@ export class CameraAnimator {
       z: center.z + dir.z * distance,
     };
 
-    return this.animateTo(endPos, center, duration);
+    // Calculate orthoSize for orthographic mode so zoom level resets properly
+    const endOrthoSize = this.state.projectionMode === 'orthographic'
+      ? Math.max(maxSize / 2, maxSize / 2 / this.state.camera.aspect) * 1.2
+      : undefined;
+
+    return this.animateTo(endPos, center, duration, endOrthoSize);
   }
 
   async zoomExtent(min: Vec3, max: Vec3, duration = 300): Promise<void> {
@@ -349,19 +371,31 @@ export class CameraAnimator {
       z: center.z + dir.z * distance,
     };
 
-    return this.animateTo(endPos, center, duration);
+    // Calculate orthoSize for orthographic mode so zoom level resets properly
+    const endOrthoSize = this.state.projectionMode === 'orthographic'
+      ? Math.max(maxSize / 2, maxSize / 2 / this.state.camera.aspect) * 1.5
+      : undefined;
+
+    return this.animateTo(endPos, center, duration, endOrthoSize);
   }
 
   /**
    * Animate camera to position and target
    */
-  async animateTo(endPos: Vec3, endTarget: Vec3, duration = 500): Promise<void> {
+  async animateTo(endPos: Vec3, endTarget: Vec3, duration = 500, endOrthoSize?: number): Promise<void> {
     this.animationStartPos = { ...this.state.camera.position };
     this.animationStartTarget = { ...this.state.camera.target };
     this.animationEndPos = endPos;
     this.animationEndTarget = endTarget;
     this.animationStartUp = null;
     this.animationEndUp = null;
+    if (endOrthoSize !== undefined) {
+      this.animationStartOrthoSize = this.state.orthoSize;
+      this.animationEndOrthoSize = endOrthoSize;
+    } else {
+      this.animationStartOrthoSize = null;
+      this.animationEndOrthoSize = null;
+    }
     this.animationDuration = duration;
     this.animationStartTime = Date.now();
     this.animationEasing = this.easeOutCubic;
@@ -667,6 +701,8 @@ export class CameraAnimator {
     this.animationEndTarget = null;
     this.animationStartUp = null;
     this.animationEndUp = null;
+    this.animationStartOrthoSize = null;
+    this.animationEndOrthoSize = null;
     this.animationEasing = null;
     // Reset preset view tracking
     this.lastPresetView = null;
