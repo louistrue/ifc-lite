@@ -81,24 +81,23 @@ export class CameraControls {
   }
 
   /**
-   * Orbit both camera.position and camera.target around an external pivot.
-   * Preserves the camera-to-target vector so selection never shifts the view.
+   * Rotate a point around the pivot by the given theta/phi deltas.
+   * Returns the new position. Used for orbiting both position and target.
    */
-  private orbitAroundExternalPivot(pivot: Vec3, dx: number, dy: number): void {
-    // Compute spherical coords of camera position relative to pivot
-    const dir = {
-      x: this.state.camera.position.x - pivot.x,
-      y: this.state.camera.position.y - pivot.y,
-      z: this.state.camera.position.z - pivot.z,
-    };
-    const distance = Math.sqrt(dir.x * dir.x + dir.y * dir.y + dir.z * dir.z);
-    if (distance < 1e-6) return;
+  private rotateAroundPivot(
+    point: Vec3, pivot: Vec3, dx: number, dy: number,
+  ): { x: number; y: number; z: number } {
+    const rx = point.x - pivot.x;
+    const ry = point.y - pivot.y;
+    const rz = point.z - pivot.z;
+    const dist = Math.sqrt(rx * rx + ry * ry + rz * rz);
+    if (dist < 1e-6) return { x: point.x, y: point.y, z: point.z };
 
-    let phi = Math.acos(Math.max(-1, Math.min(1, dir.y / distance)));
+    let phi = Math.acos(Math.max(-1, Math.min(1, ry / dist)));
     const sinPhi = Math.sin(phi);
     let theta: number;
     if (sinPhi > 0.05) {
-      theta = Math.atan2(dir.x, dir.z);
+      theta = Math.atan2(rx, rz);
     } else {
       theta = 0;
       phi = phi < Math.PI / 2 ? 0.15 : Math.PI - 0.15;
@@ -107,22 +106,28 @@ export class CameraControls {
     const newTheta = theta + dx;
     const newPhi = Math.max(0.15, Math.min(Math.PI - 0.15, phi + dy));
 
-    // New position on the sphere around pivot
-    const newPosX = pivot.x + distance * Math.sin(newPhi) * Math.sin(newTheta);
-    const newPosY = pivot.y + distance * Math.cos(newPhi);
-    const newPosZ = pivot.z + distance * Math.sin(newPhi) * Math.cos(newTheta);
+    return {
+      x: pivot.x + dist * Math.sin(newPhi) * Math.sin(newTheta),
+      y: pivot.y + dist * Math.cos(newPhi),
+      z: pivot.z + dist * Math.sin(newPhi) * Math.cos(newTheta),
+    };
+  }
 
-    // Displacement — apply identically to both position and target
-    const moveX = newPosX - this.state.camera.position.x;
-    const moveY = newPosY - this.state.camera.position.y;
-    const moveZ = newPosZ - this.state.camera.position.z;
+  /**
+   * Orbit both camera.position and camera.target around an external pivot.
+   * Both rotate by the same angles at their own radii, keeping the pivot
+   * as the true center of rotation.
+   */
+  private orbitAroundExternalPivot(pivot: Vec3, dx: number, dy: number): void {
+    const newPos = this.rotateAroundPivot(this.state.camera.position, pivot, dx, dy);
+    const newTgt = this.rotateAroundPivot(this.state.camera.target, pivot, dx, dy);
 
-    this.state.camera.position.x = newPosX;
-    this.state.camera.position.y = newPosY;
-    this.state.camera.position.z = newPosZ;
-    this.state.camera.target.x += moveX;
-    this.state.camera.target.y += moveY;
-    this.state.camera.target.z += moveZ;
+    this.state.camera.position.x = newPos.x;
+    this.state.camera.position.y = newPos.y;
+    this.state.camera.position.z = newPos.z;
+    this.state.camera.target.x = newTgt.x;
+    this.state.camera.target.y = newTgt.y;
+    this.state.camera.target.z = newTgt.z;
   }
 
   /**
