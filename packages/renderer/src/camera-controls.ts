@@ -128,6 +128,11 @@ export class CameraControls {
    * - Vertical: rotate around camera's right axis through pivot, clamped
    */
   private rotateAroundPivot(pivot: Vec3, dx: number, dy: number): void {
+    // Negate both to match the standard orbit direction convention
+    // (the axis-angle rotation spins opposite to the spherical coord orbit)
+    dx = -dx;
+    dy = -dy;
+
     // --- Horizontal rotation (around Y axis) ---
     const cosH = Math.cos(dx);
     const sinH = Math.sin(dx);
