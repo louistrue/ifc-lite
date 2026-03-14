@@ -11,6 +11,7 @@ import { useEffect, type MutableRefObject, type RefObject } from 'react';
 import type { Renderer, PickResult } from '@ifc-lite/renderer';
 import type { MeshData } from '@ifc-lite/geometry';
 import type { SectionPlane } from '@/store';
+import { getEntityCenter } from '../../utils/viewportUtils.js';
 
 export interface TouchState {
   touches: Touch[];
@@ -89,8 +90,39 @@ export function useTouchControls(params: UseTouchControlsParams): void {
         };
         touchState.didMove = false;
 
-        // Orbit center is camera.target — it stays fixed during orbit.
-        // It only changes via zoom (pinch) or object selection.
+        // Set orbit pivot to the 3D point under the finger.
+        // On miss, place pivot at current distance along the finger ray.
+        const rect = canvas.getBoundingClientRect();
+        const tx = touchState.touches[0].clientX - rect.left;
+        const ty = touchState.touches[0].clientY - rect.top;
+        const hit = renderer.raycastScene(tx, ty, {
+          hiddenIds: hiddenEntitiesRef.current,
+          isolatedIds: isolatedEntitiesRef.current,
+        });
+        if (hit?.intersection) {
+          camera.setOrbitCenter(hit.intersection.point);
+        } else if (selectedEntityIdRef.current) {
+          const center = getEntityCenter(geometryRef.current, selectedEntityIdRef.current);
+          if (center) {
+            camera.setOrbitCenter(center);
+          } else {
+            camera.setOrbitCenter(null);
+          }
+        } else {
+          const ray = camera.unprojectToRay(tx, ty, canvas.width, canvas.height);
+          const target = camera.getTarget();
+          const toTarget = {
+            x: target.x - ray.origin.x,
+            y: target.y - ray.origin.y,
+            z: target.z - ray.origin.z,
+          };
+          const d = Math.max(1, toTarget.x * ray.direction.x + toTarget.y * ray.direction.y + toTarget.z * ray.direction.z);
+          camera.setOrbitCenter({
+            x: ray.origin.x + ray.direction.x * d,
+            y: ray.origin.y + ray.direction.y * d,
+            z: ray.origin.z + ray.direction.z * d,
+          });
+        }
       } else if (touchState.touches.length === 1) {
         // Single touch after multi-touch - just update center for orbit
         touchState.lastCenter = {
@@ -191,13 +223,12 @@ export function useTouchControls(params: UseTouchControlsParams): void {
         // - Was a single-finger touch (not after multi-touch gesture)
         // - Tap was quick (< 300ms)
         // - Didn't move significantly
-        // - Tool supports selection (not orbit/pan/walk/measure)
+        // - Tool supports selection (not pan/walk/measure)
         if (
           previousTouchCount === 1 &&
           !wasMultiTouch &&
           tapDuration < 300 &&
           !touchState.didMove &&
-          tool !== 'orbit' &&
           tool !== 'pan' &&
           tool !== 'walk' &&
           tool !== 'measure'

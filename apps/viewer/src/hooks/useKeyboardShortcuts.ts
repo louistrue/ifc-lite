@@ -76,14 +76,6 @@ export function useKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
       e.preventDefault();
       setActiveTool('select');
     }
-    if (key === 'p' && !ctrl && !shift) {
-      e.preventDefault();
-      setActiveTool('pan');
-    }
-    if (key === 'o' && !ctrl && !shift) {
-      e.preventDefault();
-      setActiveTool('orbit');
-    }
     if (key === 'c' && !ctrl && !shift) {
       e.preventDefault();
       setActiveTool('walk');
@@ -249,8 +241,6 @@ export function useKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
 // Export shortcut definitions for UI display
 export const KEYBOARD_SHORTCUTS = [
   { key: 'V', description: 'Select tool', category: 'Tools' },
-  { key: 'P', description: 'Pan tool', category: 'Tools' },
-  { key: 'O', description: 'Orbit tool', category: 'Tools' },
   { key: 'C', description: 'Walk mode', category: 'Tools' },
   { key: 'M', description: 'Measure tool', category: 'Tools' },
   { key: 'X', description: 'Section tool', category: 'Tools' },
