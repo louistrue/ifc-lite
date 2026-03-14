@@ -57,9 +57,9 @@ export class CameraControls {
   /**
    * Orbit the camera around a pivot point (Y-up turntable style).
    *
-   * When orbitCenter is set (selected object), the target snaps to the
-   * orbit center so the selected object becomes the visual center of
-   * rotation — same spherical orbit, just a different pivot point.
+   * When orbitCenter is set (selected object), the target smoothly
+   * lerps toward the orbit center so the selected object becomes the
+   * visual center of rotation — same spherical orbit, different pivot.
    */
   orbit(deltaX: number, deltaY: number): void {
     this.state.camera.up = { x: 0, y: 1, z: 0 };
@@ -68,11 +68,12 @@ export class CameraControls {
     const dy = -deltaY * 0.01;
 
     if (this.orbitCenter !== null) {
-      // BIM orbit: make the selected object the look-at target,
+      // BIM orbit: smoothly move target toward the selected object,
       // then orbit position around it using the standard method.
-      this.state.camera.target.x = this.orbitCenter.x;
-      this.state.camera.target.y = this.orbitCenter.y;
-      this.state.camera.target.z = this.orbitCenter.z;
+      const t = 0.15; // converges in ~10-15 frames
+      this.state.camera.target.x += (this.orbitCenter.x - this.state.camera.target.x) * t;
+      this.state.camera.target.y += (this.orbitCenter.y - this.state.camera.target.y) * t;
+      this.state.camera.target.z += (this.orbitCenter.z - this.state.camera.target.z) * t;
     }
 
     const pivot = this.state.camera.target;
