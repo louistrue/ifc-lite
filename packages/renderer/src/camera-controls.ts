@@ -57,11 +57,9 @@ export class CameraControls {
   /**
    * Orbit the camera around a pivot point (Y-up turntable style).
    *
-   * Two modes:
-   * 1. No orbitCenter: standard orbit — position rotates around target on a sphere.
-   * 2. With orbitCenter: both position AND target rotate around the orbit center.
-   *    This preserves the camera's viewing direction while pivoting around
-   *    the selected object. No camera jump on selection.
+   * When orbitCenter is set (selected object), the target snaps to the
+   * orbit center so the selected object becomes the visual center of
+   * rotation — same spherical orbit, just a different pivot point.
    */
   orbit(deltaX: number, deltaY: number): void {
     this.state.camera.up = { x: 0, y: 1, z: 0 };
@@ -69,16 +67,16 @@ export class CameraControls {
     const dx = -deltaX * 0.01;
     const dy = -deltaY * 0.01;
 
-    const pivot = this.orbitCenter ?? this.state.camera.target;
-
-    if (this.orbitCenter === null) {
-      // Standard orbit: only position moves, target stays fixed
-      this.orbitPositionAroundPivot(pivot, dx, dy);
-    } else {
-      // BIM orbit: rotate both position and target around the orbit center.
-      // This keeps the viewing direction stable — no camera jump.
-      this.rotateAroundPivot(pivot, dx, dy);
+    if (this.orbitCenter !== null) {
+      // BIM orbit: make the selected object the look-at target,
+      // then orbit position around it using the standard method.
+      this.state.camera.target.x = this.orbitCenter.x;
+      this.state.camera.target.y = this.orbitCenter.y;
+      this.state.camera.target.z = this.orbitCenter.z;
     }
+
+    const pivot = this.state.camera.target;
+    this.orbitPositionAroundPivot(pivot, dx, dy);
 
     this.updateMatrices();
   }
@@ -117,76 +115,6 @@ export class CameraControls {
     this.state.camera.position.x = pivot.x + distance * Math.sin(phiClamped) * Math.sin(theta);
     this.state.camera.position.y = pivot.y + distance * Math.cos(phiClamped);
     this.state.camera.position.z = pivot.z + distance * Math.sin(phiClamped) * Math.cos(theta);
-  }
-
-  /**
-   * BIM orbit: rotate both position and target around a pivot.
-   *
-   * Reuses orbitPositionAroundPivot (the proven standard orbit) for
-   * position, then extracts the actual 3D rotation that occurred
-   * (axis = oldDir × newDir, angle from their dot/cross products)
-   * and applies it to target via Rodrigues' formula.
-   *
-   * This guarantees position and target undergo the exact same rotation,
-   * so the viewing direction is preserved as a rigid body. No separate
-   * pole/axis logic — it inherits the standard orbit's phi clamping.
-   */
-  private rotateAroundPivot(pivot: Vec3, dx: number, dy: number): void {
-    // Old position direction (normalized)
-    const ox = this.state.camera.position.x - pivot.x;
-    const oy = this.state.camera.position.y - pivot.y;
-    const oz = this.state.camera.position.z - pivot.z;
-    const oldDist = Math.sqrt(ox * ox + oy * oy + oz * oz);
-    if (oldDist < 1e-6) return;
-    const odx = ox / oldDist, ody = oy / oldDist, odz = oz / oldDist;
-
-    // Orbit position (standard spherical — proven, handles poles)
-    this.orbitPositionAroundPivot(pivot, dx, dy);
-
-    // New position direction (normalized)
-    const nx = this.state.camera.position.x - pivot.x;
-    const ny = this.state.camera.position.y - pivot.y;
-    const nz = this.state.camera.position.z - pivot.z;
-    const newDist = Math.sqrt(nx * nx + ny * ny + nz * nz);
-    if (newDist < 1e-6) return;
-    const ndx = nx / newDist, ndy = ny / newDist, ndz = nz / newDist;
-
-    // Rotation axis = oldDir × newDir
-    const cx = ody * ndz - odz * ndy;
-    const cy = odz * ndx - odx * ndz;
-    const cz = odx * ndy - ody * ndx;
-    const sinA = Math.sqrt(cx * cx + cy * cy + cz * cz);
-    if (sinA < 1e-10) return; // No measurable rotation
-
-    const cosA = odx * ndx + ody * ndy + odz * ndz;
-    const angle = Math.atan2(sinA, cosA);
-
-    // Apply the identical rotation to target
-    this.rotatePointAroundAxis(
-      this.state.camera.target, pivot,
-      { x: cx / sinA, y: cy / sinA, z: cz / sinA },
-      angle,
-    );
-  }
-
-  /**
-   * Rotate a point around an arbitrary axis through a pivot by angle theta.
-   * Uses Rodrigues' rotation formula:
-   *   v' = v cos(θ) + (k × v) sin(θ) + k(k·v)(1 − cos(θ))
-   */
-  private rotatePointAroundAxis(point: Vec3, pivot: Vec3, axis: Vec3, angle: number): void {
-    const vx = point.x - pivot.x;
-    const vy = point.y - pivot.y;
-    const vz = point.z - pivot.z;
-    const cosA = Math.cos(angle);
-    const sinA = Math.sin(angle);
-    const crossX = axis.y * vz - axis.z * vy;
-    const crossY = axis.z * vx - axis.x * vz;
-    const crossZ = axis.x * vy - axis.y * vx;
-    const dot = axis.x * vx + axis.y * vy + axis.z * vz;
-    point.x = pivot.x + vx * cosA + crossX * sinA + axis.x * dot * (1 - cosA);
-    point.y = pivot.y + vy * cosA + crossY * sinA + axis.y * dot * (1 - cosA);
-    point.z = pivot.z + vz * cosA + crossZ * sinA + axis.z * dot * (1 - cosA);
   }
 
   /**
