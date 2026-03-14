@@ -136,9 +136,7 @@ export function Viewport({ geometry, geometryVersion, coordinateInfo, computedIs
     if (!renderer || !isInitialized) return;
     if (selectedEntityId) {
       const center = getEntityCenter(geometry, selectedEntityId);
-      if (center) {
-        renderer.getCamera().setOrbitCenter(center);
-      }
+      renderer.getCamera().setOrbitCenter(center ?? null);
     } else {
       renderer.getCamera().setOrbitCenter(null);
     }
