@@ -11,6 +11,7 @@ import { useEffect, type MutableRefObject, type RefObject } from 'react';
 import type { Renderer, PickResult } from '@ifc-lite/renderer';
 import type { MeshData } from '@ifc-lite/geometry';
 import type { SectionPlane } from '@/store';
+import { getEntityCenter } from '../../utils/viewportUtils.js';
 
 export interface TouchState {
   touches: Touch[];
@@ -100,6 +101,13 @@ export function useTouchControls(params: UseTouchControlsParams): void {
         });
         if (hit?.intersection) {
           camera.setOrbitCenter(hit.intersection.point);
+        } else if (selectedEntityIdRef.current) {
+          const center = getEntityCenter(geometryRef.current, selectedEntityIdRef.current);
+          if (center) {
+            camera.setOrbitCenter(center);
+          } else {
+            camera.setOrbitCenter(null);
+          }
         } else {
           const ray = camera.unprojectToRay(tx, ty, canvas.width, canvas.height);
           const target = camera.getTarget();

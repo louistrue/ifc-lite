@@ -341,10 +341,17 @@ export function useMouseControls(params: UseMouseControlsParams): void {
         });
         if (hit?.intersection) {
           camera.setOrbitCenter(hit.intersection.point);
+        } else if (selectedEntityIdRef.current) {
+          // No geometry under cursor but object selected — use its center
+          const center = getEntityCenter(geometryRef.current, selectedEntityIdRef.current);
+          if (center) {
+            camera.setOrbitCenter(center);
+          } else {
+            camera.setOrbitCenter(null);
+          }
         } else {
-          // No geometry hit — project camera target onto the cursor ray.
-          // This places the pivot at the model's depth but under the cursor,
-          // so orbit feels identical whether you hit geometry or empty space.
+          // No geometry, no selection — project camera target onto the cursor ray.
+          // Places pivot at the model's depth but under the cursor.
           const ray = camera.unprojectToRay(cx, cy, canvas.width, canvas.height);
           const target = camera.getTarget();
           const toTarget = {
