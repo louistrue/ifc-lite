@@ -314,12 +314,35 @@ export class CameraControls {
       this.state.camera.position.y = this.state.camera.target.y + dir.y;
       this.state.camera.position.z = this.state.camera.target.z + dir.z;
     } else {
-      // Perspective: scale distance
-      const newDistance = Math.max(0.1, distance * zoomFactor);
-      const scale = newDistance / distance;
-      this.state.camera.position.x = this.state.camera.target.x + dir.x * scale;
-      this.state.camera.position.y = this.state.camera.target.y + dir.y * scale;
-      this.state.camera.position.z = this.state.camera.target.z + dir.z * scale;
+      // Perspective: dolly-through zoom — no minimum distance restriction.
+      // When zooming in very close, push both camera and target forward along the
+      // view direction so the user can seamlessly pass through any surface/plane.
+      const newDistance = distance * zoomFactor;
+      const minDist = 0.001;
+
+      if (newDistance < minDist) {
+        // Dolly-through: move target forward along view direction, keep a small working distance
+        const forward = { x: -dir.x / distance, y: -dir.y / distance, z: -dir.z / distance };
+        const pushAmount = minDist - newDistance;
+        this.state.camera.target.x += forward.x * pushAmount;
+        this.state.camera.target.y += forward.y * pushAmount;
+        this.state.camera.target.z += forward.z * pushAmount;
+        // Also move orbit center if set
+        if (this.orbitCenter) {
+          this.orbitCenter.x += forward.x * pushAmount;
+          this.orbitCenter.y += forward.y * pushAmount;
+          this.orbitCenter.z += forward.z * pushAmount;
+        }
+        // Place camera at minDist behind target
+        this.state.camera.position.x = this.state.camera.target.x - forward.x * minDist;
+        this.state.camera.position.y = this.state.camera.target.y - forward.y * minDist;
+        this.state.camera.position.z = this.state.camera.target.z - forward.z * minDist;
+      } else {
+        const scale = newDistance / distance;
+        this.state.camera.position.x = this.state.camera.target.x + dir.x * scale;
+        this.state.camera.position.y = this.state.camera.target.y + dir.y * scale;
+        this.state.camera.position.z = this.state.camera.target.z + dir.z * scale;
+      }
     }
 
     this.updateMatrices();
