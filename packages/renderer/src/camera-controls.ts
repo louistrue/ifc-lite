@@ -57,9 +57,9 @@ export class CameraControls {
   /**
    * Orbit the camera around a pivot point (Y-up turntable style).
    *
-   * When orbitCenter is set (selected object), the target lerps
-   * toward the orbit center so the selected object becomes the
-   * visual center of rotation — same spherical orbit, different pivot.
+   * When orbitCenter is set (selected object), both position AND target
+   * rotate around the orbit center. The camera never moves on selection
+   * alone — only when the user actually drags to rotate.
    */
   orbit(deltaX: number, deltaY: number): void {
     this.state.camera.up = { x: 0, y: 1, z: 0 };
@@ -68,33 +68,64 @@ export class CameraControls {
     const dy = -deltaY * 0.01;
 
     if (this.orbitCenter !== null) {
-      const tgt = this.state.camera.target;
-      const ex = this.orbitCenter.x - tgt.x;
-      const ey = this.orbitCenter.y - tgt.y;
-      const ez = this.orbitCenter.z - tgt.z;
-      const dist2 = ex * ex + ey * ey + ez * ez;
-      if (dist2 < 1e-8) {
-        // Close enough — snap to avoid endless micro-drift
-        tgt.x = this.orbitCenter.x;
-        tgt.y = this.orbitCenter.y;
-        tgt.z = this.orbitCenter.z;
-      } else {
-        const t = 0.3; // converges in ~5-7 frames
-        tgt.x += ex * t;
-        tgt.y += ey * t;
-        tgt.z += ez * t;
-      }
+      // Rotate both position and target around the external pivot
+      this.orbitAroundExternalPivot(this.orbitCenter, dx, dy);
+    } else {
+      // Standard: rotate position around target
+      this.orbitPositionAroundPivot(this.state.camera.target, dx, dy);
     }
-
-    const pivot = this.state.camera.target;
-    this.orbitPositionAroundPivot(pivot, dx, dy);
 
     this.updateMatrices();
   }
 
   /**
+   * Orbit both camera.position and camera.target around an external pivot.
+   * Preserves the camera-to-target vector so selection never shifts the view.
+   */
+  private orbitAroundExternalPivot(pivot: Vec3, dx: number, dy: number): void {
+    // Compute spherical coords of camera position relative to pivot
+    const dir = {
+      x: this.state.camera.position.x - pivot.x,
+      y: this.state.camera.position.y - pivot.y,
+      z: this.state.camera.position.z - pivot.z,
+    };
+    const distance = Math.sqrt(dir.x * dir.x + dir.y * dir.y + dir.z * dir.z);
+    if (distance < 1e-6) return;
+
+    let phi = Math.acos(Math.max(-1, Math.min(1, dir.y / distance)));
+    const sinPhi = Math.sin(phi);
+    let theta: number;
+    if (sinPhi > 0.05) {
+      theta = Math.atan2(dir.x, dir.z);
+    } else {
+      theta = 0;
+      phi = phi < Math.PI / 2 ? 0.15 : Math.PI - 0.15;
+    }
+
+    const newTheta = theta + dx;
+    const newPhi = Math.max(0.15, Math.min(Math.PI - 0.15, phi + dy));
+
+    // New position on the sphere around pivot
+    const newPosX = pivot.x + distance * Math.sin(newPhi) * Math.sin(newTheta);
+    const newPosY = pivot.y + distance * Math.cos(newPhi);
+    const newPosZ = pivot.z + distance * Math.sin(newPhi) * Math.cos(newTheta);
+
+    // Displacement — apply identically to both position and target
+    const moveX = newPosX - this.state.camera.position.x;
+    const moveY = newPosY - this.state.camera.position.y;
+    const moveZ = newPosZ - this.state.camera.position.z;
+
+    this.state.camera.position.x = newPosX;
+    this.state.camera.position.y = newPosY;
+    this.state.camera.position.z = newPosZ;
+    this.state.camera.target.x += moveX;
+    this.state.camera.target.y += moveY;
+    this.state.camera.target.z += moveZ;
+  }
+
+  /**
    * Standard spherical orbit: rotate camera.position around pivot (= target).
-   * Only position changes. Used when no explicit orbit center is set.
+   * Only position changes.
    */
   private orbitPositionAroundPivot(pivot: Vec3, dx: number, dy: number): void {
     const dir = {
