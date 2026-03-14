@@ -210,8 +210,9 @@ export class CameraAnimator {
     };
 
     // Calculate orthoSize for orthographic mode so zoom level resets properly
+    const aspect = this.state.camera.aspect || 1;
     const endOrthoSize = this.state.projectionMode === 'orthographic'
-      ? Math.max(maxSize / 2, maxSize / 2 / this.state.camera.aspect) * 1.5
+      ? Math.max(0.01, maxSize / 2, maxSize / 2 / aspect) * 1.5
       : undefined;
 
     return this.animateTo(endPos, endTarget, duration, endOrthoSize);
@@ -313,8 +314,9 @@ export class CameraAnimator {
     };
 
     // Calculate orthoSize for orthographic mode so zoom level resets properly
+    const aspect = this.state.camera.aspect || 1;
     const endOrthoSize = this.state.projectionMode === 'orthographic'
-      ? Math.max(maxSize / 2, maxSize / 2 / this.state.camera.aspect) * 1.2
+      ? Math.max(0.01, maxSize / 2, maxSize / 2 / aspect) * 1.2
       : undefined;
 
     return this.animateTo(endPos, center, duration, endOrthoSize);
@@ -372,8 +374,9 @@ export class CameraAnimator {
     };
 
     // Calculate orthoSize for orthographic mode so zoom level resets properly
+    const aspect = this.state.camera.aspect || 1;
     const endOrthoSize = this.state.projectionMode === 'orthographic'
-      ? Math.max(maxSize / 2, maxSize / 2 / this.state.camera.aspect) * 1.5
+      ? Math.max(0.01, maxSize / 2, maxSize / 2 / aspect) * 1.5
       : undefined;
 
     return this.animateTo(endPos, center, duration, endOrthoSize);
@@ -430,6 +433,8 @@ export class CameraAnimator {
     this.animationEndPos = endPos;
     this.animationEndTarget = endTarget;
     this.animationEndUp = endUp;
+    this.animationStartOrthoSize = null;
+    this.animationEndOrthoSize = null;
     this.animationDuration = duration;
     this.animationStartTime = Date.now();
     this.animationEasing = this.easeOutCubic;
