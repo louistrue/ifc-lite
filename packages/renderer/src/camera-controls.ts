@@ -31,6 +31,8 @@ export interface CameraInternalState {
   projectionMode: ProjectionMode;
   /** Orthographic half-height in world units (controls zoom level in ortho mode) */
   orthoSize: number;
+  /** Scene bounding box for tight orthographic near/far computation */
+  sceneBounds: { min: { x: number; y: number; z: number }; max: { x: number; y: number; z: number } } | null;
 }
 
 /**
@@ -298,14 +300,14 @@ export class CameraControls {
     }
 
     if (this.state.projectionMode === 'orthographic') {
-      // Orthographic: scale view volume instead of moving camera
+      // Orthographic: only scale view volume — camera distance is irrelevant for ortho rendering.
+      // Keep camera at current distance from target to avoid numerical instability
+      // (lookAt degenerates when camera is very close to target) and frustum issues.
       this.state.orthoSize = Math.max(0.01, this.state.orthoSize * zoomFactor);
-      // Still move camera position to keep orbit distance consistent for when switching back
-      const newDistance = Math.max(0.1, distance * zoomFactor);
-      const scale = newDistance / distance;
-      this.state.camera.position.x = this.state.camera.target.x + dir.x * scale;
-      this.state.camera.position.y = this.state.camera.target.y + dir.y * scale;
-      this.state.camera.position.z = this.state.camera.target.z + dir.z * scale;
+      // Reposition camera to maintain same distance/direction from (possibly panned) target
+      this.state.camera.position.x = this.state.camera.target.x + dir.x;
+      this.state.camera.position.y = this.state.camera.target.y + dir.y;
+      this.state.camera.position.z = this.state.camera.target.z + dir.z;
     } else {
       // Perspective: scale distance
       const newDistance = Math.max(0.1, distance * zoomFactor);

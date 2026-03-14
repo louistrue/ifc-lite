@@ -185,6 +185,8 @@ export class Renderer {
             throw new Error('Renderer not initialized. Call init() first.');
         }
         this.geometryManager.loadGeometry(geometry, this.pipeline);
+        // Update camera scene bounds for tight orthographic near/far planes
+        this.camera.setSceneBounds(this.geometryManager.getModelBounds());
     }
 
     /**
@@ -198,6 +200,8 @@ export class Renderer {
             throw new Error('Renderer not initialized. Call init() first.');
         }
         this.geometryManager.addMeshes(meshes, this.pipeline, isStreaming);
+        // Update camera scene bounds for tight orthographic near/far planes
+        this.camera.setSceneBounds(this.geometryManager.getModelBounds());
     }
 
     /**
@@ -453,8 +457,9 @@ export class Renderer {
                     boundsMax.x = boundsMax.y = boundsMax.z = 100;
                 }
 
-                // Store bounds for section plane visual
+                // Store bounds for section plane visual and camera near/far
                 this.geometryManager.setModelBounds({ min: boundsMin, max: boundsMax });
+                this.camera.setSceneBounds({ min: boundsMin, max: boundsMax });
 
                 // Only calculate clipping data if section is enabled
                 if (options.sectionPlane.enabled) {

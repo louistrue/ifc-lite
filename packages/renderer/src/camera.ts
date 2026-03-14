@@ -39,6 +39,7 @@ export class Camera {
       viewProjMatrix: MathUtils.identity(),
       projectionMode: 'perspective',
       orthoSize: 50, // Default half-height in world units
+      sceneBounds: null,
     };
 
     const updateMatrices = () => this.updateMatrices();
@@ -392,15 +393,20 @@ export class Camera {
     this.updateMatrices();
   }
 
+  /**
+   * Set scene bounds for tight orthographic near/far plane computation.
+   * Call this when geometry is loaded or changed.
+   */
+  setSceneBounds(bounds: { min: { x: number; y: number; z: number }; max: { x: number; y: number; z: number } } | null): void {
+    this.state.sceneBounds = bounds;
+    this.updateMatrices();
+  }
+
   private updateMatrices(): void {
-    // Dynamically adapt near/far planes based on camera-to-target distance.
-    // This prevents near-plane clipping when zooming in close to geometry.
     const dx = this.state.camera.position.x - this.state.camera.target.x;
     const dy = this.state.camera.position.y - this.state.camera.target.y;
     const dz = this.state.camera.position.z - this.state.camera.target.z;
     const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
-    this.state.camera.near = Math.max(0.01, distance * 0.001);
-    this.state.camera.far = Math.max(distance * 10, 1000);
 
     this.state.viewMatrix = MathUtils.lookAt(
       this.state.camera.position,
@@ -409,6 +415,11 @@ export class Camera {
     );
 
     if (this.state.projectionMode === 'orthographic') {
+      // Orthographic: project scene bounding sphere onto view direction for tight near/far.
+      // Tight range maximizes depth precision (less z-fighting) and prevents clipping.
+      const nf = this.computeOrthoNearFar(distance);
+      this.state.camera.near = nf.near;
+      this.state.camera.far = nf.far;
       const h = this.state.orthoSize;
       const w = h * this.state.camera.aspect;
       this.state.projMatrix = MathUtils.orthographicReverseZ(
@@ -417,7 +428,9 @@ export class Camera {
         this.state.camera.far
       );
     } else {
-      // Use reverse-Z projection for better depth precision
+      // Perspective: adapt near/far based on camera-to-target distance
+      this.state.camera.near = Math.max(0.01, distance * 0.001);
+      this.state.camera.far = Math.max(distance * 10, 1000);
       this.state.projMatrix = MathUtils.perspectiveReverseZ(
         this.state.camera.fov,
         this.state.camera.aspect,
@@ -427,5 +440,52 @@ export class Camera {
     }
 
     this.state.viewProjMatrix = MathUtils.multiply(this.state.projMatrix, this.state.viewMatrix);
+  }
+
+  /**
+   * Compute tight near/far for orthographic mode by projecting the scene
+   * bounding sphere onto the camera view direction.
+   *
+   * This gives optimal depth precision (minimizing z-fighting) while ensuring
+   * no geometry is clipped regardless of camera position or view angle.
+   */
+  private computeOrthoNearFar(distance: number): { near: number; far: number } {
+    const bounds = this.state.sceneBounds;
+    if (!bounds) {
+      // Fallback: generous range centered on camera
+      return { near: -Math.max(distance, 500), far: Math.max(distance, 500) };
+    }
+
+    // Scene bounding sphere center and radius
+    const cx = (bounds.min.x + bounds.max.x) / 2;
+    const cy = (bounds.min.y + bounds.max.y) / 2;
+    const cz = (bounds.min.z + bounds.max.z) / 2;
+    const ex = bounds.max.x - bounds.min.x;
+    const ey = bounds.max.y - bounds.min.y;
+    const ez = bounds.max.z - bounds.min.z;
+    const radius = Math.sqrt(ex * ex + ey * ey + ez * ez) / 2;
+
+    // View direction (camera looks from position toward target)
+    const pos = this.state.camera.position;
+    let vx = this.state.camera.target.x - pos.x;
+    let vy = this.state.camera.target.y - pos.y;
+    let vz = this.state.camera.target.z - pos.z;
+    const vLen = Math.sqrt(vx * vx + vy * vy + vz * vz);
+    if (vLen > 1e-8) { vx /= vLen; vy /= vLen; vz /= vLen; }
+
+    // Signed distance from camera to scene center along view direction
+    const toCenter = (cx - pos.x) * vx + (cy - pos.y) * vy + (cz - pos.z) * vz;
+
+    // Near/far as distances from camera along view direction.
+    // The sphere spans [toCenter - radius, toCenter + radius] along view dir.
+    // Add 10% padding for safety.
+    const pad = radius * 0.1 + 1;
+    let near = toCenter - radius - pad;
+    let far = toCenter + radius + pad;
+
+    // Ensure minimum range for depth precision
+    if (far - near < 1) { near -= 0.5; far += 0.5; }
+
+    return { near, far };
   }
 }
