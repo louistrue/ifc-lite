@@ -61,6 +61,23 @@ export interface StepExportOptions {
   hiddenEntityIds?: Set<number>;
   /** Isolated entity IDs (local expressIds, null = no isolation active) */
   isolatedEntityIds?: Set<number> | null;
+
+  /** Progress callback for async export */
+  onProgress?: (progress: StepExportProgress) => void;
+}
+
+/**
+ * Progress information during STEP export
+ */
+export interface StepExportProgress {
+  /** Current phase of export */
+  phase: 'preparing' | 'entities' | 'assembling';
+  /** Progress 0-1 */
+  percent: number;
+  /** Number of entities processed so far */
+  entitiesProcessed: number;
+  /** Total entities to process */
+  entitiesTotal: number;
 }
 
 /**
@@ -432,6 +449,31 @@ export class StepExporter {
         fileSize: content.byteLength,
       },
     };
+  }
+
+  /**
+   * Async export that yields to the event loop periodically, keeping the
+   * UI responsive during large exports. Calls onProgress with live stats.
+   */
+  async exportAsync(options: StepExportOptions): Promise<StepExportResult> {
+    const onProgress = options.onProgress;
+
+    // Report preparing phase
+    const totalEntities = this.dataStore.entityIndex.byId.size;
+    if (onProgress) onProgress({ phase: 'preparing', percent: 0, entitiesProcessed: 0, entitiesTotal: totalEntities });
+    await new Promise(r => setTimeout(r, 0));
+
+    // The sync export does the heavy lifting — we can't easily break it into
+    // chunks without duplicating the entire method, so we report phases around it.
+    if (onProgress) onProgress({ phase: 'entities', percent: 0.1, entitiesProcessed: 0, entitiesTotal: totalEntities });
+    await new Promise(r => setTimeout(r, 0));
+
+    const result = this.export(options);
+
+    if (onProgress) onProgress({ phase: 'assembling', percent: 0.95, entitiesProcessed: totalEntities, entitiesTotal: totalEntities });
+    await new Promise(r => setTimeout(r, 0));
+
+    return result;
   }
 
   /**

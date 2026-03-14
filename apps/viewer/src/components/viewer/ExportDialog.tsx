@@ -14,7 +14,7 @@
  * - IFC5 → .ifcx
  */
 
-import { useState, useCallback, useMemo, useEffect } from 'react';
+import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import {
   Download,
   AlertCircle,
@@ -48,10 +48,11 @@ import {
   AlertDescription,
   AlertTitle,
 } from '@/components/ui/alert';
+import { Progress } from '@/components/ui/progress';
 import { useViewerStore } from '@/store';
 import { configureMutationView } from '@/utils/configureMutationView';
 import { toast } from '@/components/ui/toast';
-import { StepExporter, MergedExporter, Ifc5Exporter, IFC5_KNOWN_PROP_NAMES, type MergeModelInput } from '@ifc-lite/export';
+import { StepExporter, MergedExporter, Ifc5Exporter, IFC5_KNOWN_PROP_NAMES, type MergeModelInput, type ExportProgress, type StepExportProgress } from '@ifc-lite/export';
 import { MutablePropertyView } from '@ifc-lite/mutations';
 import type { IfcDataStore } from '@ifc-lite/parser';
 
@@ -87,6 +88,27 @@ export function ExportDialog({ trigger }: ExportDialogProps) {
   const [onlyKnownProperties, setOnlyKnownProperties] = useState(true);
   const [isExporting, setIsExporting] = useState(false);
   const [exportResult, setExportResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [exportProgress, setExportProgress] = useState<{
+    phase: string;
+    percent: number;
+    entitiesProcessed: number;
+    entitiesTotal: number;
+    currentModel?: string;
+  } | null>(null);
+  const scrollAreaRef = useRef<HTMLDivElement>(null);
+  const prevProgressRef = useRef<typeof exportProgress>(null);
+
+  const scrollToBottom = useCallback(() => {
+    if (scrollAreaRef.current) {
+      scrollAreaRef.current.scrollTop = scrollAreaRef.current.scrollHeight;
+    }
+  }, []);
+
+  // Auto-scroll when progress first appears
+  useEffect(() => {
+    if (exportProgress && !prevProgressRef.current) scrollToBottom();
+    prevProgressRef.current = exportProgress;
+  }, [exportProgress, scrollToBottom]);
 
   // Derived: is this an IFC5/IFCX export?
   const isIfc5 = schema === 'IFC5';
@@ -286,6 +308,7 @@ export function ExportDialog({ trigger }: ExportDialogProps) {
 
     setIsExporting(true);
     setExportResult(null);
+    setExportProgress(null);
 
     try {
       // Handle merged export of all models (STEP only, not IFC5)
@@ -308,7 +331,7 @@ export function ExportDialog({ trigger }: ExportDialogProps) {
           }
         }
 
-        const result = mergedExporter.export({
+        const result = await mergedExporter.exportAsync({
           schema,
           projectStrategy: 'keep-first',
           visibleOnly,
@@ -316,7 +339,18 @@ export function ExportDialog({ trigger }: ExportDialogProps) {
           isolatedEntityIdsByModel: isolatedByModel,
           description: `Merged export of ${mergeInputs.length} models from ifc-lite`,
           application: 'ifc-lite',
+          onProgress: (p: ExportProgress) => setExportProgress({
+            phase: p.phase === 'preparing' ? 'Preparing models...'
+              : p.phase === 'entities' ? `Processing entities${p.currentModel ? ` (${p.currentModel})` : ''}...`
+              : 'Assembling file...',
+            percent: p.percent,
+            entitiesProcessed: p.entitiesProcessed,
+            entitiesTotal: p.entitiesTotal,
+            currentModel: p.currentModel,
+          }),
         });
+
+        setExportProgress(null);
 
         const blob = new Blob([result.content], { type: 'text/plain' });
         const url = URL.createObjectURL(blob);
@@ -328,7 +362,7 @@ export function ExportDialog({ trigger }: ExportDialogProps) {
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
 
-        const msg = `Merged ${result.stats.modelCount} models, ${result.stats.totalEntityCount} entities`;
+        const msg = `Merged ${result.stats.modelCount} models, ${result.stats.totalEntityCount.toLocaleString()} entities`;
         setExportResult({ success: true, message: msg });
         toast.success(msg);
         return;
@@ -431,7 +465,7 @@ export function ExportDialog({ trigger }: ExportDialogProps) {
         const localHidden = visibleOnly ? getLocalHiddenIds(selectedModelId) : undefined;
         const localIsolated = visibleOnly ? getLocalIsolatedIds(selectedModelId) : undefined;
 
-        const result = exporter.export({
+        const result = await exporter.exportAsync({
           schema,
           includeGeometry,
           applyMutations,
@@ -440,7 +474,17 @@ export function ExportDialog({ trigger }: ExportDialogProps) {
           isolatedEntityIds: localIsolated,
           description: `Exported from ifc-lite with ${modifiedCount} modifications`,
           application: 'ifc-lite',
+          onProgress: (p: StepExportProgress) => setExportProgress({
+            phase: p.phase === 'preparing' ? 'Preparing export...'
+              : p.phase === 'entities' ? 'Processing entities...'
+              : 'Assembling file...',
+            percent: p.percent,
+            entitiesProcessed: p.entitiesProcessed,
+            entitiesTotal: p.entitiesTotal,
+          }),
         });
+
+        setExportProgress(null);
 
         const blob = new Blob([result.content], { type: 'text/plain' });
         const url = URL.createObjectURL(blob);
@@ -488,7 +532,7 @@ export function ExportDialog({ trigger }: ExportDialogProps) {
           </DialogDescription>
         </DialogHeader>
 
-        <div className="grid gap-4 py-4">
+        <div ref={scrollAreaRef} className="grid gap-4 py-4 max-h-[60vh] overflow-y-auto">
           {/* Scope selector (only for STEP schemas with multiple models) */}
           {!isIfc5 && !changesOnly && modelList.length > 1 && (
             <div className="flex items-center gap-4">
@@ -630,6 +674,22 @@ export function ExportDialog({ trigger }: ExportDialogProps) {
                 {modifiedCount} entities have been modified
               </AlertDescription>
             </Alert>
+          )}
+
+          {/* Export Progress */}
+          {isExporting && exportProgress && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-sm text-muted-foreground">
+                <span className="flex items-center gap-2">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  {exportProgress.phase}
+                </span>
+                <span>
+                  {exportProgress.entitiesProcessed.toLocaleString()} / {exportProgress.entitiesTotal.toLocaleString()} entities
+                </span>
+              </div>
+              <Progress value={exportProgress.percent * 100} />
+            </div>
           )}
 
           {/* Export result */}

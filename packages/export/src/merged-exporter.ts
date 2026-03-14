@@ -77,6 +77,25 @@ export interface MergeExportOptions {
   hiddenEntityIdsByModel?: Map<string, Set<number>>;
   /** Isolated entity IDs per model (null = no isolation) */
   isolatedEntityIdsByModel?: Map<string, Set<number> | null>;
+
+  /** Progress callback for async export */
+  onProgress?: (progress: ExportProgress) => void;
+}
+
+/**
+ * Progress information during export
+ */
+export interface ExportProgress {
+  /** Current phase of export */
+  phase: 'preparing' | 'entities' | 'assembling';
+  /** Progress 0-1 */
+  percent: number;
+  /** Number of entities processed so far */
+  entitiesProcessed: number;
+  /** Total entities to process */
+  entitiesTotal: number;
+  /** Current model being processed (for merged export) */
+  currentModel?: string;
 }
 
 /**
@@ -120,6 +139,7 @@ export class MergedExporter {
   }
 
   export(options: MergeExportOptions): MergeExportResult {
+    const onProgress = options.onProgress;
     const schema = (options.schema || 'IFC4') as IfcSchemaVersion;
 
     // Generate header
@@ -262,7 +282,177 @@ export class MergedExporter {
     }
 
     // Assemble final file as Uint8Array chunks to avoid V8 string length limit
+    if (onProgress) onProgress({ phase: 'assembling', percent: 0.9, entitiesProcessed: allEntityLines.length, entitiesTotal: allEntityLines.length });
     const content = assembleStepBytes(header, allEntityLines);
+
+    return {
+      content,
+      stats: {
+        modelCount: this.models.length,
+        totalEntityCount: allEntityLines.length,
+        fileSize: content.byteLength,
+      },
+    };
+  }
+
+  /**
+   * Async export that yields to the event loop between entity chunks,
+   * reporting progress via the onProgress callback. This keeps the UI
+   * responsive during large merged exports.
+   */
+  async exportAsync(options: MergeExportOptions): Promise<MergeExportResult> {
+    const onProgress = options.onProgress;
+
+    const schema = (options.schema || 'IFC4') as IfcSchemaVersion;
+    const header = generateHeader({
+      schema,
+      description: options.description || `Merged export of ${this.models.length} models from ifc-lite`,
+      author: options.author || '',
+      organization: options.organization || '',
+      application: options.application || 'ifc-lite',
+      filename: options.filename || 'merged.ifc',
+    });
+
+    const allEntityLines: string[] = [];
+    const decoder = new TextDecoder();
+
+    // First pass: count total entities for progress
+    let totalEntities = 0;
+    for (const model of this.models) {
+      totalEntities += model.dataStore.entityIndex.byId.size;
+    }
+
+    let nextAvailableId = 1;
+    const modelOffsets = new Map<string, number>();
+
+    for (const model of this.models) {
+      modelOffsets.set(model.id, nextAvailableId - 1);
+      let maxId = 0;
+      for (const [id] of model.dataStore.entityIndex.byId) {
+        if (id > maxId) maxId = id;
+      }
+      nextAvailableId += maxId;
+    }
+
+    const firstModel = this.models[0];
+    const firstModelOffset = modelOffsets.get(firstModel.id)!;
+    const firstModelInfraMap = this.findInfrastructureEntities(firstModel.dataStore);
+    const firstProjectIds = this.findEntitiesByType(firstModel.dataStore, 'IFCPROJECT');
+    const spatialLookup = this.buildSpatialLookup(firstModel.dataStore, decoder);
+
+    let isFirstModel = true;
+    let entitiesProcessed = 0;
+    const YIELD_INTERVAL = 2000;
+
+    if (onProgress) onProgress({ phase: 'preparing', percent: 0, entitiesProcessed: 0, entitiesTotal: totalEntities });
+
+    for (const model of this.models) {
+      const offset = modelOffsets.get(model.id)!;
+      const source = model.dataStore.source;
+      if (!source || source.length === 0) continue;
+
+      if (onProgress) {
+        onProgress({
+          phase: 'entities',
+          percent: totalEntities > 0 ? (entitiesProcessed / totalEntities) * 0.85 : 0,
+          entitiesProcessed,
+          entitiesTotal: totalEntities,
+          currentModel: model.name,
+        });
+      }
+
+      let includedEntityIds: Set<number> | null = null;
+      if (options.visibleOnly) {
+        const hiddenIds = options.hiddenEntityIdsByModel?.get(model.id) ?? new Set<number>();
+        const isolatedIds = options.isolatedEntityIdsByModel?.get(model.id) ?? null;
+        const { roots, hiddenProductIds } = getVisibleEntityIds(model.dataStore, hiddenIds, isolatedIds);
+        includedEntityIds = collectReferencedEntityIds(
+          roots, source, model.dataStore.entityIndex.byId, hiddenProductIds,
+        );
+        collectStyleEntities(includedEntityIds, source, model.dataStore.entityIndex);
+      }
+
+      const sharedRemap = new Map<number, number>();
+      const skipEntityIds = new Set<number>();
+
+      if (!isFirstModel) {
+        const projectIds = this.findEntitiesByType(model.dataStore, 'IFCPROJECT');
+        if (firstProjectIds.length > 0) {
+          for (const pid of projectIds) {
+            sharedRemap.set(pid, firstProjectIds[0] + firstModelOffset);
+            skipEntityIds.add(pid);
+          }
+        }
+
+        const modelInfra = this.findInfrastructureEntities(model.dataStore);
+        for (const [type, firstIds] of firstModelInfraMap) {
+          const thisIds = modelInfra.get(type);
+          if (thisIds && firstIds.length > 0 && thisIds.length > 0) {
+            sharedRemap.set(thisIds[0], firstIds[0] + firstModelOffset);
+            skipEntityIds.add(thisIds[0]);
+          }
+        }
+
+        this.unifySpatialEntities(model.dataStore, decoder, spatialLookup, firstModelOffset, sharedRemap, skipEntityIds);
+        this.skipRedundantRelAggregates(model.dataStore, decoder, sharedRemap, skipEntityIds);
+      }
+
+      let entityCount = 0;
+      for (const [expressId, entityRef] of model.dataStore.entityIndex.byId) {
+        if (includedEntityIds !== null && !includedEntityIds.has(expressId)) continue;
+        if (skipEntityIds.has(expressId)) continue;
+
+        const entityText = decoder.decode(
+          source.subarray(entityRef.byteOffset, entityRef.byteOffset + entityRef.byteLength),
+        );
+
+        let finalText: string;
+        if (offset === 0 && sharedRemap.size === 0) {
+          finalText = entityText;
+        } else {
+          finalText = this.remapEntityText(entityText, offset, sharedRemap);
+        }
+
+        const sourceSchema = (model.dataStore.schemaVersion as IfcSchemaVersion) || 'IFC4';
+        if (needsConversion(sourceSchema, schema)) {
+          const converted = convertStepLine(finalText, sourceSchema, schema);
+          if (converted !== null) allEntityLines.push(converted);
+        } else {
+          allEntityLines.push(finalText);
+        }
+
+        entityCount++;
+        entitiesProcessed++;
+
+        // Yield to event loop every YIELD_INTERVAL entities
+        if (entityCount % YIELD_INTERVAL === 0) {
+          if (onProgress) {
+            onProgress({
+              phase: 'entities',
+              percent: totalEntities > 0 ? (entitiesProcessed / totalEntities) * 0.85 : 0,
+              entitiesProcessed,
+              entitiesTotal: totalEntities,
+              currentModel: model.name,
+            });
+          }
+          await new Promise(r => setTimeout(r, 0));
+        }
+      }
+
+      isFirstModel = false;
+    }
+
+    // Assembly phase
+    if (onProgress) {
+      onProgress({ phase: 'assembling', percent: 0.9, entitiesProcessed: totalEntities, entitiesTotal: totalEntities });
+    }
+    await new Promise(r => setTimeout(r, 0));
+
+    const content = assembleStepBytes(header, allEntityLines);
+
+    if (onProgress) {
+      onProgress({ phase: 'assembling', percent: 1, entitiesProcessed: totalEntities, entitiesTotal: totalEntities });
+    }
 
     return {
       content,
