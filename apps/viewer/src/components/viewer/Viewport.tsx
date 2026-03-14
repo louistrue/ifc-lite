@@ -398,7 +398,16 @@ export function Viewport({ geometry, geometryVersion, coordinateInfo, computedIs
   useEffect(() => { selectedEntityIdRef.current = selectedEntityId; }, [selectedEntityId]);
   useEffect(() => { selectedEntityIdsRef.current = selectedEntityIds; }, [selectedEntityIds]);
   useEffect(() => { selectedModelIndexRef.current = selectedModelIndex; }, [selectedModelIndex]);
-  useEffect(() => { activeToolRef.current = activeTool; }, [activeTool]);
+  useEffect(() => {
+    activeToolRef.current = activeTool;
+    // Sync first-person/walk mode with tool selection
+    const renderer = rendererRef.current;
+    if (renderer) {
+      const isWalk = activeTool === 'walk';
+      firstPersonModeRef.current = isWalk;
+      renderer.getCamera().enableFirstPersonMode(isWalk);
+    }
+  }, [activeTool]);
   useEffect(() => { pendingMeasurePointRef.current = pendingMeasurePoint; }, [pendingMeasurePoint]);
   useEffect(() => { activeMeasurementRef.current = activeMeasurement; }, [activeMeasurement]);
   useEffect(() => { snapEnabledRef.current = snapEnabled; }, [snapEnabled]);

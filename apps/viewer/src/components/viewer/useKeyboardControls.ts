@@ -4,7 +4,7 @@
 
 /**
  * Keyboard controls hook for the 3D viewport
- * Handles keyboard shortcuts, first-person mode, continuous movement
+ * Handles keyboard shortcuts, walk mode, continuous movement
  */
 
 import { useEffect, type MutableRefObject } from 'react';
@@ -36,6 +36,12 @@ export interface UseKeyboardControlsParams {
   updateCameraRotationRealtime: (rotation: { azimuth: number; elevation: number }) => void;
   calculateScale: () => void;
 }
+
+/** Keys that trigger continuous movement (arrow keys + WASD) */
+const MOVEMENT_KEYS = new Set([
+  'arrowup', 'arrowdown', 'arrowleft', 'arrowright',
+  'w', 's', 'a', 'd',
+]);
 
 export function useKeyboardControls(params: UseKeyboardControlsParams): void {
   const {
@@ -69,6 +75,21 @@ export function useKeyboardControls(params: UseKeyboardControlsParams): void {
     let moveLoopRunning = false;
     let moveFrameId: number | null = null;
 
+    const renderScene = () => {
+      renderer.render({
+        hiddenIds: hiddenEntitiesRef.current,
+        isolatedIds: isolatedEntitiesRef.current,
+        selectedId: selectedEntityIdRef.current,
+        selectedModelIndex: selectedModelIndexRef.current,
+        clearColor: clearColorRef.current,
+        sectionPlane: activeToolRef.current === 'section' ? {
+          ...sectionPlaneRef.current,
+          min: sectionRangeRef.current?.min,
+          max: sectionRangeRef.current?.max,
+        } : undefined,
+      });
+    };
+
     const handleKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
       if (
@@ -82,8 +103,7 @@ export function useKeyboardControls(params: UseKeyboardControlsParams): void {
       keyState[e.key.toLowerCase()] = true;
 
       // Start movement loop when a movement key is pressed
-      const isMovementKey = ['arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(e.key.toLowerCase());
-      if (isMovementKey && !moveLoopRunning) {
+      if (MOVEMENT_KEYS.has(e.key.toLowerCase()) && !moveLoopRunning) {
         moveLoopRunning = true;
         keyboardMove();
       }
@@ -92,18 +112,7 @@ export function useKeyboardControls(params: UseKeyboardControlsParams): void {
       const setViewAndRender = (view: 'top' | 'bottom' | 'front' | 'back' | 'left' | 'right') => {
         const rotation = coordinateInfoRef.current?.buildingRotation;
         camera.setPresetView(view, geometryBoundsRef.current, rotation);
-        renderer.render({
-          hiddenIds: hiddenEntitiesRef.current,
-          isolatedIds: isolatedEntitiesRef.current,
-          selectedId: selectedEntityIdRef.current,
-          selectedModelIndex: selectedModelIndexRef.current,
-          clearColor: clearColorRef.current,
-          sectionPlane: activeToolRef.current === 'section' ? {
-            ...sectionPlaneRef.current,
-            min: sectionRangeRef.current?.min,
-            max: sectionRangeRef.current?.max,
-          } : undefined,
-        });
+        renderScene();
         updateCameraRotationRealtime(camera.getRotation());
         calculateScale();
       };
@@ -119,13 +128,11 @@ export function useKeyboardControls(params: UseKeyboardControlsParams): void {
       if (e.key === 'f' || e.key === 'F') {
         const selectedId = selectedEntityIdRef.current;
         if (selectedId !== null) {
-          // Frame selection - zoom to fit selected element
           const bounds = getEntityBounds(geometryRef.current, selectedId);
           if (bounds) {
             camera.frameBounds(bounds.min, bounds.max, 300);
           }
         } else {
-          // No selection - fit all
           camera.zoomExtent(geometryBoundsRef.current.min, geometryBoundsRef.current.max, 300);
         }
         calculateScale();
@@ -141,20 +148,14 @@ export function useKeyboardControls(params: UseKeyboardControlsParams): void {
         camera.zoomExtent(geometryBoundsRef.current.min, geometryBoundsRef.current.max, 300);
         calculateScale();
       }
-
-      // Toggle first-person mode
-      if (e.key === 'c' || e.key === 'C') {
-        firstPersonModeRef.current = !firstPersonModeRef.current;
-        camera.enableFirstPersonMode(firstPersonModeRef.current);
-      }
     };
 
     const handleKeyUp = (e: KeyboardEvent) => {
       keyState[e.key.toLowerCase()] = false;
 
       // Stop movement loop when no movement keys are held
-      const anyMovementKey = keyState['arrowup'] || keyState['arrowdown'] || keyState['arrowleft'] || keyState['arrowright'];
-      if (!anyMovementKey && moveLoopRunning) {
+      const anyHeld = Array.from(MOVEMENT_KEYS).some(k => keyState[k]);
+      if (!anyHeld && moveLoopRunning) {
         moveLoopRunning = false;
         if (moveFrameId !== null) {
           cancelAnimationFrame(moveFrameId);
@@ -170,16 +171,19 @@ export function useKeyboardControls(params: UseKeyboardControlsParams): void {
       if (aborted || !moveLoopRunning) return;
 
       let moved = false;
-      const panSpeed = 5;
+      const isWalkMode = activeToolRef.current === 'walk';
 
-      if (firstPersonModeRef.current) {
-        // Arrow keys for first-person navigation (camera-relative)
-        if (keyState['arrowup']) { camera.moveFirstPerson(-1, 0, 0); moved = true; }
-        if (keyState['arrowdown']) { camera.moveFirstPerson(1, 0, 0); moved = true; }
-        if (keyState['arrowleft']) { camera.moveFirstPerson(0, 1, 0); moved = true; }
-        if (keyState['arrowright']) { camera.moveFirstPerson(0, -1, 0); moved = true; }
+      if (isWalkMode) {
+        // Walk mode: arrow keys + WASD move on horizontal plane
+        const fwd = (keyState['arrowup'] || keyState['w'] ? -1 : 0) + (keyState['arrowdown'] || keyState['s'] ? 1 : 0);
+        const strafe = (keyState['arrowleft'] || keyState['a'] ? 1 : 0) + (keyState['arrowright'] || keyState['d'] ? -1 : 0);
+        if (fwd !== 0 || strafe !== 0) {
+          camera.moveFirstPerson(fwd, strafe, 0);
+          moved = true;
+        }
       } else {
-        // Arrow keys for panning (camera-relative: arrow direction = camera movement)
+        // Normal mode: arrow keys pan the view
+        const panSpeed = 5;
         if (keyState['arrowup']) { camera.pan(0, -panSpeed, false); moved = true; }
         if (keyState['arrowdown']) { camera.pan(0, panSpeed, false); moved = true; }
         if (keyState['arrowleft']) { camera.pan(panSpeed, 0, false); moved = true; }
@@ -187,18 +191,7 @@ export function useKeyboardControls(params: UseKeyboardControlsParams): void {
       }
 
       if (moved) {
-        renderer.render({
-          hiddenIds: hiddenEntitiesRef.current,
-          isolatedIds: isolatedEntitiesRef.current,
-          selectedId: selectedEntityIdRef.current,
-          selectedModelIndex: selectedModelIndexRef.current,
-          clearColor: clearColorRef.current,
-          sectionPlane: activeToolRef.current === 'section' ? {
-            ...sectionPlaneRef.current,
-            min: sectionRangeRef.current?.min,
-            max: sectionRangeRef.current?.max,
-          } : undefined,
-        });
+        renderScene();
       }
       moveFrameId = requestAnimationFrame(keyboardMove);
     };

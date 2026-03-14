@@ -467,49 +467,44 @@ export class CameraAnimator {
   }
 
   /**
-   * Move in first-person mode (Y-up coordinate system)
+   * Walk on the horizontal XZ plane (Y-up coordinate system).
+   * Forward/backward moves in the camera's horizontal facing direction.
+   * Left/right strafes perpendicular. Y position stays fixed (walking on ground).
+   * Speed scales with scene size for natural feel across different models.
    */
-  moveFirstPerson(forward: number, right: number, up: number): void {
-    if (!this.isFirstPersonMode) return;
-
+  moveFirstPerson(forward: number, right: number, _up: number): void {
+    // Camera forward direction projected onto XZ plane
     const dir = {
       x: this.state.camera.target.x - this.state.camera.position.x,
-      y: this.state.camera.target.y - this.state.camera.position.y,
       z: this.state.camera.target.z - this.state.camera.position.z,
     };
-    const len = Math.sqrt(dir.x * dir.x + dir.y * dir.y + dir.z * dir.z);
-    if (len > 1e-10) {
-      dir.x /= len;
-      dir.y /= len;
-      dir.z /= len;
-    }
+    const horizLen = Math.sqrt(dir.x * dir.x + dir.z * dir.z);
+    if (horizLen < 1e-10) return;
 
-    // Right vector: cross product of direction and up (0,1,0)
-    const rightVec = {
-      x: -dir.z,
-      y: 0,
-      z: dir.x,
+    // Normalized horizontal forward and right vectors
+    const fwdX = dir.x / horizLen;
+    const fwdZ = dir.z / horizLen;
+    const rightX = -fwdZ;
+    const rightZ = fwdX;
+
+    // Speed proportional to scene size (use camera-target distance as proxy)
+    const camDir = {
+      x: this.state.camera.position.x - this.state.camera.target.x,
+      y: this.state.camera.position.y - this.state.camera.target.y,
+      z: this.state.camera.position.z - this.state.camera.target.z,
     };
-    const rightLen = Math.sqrt(rightVec.x * rightVec.x + rightVec.z * rightVec.z);
-    if (rightLen > 1e-10) {
-      rightVec.x /= rightLen;
-      rightVec.z /= rightLen;
-    }
+    const distance = Math.sqrt(camDir.x * camDir.x + camDir.y * camDir.y + camDir.z * camDir.z);
+    const speed = Math.max(0.05, distance * 0.01);
 
-    // Up vector: cross product of right and direction
-    const upVec = {
-      x: (rightVec.z * dir.y - rightVec.y * dir.z),
-      y: (rightVec.x * dir.z - rightVec.z * dir.x),
-      z: (rightVec.y * dir.x - rightVec.x * dir.y),
-    };
+    // Compute horizontal offset (no Y movement — walking on a plane)
+    const offsetX = (fwdX * forward + rightX * right) * speed;
+    const offsetZ = (fwdZ * forward + rightZ * right) * speed;
 
-    const speed = this.firstPersonSpeed;
-    this.state.camera.position.x += (dir.x * forward + rightVec.x * right + upVec.x * up) * speed;
-    this.state.camera.position.y += (dir.y * forward + rightVec.y * right + upVec.y * up) * speed;
-    this.state.camera.position.z += (dir.z * forward + rightVec.z * right + upVec.z * up) * speed;
-    this.state.camera.target.x += (dir.x * forward + rightVec.x * right + upVec.x * up) * speed;
-    this.state.camera.target.y += (dir.y * forward + rightVec.y * right + upVec.y * up) * speed;
-    this.state.camera.target.z += (dir.z * forward + rightVec.z * right + upVec.z * up) * speed;
+    // Move both position and target by the same offset (preserves view direction)
+    this.state.camera.position.x += offsetX;
+    this.state.camera.position.z += offsetZ;
+    this.state.camera.target.x += offsetX;
+    this.state.camera.target.z += offsetZ;
 
     this.updateMatrices();
   }
