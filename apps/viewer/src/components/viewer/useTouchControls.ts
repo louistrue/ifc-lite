@@ -89,7 +89,8 @@ export function useTouchControls(params: UseTouchControlsParams): void {
         };
         touchState.didMove = false;
 
-        // Set orbit pivot to the 3D point under the finger
+        // Set orbit pivot to the 3D point under the finger.
+        // On miss, place pivot at current distance along the finger ray.
         const rect = canvas.getBoundingClientRect();
         const tx = touchState.touches[0].clientX - rect.left;
         const ty = touchState.touches[0].clientY - rect.top;
@@ -97,7 +98,17 @@ export function useTouchControls(params: UseTouchControlsParams): void {
           hiddenIds: hiddenEntitiesRef.current,
           isolatedIds: isolatedEntitiesRef.current,
         });
-        camera.setOrbitCenter(hit?.intersection.point ?? null);
+        if (hit?.intersection) {
+          camera.setOrbitCenter(hit.intersection.point);
+        } else {
+          const ray = camera.unprojectToRay(tx, ty, canvas.width, canvas.height);
+          const d = camera.getDistance();
+          camera.setOrbitCenter({
+            x: ray.origin.x + ray.direction.x * d,
+            y: ray.origin.y + ray.direction.y * d,
+            z: ray.origin.z + ray.direction.z * d,
+          });
+        }
       } else if (touchState.touches.length === 1) {
         // Single touch after multi-touch - just update center for orbit
         touchState.lastCenter = {

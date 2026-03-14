@@ -329,14 +329,28 @@ export function useMouseControls(params: UseMouseControlsParams): void {
       );
 
       // Set orbit pivot to the 3D point under the cursor so rotation feels anchored
-      // to what the user is looking at. Falls back to camera.target if nothing is hit.
+      // to what the user is looking at. On miss, place pivot at current distance along
+      // the cursor ray so orbit always feels connected to where you're pointing.
       if (willOrbit) {
         const rect = canvas.getBoundingClientRect();
-        const hit = renderer.raycastScene(rect ? e.clientX - rect.left : e.clientX, rect ? e.clientY - rect.top : e.clientY, {
+        const cx = e.clientX - rect.left;
+        const cy = e.clientY - rect.top;
+        const hit = renderer.raycastScene(cx, cy, {
           hiddenIds: hiddenEntitiesRef.current,
           isolatedIds: isolatedEntitiesRef.current,
         });
-        camera.setOrbitCenter(hit?.intersection.point ?? null);
+        if (hit?.intersection) {
+          camera.setOrbitCenter(hit.intersection.point);
+        } else {
+          // No geometry hit — place pivot at current distance along cursor ray
+          const ray = camera.unprojectToRay(cx, cy, canvas.width, canvas.height);
+          const d = camera.getDistance();
+          camera.setOrbitCenter({
+            x: ray.origin.x + ray.direction.x * d,
+            y: ray.origin.y + ray.direction.y * d,
+            z: ray.origin.z + ray.direction.z * d,
+          });
+        }
       }
 
       if (tool === 'pan' || e.button === 1 || e.button === 2) {
