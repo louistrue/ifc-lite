@@ -32,18 +32,54 @@ export interface CameraInternalState {
  * Uses spherical coordinates for orbit with Y-up convention.
  */
 export class CameraControls {
+  /**
+   * Persistent orbit center. Orbit rotates both camera.position and camera.target
+   * around this point. Set by:
+   * - Object selection (silently, no camera movement)
+   * - Zoom (syncs to camera.target after zoom moves it)
+   * - Pan (moves with position/target)
+   * Never changed by orbit itself.
+   * When null, defaults to camera.target (standard behavior).
+   */
+  private orbitCenter: Vec3 | null = null;
+
   constructor(
     private readonly state: CameraInternalState,
     private readonly updateMatrices: () => void,
   ) {}
 
   /**
-   * Orbit around camera target (Y-up coordinate system).
-   * The orbit center is always camera.target — it stays fixed during orbit
-   * and only changes via zoom (mouse-to-point) or explicit setTarget calls.
+   * Set the orbit center (e.g. selected object center).
+   * Does NOT move the camera — only affects future orbit rotation.
+   */
+  setOrbitCenter(center: Vec3 | null): void {
+    this.orbitCenter = center ? { ...center } : null;
+  }
+
+  /**
+   * Get the current effective orbit center.
+   */
+  getOrbitCenter(): Vec3 {
+    return this.orbitCenter ? { ...this.orbitCenter } : { ...this.state.camera.target };
+  }
+
+  /**
+   * Sync orbit center to current camera.target.
+   * Called after zoom (which moves target) to keep orbit center current.
+   */
+  syncOrbitCenterToTarget(): void {
+    if (this.orbitCenter) {
+      this.orbitCenter = { ...this.state.camera.target };
+    }
+  }
+
+  /**
+   * Orbit around the orbit center (Y-up coordinate system).
+   * Rotates BOTH camera.position and camera.target around the orbit center
+   * so the view direction stays consistent (no curved fly paths).
    *
-   * Note: Does not handle velocity or preset view tracking;
-   * the Camera class coordinates those concerns.
+   * The orbit center is persistent — it stays fixed during orbit and only
+   * changes via zoom, pan, selection, or explicit setOrbitCenter calls.
    */
   orbit(deltaX: number, deltaY: number): void {
     // Always ensure Y-up for consistent orbit behavior
@@ -53,13 +89,13 @@ export class CameraControls {
     const dx = -deltaX * 0.01;
     const dy = -deltaY * 0.01;
 
-    // Always orbit around camera.target — this is the single orbit center
-    const pivotPoint = this.state.camera.target;
+    // Use persistent orbit center, or fall back to camera.target
+    const pivot = this.orbitCenter || this.state.camera.target;
 
     const dir = {
-      x: this.state.camera.position.x - pivotPoint.x,
-      y: this.state.camera.position.y - pivotPoint.y,
-      z: this.state.camera.position.z - pivotPoint.z,
+      x: this.state.camera.position.x - pivot.x,
+      y: this.state.camera.position.y - pivot.y,
+      z: this.state.camera.position.z - pivot.z,
     };
 
     const distance = Math.sqrt(dir.x * dir.x + dir.y * dir.y + dir.z * dir.z);
@@ -96,14 +132,23 @@ export class CameraControls {
     const phiClamped = Math.max(0.15, Math.min(Math.PI - 0.15, phi));
 
     // Calculate new camera position around pivot
-    const newPosX = pivotPoint.x + distance * Math.sin(phiClamped) * Math.sin(theta);
-    const newPosY = pivotPoint.y + distance * Math.cos(phiClamped);
-    const newPosZ = pivotPoint.z + distance * Math.sin(phiClamped) * Math.cos(theta);
+    const newPosX = pivot.x + distance * Math.sin(phiClamped) * Math.sin(theta);
+    const newPosY = pivot.y + distance * Math.cos(phiClamped);
+    const newPosZ = pivot.z + distance * Math.sin(phiClamped) * Math.cos(theta);
 
-    // Update camera position
+    // Calculate the delta that the camera position moved
+    const moveDx = newPosX - this.state.camera.position.x;
+    const moveDy = newPosY - this.state.camera.position.y;
+    const moveDz = newPosZ - this.state.camera.position.z;
+
+    // Move both position AND target by the same delta.
+    // This keeps the lookAt direction consistent while orbiting around the pivot.
     this.state.camera.position.x = newPosX;
     this.state.camera.position.y = newPosY;
     this.state.camera.position.z = newPosZ;
+    this.state.camera.target.x += moveDx;
+    this.state.camera.target.y += moveDy;
+    this.state.camera.target.z += moveDz;
 
     this.updateMatrices();
   }
@@ -147,12 +192,22 @@ export class CameraControls {
     }
 
     const panSpeed = distance * 0.001;
-    this.state.camera.target.x += (right.x * deltaX + up.x * deltaY) * panSpeed;
-    this.state.camera.target.y += (right.y * deltaX + up.y * deltaY) * panSpeed;
-    this.state.camera.target.z += (right.z * deltaX + up.z * deltaY) * panSpeed;
-    this.state.camera.position.x += (right.x * deltaX + up.x * deltaY) * panSpeed;
-    this.state.camera.position.y += (right.y * deltaX + up.y * deltaY) * panSpeed;
-    this.state.camera.position.z += (right.z * deltaX + up.z * deltaY) * panSpeed;
+    const panX = (right.x * deltaX + up.x * deltaY) * panSpeed;
+    const panY = (right.y * deltaX + up.y * deltaY) * panSpeed;
+    const panZ = (right.z * deltaX + up.z * deltaY) * panSpeed;
+    this.state.camera.target.x += panX;
+    this.state.camera.target.y += panY;
+    this.state.camera.target.z += panZ;
+    this.state.camera.position.x += panX;
+    this.state.camera.position.y += panY;
+    this.state.camera.position.z += panZ;
+
+    // Move orbit center with pan so orbit stays centered on the same relative point
+    if (this.orbitCenter) {
+      this.orbitCenter.x += panX;
+      this.orbitCenter.y += panY;
+      this.orbitCenter.z += panZ;
+    }
 
     this.updateMatrices();
   }
@@ -255,6 +310,9 @@ export class CameraControls {
       this.state.camera.position.y = this.state.camera.target.y + dir.y * scale;
       this.state.camera.position.z = this.state.camera.target.z + dir.z * scale;
     }
+
+    // Zoom establishes a new orbit center — sync to where target ended up
+    this.syncOrbitCenterToTarget();
 
     this.updateMatrices();
   }

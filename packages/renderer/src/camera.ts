@@ -89,30 +89,17 @@ export class Camera {
   }
 
   /**
-   * Set orbit center to a specific point (e.g. selected object center).
-   * Adjusts camera position to maintain current viewing direction and distance.
-   * The orbit center IS camera.target — orbit() always rotates around it.
+   * Set the orbit center without moving the camera.
+   * Future orbit() calls will rotate around this point.
+   * Pass null to revert to orbiting around camera.target.
    */
-  setOrbitCenter(center: Vec3): void {
-    // Get current viewing direction and distance
-    const dir = {
-      x: this.state.camera.position.x - this.state.camera.target.x,
-      y: this.state.camera.position.y - this.state.camera.target.y,
-      z: this.state.camera.position.z - this.state.camera.target.z,
-    };
-    // Move target to new center, adjust position to maintain same view direction/distance
-    this.state.camera.target = { ...center };
-    this.state.camera.position = {
-      x: center.x + dir.x,
-      y: center.y + dir.y,
-      z: center.z + dir.z,
-    };
-    this.updateMatrices();
+  setOrbitCenter(center: Vec3 | null): void {
+    this.controls.setOrbitCenter(center);
   }
 
   /**
-   * Orbit around target (Y-up coordinate system)
-   * Camera.target is the orbit center — it stays fixed during orbit.
+   * Orbit around the orbit center (Y-up coordinate system).
+   * Rotates both position and target around the orbit center.
    */
   orbit(deltaX: number, deltaY: number, addVelocity = false): void {
     this.animator.resetPresetTracking();
@@ -245,10 +232,11 @@ export class Camera {
   }
 
   /**
-   * Reset camera state (stop inertia, cancel animations)
+   * Reset camera state (clear orbit center, stop inertia, cancel animations)
    * Called when loading a new model to ensure clean state
    */
   reset(): void {
+    this.controls.setOrbitCenter(null);
     this.animator.reset();
   }
 

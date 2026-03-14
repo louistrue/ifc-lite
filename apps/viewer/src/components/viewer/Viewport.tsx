@@ -128,14 +128,19 @@ export function Viewport({ geometry, geometryVersion, coordinateInfo, computedIs
   useEffect(() => { handlePickForSelectionRef.current = handlePickForSelection; }, [handlePickForSelection]);
 
   // Update orbit center when selection changes.
-  // When an object is selected, orbit center moves to its center.
-  // When deselected, orbit center stays where it is (no change).
+  // When an object is selected, orbit center silently moves to its center
+  // (no camera movement — only affects future orbit rotation).
+  // When deselected, clear orbit center so orbit uses camera.target instead.
   useEffect(() => {
     const renderer = rendererRef.current;
-    if (!renderer || !isInitialized || !selectedEntityId) return;
-    const center = getEntityCenter(geometry, selectedEntityId);
-    if (center) {
-      renderer.getCamera().setOrbitCenter(center);
+    if (!renderer || !isInitialized) return;
+    if (selectedEntityId) {
+      const center = getEntityCenter(geometry, selectedEntityId);
+      if (center) {
+        renderer.getCamera().setOrbitCenter(center);
+      }
+    } else {
+      renderer.getCamera().setOrbitCenter(null);
     }
   }, [selectedEntityId, isInitialized, geometry]);
 
