@@ -427,9 +427,8 @@ export class Camera {
     );
 
     if (this.state.projectionMode === 'orthographic') {
-      // Orthographic: compute tight near/far by projecting scene bounds along view direction.
-      // Camera distance is irrelevant for ortho rendering — only orthoSize controls zoom.
-      // Tight near/far maximizes depth precision and prevents clipping.
+      // Orthographic: project scene bounding sphere onto view direction for tight near/far.
+      // Tight range maximizes depth precision (less z-fighting) and prevents clipping.
       const nf = this.computeOrthoNearFar(distance);
       this.state.camera.near = nf.near;
       this.state.camera.far = nf.far;
@@ -456,34 +455,49 @@ export class Camera {
   }
 
   /**
-   * Compute near/far for orthographic mode using scene bounds.
+   * Compute tight near/far for orthographic mode by projecting the scene
+   * bounding sphere onto the camera view direction.
    *
-   * Uses a generous envelope based on scene radius and camera distance so
-   * geometry is NEVER clipped regardless of camera position or zoom level.
-   * With depth32float, even a large range gives sub-mm precision.
+   * This gives optimal depth precision (minimizing z-fighting) while ensuring
+   * no geometry is clipped regardless of camera position or view angle.
    */
   private computeOrthoNearFar(distance: number): { near: number; far: number } {
     const bounds = this.state.sceneBounds;
     if (!bounds) {
-      return {
-        near: Math.max(0.01, distance * 0.001),
-        far: Math.max(distance * 10, 1000),
-      };
+      // Fallback: generous range centered on camera
+      return { near: -Math.max(distance, 500), far: Math.max(distance, 500) };
     }
 
-    // Scene bounding sphere radius (half-diagonal of AABB)
-    const dx = bounds.max.x - bounds.min.x;
-    const dy = bounds.max.y - bounds.min.y;
-    const dz = bounds.max.z - bounds.min.z;
-    const radius = Math.sqrt(dx * dx + dy * dy + dz * dz) / 2;
+    // Scene bounding sphere center and radius
+    const cx = (bounds.min.x + bounds.max.x) / 2;
+    const cy = (bounds.min.y + bounds.max.y) / 2;
+    const cz = (bounds.min.z + bounds.max.z) / 2;
+    const ex = bounds.max.x - bounds.min.x;
+    const ey = bounds.max.y - bounds.min.y;
+    const ez = bounds.max.z - bounds.min.z;
+    const radius = Math.sqrt(ex * ex + ey * ey + ez * ez) / 2;
 
-    // Generous envelope: covers all geometry regardless of camera position.
-    // The envelope extends both in front of and behind the camera so that
-    // orbiting close to or inside the model never clips.
-    // With depth32float (2^23 precision levels), a range of 2000 still gives
-    // 0.00024 unit precision — well below 1mm for typical building models.
-    const envelope = Math.max(distance, radius) * 3;
+    // View direction (camera looks from position toward target)
+    const pos = this.state.camera.position;
+    let vx = this.state.camera.target.x - pos.x;
+    let vy = this.state.camera.target.y - pos.y;
+    let vz = this.state.camera.target.z - pos.z;
+    const vLen = Math.sqrt(vx * vx + vy * vy + vz * vz);
+    if (vLen > 1e-8) { vx /= vLen; vy /= vLen; vz /= vLen; }
 
-    return { near: -envelope, far: envelope };
+    // Signed distance from camera to scene center along view direction
+    const toCenter = (cx - pos.x) * vx + (cy - pos.y) * vy + (cz - pos.z) * vz;
+
+    // Near/far as distances from camera along view direction.
+    // The sphere spans [toCenter - radius, toCenter + radius] along view dir.
+    // Add 10% padding for safety.
+    const pad = radius * 0.1 + 1;
+    let near = toCenter - radius - pad;
+    let far = toCenter + radius + pad;
+
+    // Ensure minimum range for depth precision
+    if (far - near < 1) { near -= 0.5; far += 0.5; }
+
+    return { near, far };
   }
 }
