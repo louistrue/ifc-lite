@@ -359,8 +359,8 @@ export interface SpatialBackendMethods {
 export interface ExportBackendMethods {
   csv(refs: unknown, options: unknown): string;
   json(refs: unknown, columns: unknown): Record<string, unknown>[];
-  ifc(refs: unknown, options: unknown): string;
-  download(content: string, filename: string, mimeType: string): void;
+  ifc(refs: unknown, options: unknown): string | Uint8Array;
+  download(content: string | Uint8Array, filename: string, mimeType: string): void;
 }
 
 export interface LensBackendMethods {
