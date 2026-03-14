@@ -83,8 +83,8 @@ export interface MergeExportOptions {
  * Result of merged STEP export
  */
 export interface MergeExportResult {
-  /** STEP file content */
-  content: string;
+  /** STEP file content as bytes (avoids V8 string length limit for large files) */
+  content: Uint8Array;
   /** Statistics */
   stats: {
     /** Number of models merged */
@@ -261,17 +261,15 @@ export class MergedExporter {
       isFirstModel = false;
     }
 
-    // Assemble final file
-    const dataSection = allEntityLines.join('\n');
-    const content = `${header}DATA;\n${dataSection}\nENDSEC;\nEND-ISO-10303-21;\n`;
-    const fileSize = new TextEncoder().encode(content).length;
+    // Assemble final file as Uint8Array chunks to avoid V8 string length limit
+    const content = assembleStepBytes(header, allEntityLines);
 
     return {
       content,
       stats: {
         modelCount: this.models.length,
         totalEntityCount: allEntityLines.length,
-        fileSize,
+        fileSize: content.byteLength,
       },
     };
   }
@@ -586,4 +584,43 @@ export class MergedExporter {
     return null;
   }
 
+}
+
+/**
+ * Assemble a STEP file from header and entity lines as a Uint8Array.
+ * Encodes each entity individually to avoid hitting V8's ~256 MB string length limit
+ * when merging large models.
+ */
+function assembleStepBytes(header: string, entities: string[]): Uint8Array {
+  const encoder = new TextEncoder();
+
+  const headBytes = encoder.encode(`${header}DATA;\n`);
+  const tailBytes = encoder.encode('ENDSEC;\nEND-ISO-10303-21;\n');
+  const newline = encoder.encode('\n');
+
+  // Calculate total size
+  let totalSize = headBytes.byteLength + tailBytes.byteLength;
+  const entityBytes: Uint8Array[] = new Array(entities.length);
+  for (let i = 0; i < entities.length; i++) {
+    entityBytes[i] = encoder.encode(entities[i]);
+    totalSize += entityBytes[i].byteLength + newline.byteLength;
+  }
+
+  // Assemble into a single buffer
+  const result = new Uint8Array(totalSize);
+  let offset = 0;
+
+  result.set(headBytes, offset);
+  offset += headBytes.byteLength;
+
+  for (let i = 0; i < entityBytes.length; i++) {
+    result.set(entityBytes[i], offset);
+    offset += entityBytes[i].byteLength;
+    result.set(newline, offset);
+    offset += newline.byteLength;
+  }
+
+  result.set(tailBytes, offset);
+
+  return result;
 }

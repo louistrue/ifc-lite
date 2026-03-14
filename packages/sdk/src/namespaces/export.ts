@@ -178,7 +178,7 @@ export class ExportNamespace {
    * Export entities to IFC STEP format.
    * Supports IFC2X3, IFC4, and IFC4X3 (IFC 4.3) schemas.
    */
-  ifc(refs: EntityRef[], options: ExportStepOptions = {}): string {
+  ifc(refs: EntityRef[], options: ExportStepOptions = {}): string | Uint8Array {
     const content = this.backend.export.ifc(refs, options);
     if (options.filename) {
       this.backend.export.download(content, options.filename, 'application/x-step;charset=utf-8;');
