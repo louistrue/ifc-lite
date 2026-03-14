@@ -448,8 +448,6 @@ export function Viewport({ geometry, geometryVersion, coordinateInfo, computedIs
     // Set cursor based on active tool
     if (activeTool === 'measure') {
       canvas.style.cursor = 'crosshair';
-    } else if (activeTool === 'pan' || activeTool === 'orbit') {
-      canvas.style.cursor = 'grab';
     } else {
       canvas.style.cursor = 'default';
     }

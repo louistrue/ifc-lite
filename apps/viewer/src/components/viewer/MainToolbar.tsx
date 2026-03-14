@@ -7,7 +7,6 @@ import {
   FolderOpen,
   Download,
   MousePointer2,
-  Hand,
   PersonStanding,
   Ruler,
   Scissors,
@@ -70,7 +69,7 @@ import { recordRecentFiles, cacheFileBlobs } from '@/lib/recent-files';
 import { ThemeSwitch } from './ThemeSwitch';
 import { toast } from '@/components/ui/toast';
 
-type Tool = 'select' | 'pan' | 'walk' | 'measure' | 'section';
+type Tool = 'select' | 'walk' | 'measure' | 'section';
 type WorkspacePanel = 'script' | 'list' | 'bcf' | 'ids' | 'lens';
 
 // #region FIX: Move ToolButton OUTSIDE MainToolbar to prevent recreation on every render
@@ -740,7 +739,6 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
 
       {/* ── Navigation Tools ── */}
       <ToolButton tool="select" icon={MousePointer2} label="Select" shortcut="V" activeTool={activeTool} onToolChange={setActiveTool} />
-      <ToolButton tool="pan" icon={Hand} label="Pan" shortcut="P" activeTool={activeTool} onToolChange={setActiveTool} />
       <ToolButton tool="walk" icon={PersonStanding} label="Walk Mode" shortcut="C" activeTool={activeTool} onToolChange={setActiveTool} />
 
       <Separator orientation="vertical" className="h-6 mx-1" />

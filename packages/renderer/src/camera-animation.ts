@@ -39,7 +39,7 @@ export class CameraAnimator {
 
   // First-person mode
   private isFirstPersonMode = false;
-  private firstPersonSpeed = 0.1;
+  private walkVelocity = { x: 0, z: 0 };
 
   // Track preset view for rotation cycling (clicking same view rotates 90 degrees)
   private lastPresetView: string | null = null;
@@ -470,7 +470,8 @@ export class CameraAnimator {
    * Walk on the horizontal XZ plane (Y-up coordinate system).
    * Forward/backward moves in the camera's horizontal facing direction.
    * Left/right strafes perpendicular. Y position stays fixed (walking on ground).
-   * Speed scales with scene size for natural feel across different models.
+   * Speed scales with scene size. Movement uses smooth acceleration to avoid
+   * abrupt jumps — velocity ramps up over successive frames.
    */
   moveFirstPerson(forward: number, right: number, _up: number): void {
     // Camera forward direction projected onto XZ plane
@@ -487,6 +488,14 @@ export class CameraAnimator {
     const rightX = -fwdZ;
     const rightZ = fwdX;
 
+    // Target velocity from input (forward/right can be -2..2 with sprint)
+    const targetVelX = fwdX * forward + rightX * right;
+    const targetVelZ = fwdZ * forward + rightZ * right;
+
+    // Smooth acceleration: lerp current walk velocity toward target
+    this.walkVelocity.x += (targetVelX - this.walkVelocity.x) * 0.15;
+    this.walkVelocity.z += (targetVelZ - this.walkVelocity.z) * 0.15;
+
     // Speed proportional to scene size (use camera-target distance as proxy)
     const camDir = {
       x: this.state.camera.position.x - this.state.camera.target.x,
@@ -494,11 +503,11 @@ export class CameraAnimator {
       z: this.state.camera.position.z - this.state.camera.target.z,
     };
     const distance = Math.sqrt(camDir.x * camDir.x + camDir.y * camDir.y + camDir.z * camDir.z);
-    const speed = Math.max(0.05, distance * 0.01);
+    const speed = Math.max(0.02, distance * 0.004);
 
-    // Compute horizontal offset (no Y movement — walking on a plane)
-    const offsetX = (fwdX * forward + rightX * right) * speed;
-    const offsetZ = (fwdZ * forward + rightZ * right) * speed;
+    // Apply smoothed velocity
+    const offsetX = this.walkVelocity.x * speed;
+    const offsetZ = this.walkVelocity.z * speed;
 
     // Move both position and target by the same offset (preserves view direction)
     this.state.camera.position.x += offsetX;

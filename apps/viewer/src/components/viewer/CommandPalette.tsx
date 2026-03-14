@@ -18,7 +18,6 @@ import {
   Search,
   Play,
   MousePointer2,
-  Hand,
   PersonStanding,
   Ruler,
   Scissors,
@@ -312,8 +311,6 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
     c.push(
       { id: 'tool:select', label: 'Select', keywords: 'pick click pointer', category: 'Tools', icon: MousePointer2, shortcut: 'V',
         action: () => { useViewerStore.getState().setActiveTool('select'); } },
-      { id: 'tool:pan', label: 'Pan', keywords: 'move drag hand', category: 'Tools', icon: Hand, shortcut: 'P',
-        action: () => { useViewerStore.getState().setActiveTool('pan'); } },
       { id: 'tool:walk', label: 'Walk', keywords: 'first person navigate wasd', category: 'Tools', icon: PersonStanding, shortcut: 'C',
         action: () => { useViewerStore.getState().setActiveTool('walk'); } },
       { id: 'tool:measure', label: 'Measure', keywords: 'distance ruler dimension', category: 'Tools', icon: Ruler, shortcut: 'M',

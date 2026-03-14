@@ -37,10 +37,10 @@ export interface UseKeyboardControlsParams {
   calculateScale: () => void;
 }
 
-/** Keys that trigger continuous movement (arrow keys + WASD) */
+/** Keys that trigger continuous movement (arrow keys + WASD + shift for sprint) */
 const MOVEMENT_KEYS = new Set([
   'arrowup', 'arrowdown', 'arrowleft', 'arrowright',
-  'w', 's', 'a', 'd',
+  'w', 's', 'a', 'd', 'shift',
 ]);
 
 export function useKeyboardControls(params: UseKeyboardControlsParams): void {
@@ -175,10 +175,12 @@ export function useKeyboardControls(params: UseKeyboardControlsParams): void {
 
       if (isWalkMode) {
         // Walk mode: arrow keys + WASD move on horizontal plane
-        const fwd = (keyState['arrowup'] || keyState['w'] ? -1 : 0) + (keyState['arrowdown'] || keyState['s'] ? 1 : 0);
-        const strafe = (keyState['arrowleft'] || keyState['a'] ? 1 : 0) + (keyState['arrowright'] || keyState['d'] ? -1 : 0);
+        // Up/W = forward, Down/S = backward, Left/A = strafe left, Right/D = strafe right
+        const fwd = (keyState['arrowup'] || keyState['w'] ? 1 : 0) + (keyState['arrowdown'] || keyState['s'] ? -1 : 0);
+        const strafe = (keyState['arrowleft'] || keyState['a'] ? -1 : 0) + (keyState['arrowright'] || keyState['d'] ? 1 : 0);
         if (fwd !== 0 || strafe !== 0) {
-          camera.moveFirstPerson(fwd, strafe, 0);
+          const sprint = keyState['shift'] ? 2 : 1;
+          camera.moveFirstPerson(fwd * sprint, strafe * sprint, 0);
           moved = true;
         }
       } else {
