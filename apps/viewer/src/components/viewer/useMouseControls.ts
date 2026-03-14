@@ -323,7 +323,7 @@ export function useMouseControls(params: UseMouseControlsParams): void {
       const isPanGesture = tool === 'pan' || e.button === 1 || e.button === 2 ||
         (tool === 'select' && e.shiftKey);
       const willOrbit = !isPanGesture && (
-        tool === 'orbit' || tool === 'select' ||
+        tool === 'select' ||
         (tool === 'measure' && e.shiftKey) ||
         !e.shiftKey // default tools: no shift = orbit
       );
@@ -371,9 +371,6 @@ export function useMouseControls(params: UseMouseControlsParams): void {
       if (tool === 'pan' || e.button === 1 || e.button === 2) {
         mouseState.isPanning = true;
         canvas.style.cursor = 'move';
-      } else if (tool === 'orbit') {
-        mouseState.isPanning = false;
-        canvas.style.cursor = 'grabbing';
       } else if (tool === 'select') {
         // Select tool: shift+drag = pan, normal drag = orbit
         mouseState.isPanning = e.shiftKey;
@@ -995,8 +992,8 @@ export function useMouseControls(params: UseMouseControlsParams): void {
         return;
       }
 
-      // Skip selection for orbit/pan tools - they don't select
-      if (tool === 'orbit' || tool === 'pan' || tool === 'walk') {
+      // Skip selection for pan/walk tools - they don't select
+      if (tool === 'pan' || tool === 'walk') {
         return;
       }
 

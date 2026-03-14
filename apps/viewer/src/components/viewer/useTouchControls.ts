@@ -223,13 +223,12 @@ export function useTouchControls(params: UseTouchControlsParams): void {
         // - Was a single-finger touch (not after multi-touch gesture)
         // - Tap was quick (< 300ms)
         // - Didn't move significantly
-        // - Tool supports selection (not orbit/pan/walk/measure)
+        // - Tool supports selection (not pan/walk/measure)
         if (
           previousTouchCount === 1 &&
           !wasMultiTouch &&
           tapDuration < 300 &&
           !touchState.didMove &&
-          tool !== 'orbit' &&
           tool !== 'pan' &&
           tool !== 'walk' &&
           tool !== 'measure'
