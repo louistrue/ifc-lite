@@ -456,59 +456,34 @@ export class Camera {
   }
 
   /**
-   * Compute tight near/far for orthographic mode by projecting scene bounds
-   * along the camera's view direction. This gives the smallest possible depth
-   * range that still contains all geometry, maximizing depth buffer precision.
+   * Compute near/far for orthographic mode using scene bounds.
+   *
+   * Uses a generous envelope based on scene radius and camera distance so
+   * geometry is NEVER clipped regardless of camera position or zoom level.
+   * With depth32float, even a large range gives sub-mm precision.
    */
   private computeOrthoNearFar(distance: number): { near: number; far: number } {
     const bounds = this.state.sceneBounds;
     if (!bounds) {
-      // No scene bounds: fall back to distance-based formula with generous range
       return {
         near: Math.max(0.01, distance * 0.001),
         far: Math.max(distance * 10, 1000),
       };
     }
 
-    // View direction: from camera toward target (unit vector)
-    const pos = this.state.camera.position;
-    const vm = this.state.viewMatrix.m;
-    // The 3rd row of the view matrix gives the -Z axis (forward direction) in world space
-    // viewZ dot (point - eye) gives the signed distance along the view axis
-    const vx = vm[2], vy = vm[6], vz = vm[10], vw = vm[14];
+    // Scene bounding sphere radius (half-diagonal of AABB)
+    const dx = bounds.max.x - bounds.min.x;
+    const dy = bounds.max.y - bounds.min.y;
+    const dz = bounds.max.z - bounds.min.z;
+    const radius = Math.sqrt(dx * dx + dy * dy + dz * dz) / 2;
 
-    // Project all 8 corners of the scene AABB along the view Z axis
-    // The view matrix transforms world → camera space; camera Z points backward,
-    // so a positive dot product means "in front of camera" (visible).
-    let zMin = Infinity;
-    let zMax = -Infinity;
-    for (let i = 0; i < 8; i++) {
-      const cx = (i & 1) ? bounds.max.x : bounds.min.x;
-      const cy = (i & 2) ? bounds.max.y : bounds.min.y;
-      const cz = (i & 4) ? bounds.max.z : bounds.min.z;
-      // Z in camera space (distance along view axis from camera)
-      const z = -(vx * cx + vy * cy + vz * cz + vw);
-      if (z < zMin) zMin = z;
-      if (z > zMax) zMax = z;
-    }
+    // Generous envelope: covers all geometry regardless of camera position.
+    // The envelope extends both in front of and behind the camera so that
+    // orbiting close to or inside the model never clips.
+    // With depth32float (2^23 precision levels), a range of 2000 still gives
+    // 0.00024 unit precision — well below 1mm for typical building models.
+    const envelope = Math.max(distance, radius) * 3;
 
-    // Add padding to avoid clipping at exact boundaries
-    const range = zMax - zMin;
-    const padding = Math.max(range * 0.1, 1.0);
-    // In orthographic mode, allow negative near (behind camera) so geometry
-    // is never clipped when the camera orbits close to or inside the model.
-    // Ortho depth is linear, so negative near doesn't cause precision issues.
-    const near = zMin - padding;
-    const far = zMax + padding;
-
-    // Ensure valid range
-    if (far <= near) {
-      return {
-        near: Math.max(0.01, distance * 0.001),
-        far: Math.max(distance * 10, 1000),
-      };
-    }
-
-    return { near, far };
+    return { near: -envelope, far: envelope };
   }
 }
