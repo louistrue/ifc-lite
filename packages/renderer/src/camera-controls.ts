@@ -314,35 +314,33 @@ export class CameraControls {
       this.state.camera.position.y = this.state.camera.target.y + dir.y;
       this.state.camera.position.z = this.state.camera.target.z + dir.z;
     } else {
-      // Perspective: dolly-through zoom — no minimum distance restriction.
-      // When zooming in very close, push both camera and target forward along the
-      // view direction so the user can seamlessly pass through any surface/plane.
-      const newDistance = distance * zoomFactor;
-      const minDist = 0.001;
+      // Perspective: dolly-zoom — combines distance reduction with forward travel.
+      // Pure multiplicative zoom suffers from Zeno's paradox: each step covers a smaller
+      // absolute distance, so the user asymptotically approaches the target but can never
+      // pass it. By splitting each zoom step into distance reduction + forward dolly,
+      // the camera always makes real progress through the scene.
+      const forward = { x: -dir.x / distance, y: -dir.y / distance, z: -dir.z / distance };
+      const zoomStep = distance * (1 - zoomFactor); // positive when zooming in
 
-      if (newDistance < minDist) {
-        // Dolly-through: move target forward along view direction, keep a small working distance
-        const forward = { x: -dir.x / distance, y: -dir.y / distance, z: -dir.z / distance };
-        const pushAmount = minDist - newDistance;
-        this.state.camera.target.x += forward.x * pushAmount;
-        this.state.camera.target.y += forward.y * pushAmount;
-        this.state.camera.target.z += forward.z * pushAmount;
-        // Also move orbit center if set
-        if (this.orbitCenter) {
-          this.orbitCenter.x += forward.x * pushAmount;
-          this.orbitCenter.y += forward.y * pushAmount;
-          this.orbitCenter.z += forward.z * pushAmount;
-        }
-        // Place camera at minDist behind target
-        this.state.camera.position.x = this.state.camera.target.x - forward.x * minDist;
-        this.state.camera.position.y = this.state.camera.target.y - forward.y * minDist;
-        this.state.camera.position.z = this.state.camera.target.z - forward.z * minDist;
-      } else {
-        const scale = newDistance / distance;
-        this.state.camera.position.x = this.state.camera.target.x + dir.x * scale;
-        this.state.camera.position.y = this.state.camera.target.y + dir.y * scale;
-        this.state.camera.position.z = this.state.camera.target.z + dir.z * scale;
+      // Half the step reduces camera-target distance, half moves both forward
+      const dolly = zoomStep * 0.5;
+      const newDistance = Math.max(0.001, distance - dolly);
+
+      // Move target forward (traverse through the scene)
+      this.state.camera.target.x += forward.x * dolly;
+      this.state.camera.target.y += forward.y * dolly;
+      this.state.camera.target.z += forward.z * dolly;
+
+      if (this.orbitCenter) {
+        this.orbitCenter.x += forward.x * dolly;
+        this.orbitCenter.y += forward.y * dolly;
+        this.orbitCenter.z += forward.z * dolly;
       }
+
+      // Position camera at new distance from updated target
+      this.state.camera.position.x = this.state.camera.target.x - forward.x * newDistance;
+      this.state.camera.position.y = this.state.camera.target.y - forward.y * newDistance;
+      this.state.camera.position.z = this.state.camera.target.z - forward.z * newDistance;
     }
 
     this.updateMatrices();
