@@ -1,5 +1,15 @@
 # @ifc-lite/renderer
 
+## 1.14.5
+
+### Patch Changes
+
+- [#396](https://github.com/louistrue/ifc-lite/pull/396) [`de2e949`](https://github.com/louistrue/ifc-lite/commit/de2e9495eb6d10ff247381d56a6991572f39f3cc) Thanks [@louistrue](https://github.com/louistrue)! - Remove all zoom restrictions and implement dolly-zoom for unrestricted scene traversal. Zoom now splits each step between distance reduction and forward travel, preventing the Zeno's paradox effect where the camera asymptotically approaches the target but never passes it. Refactor camera-controls to extract vec3/spherical helpers, eliminate duplicated orbit math, and use named constants.
+
+- [#396](https://github.com/louistrue/ifc-lite/pull/396) [`de2e949`](https://github.com/louistrue/ifc-lite/commit/de2e9495eb6d10ff247381d56a6991572f39f3cc) Thanks [@louistrue](https://github.com/louistrue)! - Orbit now pivots around the 3D point under the cursor. At the start of every orbit drag (mouse or touch), a raycast determines what the user is looking at and uses that as the rotation center. If the cursor is over empty space, falls back to the camera target. Removes the old selection-based orbit center which was less intuitive.
+
+- [#396](https://github.com/louistrue/ifc-lite/pull/396) [`de2e949`](https://github.com/louistrue/ifc-lite/commit/de2e9495eb6d10ff247381d56a6991572f39f3cc) Thanks [@louistrue](https://github.com/louistrue)! - Rework walk mode: arrow keys and WASD now move on a fixed horizontal plane with scene-proportional speed and smooth acceleration (velocity lerping). Shift-to-sprint doubles movement speed. Mouse drag in walk mode does full orbit (look around) instead of partial orbit + zoom. Remove orbit and pan tools from toolbar — orbit is the default mouse behavior and pan is accessible via middle/right-click.
+
 ## 1.14.4
 
 ### Patch Changes
