@@ -242,27 +242,35 @@ export class CameraControls {
   zoom(delta: number, mouseX?: number, mouseY?: number, canvasWidth?: number, canvasHeight?: number): void {
     const dir = sub(this.state.camera.position, this.state.camera.target);
     const distance = length(dir);
+    if (distance < 1e-6) return; // Degenerate: position ≈ target, nothing to zoom
+
     const normalizedDelta = Math.sign(delta) * Math.min(Math.abs(delta) * CC.ZOOM_SENSITIVITY, CC.MAX_ZOOM_DELTA);
     const zoomFactor = 1 + normalizedDelta;
     const forward = scale(dir, -1 / distance);
 
-    // If mouse position provided, zoom towards that point
-    if (mouseX !== undefined && mouseY !== undefined && canvasWidth && canvasHeight) {
-      this.shiftTargetTowardsMouse(dir, distance, forward, zoomFactor, mouseX, mouseY, canvasWidth, canvasHeight);
-    }
-
     if (this.state.projectionMode === 'orthographic') {
-      this.zoomOrthographic(dir, zoomFactor);
+      // Compute the effective factor after clamping so mouse anchoring matches
+      // the actual zoom applied — prevents drift when orthoSize hits the floor.
+      const nextOrthoSize = Math.max(0.01, this.state.orthoSize * zoomFactor);
+      const effectiveFactor = nextOrthoSize / this.state.orthoSize;
+
+      if (mouseX !== undefined && mouseY !== undefined && canvasWidth && canvasHeight) {
+        this.shiftTargetTowardsMouse(dir, distance, forward, effectiveFactor, mouseX, mouseY, canvasWidth, canvasHeight);
+      }
+      this.zoomOrthographic(dir, nextOrthoSize);
     } else {
+      if (mouseX !== undefined && mouseY !== undefined && canvasWidth && canvasHeight) {
+        this.shiftTargetTowardsMouse(dir, distance, forward, zoomFactor, mouseX, mouseY, canvasWidth, canvasHeight);
+      }
       this.zoomPerspective(distance, forward, zoomFactor);
     }
 
     this.updateMatrices();
   }
 
-  /** Orthographic: scale view volume, keep camera distance unchanged. */
-  private zoomOrthographic(dir: Vec3, zoomFactor: number): void {
-    this.state.orthoSize = Math.max(0.01, this.state.orthoSize * zoomFactor);
+  /** Orthographic: set view volume size, keep camera distance unchanged. */
+  private zoomOrthographic(dir: Vec3, nextOrthoSize: number): void {
+    this.state.orthoSize = nextOrthoSize;
     this.state.camera.position.x = this.state.camera.target.x + dir.x;
     this.state.camera.position.y = this.state.camera.target.y + dir.y;
     this.state.camera.position.z = this.state.camera.target.z + dir.z;
