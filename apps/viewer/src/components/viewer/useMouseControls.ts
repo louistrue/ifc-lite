@@ -319,12 +319,25 @@ export function useMouseControls(params: UseMouseControlsParams): void {
       // Determine action based on active tool and mouse button
       const tool = activeToolRef.current;
 
-      const willOrbit = !(tool === 'pan' || e.button === 1 || e.button === 2 ||
-        (tool === 'select' && e.shiftKey) ||
-        (tool !== 'orbit' && tool !== 'select' && e.shiftKey));
+      // Will this mousedown lead to an orbit drag?
+      const isPanGesture = tool === 'pan' || e.button === 1 || e.button === 2 ||
+        (tool === 'select' && e.shiftKey);
+      const willOrbit = !isPanGesture && (
+        tool === 'orbit' || tool === 'select' ||
+        (tool === 'measure' && e.shiftKey) ||
+        !e.shiftKey // default tools: no shift = orbit
+      );
 
-      // Orbit center is camera.target — it stays fixed during orbit.
-      // It only changes via zoom (mouse-to-point) or object selection.
+      // Set orbit pivot to the 3D point under the cursor so rotation feels anchored
+      // to what the user is looking at. Falls back to camera.target if nothing is hit.
+      if (willOrbit) {
+        const rect = canvas.getBoundingClientRect();
+        const hit = renderer.raycastScene(rect ? e.clientX - rect.left : e.clientX, rect ? e.clientY - rect.top : e.clientY, {
+          hiddenIds: hiddenEntitiesRef.current,
+          isolatedIds: isolatedEntitiesRef.current,
+        });
+        camera.setOrbitCenter(hit?.intersection.point ?? null);
+      }
 
       if (tool === 'pan' || e.button === 1 || e.button === 2) {
         mouseState.isPanning = true;

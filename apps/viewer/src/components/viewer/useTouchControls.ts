@@ -89,8 +89,15 @@ export function useTouchControls(params: UseTouchControlsParams): void {
         };
         touchState.didMove = false;
 
-        // Orbit center is camera.target — it stays fixed during orbit.
-        // It only changes via zoom (pinch) or object selection.
+        // Set orbit pivot to the 3D point under the finger
+        const rect = canvas.getBoundingClientRect();
+        const tx = touchState.touches[0].clientX - rect.left;
+        const ty = touchState.touches[0].clientY - rect.top;
+        const hit = renderer.raycastScene(tx, ty, {
+          hiddenIds: hiddenEntitiesRef.current,
+          isolatedIds: isolatedEntitiesRef.current,
+        });
+        camera.setOrbitCenter(hit?.intersection.point ?? null);
       } else if (touchState.touches.length === 1) {
         // Single touch after multi-touch - just update center for orbit
         touchState.lastCenter = {
