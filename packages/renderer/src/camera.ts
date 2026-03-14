@@ -39,6 +39,7 @@ export class Camera {
       viewProjMatrix: MathUtils.identity(),
       projectionMode: 'perspective',
       orthoSize: 50, // Default half-height in world units
+      sceneBounds: null,
     };
 
     const updateMatrices = () => this.updateMatrices();
@@ -404,15 +405,20 @@ export class Camera {
     this.updateMatrices();
   }
 
+  /**
+   * Set scene bounds for tight orthographic near/far plane computation.
+   * Call this when geometry is loaded or changed.
+   */
+  setSceneBounds(bounds: { min: { x: number; y: number; z: number }; max: { x: number; y: number; z: number } } | null): void {
+    this.state.sceneBounds = bounds;
+    this.updateMatrices();
+  }
+
   private updateMatrices(): void {
-    // Dynamically adapt near/far planes based on camera-to-target distance.
-    // This prevents near-plane clipping when zooming in close to geometry.
     const dx = this.state.camera.position.x - this.state.camera.target.x;
     const dy = this.state.camera.position.y - this.state.camera.target.y;
     const dz = this.state.camera.position.z - this.state.camera.target.z;
     const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
-    this.state.camera.near = Math.max(0.01, distance * 0.001);
-    this.state.camera.far = Math.max(distance * 10, 1000);
 
     this.state.viewMatrix = MathUtils.lookAt(
       this.state.camera.position,
@@ -421,6 +427,12 @@ export class Camera {
     );
 
     if (this.state.projectionMode === 'orthographic') {
+      // Orthographic: compute tight near/far by projecting scene bounds along view direction.
+      // Camera distance is irrelevant for ortho rendering — only orthoSize controls zoom.
+      // Tight near/far maximizes depth precision and prevents clipping.
+      const nf = this.computeOrthoNearFar(distance);
+      this.state.camera.near = nf.near;
+      this.state.camera.far = nf.far;
       const h = this.state.orthoSize;
       const w = h * this.state.camera.aspect;
       this.state.projMatrix = MathUtils.orthographicReverseZ(
@@ -429,7 +441,9 @@ export class Camera {
         this.state.camera.far
       );
     } else {
-      // Use reverse-Z projection for better depth precision
+      // Perspective: adapt near/far based on camera-to-target distance
+      this.state.camera.near = Math.max(0.01, distance * 0.001);
+      this.state.camera.far = Math.max(distance * 10, 1000);
       this.state.projMatrix = MathUtils.perspectiveReverseZ(
         this.state.camera.fov,
         this.state.camera.aspect,
@@ -439,5 +453,59 @@ export class Camera {
     }
 
     this.state.viewProjMatrix = MathUtils.multiply(this.state.projMatrix, this.state.viewMatrix);
+  }
+
+  /**
+   * Compute tight near/far for orthographic mode by projecting scene bounds
+   * along the camera's view direction. This gives the smallest possible depth
+   * range that still contains all geometry, maximizing depth buffer precision.
+   */
+  private computeOrthoNearFar(distance: number): { near: number; far: number } {
+    const bounds = this.state.sceneBounds;
+    if (!bounds) {
+      // No scene bounds: fall back to distance-based formula with generous range
+      return {
+        near: Math.max(0.01, distance * 0.001),
+        far: Math.max(distance * 10, 1000),
+      };
+    }
+
+    // View direction: from camera toward target (unit vector)
+    const pos = this.state.camera.position;
+    const vm = this.state.viewMatrix.m;
+    // The 3rd row of the view matrix gives the -Z axis (forward direction) in world space
+    // viewZ dot (point - eye) gives the signed distance along the view axis
+    const vx = vm[2], vy = vm[6], vz = vm[10], vw = vm[14];
+
+    // Project all 8 corners of the scene AABB along the view Z axis
+    // The view matrix transforms world → camera space; camera Z points backward,
+    // so a positive dot product means "in front of camera" (visible).
+    let zMin = Infinity;
+    let zMax = -Infinity;
+    for (let i = 0; i < 8; i++) {
+      const cx = (i & 1) ? bounds.max.x : bounds.min.x;
+      const cy = (i & 2) ? bounds.max.y : bounds.min.y;
+      const cz = (i & 4) ? bounds.max.z : bounds.min.z;
+      // Z in camera space (distance along view axis from camera)
+      const z = -(vx * cx + vy * cy + vz * cz + vw);
+      if (z < zMin) zMin = z;
+      if (z > zMax) zMax = z;
+    }
+
+    // Add padding to avoid clipping at exact boundaries
+    const range = zMax - zMin;
+    const padding = Math.max(range * 0.1, 1.0);
+    const near = Math.max(0.01, zMin - padding);
+    const far = zMax + padding;
+
+    // Ensure valid range
+    if (far <= near) {
+      return {
+        near: Math.max(0.01, distance * 0.001),
+        far: Math.max(distance * 10, 1000),
+      };
+    }
+
+    return { near, far };
   }
 }

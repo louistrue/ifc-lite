@@ -25,6 +25,8 @@ export interface CameraInternalState {
   projectionMode: ProjectionMode;
   /** Orthographic half-height in world units (controls zoom level in ortho mode) */
   orthoSize: number;
+  /** Scene bounding box for tight orthographic near/far computation */
+  sceneBounds: { min: { x: number; y: number; z: number }; max: { x: number; y: number; z: number } } | null;
 }
 
 /**
