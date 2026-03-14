@@ -122,69 +122,51 @@ export class CameraControls {
   /**
    * BIM orbit: rotate both position and target around a pivot.
    *
-   * Uses spherical coordinates (same math as standard orbit) to avoid
-   * gimbal lock. Computes the angular delta from position's spherical
-   * coords, then applies the identical delta to target's spherical coords.
-   * Orbit position using spherical coords (pole-safe), then apply the
-   * exact same 3D rotation to target so the viewing direction is preserved.
+   * Reuses orbitPositionAroundPivot (the proven standard orbit) for
+   * position, then extracts the actual 3D rotation that occurred
+   * (axis = oldDir × newDir, angle from their dot/cross products)
+   * and applies it to target via Rodrigues' formula.
    *
-   * Key insight: target must NOT be independently converted to spherical
-   * coords — position and target have different theta values, so they'd
-   * trace different meridians and the view would wobble.  Instead we:
-   *   1. Orbit position via spherical coords (handles poles with clamping)
-   *   2. Rotate target around Y axis by dTheta (always stable)
-   *   3. Rotate target around the right axis by dPhi — the right axis is
-   *      derived from position's new theta (cos θ, 0, −sin θ), which is
-   *      a pure number, never degenerate.
+   * This guarantees position and target undergo the exact same rotation,
+   * so the viewing direction is preserved as a rigid body. No separate
+   * pole/axis logic — it inherits the standard orbit's phi clamping.
    */
   private rotateAroundPivot(pivot: Vec3, dx: number, dy: number): void {
-    // --- 1. Position: spherical orbit ---
-    const posDir = {
-      x: this.state.camera.position.x - pivot.x,
-      y: this.state.camera.position.y - pivot.y,
-      z: this.state.camera.position.z - pivot.z,
-    };
-    const posDist = Math.sqrt(posDir.x * posDir.x + posDir.y * posDir.y + posDir.z * posDir.z);
-    if (posDist < 1e-6) return;
+    // Old position direction (normalized)
+    const ox = this.state.camera.position.x - pivot.x;
+    const oy = this.state.camera.position.y - pivot.y;
+    const oz = this.state.camera.position.z - pivot.z;
+    const oldDist = Math.sqrt(ox * ox + oy * oy + oz * oz);
+    if (oldDist < 1e-6) return;
+    const odx = ox / oldDist, ody = oy / oldDist, odz = oz / oldDist;
 
-    let currentPhi = Math.acos(Math.max(-1, Math.min(1, posDir.y / posDist)));
-    let theta: number;
-    const sinPhi = Math.sin(currentPhi);
-    if (sinPhi > 0.05) {
-      theta = Math.atan2(posDir.x, posDir.z);
-    } else {
-      theta = 0;
-      currentPhi = currentPhi < Math.PI / 2 ? 0.15 : Math.PI - 0.15;
-    }
+    // Orbit position (standard spherical — proven, handles poles)
+    this.orbitPositionAroundPivot(pivot, dx, dy);
 
-    const newTheta = theta + dx;
-    const newPhi = Math.max(0.15, Math.min(Math.PI - 0.15, currentPhi + dy));
-    const dTheta = newTheta - theta;
-    const dPhi = newPhi - currentPhi;
+    // New position direction (normalized)
+    const nx = this.state.camera.position.x - pivot.x;
+    const ny = this.state.camera.position.y - pivot.y;
+    const nz = this.state.camera.position.z - pivot.z;
+    const newDist = Math.sqrt(nx * nx + ny * ny + nz * nz);
+    if (newDist < 1e-6) return;
+    const ndx = nx / newDist, ndy = ny / newDist, ndz = nz / newDist;
 
-    this.state.camera.position.x = pivot.x + posDist * Math.sin(newPhi) * Math.sin(newTheta);
-    this.state.camera.position.y = pivot.y + posDist * Math.cos(newPhi);
-    this.state.camera.position.z = pivot.z + posDist * Math.sin(newPhi) * Math.cos(newTheta);
+    // Rotation axis = oldDir × newDir
+    const cx = ody * ndz - odz * ndy;
+    const cy = odz * ndx - odx * ndz;
+    const cz = odx * ndy - ody * ndx;
+    const sinA = Math.sqrt(cx * cx + cy * cy + cz * cz);
+    if (sinA < 1e-10) return; // No measurable rotation
 
-    // --- 2. Target: apply the same 3D rotation ---
-    // Horizontal: rotate around Y axis through pivot by dTheta
-    const cosH = Math.cos(dTheta);
-    const sinH = Math.sin(dTheta);
-    const tx = this.state.camera.target.x - pivot.x;
-    const tz = this.state.camera.target.z - pivot.z;
-    this.state.camera.target.x = pivot.x + tx * cosH - tz * sinH;
-    this.state.camera.target.z = pivot.z + tx * sinH + tz * cosH;
+    const cosA = odx * ndx + ody * ndy + odz * ndz;
+    const angle = Math.atan2(sinA, cosA);
 
-    // Vertical: rotate around right axis through pivot by dPhi
-    // Right axis from position's new theta — always a well-defined horizontal vector
-    if (Math.abs(dPhi) > 1e-8) {
-      const axis = {
-        x: Math.cos(newTheta),
-        y: 0,
-        z: -Math.sin(newTheta),
-      };
-      this.rotatePointAroundAxis(this.state.camera.target, pivot, axis, dPhi);
-    }
+    // Apply the identical rotation to target
+    this.rotatePointAroundAxis(
+      this.state.camera.target, pivot,
+      { x: cx / sinA, y: cy / sinA, z: cz / sinA },
+      angle,
+    );
   }
 
   /**
