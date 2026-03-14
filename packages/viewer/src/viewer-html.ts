@@ -653,11 +653,16 @@ function updateCamAnimation() {
 let isDragging = false;
 let isPanning = false;
 let lastMouse = [0, 0];
+let mouseDownPos = [0, 0];
+let didDrag = false;
+const DRAG_THRESHOLD = 3; // px – movement beyond this suppresses click
 
 canvas.addEventListener('mousedown', (e) => {
   isDragging = true;
+  didDrag = false;
   isPanning = e.button === 1 || e.button === 2 || e.shiftKey;
   lastMouse = [e.clientX, e.clientY];
+  mouseDownPos = [e.clientX, e.clientY];
   camVelTheta = camVelPhi = camVelPanX = camVelPanY = camVelPanZ = 0;
   e.preventDefault();
 });
@@ -666,6 +671,13 @@ window.addEventListener('mouseup', () => { isDragging = false; isPanning = false
 
 window.addEventListener('mousemove', (e) => {
   if (!isDragging) return;
+  if (!didDrag) {
+    const totalDx = e.clientX - mouseDownPos[0];
+    const totalDy = e.clientY - mouseDownPos[1];
+    if (totalDx * totalDx + totalDy * totalDy > DRAG_THRESHOLD * DRAG_THRESHOLD) {
+      didDrag = true;
+    }
+  }
   const dx = e.clientX - lastMouse[0];
   const dy = e.clientY - lastMouse[1];
   lastMouse = [e.clientX, e.clientY];
@@ -742,6 +754,7 @@ function ensurePickFbo() {
 }
 
 canvas.addEventListener('click', (e) => {
+  if (didDrag) return; // Was a drag, not a click
   if (!pickVao || drawCount === 0) return;
   ensurePickFbo();
   const mvp = getMVP();
