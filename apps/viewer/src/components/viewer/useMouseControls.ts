@@ -323,28 +323,8 @@ export function useMouseControls(params: UseMouseControlsParams): void {
         (tool === 'select' && e.shiftKey) ||
         (tool !== 'orbit' && tool !== 'select' && e.shiftKey));
 
-      // Set orbit pivot to what user clicks on (standard CAD/BIM behavior)
-      // Simple and predictable: orbit around clicked geometry, or model center if empty space
-      if (willOrbit && tool !== 'measure' && tool !== 'walk') {
-        const rect = canvas.getBoundingClientRect();
-        const x = e.clientX - rect.left;
-        const y = e.clientY - rect.top;
-
-        // Pick at cursor position - orbit around what user is clicking on
-        // Uses visibility filtering so hidden elements don't affect orbit pivot
-        const pickResult = await renderer.pick(x, y, getPickOptions());
-        if (pickResult !== null) {
-          const center = getEntityCenter(geometryRef.current, pickResult.expressId);
-          if (center) {
-            camera.setOrbitPivot(center);
-          } else {
-            camera.setOrbitPivot(null);
-          }
-        } else {
-          // No geometry under cursor - orbit around current target (model center)
-          camera.setOrbitPivot(null);
-        }
-      }
+      // Orbit center is camera.target — it stays fixed during orbit.
+      // It only changes via zoom (mouse-to-point) or object selection.
 
       if (tool === 'pan' || e.button === 1 || e.button === 2) {
         mouseState.isPanning = true;
@@ -857,8 +837,6 @@ export function useMouseControls(params: UseMouseControlsParams): void {
       mouseState.isDragging = false;
       mouseState.isPanning = false;
       canvas.style.cursor = tool === 'pan' ? 'grab' : (tool === 'orbit' ? 'grab' : (tool === 'measure' ? 'crosshair' : 'default'));
-      // Clear orbit pivot after each orbit operation
-      camera.setOrbitPivot(null);
     };
 
     const handleMouseLeave = () => {
@@ -866,7 +844,6 @@ export function useMouseControls(params: UseMouseControlsParams): void {
       mouseState.isDragging = false;
       mouseState.isPanning = false;
       camera.stopInertia();
-      camera.setOrbitPivot(null);
       // Restore cursor based on active tool
       if (tool === 'measure') {
         canvas.style.cursor = 'crosshair';

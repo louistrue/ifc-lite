@@ -89,30 +89,30 @@ export class Camera {
   }
 
   /**
-   * Set temporary orbit pivot (for orbiting around selected element or cursor point)
-   * When set, orbit() will rotate around this point instead of the camera target
+   * Set orbit center to a specific point (e.g. selected object center).
+   * Adjusts camera position to maintain current viewing direction and distance.
+   * The orbit center IS camera.target — orbit() always rotates around it.
    */
-  setOrbitPivot(pivot: Vec3 | null): void {
-    this.controls.setOrbitPivot(pivot);
+  setOrbitCenter(center: Vec3): void {
+    // Get current viewing direction and distance
+    const dir = {
+      x: this.state.camera.position.x - this.state.camera.target.x,
+      y: this.state.camera.position.y - this.state.camera.target.y,
+      z: this.state.camera.position.z - this.state.camera.target.z,
+    };
+    // Move target to new center, adjust position to maintain same view direction/distance
+    this.state.camera.target = { ...center };
+    this.state.camera.position = {
+      x: center.x + dir.x,
+      y: center.y + dir.y,
+      z: center.z + dir.z,
+    };
+    this.updateMatrices();
   }
 
   /**
-   * Get current orbit pivot (returns temporary pivot if set, otherwise target)
-   */
-  getOrbitPivot(): Vec3 {
-    return this.controls.getOrbitPivot();
-  }
-
-  /**
-   * Check if a temporary orbit pivot is set
-   */
-  hasOrbitPivot(): boolean {
-    return this.controls.hasOrbitPivot();
-  }
-
-  /**
-   * Orbit around target or pivot (Y-up coordinate system)
-   * If an orbit pivot is set, orbits around that point and moves target along
+   * Orbit around target (Y-up coordinate system)
+   * Camera.target is the orbit center — it stays fixed during orbit.
    */
   orbit(deltaX: number, deltaY: number, addVelocity = false): void {
     this.animator.resetPresetTracking();
@@ -245,11 +245,10 @@ export class Camera {
   }
 
   /**
-   * Reset camera state (clear orbit pivot, stop inertia, cancel animations)
+   * Reset camera state (stop inertia, cancel animations)
    * Called when loading a new model to ensure clean state
    */
   reset(): void {
-    this.controls.clearOrbitPivot();
     this.animator.reset();
   }
 

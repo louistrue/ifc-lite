@@ -11,7 +11,6 @@ import { useEffect, type MutableRefObject, type RefObject } from 'react';
 import type { Renderer, PickResult } from '@ifc-lite/renderer';
 import type { MeshData } from '@ifc-lite/geometry';
 import type { SectionPlane } from '@/store';
-import { getEntityCenter } from '../../utils/viewportUtils.js';
 
 export interface TouchState {
   touches: Touch[];
@@ -90,23 +89,8 @@ export function useTouchControls(params: UseTouchControlsParams): void {
         };
         touchState.didMove = false;
 
-        // Set orbit pivot to what user touches (same as mouse click behavior)
-        const rect = canvas.getBoundingClientRect();
-        const x = touchState.touches[0].clientX - rect.left;
-        const y = touchState.touches[0].clientY - rect.top;
-
-        // Uses visibility filtering so hidden elements don't affect orbit pivot
-        const pickResult = await renderer.pick(x, y, getPickOptions());
-        if (pickResult !== null) {
-          const center = getEntityCenter(geometryRef.current, pickResult.expressId);
-          if (center) {
-            camera.setOrbitPivot(center);
-          } else {
-            camera.setOrbitPivot(null);
-          }
-        } else {
-          camera.setOrbitPivot(null);
-        }
+        // Orbit center is camera.target — it stays fixed during orbit.
+        // It only changes via zoom (pinch) or object selection.
       } else if (touchState.touches.length === 1) {
         // Single touch after multi-touch - just update center for orbit
         touchState.lastCenter = {
@@ -198,7 +182,6 @@ export function useTouchControls(params: UseTouchControlsParams): void {
 
       if (touchState.touches.length === 0) {
         camera.stopInertia();
-        camera.setOrbitPivot(null);
 
         // Tap-to-select: detect quick tap without significant movement
         const tapDuration = Date.now() - touchState.tapStartTime;

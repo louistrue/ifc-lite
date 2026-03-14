@@ -32,46 +32,15 @@ export interface CameraInternalState {
  * Uses spherical coordinates for orbit with Y-up convention.
  */
 export class CameraControls {
-  /** Dynamic orbit pivot (for orbiting around selected element or cursor point) */
-  private orbitPivot: Vec3 | null = null;
-
   constructor(
     private readonly state: CameraInternalState,
     private readonly updateMatrices: () => void,
   ) {}
 
   /**
-   * Set temporary orbit pivot (for orbiting around selected element or cursor point)
-   * When set, orbit() will rotate around this point instead of the camera target
-   */
-  setOrbitPivot(pivot: Vec3 | null): void {
-    this.orbitPivot = pivot ? { ...pivot } : null;
-  }
-
-  /**
-   * Get current orbit pivot (returns temporary pivot if set, otherwise target)
-   */
-  getOrbitPivot(): Vec3 {
-    return this.orbitPivot ? { ...this.orbitPivot } : { ...this.state.camera.target };
-  }
-
-  /**
-   * Check if a temporary orbit pivot is set
-   */
-  hasOrbitPivot(): boolean {
-    return this.orbitPivot !== null;
-  }
-
-  /**
-   * Clear the orbit pivot
-   */
-  clearOrbitPivot(): void {
-    this.orbitPivot = null;
-  }
-
-  /**
-   * Orbit around target or pivot (Y-up coordinate system).
-   * If an orbit pivot is set, orbits around that point.
+   * Orbit around camera target (Y-up coordinate system).
+   * The orbit center is always camera.target — it stays fixed during orbit
+   * and only changes via zoom (mouse-to-point) or explicit setTarget calls.
    *
    * Note: Does not handle velocity or preset view tracking;
    * the Camera class coordinates those concerns.
@@ -84,8 +53,8 @@ export class CameraControls {
     const dx = -deltaX * 0.01;
     const dy = -deltaY * 0.01;
 
-    // Use orbit pivot if set, otherwise use target
-    const pivotPoint = this.orbitPivot || this.state.camera.target;
+    // Always orbit around camera.target — this is the single orbit center
+    const pivotPoint = this.state.camera.target;
 
     const dir = {
       x: this.state.camera.position.x - pivotPoint.x,
