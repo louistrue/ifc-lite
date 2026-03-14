@@ -495,7 +495,10 @@ export class Camera {
     // Add padding to avoid clipping at exact boundaries
     const range = zMax - zMin;
     const padding = Math.max(range * 0.1, 1.0);
-    const near = Math.max(0.01, zMin - padding);
+    // In orthographic mode, allow negative near (behind camera) so geometry
+    // is never clipped when the camera orbits close to or inside the model.
+    // Ortho depth is linear, so negative near doesn't cause precision issues.
+    const near = zMin - padding;
     const far = zMax + padding;
 
     // Ensure valid range
