@@ -207,25 +207,21 @@ export class CameraControls {
     const distance = Math.sqrt(dir.x * dir.x + dir.y * dir.y + dir.z * dir.z);
     // Normalize delta (wheel events can have large values)
     const normalizedDelta = Math.sign(delta) * Math.min(Math.abs(delta) * 0.001, 0.1);
-    // Dolly-through threshold: when camera is very close to target, push target forward
-    const dollyThreshold = 0.5;
-    // Boost zoom factor when close to target so zoom doesn't feel like it's slowing down
-    const closenessBoost = distance < dollyThreshold ? Math.max(1, dollyThreshold / Math.max(distance, 0.001)) : 1;
-    const zoomFactor = 1 + normalizedDelta * closenessBoost;
+    // Dolly amount scales with distance so zoom feels consistent at any scale
+    const dollyAmount = -normalizedDelta * distance;
+
+    // Forward direction (camera towards target)
+    const forward = {
+      x: -dir.x / distance,
+      y: -dir.y / distance,
+      z: -dir.z / distance,
+    };
 
     // If mouse position provided, zoom towards that point
     if (mouseX !== undefined && mouseY !== undefined && canvasWidth && canvasHeight) {
       // Convert mouse to normalized device coordinates (-1 to 1)
       const ndcX = (mouseX / canvasWidth) * 2 - 1;
       const ndcY = 1 - (mouseY / canvasHeight) * 2; // Flip Y
-
-      // Calculate offset from center in world space
-      // Use the camera's right and up vectors
-      const forward = {
-        x: -dir.x / distance,
-        y: -dir.y / distance,
-        z: -dir.z / distance,
-      };
 
       // Right = forward x up
       const up = this.state.camera.up;
@@ -254,56 +250,33 @@ export class CameraControls {
         : distance * Math.tan(this.state.camera.fov / 2);
       const halfWidth = halfHeight * this.state.camera.aspect;
 
-      // World offset from center towards mouse position
-      const worldOffsetX = ndcX * halfWidth;
-      const worldOffsetY = ndcY * halfHeight;
-
-      // Point in world space that mouse is pointing at (on the target plane)
+      // World point under mouse cursor (on the target plane)
       const mouseWorldPoint = {
-        x: this.state.camera.target.x + right.x * worldOffsetX + actualUp.x * worldOffsetY,
-        y: this.state.camera.target.y + right.y * worldOffsetX + actualUp.y * worldOffsetY,
-        z: this.state.camera.target.z + right.z * worldOffsetX + actualUp.z * worldOffsetY,
+        x: this.state.camera.target.x + right.x * ndcX * halfWidth + actualUp.x * ndcY * halfHeight,
+        y: this.state.camera.target.y + right.y * ndcX * halfWidth + actualUp.y * ndcY * halfHeight,
+        z: this.state.camera.target.z + right.z * ndcX * halfWidth + actualUp.z * ndcY * halfHeight,
       };
 
-      // Move both camera and target towards mouse point while zooming
-      const moveAmount = (1 - zoomFactor); // Negative when zooming in
-
-      this.state.camera.target.x += (mouseWorldPoint.x - this.state.camera.target.x) * moveAmount;
-      this.state.camera.target.y += (mouseWorldPoint.y - this.state.camera.target.y) * moveAmount;
-      this.state.camera.target.z += (mouseWorldPoint.z - this.state.camera.target.z) * moveAmount;
+      // Shift target towards mouse point proportional to dolly amount
+      const shiftFactor = dollyAmount / distance;
+      this.state.camera.target.x += (mouseWorldPoint.x - this.state.camera.target.x) * shiftFactor;
+      this.state.camera.target.y += (mouseWorldPoint.y - this.state.camera.target.y) * shiftFactor;
+      this.state.camera.target.z += (mouseWorldPoint.z - this.state.camera.target.z) * shiftFactor;
     }
 
     if (this.state.projectionMode === 'orthographic') {
-      // Orthographic: scale view volume instead of moving camera
-      this.state.orthoSize = Math.max(0.01, this.state.orthoSize * zoomFactor);
-      // Still move camera position to keep orbit distance consistent for when switching back
-      const newDistance = Math.max(0.001, distance * zoomFactor);
-      const scale = newDistance / distance;
-      this.state.camera.position.x = this.state.camera.target.x + dir.x * scale;
-      this.state.camera.position.y = this.state.camera.target.y + dir.y * scale;
-      this.state.camera.position.z = this.state.camera.target.z + dir.z * scale;
-    } else {
-      // Perspective: scale distance with dolly-through support
-      const newDistance = distance * zoomFactor;
-      const minDistance = 0.001;
-      if (newDistance < minDistance && normalizedDelta < 0) {
-        // Dolly-through: move target forward so camera can keep zooming
-        const forward = { x: -dir.x / distance, y: -dir.y / distance, z: -dir.z / distance };
-        const pushAmount = minDistance - newDistance;
-        this.state.camera.target.x += forward.x * pushAmount;
-        this.state.camera.target.y += forward.y * pushAmount;
-        this.state.camera.target.z += forward.z * pushAmount;
-        this.state.camera.position.x = this.state.camera.target.x - forward.x * minDistance;
-        this.state.camera.position.y = this.state.camera.target.y - forward.y * minDistance;
-        this.state.camera.position.z = this.state.camera.target.z - forward.z * minDistance;
-      } else {
-        const clampedDistance = Math.max(minDistance, newDistance);
-        const scale = clampedDistance / distance;
-        this.state.camera.position.x = this.state.camera.target.x + dir.x * scale;
-        this.state.camera.position.y = this.state.camera.target.y + dir.y * scale;
-        this.state.camera.position.z = this.state.camera.target.z + dir.z * scale;
-      }
+      // Orthographic: scale view volume
+      const zoomFactor = 1 + normalizedDelta;
+      this.state.orthoSize = Math.max(0.001, this.state.orthoSize * zoomFactor);
     }
+
+    // Dolly: move both camera and target along view direction
+    this.state.camera.position.x += forward.x * dollyAmount;
+    this.state.camera.position.y += forward.y * dollyAmount;
+    this.state.camera.position.z += forward.z * dollyAmount;
+    this.state.camera.target.x += forward.x * dollyAmount;
+    this.state.camera.target.y += forward.y * dollyAmount;
+    this.state.camera.target.z += forward.z * dollyAmount;
 
     this.updateMatrices();
   }
