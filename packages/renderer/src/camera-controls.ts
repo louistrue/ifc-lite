@@ -207,7 +207,11 @@ export class CameraControls {
     const distance = Math.sqrt(dir.x * dir.x + dir.y * dir.y + dir.z * dir.z);
     // Normalize delta (wheel events can have large values)
     const normalizedDelta = Math.sign(delta) * Math.min(Math.abs(delta) * 0.001, 0.1);
-    const zoomFactor = 1 + normalizedDelta;
+    // Dolly-through threshold: when camera is very close to target, push target forward
+    const dollyThreshold = 0.5;
+    // Boost zoom factor when close to target so zoom doesn't feel like it's slowing down
+    const closenessBoost = distance < dollyThreshold ? Math.max(1, dollyThreshold / Math.max(distance, 0.001)) : 1;
+    const zoomFactor = 1 + normalizedDelta * closenessBoost;
 
     // If mouse position provided, zoom towards that point
     if (mouseX !== undefined && mouseY !== undefined && canvasWidth && canvasHeight) {
@@ -273,18 +277,32 @@ export class CameraControls {
       // Orthographic: scale view volume instead of moving camera
       this.state.orthoSize = Math.max(0.01, this.state.orthoSize * zoomFactor);
       // Still move camera position to keep orbit distance consistent for when switching back
-      const newDistance = Math.max(0.1, distance * zoomFactor);
+      const newDistance = Math.max(0.001, distance * zoomFactor);
       const scale = newDistance / distance;
       this.state.camera.position.x = this.state.camera.target.x + dir.x * scale;
       this.state.camera.position.y = this.state.camera.target.y + dir.y * scale;
       this.state.camera.position.z = this.state.camera.target.z + dir.z * scale;
     } else {
-      // Perspective: scale distance
-      const newDistance = Math.max(0.1, distance * zoomFactor);
-      const scale = newDistance / distance;
-      this.state.camera.position.x = this.state.camera.target.x + dir.x * scale;
-      this.state.camera.position.y = this.state.camera.target.y + dir.y * scale;
-      this.state.camera.position.z = this.state.camera.target.z + dir.z * scale;
+      // Perspective: scale distance with dolly-through support
+      const newDistance = distance * zoomFactor;
+      const minDistance = 0.001;
+      if (newDistance < minDistance && normalizedDelta < 0) {
+        // Dolly-through: move target forward so camera can keep zooming
+        const forward = { x: -dir.x / distance, y: -dir.y / distance, z: -dir.z / distance };
+        const pushAmount = minDistance - newDistance;
+        this.state.camera.target.x += forward.x * pushAmount;
+        this.state.camera.target.y += forward.y * pushAmount;
+        this.state.camera.target.z += forward.z * pushAmount;
+        this.state.camera.position.x = this.state.camera.target.x - forward.x * minDistance;
+        this.state.camera.position.y = this.state.camera.target.y - forward.y * minDistance;
+        this.state.camera.position.z = this.state.camera.target.z - forward.z * minDistance;
+      } else {
+        const clampedDistance = Math.max(minDistance, newDistance);
+        const scale = clampedDistance / distance;
+        this.state.camera.position.x = this.state.camera.target.x + dir.x * scale;
+        this.state.camera.position.y = this.state.camera.target.y + dir.y * scale;
+        this.state.camera.position.z = this.state.camera.target.z + dir.z * scale;
+      }
     }
 
     this.updateMatrices();
