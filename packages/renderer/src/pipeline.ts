@@ -132,10 +132,6 @@ export class RenderPipeline {
                 format: this.depthFormat,
                 depthWriteEnabled: true,
                 depthCompare: 'greater',  // Reverse-Z: greater instead of less
-                // Depth bias combats z-fighting between coplanar surfaces
-                // (e.g. column tops meeting slab bottoms in BIM models)
-                depthBias: 1,
-                depthBiasSlopeScale: 1,
             },
             // MSAA configuration - must match render pass attachment sample count
             multisample: {
@@ -739,8 +735,6 @@ export class InstancedRenderPipeline {
                 format: this.depthFormat,
                 depthWriteEnabled: true,
                 depthCompare: 'greater',  // Reverse-Z: greater instead of less
-                depthBias: 1,
-                depthBiasSlopeScale: 1,
             },
         });
         // Note: bind groups are created per-instanced-mesh via createInstanceBindGroup()
