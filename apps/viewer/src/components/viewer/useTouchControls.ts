@@ -102,7 +102,13 @@ export function useTouchControls(params: UseTouchControlsParams): void {
           camera.setOrbitCenter(hit.intersection.point);
         } else {
           const ray = camera.unprojectToRay(tx, ty, canvas.width, canvas.height);
-          const d = camera.getDistance();
+          const target = camera.getTarget();
+          const toTarget = {
+            x: target.x - ray.origin.x,
+            y: target.y - ray.origin.y,
+            z: target.z - ray.origin.z,
+          };
+          const d = Math.max(1, toTarget.x * ray.direction.x + toTarget.y * ray.direction.y + toTarget.z * ray.direction.z);
           camera.setOrbitCenter({
             x: ray.origin.x + ray.direction.x * d,
             y: ray.origin.y + ray.direction.y * d,

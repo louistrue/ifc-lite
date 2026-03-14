@@ -342,9 +342,17 @@ export function useMouseControls(params: UseMouseControlsParams): void {
         if (hit?.intersection) {
           camera.setOrbitCenter(hit.intersection.point);
         } else {
-          // No geometry hit — place pivot at current distance along cursor ray
+          // No geometry hit — project camera target onto the cursor ray.
+          // This places the pivot at the model's depth but under the cursor,
+          // so orbit feels identical whether you hit geometry or empty space.
           const ray = camera.unprojectToRay(cx, cy, canvas.width, canvas.height);
-          const d = camera.getDistance();
+          const target = camera.getTarget();
+          const toTarget = {
+            x: target.x - ray.origin.x,
+            y: target.y - ray.origin.y,
+            z: target.z - ray.origin.z,
+          };
+          const d = Math.max(1, toTarget.x * ray.direction.x + toTarget.y * ray.direction.y + toTarget.z * ray.direction.z);
           camera.setOrbitCenter({
             x: ray.origin.x + ray.direction.x * d,
             y: ray.origin.y + ray.direction.y * d,
