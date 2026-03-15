@@ -254,6 +254,23 @@ impl GeometryRouter {
         self.faceted_brep_cache.borrow_mut().remove(&brep_id)
     }
 
+    /// Resolve an element's ObjectPlacement to a scaled world-space transform matrix.
+    /// Returns the 4x4 matrix as a flat column-major array of 16 f64 values.
+    /// The translation component is scaled from file units to meters.
+    ///
+    /// Contributed by Mathias Søndergaard (Sonderwoods/Linkajou).
+    pub fn resolve_scaled_placement(
+        &self,
+        entity: &DecodedEntity,
+        decoder: &mut EntityDecoder,
+    ) -> Result<[f64; 16]> {
+        let mut transform = self.get_placement_transform_from_element(entity, decoder)?;
+        self.scale_transform(&mut transform);
+        let mut result = [0.0f64; 16];
+        result.copy_from_slice(transform.as_slice());
+        Ok(result)
+    }
+
     /// Get schema reference
     pub fn schema(&self) -> &IfcSchema {
         &self.schema

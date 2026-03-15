@@ -2,6 +2,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-//! IFC processing service — re-exports from the shared `ifc-lite-processing` crate.
+//! Shared type definitions for IFC processing.
 
-pub use ifc_lite_processing::{process_geometry, process_geometry_filtered, OpeningFilterMode, ProcessingResult};
+pub mod mesh;
+pub mod response;
