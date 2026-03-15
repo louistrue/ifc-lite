@@ -6,8 +6,11 @@ import React, { useRef, useState, useEffect } from 'react';
 import {
   GraphicOverrideEngine,
   calculateDrawingTransform,
+  resolveObjectStyle,
   type Drawing2D,
   type ElementData,
+  type ObjectStylesConfig,
+  type ObjectStyleHatch,
 } from '@ifc-lite/drawing-2d';
 import { formatDistance } from './tools/formatDistance';
 import { formatArea, computePolygonCentroid } from './tools/computePolygonArea';
@@ -56,6 +59,120 @@ export function getFillColorForType(ifcType: string): string {
 
 // Static constants to avoid creating new objects/arrays on every render
 const CANVAS_STYLE = { imageRendering: 'crisp-edges' as const };
+
+/**
+ * Draw a hatch pattern inside a polygon on the canvas.
+ * Clips to the polygon shape and draws parallel lines at the configured angle/spacing.
+ */
+function drawCanvasHatch(
+  ctx: CanvasRenderingContext2D,
+  polygon: { outer: { x: number; y: number }[]; holes: { x: number; y: number }[][] },
+  hatch: ObjectStyleHatch,
+  viewScale: number,
+): void {
+  if (polygon.outer.length < 3) return;
+
+  // Compute bounding box
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const pt of polygon.outer) {
+    if (pt.x < minX) minX = pt.x;
+    if (pt.y < minY) minY = pt.y;
+    if (pt.x > maxX) maxX = pt.x;
+    if (pt.y > maxY) maxY = pt.y;
+  }
+
+  // Spacing in model coords (hatch.spacing is in mm at 1:1, model is in meters)
+  const spacingModel = (hatch.spacing || 3) * 0.001;
+  const angle = ((hatch.angle || 45) * Math.PI) / 180;
+  const cosA = Math.cos(angle);
+  const sinA = Math.sin(angle);
+
+  ctx.save();
+
+  // Clip to polygon shape
+  ctx.beginPath();
+  ctx.moveTo(polygon.outer[0].x, polygon.outer[0].y);
+  for (let i = 1; i < polygon.outer.length; i++) {
+    ctx.lineTo(polygon.outer[i].x, polygon.outer[i].y);
+  }
+  ctx.closePath();
+  for (const hole of polygon.holes) {
+    if (hole.length > 0) {
+      ctx.moveTo(hole[0].x, hole[0].y);
+      for (let i = 1; i < hole.length; i++) {
+        ctx.lineTo(hole[i].x, hole[i].y);
+      }
+      ctx.closePath();
+    }
+  }
+  ctx.clip('evenodd');
+
+  // Draw parallel lines
+  ctx.strokeStyle = hatch.lineColor || '#000000';
+  ctx.lineWidth = (hatch.lineWeight || 0.18) / viewScale;
+  ctx.setLineDash([]);
+
+  const diagonal = Math.sqrt((maxX - minX) ** 2 + (maxY - minY) ** 2);
+  const cx = (minX + maxX) / 2;
+  const cy = (minY + maxY) / 2;
+  const numLines = Math.ceil(diagonal / spacingModel);
+  const halfCount = Math.ceil(numLines / 2);
+
+  ctx.beginPath();
+  for (let i = -halfCount; i <= halfCount; i++) {
+    const offset = i * spacingModel;
+    // Line perpendicular to the hatch angle, offset from center
+    const ox = cx + offset * cosA;
+    const oy = cy + offset * sinA;
+    // Draw line along the angle direction
+    const sx = ox - diagonal * sinA;
+    const sy = oy + diagonal * cosA;
+    const ex = ox + diagonal * sinA;
+    const ey = oy - diagonal * cosA;
+    ctx.moveTo(sx, sy);
+    ctx.lineTo(ex, ey);
+  }
+  ctx.stroke();
+
+  // Cross-hatch: draw second set perpendicular
+  if (hatch.pattern === 'cross') {
+    const angle2 = angle + Math.PI / 2;
+    const cosA2 = Math.cos(angle2);
+    const sinA2 = Math.sin(angle2);
+    ctx.beginPath();
+    for (let i = -halfCount; i <= halfCount; i++) {
+      const offset = i * spacingModel;
+      const ox = cx + offset * cosA2;
+      const oy = cy + offset * sinA2;
+      const sx = ox - diagonal * sinA2;
+      const sy = oy + diagonal * cosA2;
+      const ex = ox + diagonal * sinA2;
+      const ey = oy - diagonal * cosA2;
+      ctx.moveTo(sx, sy);
+      ctx.lineTo(ex, ey);
+    }
+    ctx.stroke();
+  }
+
+  // Concrete pattern (dots)
+  if (hatch.pattern === 'concrete') {
+    const dotRadius = (hatch.lineWeight || 0.18) / viewScale * 1.5;
+    ctx.fillStyle = hatch.lineColor || '#000000';
+    for (let i = -halfCount; i <= halfCount; i++) {
+      for (let j = -halfCount; j <= halfCount; j++) {
+        const dx = cx + i * spacingModel;
+        const dy = cy + j * spacingModel;
+        if (dx >= minX && dx <= maxX && dy >= minY && dy <= maxY) {
+          ctx.beginPath();
+          ctx.arc(dx, dy, dotRadius, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+    }
+  }
+
+  ctx.restore();
+}
 const EMPTY_MEASURE_RESULTS: Measure2DResultData[] = [];
 
 export interface Measure2DResultData {
@@ -114,6 +231,8 @@ interface Drawing2DCanvasProps {
   snapResult?: { point: { x: number; y: number }; type: 'vertex' | 'midpoint' | 'edge' | null } | null;
   /** Parametric offset handles to render (from useOffsetHandles2D) */
   offsetHandles?: OffsetHandle[];
+  /** Per-IFC-type object style overrides (fill, stroke, line weight, visibility) */
+  objectStyleOverrides?: Partial<ObjectStylesConfig>;
 }
 
 export function Drawing2DCanvas({
@@ -151,6 +270,7 @@ export function Drawing2DCanvas({
   selectedShapeId = null,
   snapResult = null,
   offsetHandles = [],
+  objectStyleOverrides,
 }: Drawing2DCanvasProps): React.ReactElement {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 });
@@ -512,8 +632,20 @@ export function Drawing2DCanvas({
 
         // Fill cut polygons
         for (const polygon of drawing.cutPolygons) {
+          // Object styles override: skip hidden categories
+          if (objectStyleOverrides) {
+            const objStyle = resolveObjectStyle(polygon.ifcType, objectStyleOverrides);
+            if (!objStyle.visible) continue;
+          }
+
           let fillColor = getFillColorForType(polygon.ifcType);
           let opacity = 1;
+
+          // Object styles take priority for fill color
+          if (objectStyleOverrides) {
+            const objStyle = resolveObjectStyle(polygon.ifcType, objectStyleOverrides);
+            if (objStyle.fillColor) fillColor = objStyle.fillColor;
+          }
 
           if (useIfcMaterials) {
             const materialColor = entityColorMap.get(polygon.entityId);
@@ -565,8 +697,21 @@ export function Drawing2DCanvas({
 
         // Stroke polygon outlines
         for (const polygon of drawing.cutPolygons) {
+          // Skip hidden categories
+          if (objectStyleOverrides) {
+            const objStyle = resolveObjectStyle(polygon.ifcType, objectStyleOverrides);
+            if (!objStyle.visible) continue;
+          }
+
           let strokeColor = '#000000';
           let lineWeight = 0.5;
+
+          // Apply object style overrides for stroke
+          if (objectStyleOverrides) {
+            const objStyle = resolveObjectStyle(polygon.ifcType, objectStyleOverrides);
+            strokeColor = objStyle.cutLines.lineColor;
+            lineWeight = objStyle.cutLines.lineWeight;
+          }
 
           if (overridesEnabled) {
             const elementData: ElementData = {
@@ -796,10 +941,23 @@ export function Drawing2DCanvas({
       // 1. FILL CUT POLYGONS (with color from IFC materials, override engine, or type fallback)
       // ═══════════════════════════════════════════════════════════════════════
       for (const polygon of drawing.cutPolygons) {
-        // Get fill color - priority: IFC materials > override engine > IFC type fallback
+        // Object styles override: skip hidden categories
+        if (objectStyleOverrides) {
+          const objStyle = resolveObjectStyle(polygon.ifcType, objectStyleOverrides);
+          if (!objStyle.visible) continue;
+        }
+
+        // Get fill color - priority: IFC materials > override engine > object styles > IFC type fallback
         let fillColor = getFillColorForType(polygon.ifcType);
         let strokeColor = '#000000';
         let opacity = 1;
+
+        // Object styles set base fill color
+        if (objectStyleOverrides) {
+          const objStyle = resolveObjectStyle(polygon.ifcType, objectStyleOverrides);
+          if (objStyle.fillColor) fillColor = objStyle.fillColor;
+          strokeColor = objStyle.cutLines.lineColor;
+        }
 
         // Use actual IFC material colors from the mesh data
         if (useIfcMaterials) {
@@ -846,14 +1004,35 @@ export function Drawing2DCanvas({
         }
         ctx.fill('evenodd');
         ctx.globalAlpha = 1;
+
+        // Draw hatch pattern if specified in object styles
+        if (objectStyleOverrides) {
+          const objStyle = resolveObjectStyle(polygon.ifcType, objectStyleOverrides);
+          if (objStyle.hatch && polygon.polygon.outer.length > 0) {
+            drawCanvasHatch(ctx, polygon.polygon, objStyle.hatch, transform.scale);
+          }
+        }
       }
 
       // ═══════════════════════════════════════════════════════════════════════
-      // 2. STROKE CUT POLYGON OUTLINES (with color from override engine)
+      // 2. STROKE CUT POLYGON OUTLINES (with color from object styles / override engine)
       // ═══════════════════════════════════════════════════════════════════════
       for (const polygon of drawing.cutPolygons) {
+        // Skip hidden categories
+        if (objectStyleOverrides) {
+          const objStyle = resolveObjectStyle(polygon.ifcType, objectStyleOverrides);
+          if (!objStyle.visible) continue;
+        }
+
         let strokeColor = '#000000';
         let lineWeight = 0.5;
+
+        // Apply object style overrides for stroke
+        if (objectStyleOverrides) {
+          const objStyle = resolveObjectStyle(polygon.ifcType, objectStyleOverrides);
+          strokeColor = objStyle.cutLines.lineColor;
+          lineWeight = objStyle.cutLines.lineWeight;
+        }
 
         if (overridesEnabled) {
           const elementData: ElementData = {

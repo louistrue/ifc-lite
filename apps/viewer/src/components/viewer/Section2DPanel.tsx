@@ -982,6 +982,7 @@ export function Section2DPanel({
               overridesEnabled={overridesEnabled}
               entityColorMap={entityColorMap}
               useIfcMaterials={activePresetId === 'preset-3d-colors'}
+              objectStyleOverrides={objectStyleOverrides}
               measureMode={measure2DMode}
               measureStart={measure2DStart}
               measureCurrent={measure2DCurrent}

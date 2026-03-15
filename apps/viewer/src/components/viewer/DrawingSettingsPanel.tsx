@@ -629,7 +629,7 @@ function ObjectStylesEditor({ overrides, onSetOverride, onResetOverride, onReset
       </div>
 
       {/* Column headers */}
-      <div className="grid grid-cols-[1fr_48px_56px_56px_64px_28px] gap-1 px-3 py-1 text-[10px] font-medium text-muted-foreground uppercase tracking-wide border-b">
+      <div className="grid grid-cols-[minmax(80px,1fr)_32px_40px_52px_56px_24px] gap-1 px-3 py-1 text-[10px] font-medium text-muted-foreground uppercase tracking-wide border-b">
         <span>Category</span>
         <span>Vis</span>
         <span>Color</span>
@@ -672,7 +672,7 @@ function ObjectStyleRow({ ifcType, style, isOverridden, onUpdate, onReset }: Obj
   const hatchPattern = style.hatch?.pattern ?? 'none';
 
   return (
-    <div className={`grid grid-cols-[1fr_48px_56px_56px_64px_28px] gap-1 items-center px-3 py-1.5 border-b border-muted/50 hover:bg-muted/20 ${isOverridden ? 'bg-blue-50/40 dark:bg-blue-950/20' : ''}`}>
+    <div className={`grid grid-cols-[minmax(80px,1fr)_32px_40px_52px_56px_24px] gap-1 items-center px-3 py-1.5 border-b border-muted/50 hover:bg-muted/20 ${isOverridden ? 'bg-blue-50/40 dark:bg-blue-950/20' : ''}`}>
       {/* Category label */}
       <span className="text-xs font-medium truncate" title={ifcType}>{label}</span>
 
