@@ -17,6 +17,8 @@ export interface VisibilitySlice {
   // State (legacy - single model)
   hiddenEntities: Set<number>;
   isolatedEntities: Set<number> | null;
+  /** Class-level filter (from Class tab type-group clicks) — independent of isolatedEntities */
+  classFilter: { ids: Set<number>; label: string } | null;
   typeVisibility: TypeVisibility;
 
   // State (multi-model)
@@ -34,6 +36,11 @@ export interface VisibilitySlice {
   isolateEntity: (id: number) => void;
   isolateEntities: (ids: number[]) => void;
   clearIsolation: () => void;
+  /** Set class-level filter (IFC class isolation from Class tab) */
+  setClassFilter: (ids: number[], label: string) => void;
+  clearClassFilter: () => void;
+  /** Clear all isolation and class filters */
+  clearAllFilters: () => void;
   showAll: () => void;
   isEntityVisible: (id: number) => boolean;
   toggleTypeVisibility: (type: 'spaces' | 'openings' | 'site') => void;
@@ -67,6 +74,7 @@ export const createVisibilitySlice: StateCreator<VisibilitySlice, [], [], Visibi
   // Initial state (legacy)
   hiddenEntities: new Set(),
   isolatedEntities: null,
+  classFilter: null,
   typeVisibility: {
     spaces: TYPE_VISIBILITY_DEFAULTS.SPACES,
     openings: TYPE_VISIBILITY_DEFAULTS.OPENINGS,
@@ -153,9 +161,25 @@ export const createVisibilitySlice: StateCreator<VisibilitySlice, [], [], Visibi
 
   clearIsolation: () => set({ isolatedEntities: null }),
 
-  showAll: () => set({ hiddenEntities: new Set(), isolatedEntities: null }),
+  setClassFilter: (ids, label) => set((state) => {
+    const idsSet = new Set(ids);
+    // Toggle: if same class already filtered, clear it
+    const isAlready = state.classFilter !== null &&
+      state.classFilter.ids.size === idsSet.size &&
+      ids.every(id => state.classFilter!.ids.has(id));
+    if (isAlready) {
+      return { classFilter: null };
+    }
+    return { classFilter: { ids: idsSet, label } };
+  }),
 
-  setHiddenEntities: (ids) => set({ hiddenEntities: new Set(ids), isolatedEntities: null }),
+  clearClassFilter: () => set({ classFilter: null }),
+
+  clearAllFilters: () => set({ isolatedEntities: null, classFilter: null }),
+
+  showAll: () => set({ hiddenEntities: new Set(), isolatedEntities: null, classFilter: null }),
+
+  setHiddenEntities: (ids) => set({ hiddenEntities: new Set(ids), isolatedEntities: null, classFilter: null }),
 
   setIsolatedEntities: (ids) => set({
     isolatedEntities: ids ? new Set(ids) : null,
@@ -166,6 +190,7 @@ export const createVisibilitySlice: StateCreator<VisibilitySlice, [], [], Visibi
     const state = get();
     if (state.hiddenEntities.has(id)) return false;
     if (state.isolatedEntities !== null && !state.isolatedEntities.has(id)) return false;
+    if (state.classFilter !== null && !state.classFilter.ids.has(id)) return false;
     return true;
   },
 
@@ -271,6 +296,7 @@ export const createVisibilitySlice: StateCreator<VisibilitySlice, [], [], Visibi
   showAllInAllModels: () => set({
     hiddenEntities: new Set(),
     isolatedEntities: null,
+    classFilter: null,
     hiddenEntitiesByModel: new Map(),
     isolatedEntitiesByModel: new Map(),
   }),

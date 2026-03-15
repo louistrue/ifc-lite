@@ -80,6 +80,22 @@ export interface ImportStats {
 }
 
 /**
+ * Progress update during async import
+ */
+export interface ImportProgress {
+  /** Current phase of the import */
+  phase: 'parsing' | 'matching' | 'applying';
+  /** Unified progress 0–1 across all phases */
+  percent: number;
+  /** Running count of mutations created */
+  mutationsCreated: number;
+  /** Running count of matched rows */
+  matchedRows: number;
+  /** Total rows being processed */
+  totalRows: number;
+}
+
+/**
  * CSV parsing options
  */
 export interface CsvParseOptions {
@@ -297,6 +313,96 @@ export class CsvConnector {
       // Generate and apply mutations
       const mutations = this.generateMutations(matches, mapping);
       stats.mutationsCreated = mutations.length;
+    } catch (error) {
+      stats.errors.push(error instanceof Error ? error.message : 'Unknown error');
+    }
+
+    return stats;
+  }
+
+  /**
+   * Async batched import that yields to the main thread between batches.
+   * Provides live progress updates via onProgress callback.
+   */
+  async importAsync(
+    content: string,
+    mapping: DataMapping,
+    onProgress: (progress: ImportProgress) => void,
+    options: CsvParseOptions & { batchSize?: number } = {}
+  ): Promise<ImportStats> {
+    const batchSize = options.batchSize || 200;
+
+    const stats: ImportStats = {
+      totalRows: 0,
+      matchedRows: 0,
+      unmatchedRows: 0,
+      mutationsCreated: 0,
+      errors: [],
+      warnings: [],
+    };
+
+    try {
+      // Unified progress: matching = 0–60%, applying = 60–100%
+      const MATCH_WEIGHT = 0.6;
+      const APPLY_WEIGHT = 0.4;
+
+      // Phase 1: Parse
+      onProgress({ phase: 'parsing', percent: 0, mutationsCreated: 0, matchedRows: 0, totalRows: 0 });
+      const rows = this.parse(content, options);
+      stats.totalRows = rows.length;
+
+      // Phase 2: Match in batches (0–60%)
+      const allMatches: MatchResult[] = [];
+      for (let i = 0; i < rows.length; i += batchSize) {
+        const batch = rows.slice(i, i + batchSize);
+        for (let j = 0; j < batch.length; j++) {
+          const match = this.matchRow(batch[j], i + j, mapping.matchStrategy);
+          allMatches.push(match);
+
+          if (match.matchedEntityIds.length > 0) {
+            stats.matchedRows++;
+          } else {
+            stats.unmatchedRows++;
+          }
+          if (match.warnings) {
+            stats.warnings.push(...match.warnings);
+          }
+        }
+
+        const matchProgress = Math.min(i + batchSize, rows.length) / rows.length;
+        onProgress({
+          phase: 'matching',
+          percent: matchProgress * MATCH_WEIGHT,
+          mutationsCreated: 0,
+          matchedRows: stats.matchedRows,
+          totalRows: rows.length,
+        });
+
+        // Yield to main thread
+        await new Promise((r) => setTimeout(r, 0));
+      }
+
+      // Phase 3: Apply mutations in batches (60–100%)
+      let mutationCount = 0;
+      for (let i = 0; i < allMatches.length; i += batchSize) {
+        const batch = allMatches.slice(i, i + batchSize);
+        const mutations = this.generateMutations(batch, mapping);
+        mutationCount += mutations.length;
+
+        const applyProgress = Math.min(i + batchSize, allMatches.length) / allMatches.length;
+        onProgress({
+          phase: 'applying',
+          percent: MATCH_WEIGHT + applyProgress * APPLY_WEIGHT,
+          mutationsCreated: mutationCount,
+          matchedRows: stats.matchedRows,
+          totalRows: rows.length,
+        });
+
+        // Yield to main thread
+        await new Promise((r) => setTimeout(r, 0));
+      }
+
+      stats.mutationsCreated = mutationCount;
     } catch (error) {
       stats.errors.push(error instanceof Error ? error.message : 'Unknown error');
     }

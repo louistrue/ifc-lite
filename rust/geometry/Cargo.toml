@@ -27,7 +27,7 @@ earcutr = "0.4"
 i_overlay = "1.9"
 
 # Core IFC parsing
-ifc-lite-core = { version = "1.1.6", path = "../core" }
+ifc-lite-core.workspace = true
 
 # Math library
 nalgebra = { version = "0.33", default-features = false, features = ["std"] }

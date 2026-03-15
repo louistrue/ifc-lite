@@ -1,5 +1,62 @@
 # @ifc-lite/viewer-embed
 
+## 1.14.4
+
+### Patch Changes
+
+- Updated dependencies [[`ba9040c`](https://github.com/louistrue/ifc-lite/commit/ba9040c6ff3204f3a936dd2f481c4cd8a4e6f5b5), [`ba9040c`](https://github.com/louistrue/ifc-lite/commit/ba9040c6ff3204f3a936dd2f481c4cd8a4e6f5b5)]:
+  - @ifc-lite/ifcx@2.0.0
+  - @ifc-lite/parser@2.0.0
+  - @ifc-lite/export@1.14.4
+  - @ifc-lite/query@1.14.4
+  - @ifc-lite/sdk@1.14.4
+
+## 1.14.3
+
+### Patch Changes
+
+- Updated dependencies [[`041ddb4`](https://github.com/louistrue/ifc-lite/commit/041ddb4a40c7e23b08fb7b7ce42690a9cc9708a0), [`07851b2`](https://github.com/louistrue/ifc-lite/commit/07851b2161b4cfcaa2dfc1b0f31a6fcc2db99e45), [`041ddb4`](https://github.com/louistrue/ifc-lite/commit/041ddb4a40c7e23b08fb7b7ce42690a9cc9708a0), [`041ddb4`](https://github.com/louistrue/ifc-lite/commit/041ddb4a40c7e23b08fb7b7ce42690a9cc9708a0), [`041ddb4`](https://github.com/louistrue/ifc-lite/commit/041ddb4a40c7e23b08fb7b7ce42690a9cc9708a0)]:
+  - @ifc-lite/sdk@1.14.3
+  - @ifc-lite/mutations@1.14.3
+  - @ifc-lite/wasm@1.14.3
+  - @ifc-lite/sandbox@1.14.3
+  - @ifc-lite/geometry@1.14.3
+  - @ifc-lite/export@1.14.3
+  - @ifc-lite/bcf@1.14.3
+  - @ifc-lite/cache@1.14.3
+  - @ifc-lite/data@1.14.3
+  - @ifc-lite/drawing-2d@1.14.3
+  - @ifc-lite/embed-protocol@1.14.3
+  - @ifc-lite/ids@1.14.3
+  - @ifc-lite/ifcx@1.14.3
+  - @ifc-lite/parser@1.14.3
+  - @ifc-lite/query@1.14.3
+  - @ifc-lite/renderer@1.14.3
+  - @ifc-lite/server-client@1.14.3
+  - @ifc-lite/spatial@1.14.3
+
+## 1.14.2
+
+### Patch Changes
+
+- Updated dependencies [[`740f7a7`](https://github.com/louistrue/ifc-lite/commit/740f7a7228413657d13014565d9e457f0e00e8a3), [`740f7a7`](https://github.com/louistrue/ifc-lite/commit/740f7a7228413657d13014565d9e457f0e00e8a3)]:
+  - @ifc-lite/export@1.14.2
+  - @ifc-lite/parser@1.14.2
+  - @ifc-lite/bcf@1.14.2
+  - @ifc-lite/cache@1.14.2
+  - @ifc-lite/data@1.14.2
+  - @ifc-lite/drawing-2d@1.14.2
+  - @ifc-lite/embed-protocol@1.14.2
+  - @ifc-lite/geometry@1.14.2
+  - @ifc-lite/ids@1.14.2
+  - @ifc-lite/ifcx@1.14.2
+  - @ifc-lite/mutations@1.14.2
+  - @ifc-lite/query@1.14.2
+  - @ifc-lite/renderer@1.14.2
+  - @ifc-lite/server-client@1.14.2
+  - @ifc-lite/spatial@1.14.2
+  - @ifc-lite/wasm@1.14.2
+
 ## 1.14.1
 
 ### Patch Changes

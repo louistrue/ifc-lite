@@ -24,7 +24,7 @@ export class SpatialHierarchyBuilder {
     relationships: RelationshipGraph,
     strings: StringTable,
     source: Uint8Array,
-    entityIndex: { byId: Map<number, EntityRef> },
+    entityIndex: { byId: { get(expressId: number): EntityRef | undefined } },
     lengthUnitScale: number = 1.0
   ): SpatialHierarchy {
     const byStorey = new Map<number, number[]>();
@@ -167,7 +167,7 @@ export class SpatialHierarchyBuilder {
     relationships: RelationshipGraph,
     strings: StringTable,
     source: Uint8Array,
-    entityIndex: { byId: Map<number, EntityRef> },
+    entityIndex: { byId: { get(expressId: number): EntityRef | undefined } },
     byStorey: Map<number, number[]>,
     byBuilding: Map<number, number[]>,
     bySite: Map<number, number[]>,
@@ -264,7 +264,7 @@ export class SpatialHierarchyBuilder {
   private extractElevation(
     expressId: number,
     source: Uint8Array,
-    entityIndex: { byId: Map<number, EntityRef> }
+    entityIndex: { byId: { get(expressId: number): EntityRef | undefined } }
   ): number | undefined {
     const ref = entityIndex.byId.get(expressId);
     if (!ref) return undefined;

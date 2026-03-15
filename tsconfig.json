@@ -100,6 +100,12 @@
       ],
       "@ifc-lite/node-registry/*": [
         "packages/node-registry/dist/*"
+      ],
+      "@ifc-lite/viewer": [
+        "packages/viewer/dist/index.d.ts"
+      ],
+      "@ifc-lite/viewer/*": [
+        "packages/viewer/dist/*"
       ]
     }
   },

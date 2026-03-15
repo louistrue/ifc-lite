@@ -21,6 +21,8 @@ export interface PropertySet {
   name: string;
   properties: Array<{ name: string; value: unknown; isMutated?: boolean }>;
   isNewPset?: boolean;
+  /** Where this property set originates from: 'instance' (occurrence) or 'type' (inherited from IfcTypeObject) */
+  source?: 'instance' | 'type';
 }
 
 export interface QuantitySet {

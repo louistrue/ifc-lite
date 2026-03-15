@@ -161,11 +161,12 @@ function parseEntity(name: string, body: string): EntityDefinition {
   let attributesSection = body;
 
   // Find where attributes section ends
+  // Match only section-level keywords at line start (not inside attribute types, e.g. "OF UNIQUE")
   const sectionMatches = [
-    body.match(/\bWHERE\b/),
-    body.match(/\bDERIVE\b/),
-    body.match(/\bINVERSE\b/),
-    body.match(/\bUNIQUE\b/),
+    body.match(/^\s*WHERE\b/m),
+    body.match(/^\s*DERIVE\b/m),
+    body.match(/^\s*INVERSE\b/m),
+    body.match(/^\s*UNIQUE\b/m),
   ].filter(m => m !== null) as RegExpMatchArray[];
 
   if (sectionMatches.length > 0) {
@@ -398,13 +399,15 @@ export function getAllAttributes(
   entity: EntityDefinition,
   schema: ExpressSchema
 ): AttributeDefinition[] {
-  const attributes: AttributeDefinition[] = [];
+  // Collect attributes by walking up the inheritance chain,
+  // then reverse to get STEP order (parent-first / root → leaf)
+  const levels: AttributeDefinition[][] = [];
 
-  // Walk up the inheritance chain
   let current: EntityDefinition | undefined = entity;
   while (current) {
-    // Add attributes from this level
-    attributes.push(...current.attributes);
+    if (current.attributes.length > 0) {
+      levels.push(current.attributes);
+    }
 
     // Move to parent
     if (current.supertype) {
@@ -412,6 +415,12 @@ export function getAllAttributes(
     } else {
       current = undefined;
     }
+  }
+
+  // Reverse: root attributes first (STEP positional order)
+  const attributes: AttributeDefinition[] = [];
+  for (let i = levels.length - 1; i >= 0; i--) {
+    attributes.push(...levels[i]);
   }
 
   return attributes;

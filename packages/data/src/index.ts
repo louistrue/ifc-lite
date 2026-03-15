@@ -20,5 +20,8 @@ export * from './types.js';
 export { IfcTypeEnum, PropertyValueType, QuantityType, RelationshipType, EntityFlags } from './types.js';
 export type { SpatialNode, SpatialHierarchy } from './types.js';
 
+// Entity name mapping (UPPERCASE → PascalCase)
+export { IFC_ENTITY_NAMES } from './ifc-entity-names.js';
+
 // Logging utilities
 export { createLogger, logger, type LogLevel, type LogContext } from './logger.js';

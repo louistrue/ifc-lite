@@ -27,6 +27,49 @@ import {
 import { convertEntityType, type IfcSchemaVersion } from './schema-converter.js';
 
 // ============================================================================
+// Standard IFCX schema imports
+// ============================================================================
+
+/** Standard IFC5 schema package URIs, keyed by the attribute prefix they provide. */
+const IFCX_SCHEMA_IMPORTS = {
+  /** Core IFC: bsi::ifc::class, bsi::ifc::presentation::*, bsi::ifc::material, bsi::ifc::spaceBoundary */
+  IFC_CORE: 'https://ifcx.dev/@standards.buildingsmart.org/ifc/core/ifc@v5a.ifcx',
+  /** IFC properties: bsi::ifc::prop::* */
+  IFC_PROP: 'https://ifcx.dev/@standards.buildingsmart.org/ifc/core/prop@v5a.ifcx',
+  /** OpenUSD geometry: usd::usdgeom::mesh, usd::xformop, usd::usdgeom::visibility */
+  USD: 'https://ifcx.dev/@openusd.org/usd@v1.ifcx',
+} as const;
+
+/**
+ * Property names that have official IFC5 schema definitions in prop@v5a.ifcx.
+ * Source: https://github.com/buildingSMART/ifcx.dev/blob/main/@standards.buildingsmart.org/ifc/core/prop@v5a.ifcx
+ *
+ * IFC4 properties NOT in this set (e.g. Reference, LoadBearing, ExtendToStructure)
+ * must be omitted from IFC5 export — the viewer reports "Missing schema" errors for them.
+ *
+ * Name and Description are handled separately (always exported), so they're excluded here.
+ */
+export const IFC5_KNOWN_PROP_NAMES = new Set([
+  'UsageType',
+  'TypeName',
+  'IsExternal',
+  'RefElevation',
+  'ElevationOfRefHeight',
+  'ElevationOfTerrain',
+  'NumberOfStoreys',
+  'Height',
+  'Width',
+  'Length',
+  'Depth',
+  'Volume',
+  'NetVolume',
+  'NetArea',
+  'NetSideArea',
+  'CrossSectionArea',
+  'Station',
+]);
+
+// ============================================================================
 // Types
 // ============================================================================
 
@@ -50,6 +93,14 @@ export interface Ifc5ExportOptions {
   hiddenEntityIds?: Set<number>;
   /** Isolated entity IDs (local expressIds, null = no isolation) */
   isolatedEntityIds?: Set<number> | null;
+  /** Only export properties with known IFC5 schemas (default: true).
+   *  When false, all IFC4 properties are exported even if they lack
+   *  an official IFC5 schema definition (viewer may show warnings). */
+  onlyKnownProperties?: boolean;
+  /** Only export entities reachable from the spatial tree (default: true).
+   *  When true, relationship entities (IfcRel*), type objects, materials,
+   *  and other non-spatial entities are excluded from the output. */
+  onlyTreeEntities?: boolean;
 }
 
 /** Result of IFC5 export */
@@ -74,7 +125,7 @@ interface IfcxFileOutput {
     author: string;
     timestamp: string;
   };
-  imports: string[];
+  imports: { uri: string }[];
   schemas: Record<string, unknown>;
   data: IfcxNodeOutput[];
 }
@@ -99,12 +150,14 @@ export class Ifc5Exporter {
   private mutationView: MutablePropertyView | null;
   private geometryResult: GeometryResult | null;
   private idOffset: number;
-  /** Unique path segment name per entity (with _<id> suffix when siblings collide) */
-  private segmentNames = new Map<number, string>();
+  /** Unique child name per entity (with _<id> suffix when siblings collide) */
+  private childNames = new Map<number, string>();
   /** Real names from SpatialNode tree (reliable for spatial containers) */
   private spatialNodeNames = new Map<number, string>();
   /** Spatial container children (Project→Sites, Site→Buildings, etc.) */
   private spatialChildIds = new Map<number, number[]>();
+  /** UUID path for each entity expressId */
+  private entityUuids = new Map<number, string>();
 
   constructor(
     dataStore: IfcDataStore,
@@ -124,14 +177,17 @@ export class Ifc5Exporter {
   export(options: Ifc5ExportOptions = {}): Ifc5ExportResult {
     const sourceSchema = (this.dataStore.schemaVersion as IfcSchemaVersion) || 'IFC4';
 
-    // Build entity path map using spatial hierarchy
-    const entityPaths = this.buildEntityPaths();
+    // Build UUID paths and child-name maps from spatial hierarchy
+    this.buildEntityMaps();
 
     // Build mesh lookup by expressId
     const meshByEntity = this.buildMeshLookup(options);
 
     // Build visible set
     const visibleIds = this.buildVisibleSet(options);
+
+    // Build spatial tree set (entities reachable from the project node)
+    const treeIds = options.onlyTreeEntities !== false ? this.buildTreeEntitySet() : null;
 
     // Collect nodes
     const nodes: IfcxNodeOutput[] = [];
@@ -140,11 +196,17 @@ export class Ifc5Exporter {
 
     const { entities, strings } = this.dataStore;
 
+    // Find the project entity so we can create a root node pointing to it
+    let projectExpressId: number | null = null;
+
     for (let i = 0; i < entities.count; i++) {
       const expressId = entities.expressId[i];
 
       // Visibility filter
       if (visibleIds && !visibleIds.has(expressId)) continue;
+
+      // Spatial tree filter
+      if (treeIds && !treeIds.has(expressId)) continue;
 
       const typeEnum = entities.typeEnum[i];
       const typeName = IfcTypeEnumToString(typeEnum as IfcTypeEnum) || 'IfcElement';
@@ -158,32 +220,33 @@ export class Ifc5Exporter {
       // Convert back to PascalCase for IFCX
       const ifc5Class = stepTypeToClassName(ifc5Type);
 
-      // Get path for this entity
-      const path = entityPaths.get(expressId) || `ifc:${ifc5Class}.${expressId}`;
+      if (ifc5Class === 'IfcProject') {
+        projectExpressId = expressId;
+      }
+
+      // Get UUID path for this entity
+      const path = this.entityUuids.get(expressId) || generateUuid(expressId);
 
       // Build attributes
       const attributes: Record<string, unknown> = {};
 
-      // IFC class
-      attributes['bsi::ifc::class'] = { code: ifc5Class };
+      // IFC class (requires both code and uri per official schema)
+      attributes['bsi::ifc::class'] = {
+        code: ifc5Class,
+        uri: `https://identifier.buildingsmart.org/uri/buildingsmart/ifc/5/class/${ifc5Class}`,
+      };
 
-      // GlobalId
-      const globalId = strings.get(entities.globalId[i]);
-      if (globalId) {
-        attributes['bsi::ifc::globalId'] = globalId;
-      }
-
-      // Name - only write when real data exists (don't fabricate names)
+      // Name → bsi::ifc::prop::Name (IFC5 uses prop namespace, not bsi::ifc::name)
       const name = strings.get(entities.name[i])
         || this.spatialNodeNames.get(expressId);
       if (name) {
-        attributes['bsi::ifc::name'] = name;
+        attributes['bsi::ifc::prop::Name'] = name;
       }
 
-      // Description
+      // Description → bsi::ifc::prop::Description
       const description = strings.get(entities.description[i]);
       if (description) {
-        attributes['bsi::ifc::description'] = description;
+        attributes['bsi::ifc::prop::Description'] = description;
       }
 
       // Properties
@@ -199,7 +262,7 @@ export class Ifc5Exporter {
       const node: IfcxNodeOutput = { path };
 
       // Children from spatial hierarchy
-      const children = this.getChildrenForEntity(expressId, entityPaths);
+      const children = this.getChildrenForEntity(expressId);
       if (Object.keys(children).length > 0) {
         node.children = children;
       }
@@ -228,16 +291,35 @@ export class Ifc5Exporter {
       nodes.push(node);
     }
 
+    // Add a document root node that contains the project (IFCX convention)
+    if (projectExpressId !== null) {
+      const projectUuid = this.entityUuids.get(projectExpressId);
+      if (projectUuid) {
+        const projectName = this.childNames.get(projectExpressId)
+          || strings.get(entities.name[this.findEntityIndex(projectExpressId)])
+          || 'Project';
+        const rootUuid = generateUuid(0);
+        nodes.unshift({
+          path: rootUuid,
+          children: { [projectName]: projectUuid },
+          attributes: {},
+        });
+      }
+    }
+
+    // Determine required imports by scanning which attribute namespaces are used
+    const imports = collectRequiredImports(nodes);
+
     // Assemble IFCX file
     const file: IfcxFileOutput = {
       header: {
         id: `ifcx_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
-        ifcxVersion: 'IFCX-1.0',
+        ifcxVersion: 'ifcx_alpha',
         dataVersion: options.dataVersion || '1.0.0',
         author: options.author || 'ifc-lite',
         timestamp: new Date().toISOString(),
       },
-      imports: [],
+      imports,
       schemas: {},
       data: nodes,
     };
@@ -257,20 +339,41 @@ export class Ifc5Exporter {
     };
   }
 
+  /** Find the entity table index for a given expressId. */
+  private findEntityIndex(expressId: number): number {
+    const { entities } = this.dataStore;
+    for (let i = 0; i < entities.count; i++) {
+      if (entities.expressId[i] === expressId) return i;
+    }
+    return 0;
+  }
+
   // --------------------------------------------------------------------------
   // Path building
   // --------------------------------------------------------------------------
 
   /**
-   * Build path strings for all entities using the spatial hierarchy.
-   * Paths follow IFCX convention: "0/SiteName/BuildingName/StoreyName/ElementName"
+   * Build UUID paths and child-name maps for all entities.
+   *
+   * IFCX uses flat UUID paths (not hierarchical). Hierarchy is expressed
+   * solely via the `children` dict on each node. This method:
+   * 1. Assigns a UUID to every entity (using GlobalId when available)
+   * 2. Builds the spatial parent→children map
+   * 3. Computes unique child names for the children dict keys
    */
-  private buildEntityPaths(): Map<number, string> {
-    const paths = new Map<number, string>();
+  private buildEntityMaps(): void {
     const { spatialHierarchy, entities, strings } = this.dataStore;
-    if (!spatialHierarchy) return paths;
 
-    // Build parent→children map from hierarchy
+    // --- 1. Assign UUID paths ---
+    this.entityUuids.clear();
+    for (let i = 0; i < entities.count; i++) {
+      const id = entities.expressId[i];
+      // Use IFC GlobalId if available, otherwise generate a deterministic UUID
+      const globalId = strings.get(entities.globalId[i]);
+      this.entityUuids.set(id, globalId || generateUuid(id));
+    }
+
+    // --- 2. Build parent→children and spatial maps ---
     const parentOf = new Map<number, number>();
 
     const processChildren = (parentId: number, childIds: Set<number> | number[] | undefined) => {
@@ -280,13 +383,9 @@ export class Ifc5Exporter {
       }
     };
 
-    // Add spatial container hierarchy from the project tree first
-    // (Project→Site, Site→Building, Building→Storey, Storey→Space)
-    // Also collect spatial node names (SpatialNode.name is often more reliable
-    // than the entity table for spatial containers)
     this.spatialChildIds.clear();
     this.spatialNodeNames.clear();
-    if (spatialHierarchy.project) {
+    if (spatialHierarchy?.project) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const walkTree = (node: { expressId: number; name?: string; children: any[] }) => {
         if (node.name) {
@@ -303,55 +402,37 @@ export class Ifc5Exporter {
       walkTree(spatialHierarchy.project);
     }
 
-    // Add element containment from flat maps (element→storey/building/site/space)
-    if (spatialHierarchy.bySite) {
-      for (const [siteId, children] of spatialHierarchy.bySite) {
-        processChildren(siteId, children);
-      }
-    }
-    if (spatialHierarchy.byBuilding) {
-      for (const [buildingId, children] of spatialHierarchy.byBuilding) {
-        processChildren(buildingId, children);
-      }
-    }
-    if (spatialHierarchy.byStorey) {
-      for (const [storeyId, children] of spatialHierarchy.byStorey) {
-        processChildren(storeyId, children);
-      }
-    }
-    if (spatialHierarchy.bySpace) {
-      for (const [spaceId, children] of spatialHierarchy.bySpace) {
-        processChildren(spaceId, children);
+    // Add element containment from flat maps
+    if (spatialHierarchy) {
+      for (const map of [spatialHierarchy.bySite, spatialHierarchy.byBuilding, spatialHierarchy.byStorey, spatialHierarchy.bySpace]) {
+        if (map) {
+          for (const [parentId, children] of map) {
+            processChildren(parentId, children);
+          }
+        }
       }
     }
 
-    // Build index lookup for entity names.
-    // Priority: entity table name → spatial node name → IFC type name fallback
+    // --- 3. Compute unique child names ---
+    // Build entity name lookup
     const entityNameById = new Map<number, string>();
     for (let i = 0; i < entities.count; i++) {
       const id = entities.expressId[i];
       let name = strings.get(entities.name[i]) || '';
-      // For entities with empty names, try spatial node name (from hierarchy tree)
-      if (!name) {
-        name = this.spatialNodeNames.get(id) || '';
-      }
-      // Last resort: use the IFC type name so paths are readable (e.g. "IfcProject")
+      if (!name) name = this.spatialNodeNames.get(id) || '';
       if (!name) {
         const typeName = IfcTypeEnumToString(entities.typeEnum[i] as IfcTypeEnum);
-        if (typeName !== 'Unknown') {
-          name = typeName;
-        }
+        if (typeName !== 'Unknown') name = typeName;
       }
       entityNameById.set(id, name);
     }
 
-    // Build children-per-parent map so we can detect name collisions among siblings
+    // Group children by parent
     const childrenOf = new Map<number | undefined, number[]>();
     for (const [childId, parentId] of parentOf) {
       if (!childrenOf.has(parentId)) childrenOf.set(parentId, []);
       childrenOf.get(parentId)!.push(childId);
     }
-    // Also collect root entities (those not in parentOf)
     for (let i = 0; i < entities.count; i++) {
       const id = entities.expressId[i];
       if (!parentOf.has(id)) {
@@ -360,10 +441,9 @@ export class Ifc5Exporter {
       }
     }
 
-    // Pre-compute unique segment names: append _<expressId> when siblings share a name
-    this.segmentNames.clear();
+    // Compute unique child names: append _<expressId> on collision
+    this.childNames.clear();
     for (const [, siblings] of childrenOf) {
-      // Count how many siblings share each sanitised name
       const nameCount = new Map<string, number>();
       for (const id of siblings) {
         const raw = entityNameById.get(id) || `e${id}`;
@@ -373,40 +453,9 @@ export class Ifc5Exporter {
       for (const id of siblings) {
         const raw = entityNameById.get(id) || `e${id}`;
         const safe = raw.replace(/[/\\]/g, '_').replace(/\s+/g, '_');
-        this.segmentNames.set(id, nameCount.get(safe)! > 1 ? `${safe}_${id}` : safe);
+        this.childNames.set(id, nameCount.get(safe)! > 1 ? `${safe}_${id}` : safe);
       }
     }
-
-    // Generate path for each entity by walking up to root
-    const getPath = (expressId: number): string => {
-      if (paths.has(expressId)) return paths.get(expressId)!;
-
-      const segments: string[] = [];
-      let current = expressId;
-      const visited = new Set<number>();
-
-      while (current !== undefined) {
-        if (visited.has(current)) break; // cycle protection
-        visited.add(current);
-
-        segments.unshift(this.segmentNames.get(current) || `e${current}`);
-
-        const parent = parentOf.get(current);
-        if (parent === undefined) break;
-        current = parent;
-      }
-
-      // Prefix with "0" (root index, per IFCX convention)
-      const path = '0/' + segments.join('/');
-      paths.set(expressId, path);
-      return path;
-    };
-
-    for (let i = 0; i < entities.count; i++) {
-      getPath(entities.expressId[i]);
-    }
-
-    return paths;
   }
 
   // --------------------------------------------------------------------------
@@ -427,7 +476,8 @@ export class Ifc5Exporter {
       const psets = this.mutationView.getForEntity(entityId);
       for (const pset of psets) {
         for (const prop of pset.properties) {
-          const key = `bsi::ifc::prop::${pset.name}::${prop.name}`;
+          if (options.onlyKnownProperties !== false && !IFC5_KNOWN_PROP_NAMES.has(prop.name)) continue;
+          const key = `bsi::ifc::prop::${prop.name}`;
           result[key] = this.convertPropertyValue(prop.value, prop.type);
         }
       }
@@ -435,7 +485,8 @@ export class Ifc5Exporter {
       const psets = this.dataStore.properties.getForEntity(entityId);
       for (const pset of psets) {
         for (const prop of pset.properties) {
-          const key = `bsi::ifc::prop::${pset.name}::${prop.name}`;
+          if (options.onlyKnownProperties !== false && !IFC5_KNOWN_PROP_NAMES.has(prop.name)) continue;
+          const key = `bsi::ifc::prop::${prop.name}`;
           result[key] = this.convertPropertyValue(prop.value, prop.type);
         }
       }
@@ -470,19 +521,18 @@ export class Ifc5Exporter {
 
   /**
    * Get children for a spatial entity.
-   * IFCX children format: { childName: childPath }
+   * IFCX children format: { childName: childUuid }
    */
   private getChildrenForEntity(
     entityId: number,
-    entityPaths: Map<number, string>,
   ): Record<string, string | null> {
     const children: Record<string, string | null> = {};
 
     const addChild = (childId: number) => {
-      const childPath = entityPaths.get(childId);
-      if (!childPath) return;
-      const childName = this.segmentNames.get(childId) || `e${childId}`;
-      children[childName] = childPath;
+      const childUuid = this.entityUuids.get(childId);
+      if (!childUuid) return;
+      const childName = this.childNames.get(childId) || `e${childId}`;
+      children[childName] = childUuid;
     };
 
     // Spatial container children (Project→Sites, Site→Buildings, etc.)
@@ -545,35 +595,20 @@ export class Ifc5Exporter {
   private convertToUsdMesh(meshes: MeshData[]): {
     points: number[][];
     faceVertexIndices: number[];
-    faceVertexCounts: number[];
-    normals?: number[][];
   } {
     const allPoints: number[][] = [];
     const allIndices: number[] = [];
-    const allFaceCounts: number[] = [];
-    const allNormals: number[][] = [];
     let indexOffset = 0;
 
     for (const mesh of meshes) {
       // Convert positions from Y-up to Z-up
       // Y-up: X=right, Y=up, Z=back
       // Z-up: X=right, Y=forward, Z=up
-      // Reverse of: Yx=Zx, Yy=Zz, Yz=-Zy
       for (let i = 0; i < mesh.positions.length; i += 3) {
         const x = mesh.positions[i];
         const y = mesh.positions[i + 1];   // Y-up Y = Z-up Z
         const z = mesh.positions[i + 2];   // Y-up Z = -Z-up Y
         allPoints.push([x, -z, y]);
-      }
-
-      // Convert normals from Y-up to Z-up
-      if (mesh.normals) {
-        for (let i = 0; i < mesh.normals.length; i += 3) {
-          const nx = mesh.normals[i];
-          const ny = mesh.normals[i + 1];
-          const nz = mesh.normals[i + 2];
-          allNormals.push([nx, -nz, ny]);
-        }
       }
 
       // Offset indices for merged mesh
@@ -583,33 +618,52 @@ export class Ifc5Exporter {
           mesh.indices[i + 1] + indexOffset,
           mesh.indices[i + 2] + indexOffset,
         );
-        allFaceCounts.push(3); // triangles
       }
 
       indexOffset += mesh.positions.length / 3;
     }
 
-    const result: {
-      points: number[][];
-      faceVertexIndices: number[];
-      faceVertexCounts: number[];
-      normals?: number[][];
-    } = {
+    return {
       points: allPoints,
       faceVertexIndices: allIndices,
-      faceVertexCounts: allFaceCounts,
     };
-
-    if (allNormals.length > 0) {
-      result.normals = allNormals;
-    }
-
-    return result;
   }
 
   // --------------------------------------------------------------------------
   // Visibility
   // --------------------------------------------------------------------------
+
+  /**
+   * Build the set of entity IDs reachable from the spatial tree.
+   * Includes Project, Site, Building, Storey, Space, and all contained elements.
+   */
+  private buildTreeEntitySet(): Set<number> {
+    const ids = new Set<number>();
+
+    // Walk spatial hierarchy tree
+    const { spatialHierarchy } = this.dataStore;
+    if (spatialHierarchy?.project) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const walk = (node: { expressId: number; children: any[] }) => {
+        ids.add(node.expressId);
+        for (const child of node.children) walk(child);
+      };
+      walk(spatialHierarchy.project);
+    }
+
+    // Add elements from containment maps (elements assigned to storeys, etc.)
+    if (spatialHierarchy) {
+      for (const map of [spatialHierarchy.bySite, spatialHierarchy.byBuilding, spatialHierarchy.byStorey, spatialHierarchy.bySpace]) {
+        if (map) {
+          for (const children of map.values()) {
+            for (const id of children) ids.add(id);
+          }
+        }
+      }
+    }
+
+    return ids;
+  }
 
   /**
    * Build visible entity set if visibility filtering is requested.
@@ -641,6 +695,56 @@ export class Ifc5Exporter {
 // ============================================================================
 // Helpers
 // ============================================================================
+
+/**
+ * Scan data nodes and return the list of standard IFCX import URIs needed
+ * for the attribute namespaces actually used.
+ */
+function collectRequiredImports(nodes: IfcxNodeOutput[]): { uri: string }[] {
+  let needsIfcCore = false;
+  let needsIfcProp = false;
+  let needsUsd = false;
+
+  for (const node of nodes) {
+    if (!node.attributes) continue;
+    for (const key of Object.keys(node.attributes)) {
+      // IFC core schemas: class, presentation, material, spaceBoundary
+      if (!needsIfcCore && (
+        key === 'bsi::ifc::class' ||
+        key.startsWith('bsi::ifc::presentation::') ||
+        key === 'bsi::ifc::material' ||
+        key === 'bsi::ifc::spaceBoundary'
+      )) {
+        needsIfcCore = true;
+      }
+      // IFC property schemas: bsi::ifc::prop::*
+      if (!needsIfcProp && key.startsWith('bsi::ifc::prop::')) {
+        needsIfcProp = true;
+      }
+      // USD schemas: usd::*
+      if (!needsUsd && key.startsWith('usd::')) {
+        needsUsd = true;
+      }
+      if (needsIfcCore && needsIfcProp && needsUsd) break;
+    }
+    if (needsIfcCore && needsIfcProp && needsUsd) break;
+  }
+
+  const imports: { uri: string }[] = [];
+  if (needsIfcCore) imports.push({ uri: IFCX_SCHEMA_IMPORTS.IFC_CORE });
+  if (needsIfcProp) imports.push({ uri: IFCX_SCHEMA_IMPORTS.IFC_PROP });
+  if (needsUsd) imports.push({ uri: IFCX_SCHEMA_IMPORTS.USD });
+  return imports;
+}
+
+/**
+ * Generate a deterministic UUID-like string from an expressId.
+ * Format: 8-4-4-4-12 hex chars (UUID v4-like but deterministic).
+ */
+function generateUuid(id: number): string {
+  const hex = id.toString(16).padStart(12, '0');
+  return `00000000-0000-4000-8000-${hex}`;
+}
 
 /**
  * Convert STEP uppercase type name (e.g. "IFCWALL") to PascalCase class name (e.g. "IfcWall").

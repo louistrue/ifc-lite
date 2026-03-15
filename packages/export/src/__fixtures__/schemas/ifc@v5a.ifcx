@@ -1,0 +1,269 @@
+{
+  "header": {
+    "id": "ifc",
+    "ifcxVersion": "ifcx_alpha",
+    "dataVersion": "1.0.0",
+    "author": "buildingSMART International",
+    "timestamp": "2025-06-01"
+  },
+  "imports": [],
+  "schemas": {
+    "bsi::ifc::presentation::diffuseColor": {
+      "value": {
+        "dataType": "Array",
+        "arrayRestrictions": {
+          "value": {
+            "dataType": "Real"
+          }
+        }
+      }
+    },
+    "bsi::ifc::presentation::opacity": {
+      "value": {
+        "dataType": "Real"
+      }
+    },
+    "bsi::ifc::class": {
+      "value": {
+        "dataType": "Object",
+        "objectRestrictions": {
+          "values": {
+            "code": {
+              "dataType": "String"
+            },
+            "uri": {
+              "dataType": "String"
+            }
+          }
+        }
+      }
+    },
+    "bsi::ifc::spaceBoundary": {
+      "value": {
+        "dataType": "Object",
+        "objectRestrictions": {
+          "values": {
+            "relatedelement": {
+              "dataType": "Object",
+              "objectRestrictions": {
+                "values": {
+                  "ref": {
+                    "dataType": "String"
+                  }
+                }
+              }
+            },
+            "relatingspace": {
+              "dataType": "Object",
+              "objectRestrictions": {
+                "values": {
+                  "ref": {
+                    "dataType": "String"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "bsi::ifc::material": {
+      "value": {
+        "dataType": "Object",
+        "objectRestrictions": {
+          "values": {
+            "code": {
+              "dataType": "String"
+            },
+            "uri": {
+              "dataType": "String"
+            }
+          }
+        }
+      }
+    },
+    "bsi::ifc::alignment": {
+      "value": {
+        "dataType": "Object",
+        "objectRestrictions": {
+          "values": {
+            "segments": {
+              "dataType": "Array",
+              "arrayRestrictions": {
+                "value": {
+                  "dataType": "Object",
+                  "objectRestrictions": {
+                    "values": {
+                      "ref": {
+                        "dataType": "String"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "bsi::ifc::alignmenthorizontalsegment": {
+      "value": {
+        "dataType": "Object",
+        "objectRestrictions": {
+          "values": {
+            "SegmentLength": {
+              "dataType": "Real"
+            },
+            "EndRadiusOfCurvature": {
+              "dataType": "Real"
+            },
+            "GeometryType": {
+              "dataType": "Enum",
+              "enumRestrictions": {
+                "options": ["CLOTHOID", "LINE", "CONSTANTGRADIENT", "CIRCULARARC", "CONSTANTCANT", "LINEARTRANSITION"]
+              }
+            },
+            "StartRadiusOfCurvature": {
+              "dataType": "Real"
+            },
+            "StartPoint": {
+              "dataType": "Array",
+              "arrayRestrictions": {
+                "value": {
+                  "dataType": "Real"
+                }
+              }
+            },
+            "StartDirection": {
+              "dataType": "Real"
+            }
+          }
+        }
+      }
+    },
+    "bsi::ifc::alignmentverticalsegment": {
+      "value": {
+        "dataType": "Object",
+        "objectRestrictions": {
+          "values": {
+            "HorizontalLength": {
+              "dataType": "Real"
+            },
+            "RadiusOfCurvature": {
+              "dataType": "Real",
+              "optional": true
+            },
+            "EndGradient": {
+              "dataType": "Real"
+            },
+            "StartDistAlong": {
+              "dataType": "Real"
+            },
+            "GeometryType": {
+              "dataType": "Enum",
+              "enumRestrictions": {
+                "options": ["CLOTHOID", "LINE", "CONSTANTGRADIENT", "CIRCULARARC", "CONSTANTCANT", "LINEARTRANSITION"]
+              }
+            },
+            "StartGradient": {
+              "dataType": "Real"
+            },
+            "StartHeight": {
+              "dataType": "Real"
+            }
+          }
+        }
+      }
+    },
+    "bsi::ifc::alignmentcantsegment": {
+      "value": {
+        "dataType": "Object",
+        "objectRestrictions": {
+          "values": {
+            "HorizontalLength": {
+              "dataType": "Real"
+            },
+            "EndCantLeft": {
+              "dataType": "Real"
+            },
+            "StartDistAlong": {
+              "dataType": "Real"
+            },
+            "GeometryType": {
+              "dataType": "Enum",
+              "enumRestrictions": {
+                "options": ["CLOTHOID", "LINE", "CONSTANTGRADIENT", "CIRCULARARC", "CONSTANTCANT", "LINEARTRANSITION"]
+              }
+            },
+            "StartCantRight": {
+              "dataType": "Real"
+            },
+            "StartCantLeft": {
+              "dataType": "Real"
+            },
+            "EndCantRight": {
+              "dataType": "Real"
+            }
+          }
+        }
+      }
+    },
+    "bsi::ifc::system::connectsto": {
+      "value": {
+        "dataType": "Array",
+        "arrayRestrictions": {
+          "value": {
+            "dataType": "Object",
+            "objectRestrictions": {
+              "values": {
+                "ref": {
+                  "dataType": "String"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "bsi::ifc::system::flowdirection": {
+      "value": {
+        "dataType": "String"
+      }
+    },
+    "bsi::ifc::system::partofsystem": {
+      "value": {
+        "dataType": "Array",
+        "arrayRestrictions": {
+          "value": {
+            "dataType": "Object",
+            "objectRestrictions": {
+              "values": {
+                "ref": {
+                  "dataType": "String"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "bsi::ifc::system::servicesfacility": {
+      "value": {
+        "dataType": "Array",
+        "arrayRestrictions": {
+          "value": {
+            "dataType": "Object",
+            "objectRestrictions": {
+              "values": {
+                "ref": {
+                  "dataType": "String"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "data": []
+}

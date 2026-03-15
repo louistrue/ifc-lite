@@ -1,5 +1,35 @@
 # @ifc-lite/lists
 
+## 1.14.5
+
+### Patch Changes
+
+- Updated dependencies [[`d2ebb34`](https://github.com/louistrue/ifc-lite/commit/d2ebb3457e261934df41c8f7f647531de6198078)]:
+  - @ifc-lite/data@1.14.4
+
+## 1.14.4
+
+### Patch Changes
+
+- Updated dependencies [[`40bf3d0`](https://github.com/louistrue/ifc-lite/commit/40bf3d00cb5d5ef3512b96cd5e066442adcaab87)]:
+  - @ifc-lite/encoding@1.14.4
+
+## 1.14.3
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @ifc-lite/data@1.14.3
+  - @ifc-lite/encoding@1.14.3
+
+## 1.14.2
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @ifc-lite/data@1.14.2
+  - @ifc-lite/encoding@1.14.2
+
 ## 1.14.1
 
 ### Patch Changes

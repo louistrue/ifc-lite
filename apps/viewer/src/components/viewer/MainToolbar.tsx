@@ -7,8 +7,6 @@ import {
   FolderOpen,
   Download,
   MousePointer2,
-  Hand,
-  Rotate3d,
   PersonStanding,
   Ruler,
   Scissors,
@@ -36,8 +34,9 @@ import {
   ClipboardCheck,
   Palette,
   Orbit,
+  Layout,
   LayoutTemplate,
-  RectangleHorizontal,
+  FileCode2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
@@ -60,19 +59,18 @@ import { executeBasketIsolate } from '@/store/basket/basketCommands';
 import { useIfc } from '@/hooks/useIfc';
 import { cn } from '@/lib/utils';
 import { GLTFExporter, CSVExporter } from '@ifc-lite/export';
-import { FileSpreadsheet, FileJson, FileText, Filter, Upload, Pencil, Network, Hexagon } from 'lucide-react';
-import { BubbleGraphPanel } from './bubble-graph/BubbleGraphPanel';
+import { FileSpreadsheet, FileJson, FileText, Filter, Upload, Pencil } from 'lucide-react';
 import { ExportDialog } from './ExportDialog';
 import { BulkPropertyEditor } from './BulkPropertyEditor';
 import { DataConnector } from './DataConnector';
 import { ExportChangesButton } from './ExportChangesButton';
-import { IfcBridgeConnector } from './IfcBridgeConnector';
 import { useFloorplanView } from '@/hooks/useFloorplanView';
 import { recordRecentFiles, cacheFileBlobs } from '@/lib/recent-files';
 import { ThemeSwitch } from './ThemeSwitch';
 import { toast } from '@/components/ui/toast';
 
-type Tool = 'select' | 'pan' | 'orbit' | 'walk' | 'measure' | 'section' | 'draw-rect';
+type Tool = 'select' | 'walk' | 'measure' | 'section';
+type WorkspacePanel = 'script' | 'list' | 'bcf' | 'ids' | 'lens';
 
 // #region FIX: Move ToolButton OUTSIDE MainToolbar to prevent recreation on every render
 // This fixes Radix UI Tooltip's asChild prop becoming stale during re-renders
@@ -179,13 +177,11 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
   const toggleTypeVisibility = useViewerStore((state) => state.toggleTypeVisibility);
   const resetViewerState = useViewerStore((state) => state.resetViewerState);
   const bcfPanelVisible = useViewerStore((state) => state.bcfPanelVisible);
-  const toggleBcfPanel = useViewerStore((state) => state.toggleBcfPanel);
   const setBcfPanelVisible = useViewerStore((state) => state.setBcfPanelVisible);
   const idsPanelVisible = useViewerStore((state) => state.idsPanelVisible);
-  const toggleIdsPanel = useViewerStore((state) => state.toggleIdsPanel);
   const setIdsPanelVisible = useViewerStore((state) => state.setIdsPanelVisible);
   const listPanelVisible = useViewerStore((state) => state.listPanelVisible);
-  const toggleListPanel = useViewerStore((state) => state.toggleListPanel);
+  const setListPanelVisible = useViewerStore((state) => state.setListPanelVisible);
   const setRightPanelCollapsed = useViewerStore((state) => state.setRightPanelCollapsed);
   const projectionMode = useViewerStore((state) => state.projectionMode);
   const toggleProjectionMode = useViewerStore((state) => state.toggleProjectionMode);
@@ -196,19 +192,9 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
   const toggleBasketPresentationVisible = useViewerStore((state) => state.toggleBasketPresentationVisible);
   // Lens state
   const lensPanelVisible = useViewerStore((state) => state.lensPanelVisible);
-  const toggleLensPanel = useViewerStore((state) => state.toggleLensPanel);
   const setLensPanelVisible = useViewerStore((state) => state.setLensPanelVisible);
-  const editorPanelVisible = useViewerStore((state) => state.editorPanelVisible);
-  const toggleEditorPanel = useViewerStore((state) => state.toggleEditorPanel);
-  const setEditorPanelVisible = useViewerStore((state) => state.setEditorPanelVisible);
-  const nodeEditorPanelVisible = useViewerStore((state) => state.nodeEditorPanelVisible);
-  const toggleNodeEditorPanel = useViewerStore((state) => state.toggleNodeEditorPanel);
-  const setNodeEditorPanelVisible = useViewerStore((state) => state.setNodeEditorPanelVisible);
-  const viewsPanelVisible = useViewerStore((state) => state.viewsPanelVisible);
-  const toggleViewsPanel = useViewerStore((state) => state.toggleViewsPanel);
-  const setViewsPanelVisible = useViewerStore((state) => state.setViewsPanelVisible);
-  const bubbleGraphPanelVisible = useViewerStore((state) => state.bubbleGraphPanelVisible);
-  const toggleBubbleGraphPanel = useViewerStore((state) => state.toggleBubbleGraphPanel);
+  const scriptPanelVisible = useViewerStore((state) => state.scriptPanelVisible);
+  const setScriptPanelVisible = useViewerStore((state) => state.setScriptPanelVisible);
 
   // Check which type geometries exist across ALL loaded models (federation-aware).
   // PERF: Use meshes.length as dep proxy instead of full geometryResult, and
@@ -374,6 +360,61 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
   const handleHome = useCallback(() => {
     goHomeFromStore();
   }, []);
+
+  const handleToggleBottomPanel = useCallback((panel: 'script' | 'list') => {
+    const isScriptPanel = panel === 'script';
+    const nextScriptVisible = isScriptPanel ? !scriptPanelVisible : false;
+    const nextListVisible = isScriptPanel ? false : !listPanelVisible;
+
+    setScriptPanelVisible(nextScriptVisible);
+    setListPanelVisible(nextListVisible);
+
+    if (nextScriptVisible || nextListVisible) {
+      setRightPanelCollapsed(false);
+    }
+  }, [listPanelVisible, scriptPanelVisible, setListPanelVisible, setRightPanelCollapsed, setScriptPanelVisible]);
+
+  const handleToggleRightPanel = useCallback((panel: 'bcf' | 'ids' | 'lens') => {
+    const nextBcfVisible = panel === 'bcf' ? !bcfPanelVisible : false;
+    const nextIdsVisible = panel === 'ids' ? !idsPanelVisible : false;
+    const nextLensVisible = panel === 'lens' ? !lensPanelVisible : false;
+
+    setBcfPanelVisible(nextBcfVisible);
+    setIdsPanelVisible(nextIdsVisible);
+    setLensPanelVisible(nextLensVisible);
+
+    if (nextBcfVisible || nextIdsVisible || nextLensVisible) {
+      setRightPanelCollapsed(false);
+    }
+  }, [
+    bcfPanelVisible,
+    idsPanelVisible,
+    lensPanelVisible,
+    setBcfPanelVisible,
+    setIdsPanelVisible,
+    setLensPanelVisible,
+    setRightPanelCollapsed,
+  ]);
+
+  const activeWorkspacePanels = useMemo(() => {
+    const panels = new Set<WorkspacePanel>();
+    if (scriptPanelVisible) panels.add('script');
+    if (listPanelVisible) panels.add('list');
+    if (bcfPanelVisible) panels.add('bcf');
+    if (idsPanelVisible) panels.add('ids');
+    if (lensPanelVisible) panels.add('lens');
+    return panels;
+  }, [bcfPanelVisible, idsPanelVisible, lensPanelVisible, listPanelVisible, scriptPanelVisible]);
+
+  const workspacePanelLabel = useMemo(() => {
+    if (activeWorkspacePanels.size === 0) return null;
+    if (activeWorkspacePanels.size > 1) return 'Multiple Panels';
+    if (activeWorkspacePanels.has('script')) return 'Script Editor';
+    if (activeWorkspacePanels.has('list')) return 'Lists';
+    if (activeWorkspacePanels.has('bcf')) return 'BCF Issues';
+    if (activeWorkspacePanels.has('ids')) return 'IDS Validation';
+    return 'Lens Rules';
+  }, [activeWorkspacePanels]);
 
   const handleExportGLB = useCallback(() => {
     if (!geometryResult) return;
@@ -638,85 +679,66 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
       <ExportChangesButton />
 
       {/* ── Panels ── */}
-      {/* BCF Issues Button */}
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            variant={bcfPanelVisible ? 'default' : 'ghost'}
-            size="icon-sm"
-            onClick={(e) => {
-              (e.currentTarget as HTMLButtonElement).blur();
-              if (!bcfPanelVisible) {
-                // Close other right-panel content first, then expand
-                setIdsPanelVisible(false);
-                setLensPanelVisible(false);
-                setEditorPanelVisible(false);
-                setRightPanelCollapsed(false);
-              }
-              toggleBcfPanel();
-            }}
-            className={cn(bcfPanelVisible && 'bg-primary text-primary-foreground')}
+      <DropdownMenu>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant={activeWorkspacePanels.size > 0 ? 'default' : 'ghost'}
+                size="icon-sm"
+                aria-label={workspacePanelLabel ? `Panels: ${workspacePanelLabel}` : 'Panels'}
+                className={cn(activeWorkspacePanels.size > 0 && 'bg-primary text-primary-foreground')}
+              >
+                <Layout className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+          </TooltipTrigger>
+          <TooltipContent>{workspacePanelLabel ? `Panels: ${workspacePanelLabel}` : 'Panels'}</TooltipContent>
+        </Tooltip>
+        <DropdownMenuContent align="start" className="w-56">
+          <DropdownMenuCheckboxItem
+            checked={activeWorkspacePanels.has('script')}
+            onCheckedChange={() => handleToggleBottomPanel('script')}
           >
-            <MessageSquare className="h-4 w-4" />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>BCF Issues</TooltipContent>
-      </Tooltip>
-
-      {/* IDS Validation Button */}
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            variant={idsPanelVisible ? 'default' : 'ghost'}
-            size="icon-sm"
-            onClick={(e) => {
-              (e.currentTarget as HTMLButtonElement).blur();
-              if (!idsPanelVisible) {
-                // Close other right-panel content first, then expand
-                setBcfPanelVisible(false);
-                setLensPanelVisible(false);
-                setEditorPanelVisible(false);
-                setRightPanelCollapsed(false);
-              }
-              toggleIdsPanel();
-            }}
-            className={cn(idsPanelVisible && 'bg-primary text-primary-foreground')}
+            <FileCode2 className="h-4 w-4 mr-2" />
+            Script Editor
+          </DropdownMenuCheckboxItem>
+          <DropdownMenuCheckboxItem
+            checked={activeWorkspacePanels.has('list')}
+            onCheckedChange={() => handleToggleBottomPanel('list')}
           >
-            <ClipboardCheck className="h-4 w-4" />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>IDS Validation</TooltipContent>
-      </Tooltip>
-
-      {/* Lists Button */}
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            variant={listPanelVisible ? 'default' : 'ghost'}
-            size="icon-sm"
-            onClick={(e) => {
-              (e.currentTarget as HTMLButtonElement).blur();
-              // Close script panel (bottom-panel exclusivity)
-              useViewerStore.getState().setScriptPanelVisible(false);
-              if (!listPanelVisible) {
-                setRightPanelCollapsed(false);
-              }
-              toggleListPanel();
-            }}
-            className={cn(listPanelVisible && 'bg-primary text-primary-foreground')}
+            <FileSpreadsheet className="h-4 w-4 mr-2" />
+            Lists
+          </DropdownMenuCheckboxItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuCheckboxItem
+            checked={activeWorkspacePanels.has('bcf')}
+            onCheckedChange={() => handleToggleRightPanel('bcf')}
           >
-            <FileSpreadsheet className="h-4 w-4" />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>Lists</TooltipContent>
-      </Tooltip>
+            <MessageSquare className="h-4 w-4 mr-2" />
+            BCF Issues
+          </DropdownMenuCheckboxItem>
+          <DropdownMenuCheckboxItem
+            checked={activeWorkspacePanels.has('ids')}
+            onCheckedChange={() => handleToggleRightPanel('ids')}
+          >
+            <ClipboardCheck className="h-4 w-4 mr-2" />
+            IDS Validation
+          </DropdownMenuCheckboxItem>
+          <DropdownMenuCheckboxItem
+            checked={activeWorkspacePanels.has('lens')}
+            onCheckedChange={() => handleToggleRightPanel('lens')}
+          >
+            <Palette className="h-4 w-4 mr-2" />
+            Lens Rules
+          </DropdownMenuCheckboxItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
 
       <Separator orientation="vertical" className="h-6 mx-1" />
 
       {/* ── Navigation Tools ── */}
       <ToolButton tool="select" icon={MousePointer2} label="Select" shortcut="V" activeTool={activeTool} onToolChange={setActiveTool} />
-      <ToolButton tool="pan" icon={Hand} label="Pan" shortcut="P" activeTool={activeTool} onToolChange={setActiveTool} />
-      <ToolButton tool="orbit" icon={Rotate3d} label="Orbit" shortcut="O" activeTool={activeTool} onToolChange={setActiveTool} />
       <ToolButton tool="walk" icon={PersonStanding} label="Walk Mode" shortcut="C" activeTool={activeTool} onToolChange={setActiveTool} />
 
       <Separator orientation="vertical" className="h-6 mx-1" />
@@ -724,7 +746,6 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
       {/* ── Measurement & Section ── */}
       <ToolButton tool="measure" icon={Ruler} label="Measure" shortcut="M" activeTool={activeTool} onToolChange={setActiveTool} />
       <ToolButton tool="section" icon={Scissors} label="Section" shortcut="X" activeTool={activeTool} onToolChange={setActiveTool} />
-      <ToolButton tool="draw-rect" icon={RectangleHorizontal} label="Draw Rectangle" activeTool={activeTool} onToolChange={setActiveTool} />
 
       {/* Floorplan dropdown */}
       {availableStoreys.length > 0 && (
@@ -838,122 +859,6 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
         </DropdownMenuContent>
       </DropdownMenu>
 
-      {/* Lens (rule-based filtering) */}
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            variant={lensPanelVisible ? 'default' : 'ghost'}
-            size="icon-sm"
-            onClick={(e) => {
-              (e.currentTarget as HTMLButtonElement).blur();
-              if (!lensPanelVisible) {
-                // Close other right-panel content first, then expand
-                setBcfPanelVisible(false);
-                setIdsPanelVisible(false);
-                setEditorPanelVisible(false);
-                setRightPanelCollapsed(false);
-              }
-              toggleLensPanel();
-            }}
-            className={cn(lensPanelVisible && 'bg-primary text-primary-foreground')}
-          >
-            <Palette className="h-4 w-4" />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>Lens (Color Rules)</TooltipContent>
-      </Tooltip>
-
-      {/* Editor (semantic + raw geometry authoring) */}
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            variant={editorPanelVisible ? 'default' : 'ghost'}
-            size="icon-sm"
-            onClick={(e) => {
-              (e.currentTarget as HTMLButtonElement).blur();
-              if (!editorPanelVisible) {
-                setBcfPanelVisible(false);
-                setIdsPanelVisible(false);
-                setLensPanelVisible(false);
-                setRightPanelCollapsed(false);
-              }
-              toggleEditorPanel();
-            }}
-            className={cn(editorPanelVisible && 'bg-primary text-primary-foreground')}
-          >
-            <Pencil className="h-4 w-4" />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>Semantic Editor</TooltipContent>
-      </Tooltip>
-
-      {/* BubbleGraph */}
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            variant={bubbleGraphPanelVisible ? 'default' : 'ghost'}
-            size="icon-sm"
-            onClick={(e) => {
-              (e.currentTarget as HTMLButtonElement).blur();
-              toggleBubbleGraphPanel();
-            }}
-            className={cn(bubbleGraphPanelVisible && 'bg-primary text-primary-foreground')}
-          >
-            <Hexagon className="h-4 w-4" />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>BubbleGraph — Structural Building Graph</TooltipContent>
-      </Tooltip>
-
-      {/* Node Graph Editor */}
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            variant={nodeEditorPanelVisible ? 'default' : 'ghost'}
-            size="icon-sm"
-            onClick={(e) => {
-              (e.currentTarget as HTMLButtonElement).blur();
-              if (!nodeEditorPanelVisible) {
-                setEditorPanelVisible(false);
-                setBcfPanelVisible(false);
-                setIdsPanelVisible(false);
-                setLensPanelVisible(false);
-              }
-              toggleNodeEditorPanel();
-            }}
-            className={cn(nodeEditorPanelVisible && 'bg-primary text-primary-foreground')}
-          >
-            <Network className="h-4 w-4" />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>Node Graph Editor</TooltipContent>
-      </Tooltip>
-
-      {/* Views Panel */}
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            variant={viewsPanelVisible ? 'default' : 'ghost'}
-            size="icon-sm"
-            onClick={(e) => {
-              (e.currentTarget as HTMLButtonElement).blur();
-              if (!viewsPanelVisible) {
-                setEditorPanelVisible(false);
-                setBcfPanelVisible(false);
-                setIdsPanelVisible(false);
-                setLensPanelVisible(false);
-                setRightPanelCollapsed(false);
-              }
-              setViewsPanelVisible(!viewsPanelVisible);
-            }}
-            className={cn(viewsPanelVisible && 'bg-primary text-primary-foreground')}
-          >
-            <LayoutTemplate className="h-4 w-4" />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>Views</TooltipContent>
-      </Tooltip>
-
       <Separator orientation="vertical" className="h-6 mx-1" />
 
       {/* ── Camera & View ── */}
@@ -1056,9 +961,6 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
 
       {/* Right Side Actions */}
       <div className="flex items-center gap-2 ml-2 pl-2 border-l border-zinc-200 dark:border-zinc-700/60">
-        {/* Live IFC bridge — connect to external C# / Nodify server */}
-        <IfcBridgeConnector />
-        <Separator orientation="vertical" className="h-4" />
         <Tooltip>
           <TooltipTrigger asChild>
             <div>

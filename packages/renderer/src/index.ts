@@ -185,6 +185,8 @@ export class Renderer {
             throw new Error('Renderer not initialized. Call init() first.');
         }
         this.geometryManager.loadGeometry(geometry, this.pipeline);
+        // Update camera scene bounds for tight orthographic near/far planes
+        this.camera.setSceneBounds(this.geometryManager.getModelBounds());
     }
 
     /**
@@ -198,6 +200,8 @@ export class Renderer {
             throw new Error('Renderer not initialized. Call init() first.');
         }
         this.geometryManager.addMeshes(meshes, this.pipeline, isStreaming);
+        // Update camera scene bounds for tight orthographic near/far planes
+        this.camera.setSceneBounds(this.geometryManager.getModelBounds());
     }
 
     /**
@@ -453,8 +457,9 @@ export class Renderer {
                     boundsMax.x = boundsMax.y = boundsMax.z = 100;
                 }
 
-                // Store bounds for section plane visual
+                // Store bounds for section plane visual and camera near/far
                 this.geometryManager.setModelBounds({ min: boundsMin, max: boundsMax });
+                this.camera.setSceneBounds({ min: boundsMin, max: boundsMax });
 
                 // Only calculate clipping data if section is enabled
                 if (options.sectionPlane.enabled) {
@@ -1224,6 +1229,42 @@ export class Renderer {
             console.error('[Renderer] Screenshot capture failed:', error);
             return null;
         }
+    }
+
+    /**
+     * Destroy the renderer and release all GPU resources.
+     *
+     * Cleans up scene buffers, render pipeline textures, picking resources,
+     * post-processing buffers, section-plane renderers, and snap caches.
+     * After calling this method the renderer is no longer usable.
+     * Safe to call multiple times (idempotent).
+     */
+    destroy(): void {
+        // Scene mesh GPU buffers
+        this.scene.clear();
+
+        // Render pipelines (textures + uniform buffers)
+        this.pipeline?.destroy();
+        this.pipeline = null;
+        this.instancedPipeline?.destroy();
+        this.instancedPipeline = null;
+
+        // Picker GPU resources
+        this.picker?.destroy();
+        this.picker = null;
+
+        // Post-processor uniform buffer
+        this.postProcessor?.destroy();
+        this.postProcessor = null;
+
+        // Section-plane renderers
+        this.sectionPlaneRenderer?.destroy();
+        this.sectionPlaneRenderer = null;
+        this.section2DOverlayRenderer?.dispose();
+        this.section2DOverlayRenderer = null;
+
+        // Snap detector geometry cache
+        this.raycastEngine.clearCaches();
     }
 
     /**

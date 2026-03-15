@@ -6,17 +6,17 @@
  * IFC STEP file exporter
  *
  * Exports IFC data store to ISO 10303-21 STEP format.
- * Supports applying property mutations before export.
+ * Supports applying property and root attribute mutations before export.
  */
 
 import type { IfcDataStore } from '@ifc-lite/parser';
 import {
+  EntityExtractor,
   generateHeader,
+  getAttributeNames,
   serializeValue,
   ref,
-  enumVal,
   type StepValue,
-  type StepEntity,
 } from '@ifc-lite/parser';
 import type { MutablePropertyView } from '@ifc-lite/mutations';
 import type { PropertySet, Property, QuantitySet } from '@ifc-lite/data';
@@ -61,14 +61,31 @@ export interface StepExportOptions {
   hiddenEntityIds?: Set<number>;
   /** Isolated entity IDs (local expressIds, null = no isolation active) */
   isolatedEntityIds?: Set<number> | null;
+
+  /** Progress callback for async export */
+  onProgress?: (progress: StepExportProgress) => void;
+}
+
+/**
+ * Progress information during STEP export
+ */
+export interface StepExportProgress {
+  /** Current phase of export */
+  phase: 'preparing' | 'entities' | 'assembling';
+  /** Progress 0-1 */
+  percent: number;
+  /** Number of entities processed so far */
+  entitiesProcessed: number;
+  /** Total entities to process */
+  entitiesTotal: number;
 }
 
 /**
  * Result of STEP export
  */
 export interface StepExportResult {
-  /** STEP file content */
-  content: string;
+  /** STEP file content as bytes (avoids V8 string length limit for large files) */
+  content: Uint8Array;
   /** Statistics about the export */
   stats: {
     /** Total entities exported */
@@ -89,12 +106,14 @@ export class StepExporter {
   private dataStore: IfcDataStore;
   private mutationView: MutablePropertyView | null;
   private nextExpressId: number;
+  private entityExtractor: EntityExtractor | null;
 
   constructor(dataStore: IfcDataStore, mutationView?: MutablePropertyView) {
     this.dataStore = dataStore;
     this.mutationView = mutationView || null;
     // Start new IDs after the highest existing ID
     this.nextExpressId = this.findMaxExpressId() + 1;
+    this.entityExtractor = dataStore.source ? new EntityExtractor(dataStore.source) : null;
   }
 
   /**
@@ -123,8 +142,13 @@ export class StepExporter {
     // Collect entities that need to be modified or created
     const modifiedEntities = new Set<number>();
     const modifiedPsets = new Map<number, Set<string>>(); // entityId -> psetNames being modified
+    const modifiedAttributes = new Map<number, Map<string, string>>();
     const newPropertySets: Array<{ entityId: number; psets: PropertySet[] }> = [];
     const newQuantitySets: Array<{ entityId: number; qsets: QuantitySet[] }> = [];
+    const typeOwnedPsetNamesByEntity = new Map<number, Set<string>>();
+    const typeOwnedPsetIdsByEntity = new Map<number, number[]>();
+    const rewrittenEntityIds = new Set<number>();
+    const rewrittenEntityLines = new Map<number, string>();
 
     // Track property set IDs and relationship IDs to skip
     const skipPropertySetIds = new Set<number>();
@@ -138,6 +162,18 @@ export class StepExporter {
       const entityPropMutations = new Map<number, Set<string>>();
       const entityQuantMutations = new Map<number, Set<string>>();
       for (const mutation of mutations) {
+        if (mutation.type === 'UPDATE_ATTRIBUTE' && mutation.attributeName) {
+          modifiedEntities.add(mutation.entityId);
+          if (!modifiedAttributes.has(mutation.entityId)) {
+            modifiedAttributes.set(mutation.entityId, new Map());
+          }
+          modifiedAttributes.get(mutation.entityId)!.set(
+            mutation.attributeName,
+            mutation.newValue == null ? '' : String(mutation.newValue),
+          );
+          continue;
+        }
+
         if (!mutation.psetName) continue;
 
         const isQuantity = mutation.type === 'CREATE_QUANTITY' || mutation.type === 'UPDATE_QUANTITY' || mutation.type === 'DELETE_QUANTITY';
@@ -158,6 +194,7 @@ export class StepExporter {
         // Get the FULL mutated property sets for this entity (merged base + mutations)
         const allPsets = this.mutationView.getForEntity(entityId);
         const relevantPsets = allPsets.filter(pset => psetNames.has(pset.name));
+        const relDefinedPsetNames = new Set<string>();
 
         if (relevantPsets.length > 0) {
           newPropertySets.push({ entityId, psets: relevantPsets });
@@ -175,6 +212,9 @@ export class StepExporter {
             if (relatedEntities.includes(entityId) && relatedPsetId) {
               // Check if this pset is one we're modifying
               const psetName = this.getPropertySetName(relatedPsetId);
+              if (psetName) {
+                relDefinedPsetNames.add(psetName);
+              }
               if (psetName && psetNames.has(psetName)) {
                 skipRelationshipIds.add(relId);
                 skipPropertySetIds.add(relatedPsetId);
@@ -185,6 +225,34 @@ export class StepExporter {
                 }
               }
             }
+          }
+        }
+
+        if (this.isTypeEntity(entityId)) {
+          const typeOwnedPsetIds = this.getTypeOwnedHasPropertySetIds(entityId);
+          const typeOwnedAffected = new Set<string>();
+
+          for (const psetId of typeOwnedPsetIds) {
+            const psetName = this.getPropertySetName(psetId);
+            if (!psetName || !psetNames.has(psetName)) continue;
+            typeOwnedAffected.add(psetName);
+            skipPropertySetIds.add(psetId);
+            const propIds = this.getPropertyIdsInSet(psetId);
+            for (const propId of propIds) {
+              skipPropertySetIds.add(propId);
+            }
+          }
+
+          for (const psetName of psetNames) {
+            if (!relDefinedPsetNames.has(psetName)) {
+              typeOwnedAffected.add(psetName);
+            }
+          }
+
+          if (typeOwnedAffected.size > 0) {
+            typeOwnedPsetNamesByEntity.set(entityId, typeOwnedAffected);
+            typeOwnedPsetIdsByEntity.set(entityId, typeOwnedPsetIds);
+            rewrittenEntityIds.add(entityId);
           }
         }
       }
@@ -223,17 +291,24 @@ export class StepExporter {
           }
         }
       }
+
+      for (const [entityId] of modifiedAttributes) {
+        if (!entityPropMutations.has(entityId) && !entityQuantMutations.has(entityId)) {
+          modifiedEntityCount++;
+        }
+      }
     }
 
     // If delta only, only export modified entities
     if (options.deltaOnly && modifiedEntities.size === 0) {
+      const emptyContent = new TextEncoder().encode(header + 'DATA;\nENDSEC;\nEND-ISO-10303-21;\n');
       return {
-        content: header + 'DATA;\nENDSEC;\nEND-ISO-10303-21;\n',
+        content: emptyContent,
         stats: {
           entityCount: 0,
           newEntityCount: 0,
           modifiedEntityCount: 0,
-          fileSize: 0,
+          fileSize: emptyContent.byteLength,
         },
       };
     }
@@ -279,6 +354,11 @@ export class StepExporter {
           continue;
         }
 
+        // Skip type entities whose HasPropertySets attribute will be rewritten
+        if (rewrittenEntityIds.has(expressId)) {
+          continue;
+        }
+
         // Skip if we're only doing geometry or specific types
         const entityType = entityRef.type.toUpperCase();
 
@@ -291,25 +371,59 @@ export class StepExporter {
         const entityText = decoder.decode(
           source.subarray(entityRef.byteOffset, entityRef.byteOffset + entityRef.byteLength)
         );
+        const nextEntityText = modifiedAttributes.has(expressId)
+          ? this.applyAttributeMutations(entityText, entityType, modifiedAttributes.get(expressId)!)
+          : entityText;
 
         // Apply schema conversion if exporting to a different schema version
         if (converting) {
-          const converted = convertStepLine(entityText, sourceSchema, schema);
+          const converted = convertStepLine(nextEntityText, sourceSchema, schema);
           if (converted !== null) {
             entities.push(converted);
           }
           // null means entity should be skipped (no valid representation in target schema)
         } else {
-          entities.push(entityText);
+          entities.push(nextEntityText);
         }
       }
     }
 
     // Generate new property entities for mutations (these REPLACE the skipped ones)
     for (const { entityId, psets } of newPropertySets) {
-      const newEntities = this.generatePropertySetEntities(entityId, psets);
+      const newEntities = this.generatePropertySetEntities(
+        entityId,
+        psets,
+        typeOwnedPsetNamesByEntity.get(entityId)
+      );
       entities.push(...newEntities.lines);
       newEntityCount += newEntities.count;
+
+      const typeOwnedPsetNames = typeOwnedPsetNamesByEntity.get(entityId);
+      if (typeOwnedPsetNames && typeOwnedPsetNames.size > 0) {
+        const rewritten = this.rewriteTypeEntityHasPropertySets(
+          entityId,
+          typeOwnedPsetIdsByEntity.get(entityId) ?? [],
+          typeOwnedPsetNames,
+          newEntities.generatedTypeOwnedPsetIds
+        );
+        if (rewritten) {
+          rewrittenEntityLines.set(entityId, rewritten);
+        }
+      }
+    }
+
+    // Handle type-owned pset deletions with no replacement pset content
+    for (const [entityId, typeOwnedPsetNames] of typeOwnedPsetNamesByEntity) {
+      if (rewrittenEntityLines.has(entityId)) continue;
+      const rewritten = this.rewriteTypeEntityHasPropertySets(
+        entityId,
+        typeOwnedPsetIdsByEntity.get(entityId) ?? [],
+        typeOwnedPsetNames,
+        new Map()
+      );
+      if (rewritten) {
+        rewrittenEntityLines.set(entityId, rewritten);
+      }
     }
 
     // Generate new quantity entities for mutations
@@ -319,9 +433,12 @@ export class StepExporter {
       newEntityCount += newEntities.count;
     }
 
-    // Assemble final file
-    const dataSection = entities.join('\n');
-    const content = `${header}DATA;\n${dataSection}\nENDSEC;\nEND-ISO-10303-21;\n`;
+    for (const rewrittenLine of rewrittenEntityLines.values()) {
+      entities.push(rewrittenLine);
+    }
+
+    // Assemble final file as Uint8Array chunks to avoid V8 string length limit
+    const content = assembleStepBytes(header, entities);
 
     return {
       content,
@@ -329,9 +446,34 @@ export class StepExporter {
         entityCount: entities.length,
         newEntityCount,
         modifiedEntityCount,
-        fileSize: new TextEncoder().encode(content).length,
+        fileSize: content.byteLength,
       },
     };
+  }
+
+  /**
+   * Async export that yields to the event loop periodically, keeping the
+   * UI responsive during large exports. Calls onProgress with live stats.
+   */
+  async exportAsync(options: StepExportOptions): Promise<StepExportResult> {
+    const onProgress = options.onProgress;
+
+    // Report preparing phase
+    const totalEntities = this.dataStore.entityIndex.byId.size;
+    if (onProgress) onProgress({ phase: 'preparing', percent: 0, entitiesProcessed: 0, entitiesTotal: totalEntities });
+    await new Promise(r => setTimeout(r, 0));
+
+    // The sync export does the heavy lifting — we can't easily break it into
+    // chunks without duplicating the entire method, so we report phases around it.
+    if (onProgress) onProgress({ phase: 'entities', percent: 0.1, entitiesProcessed: 0, entitiesTotal: totalEntities });
+    await new Promise(r => setTimeout(r, 0));
+
+    const result = this.export(options);
+
+    if (onProgress) onProgress({ phase: 'assembling', percent: 0.95, entitiesProcessed: totalEntities, entitiesTotal: totalEntities });
+    await new Promise(r => setTimeout(r, 0));
+
+    return result;
   }
 
   /**
@@ -350,10 +492,12 @@ export class StepExporter {
    */
   private generatePropertySetEntities(
     entityId: number,
-    psets: PropertySet[]
-  ): { lines: string[]; count: number } {
+    psets: PropertySet[],
+    typeOwnedPsetNames?: Set<string>
+  ): { lines: string[]; count: number; generatedTypeOwnedPsetIds: Map<string, number> } {
     const lines: string[] = [];
     let count = 0;
+    const generatedTypeOwnedPsetIds = new Map<string, number>();
 
     for (const pset of psets) {
       const propertyIds: number[] = [];
@@ -383,17 +527,21 @@ export class StepExporter {
       const psetLine = `#${psetId}=IFCPROPERTYSET('${globalId}',$,'${this.escapeStepString(pset.name)}',$,(${propRefs}));`;
       lines.push(psetLine);
 
-      // Create IfcRelDefinesByProperties to link pset to entity
-      const relId = this.nextExpressId++;
-      count++;
+      if (typeOwnedPsetNames?.has(pset.name)) {
+        generatedTypeOwnedPsetIds.set(pset.name, psetId);
+      } else {
+        // Create IfcRelDefinesByProperties to link pset to entity
+        const relId = this.nextExpressId++;
+        count++;
 
-      const relGlobalId = this.generateGlobalId();
-      // #ID=IFCRELDEFINESBYPROPERTIES('GlobalId',$,$,$,(#entity),#pset);
-      const relLine = `#${relId}=IFCRELDEFINESBYPROPERTIES('${relGlobalId}',$,$,$,(#${entityId}),#${psetId});`;
-      lines.push(relLine);
+        const relGlobalId = this.generateGlobalId();
+        // #ID=IFCRELDEFINESBYPROPERTIES('GlobalId',$,$,$,(#entity),#pset);
+        const relLine = `#${relId}=IFCRELDEFINESBYPROPERTIES('${relGlobalId}',$,$,$,(#${entityId}),#${psetId});`;
+        lines.push(relLine);
+      }
     }
 
-    return { lines, count };
+    return { lines, count, generatedTypeOwnedPsetIds };
   }
 
   /**
@@ -503,6 +651,122 @@ export class StepExporter {
       default:
         return `IFCLABEL('${this.escapeStepString(String(value))}')`;
     }
+  }
+
+  /**
+   * Rewrite root IFC attributes directly on the original STEP entity line.
+   */
+  private applyAttributeMutations(
+    entityText: string,
+    entityType: string,
+    attributeMutations: Map<string, string>,
+  ): string {
+    const openParen = entityText.indexOf('(');
+    const closeParen = entityText.lastIndexOf(');');
+    if (openParen < 0 || closeParen < openParen) {
+      return entityText;
+    }
+
+    const attrNames = getAttributeNames(entityType);
+    if (attrNames.length === 0) {
+      return entityText;
+    }
+
+    const args = this.splitTopLevelArgs(entityText.slice(openParen + 1, closeParen));
+    let changed = false;
+
+    for (const [attrName, value] of attributeMutations) {
+      const index = attrNames.indexOf(attrName);
+      if (index < 0 || index >= args.length) continue;
+      args[index] = this.serializeAttributeValue(value, args[index]);
+      changed = true;
+    }
+
+    if (!changed) {
+      return entityText;
+    }
+
+    return `${entityText.slice(0, openParen + 1)}${args.join(',')}${entityText.slice(closeParen)}`;
+  }
+
+  private serializeAttributeValue(value: string, currentToken: string): string {
+    const trimmed = value.trim();
+    const current = currentToken.trim();
+
+    if (value === '') return '$';
+    if (trimmed === '$' || trimmed === '*') return trimmed;
+    if (/^#\d+$/.test(trimmed)) return trimmed;
+
+    if (/^\.[A-Z0-9_]+\.$/i.test(current) || /^\.[A-Z0-9_]+\.$/i.test(trimmed)) {
+      return `.${trimmed.replace(/^\./, '').replace(/\.$/, '').toUpperCase()}.`;
+    }
+
+    if (/^(?:\.T\.|\.F\.|\.U\.)$/i.test(current)) {
+      const normalized = trimmed.toLowerCase();
+      if (normalized === 'true' || normalized === '.t.') return '.T.';
+      if (normalized === 'false' || normalized === '.f.') return '.F.';
+      return '.U.';
+    }
+
+    if (/^-?\d+(?:\.\d+)?(?:E[+-]?\d+)?$/i.test(trimmed) && /^-?\d/.test(current)) {
+      const numberValue = Number(trimmed);
+      if (!Number.isFinite(numberValue)) return '$';
+      return current.includes('.') || /E/i.test(current)
+        ? this.toStepReal(numberValue)
+        : String(numberValue);
+    }
+
+    return serializeValue(value);
+  }
+
+  private splitTopLevelArgs(text: string): string[] {
+    const parts: string[] = [];
+    let current = '';
+    let depth = 0;
+    let inString = false;
+
+    for (let i = 0; i < text.length; i++) {
+      const char = text[i];
+      current += char;
+
+      if (inString) {
+        if (char === '\'') {
+          if (text[i + 1] === '\'') {
+            current += text[i + 1];
+            i++;
+          } else {
+            inString = false;
+          }
+        }
+        continue;
+      }
+
+      if (char === '\'') {
+        inString = true;
+        continue;
+      }
+
+      if (char === '(') {
+        depth++;
+        continue;
+      }
+
+      if (char === ')') {
+        depth--;
+        continue;
+      }
+
+      if (char === ',' && depth === 0) {
+        parts.push(current.slice(0, -1).trim());
+        current = '';
+      }
+    }
+
+    if (current.trim() || text.endsWith(',')) {
+      parts.push(current.trim());
+    }
+
+    return parts;
   }
 
   /**
@@ -699,10 +963,137 @@ export class StepExporter {
     }
     return ids;
   }
+
+  /**
+   * Check whether an entity is an IFC type object (e.g. IfcWallType).
+   */
+  private isTypeEntity(entityId: number): boolean {
+    const entityRef = this.dataStore.entityIndex.byId.get(entityId);
+    return entityRef?.type.toUpperCase().endsWith('TYPE') ?? false;
+  }
+
+  /**
+   * Get the full HasPropertySets ID list from a type entity.
+   * This preserves both property and quantity definitions already assigned there.
+   */
+  private getTypeOwnedHasPropertySetIds(entityId: number): number[] {
+    if (!this.entityExtractor) return [];
+    const entityRef = this.dataStore.entityIndex.byId.get(entityId);
+    if (!entityRef) return [];
+
+    const entity = this.entityExtractor.extractEntity(entityRef);
+    const hasPropertySets = entity?.attributes?.[5];
+    if (!Array.isArray(hasPropertySets)) return [];
+
+    return hasPropertySets.filter((value): value is number => typeof value === 'number');
+  }
+
+  /**
+   * Rewrite a type entity so its HasPropertySets attribute points to replacement psets.
+   */
+  private rewriteTypeEntityHasPropertySets(
+    entityId: number,
+    originalPsetIds: number[],
+    affectedPsetNames: Set<string>,
+    replacementPsetIds: Map<string, number>
+  ): string | null {
+    const rewrittenIds: number[] = [];
+    const usedReplacementNames = new Set<string>();
+
+    for (const psetId of originalPsetIds) {
+      const psetName = this.getPropertySetName(psetId);
+      if (psetName && affectedPsetNames.has(psetName)) {
+        const replacementId = replacementPsetIds.get(psetName);
+        if (replacementId !== undefined) {
+          rewrittenIds.push(replacementId);
+          usedReplacementNames.add(psetName);
+        }
+        continue;
+      }
+      rewrittenIds.push(psetId);
+    }
+
+    for (const [psetName, psetId] of replacementPsetIds) {
+      if (!usedReplacementNames.has(psetName)) {
+        rewrittenIds.push(psetId);
+      }
+    }
+
+    const attrValue = rewrittenIds.length > 0
+      ? `(${rewrittenIds.map(id => `#${id}`).join(',')})`
+      : '$';
+
+    return this.replaceEntityAttribute(entityId, 5, attrValue);
+  }
+
+  /**
+   * Replace a single top-level STEP attribute in an entity line.
+   */
+  private replaceEntityAttribute(entityId: number, attrIndex: number, replacement: string): string | null {
+    const entityRef = this.dataStore.entityIndex.byId.get(entityId);
+    if (!entityRef || !this.dataStore.source) return null;
+
+    const decoder = new TextDecoder();
+    const entityText = decoder.decode(
+      this.dataStore.source.subarray(entityRef.byteOffset, entityRef.byteOffset + entityRef.byteLength)
+    );
+
+    const match = entityText.match(/^(#\d+\s*=\s*\w+\()([\s\S]*)(\)\s*;)\s*$/);
+    if (!match) return null;
+
+    const [, prefix, attrsText, suffix] = match;
+    const attrs = this.splitTopLevelStepArguments(attrsText);
+    if (attrIndex >= attrs.length) return null;
+
+    attrs[attrIndex] = replacement;
+    return `${prefix}${attrs.join(',')}${suffix}`;
+  }
+
+  /**
+   * Split a STEP argument list on top-level commas while preserving nested syntax.
+   */
+  private splitTopLevelStepArguments(input: string): string[] {
+    const parts: string[] = [];
+    let current = '';
+    let depth = 0;
+    let inString = false;
+
+    for (let i = 0; i < input.length; i++) {
+      const char = input[i];
+
+      if (char === "'") {
+        current += char;
+        if (inString && i + 1 < input.length && input[i + 1] === "'") {
+          current += input[i + 1];
+          i++;
+          continue;
+        }
+        inString = !inString;
+        continue;
+      }
+
+      if (!inString) {
+        if (char === '(') depth++;
+        else if (char === ')') depth--;
+        else if (char === ',' && depth === 0) {
+          parts.push(current);
+          current = '';
+          continue;
+        }
+      }
+
+      current += char;
+    }
+
+    parts.push(current);
+    return parts;
+  }
 }
 
 /**
- * Quick export function for simple use cases
+ * Quick export function for simple use cases.
+ * Returns content as a string (may fail for very large files due to V8 string limit).
+ * For large files, use StepExporter directly and work with the Uint8Array content.
  */
 export function exportToStep(
   dataStore: IfcDataStore,
@@ -713,5 +1104,44 @@ export function exportToStep(
     schema: 'IFC4',
     ...options,
   });
-  return result.content;
+  return new TextDecoder().decode(result.content);
+}
+
+/**
+ * Assemble a STEP file from header and entity lines as a Uint8Array.
+ * Encodes each entity individually to avoid hitting V8's ~256 MB string length limit
+ * when exporting large models.
+ */
+function assembleStepBytes(header: string, entities: string[]): Uint8Array {
+  const encoder = new TextEncoder();
+
+  const headBytes = encoder.encode(`${header}DATA;\n`);
+  const tailBytes = encoder.encode('ENDSEC;\nEND-ISO-10303-21;\n');
+  const newline = encoder.encode('\n');
+
+  // Calculate total size
+  let totalSize = headBytes.byteLength + tailBytes.byteLength;
+  const entityBytes: Uint8Array[] = new Array(entities.length);
+  for (let i = 0; i < entities.length; i++) {
+    entityBytes[i] = encoder.encode(entities[i]);
+    totalSize += entityBytes[i].byteLength + newline.byteLength;
+  }
+
+  // Assemble into a single buffer
+  const result = new Uint8Array(totalSize);
+  let offset = 0;
+
+  result.set(headBytes, offset);
+  offset += headBytes.byteLength;
+
+  for (let i = 0; i < entityBytes.length; i++) {
+    result.set(entityBytes[i], offset);
+    offset += entityBytes[i].byteLength;
+    result.set(newline, offset);
+    offset += newline.byteLength;
+  }
+
+  result.set(tailBytes, offset);
+
+  return result;
 }

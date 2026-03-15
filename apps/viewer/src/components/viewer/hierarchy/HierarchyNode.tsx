@@ -4,13 +4,7 @@
 
 import {
   ChevronRight,
-  Building2,
   Layers,
-  MapPin,
-  FolderKanban,
-  Square,
-  Box,
-  DoorOpen,
   Eye,
   EyeOff,
   FileBox,
@@ -20,20 +14,21 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { cn } from '@/lib/utils';
 import type { TreeNode } from './types';
 import { isSpatialContainer } from './types';
+import { IFC_ICON_CODEPOINTS, IFC_ICON_DEFAULT } from './ifc-icons';
 
-const TYPE_ICONS: Record<string, React.ElementType> = {
+/**
+ * Resolve the Material Symbols code point for a given IFC type string.
+ * Falls back to the generic product icon for unmapped classes.
+ */
+function getIfcIconCodepoint(ifcType: string | undefined): string {
+  if (!ifcType) return IFC_ICON_DEFAULT;
+  return IFC_ICON_CODEPOINTS[ifcType] ?? IFC_ICON_DEFAULT;
+}
+
+/** Lucide fallback icons for non-IFC node types */
+const NODE_TYPE_ICONS: Record<string, React.ElementType> = {
   'unified-storey': Layers,
   'model-header': FileBox,
-  IfcProject: FolderKanban,
-  IfcSite: MapPin,
-  IfcBuilding: Building2,
-  IfcBuildingStorey: Layers,
-  IfcSpace: Box,
-  IfcWall: Square,
-  IfcWallStandardCase: Square,
-  IfcDoor: DoorOpen,
-  element: Box,
-  default: Box,
 };
 
 export interface HierarchyNodeProps {
@@ -67,7 +62,10 @@ export function HierarchyNode({
   onRemoveModel,
   onModelHeaderClick,
 }: HierarchyNodeProps) {
-  const Icon = TYPE_ICONS[node.type] || TYPE_ICONS.default;
+  const resolvedType = node.ifcType || node.type;
+  // Use Lucide icon for non-IFC structural nodes, Material Symbols for IFC classes
+  const LucideIcon = NODE_TYPE_ICONS[node.type];
+  const iconCodepoint = getIfcIconCodepoint(resolvedType);
 
   // Model header nodes (for visibility control and expansion)
   if (node.type === 'model-header' && node.id.startsWith('model-')) {
@@ -257,21 +255,37 @@ export function HierarchyNode({
         {/* Type Icon */}
         <Tooltip>
           <TooltipTrigger asChild>
-            <Icon className="h-3.5 w-3.5 shrink-0 text-zinc-500 dark:text-zinc-400" />
+            {LucideIcon ? (
+              <LucideIcon className="h-3.5 w-3.5 shrink-0 text-zinc-500 dark:text-zinc-400" />
+            ) : (
+              <span
+                className="material-symbols-outlined shrink-0 leading-none text-zinc-500 dark:text-zinc-400"
+                style={{ fontSize: '14px' }}
+                aria-hidden="true"
+              >
+                {iconCodepoint}
+              </span>
+            )}
           </TooltipTrigger>
           <TooltipContent>
-            <p className="text-xs">{node.type}</p>
+            <p className="text-xs">{resolvedType}</p>
           </TooltipContent>
         </Tooltip>
 
         {/* Name */}
         <span className={cn(
           'flex-1 text-sm truncate ml-1.5',
-          isSpatialContainer(node.type) || node.type === 'IfcBuildingStorey' || node.type === 'unified-storey' || node.type === 'type-group'
+          isSpatialContainer(node.type) || node.type === 'IfcBuildingStorey' || node.type === 'IfcSpace' || node.type === 'unified-storey' || node.type === 'type-group'
             ? 'font-medium text-zinc-900 dark:text-zinc-100'
             : 'text-zinc-700 dark:text-zinc-300',
           nodeHidden && 'line-through decoration-zinc-400 dark:decoration-zinc-600'
         )}>{node.name}</span>
+
+        {node.ifcType && node.type === 'element' && (
+          <span className="text-[10px] font-mono text-zinc-400 dark:text-zinc-500 truncate max-w-[90px]">
+            {node.ifcType}
+          </span>
+        )}
 
         {/* Storey Elevation */}
         {node.storeyElevation !== undefined && (

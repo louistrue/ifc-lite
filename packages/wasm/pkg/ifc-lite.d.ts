@@ -183,8 +183,8 @@ export class GpuInstancedGeometryCollection {
     [Symbol.dispose](): void;
     get(index: number): GpuInstancedGeometry | undefined;
     /**
-     * Get geometry by index with zero-copy access
-     * Returns a reference that provides pointer access
+     * Get geometry by index with pointer access over owned buffers.
+     * This avoids exposing references tied to collection lifetime.
      */
     getRef(index: number): GpuInstancedGeometryRef | undefined;
     constructor();
@@ -192,8 +192,8 @@ export class GpuInstancedGeometryCollection {
 }
 
 /**
- * Reference to geometry in collection for zero-copy access
- * This avoids cloning when accessing geometry data
+ * Pointer-friendly geometry view with owned backing storage.
+ * Owning buffers prevents dangling pointers after collection mutation/drop.
  */
 export class GpuInstancedGeometryRef {
     private constructor();
@@ -243,29 +243,6 @@ export class IfcAPI {
      * Debug: Test processing a single wall
      */
     debugProcessFirstWall(content: string): string;
-    /**
-     * Extract raw profile polygons from all building elements with `IfcExtrudedAreaSolid`
-     * representations.
-     *
-     * Returns a [`ProfileCollection`] whose entries each carry:
-     * - A 2D polygon (outer + holes) in local profile space (metres)
-     * - A 4 × 4 column-major transform in WebGL Y-up world space
-     * - Extrusion direction (world space) and depth (metres)
-     *
-     * Use [`ProfileProjector`] (TypeScript) to convert these into `DrawingLine[]`
-     * for clean projection without tessellation artifacts.
-     *
-     * ```javascript
-     * const api = new IfcAPI();
-     * const profiles = api.extractProfiles(ifcContent, 0);
-     * console.log('Profiles:', profiles.length);
-     * for (let i = 0; i < profiles.length; i++) {
-     *   const p = profiles.get(i);
-     *   console.log(p.ifcType, 'depth:', p.extrusionDepth);
-     * }
-     * ```
-     */
-    extractProfiles(content: string, model_index: number): ProfileCollection;
     /**
      * Extract georeferencing information from IFC content
      * Returns null if no georeferencing is present
@@ -731,72 +708,6 @@ export class MeshDataJs {
 }
 
 /**
- * A collection of extracted profiles.
- */
-export class ProfileCollection {
-    private constructor();
-    free(): void;
-    [Symbol.dispose](): void;
-    /**
-     * Get profile at `index`.  Returns `undefined` for out-of-bounds index.
-     */
-    get(index: number): ProfileEntryJs | undefined;
-    /**
-     * Number of profiles.
-     */
-    readonly length: number;
-}
-
-/**
- * A single profile entry – raw 2D polygon + world transform.
- *
- * Profile points are in **local 2D profile space** (metres).
- * Apply `transform` to `[x, y, 0, 1]` to get WebGL Y-up world coordinates.
- */
-export class ProfileEntryJs {
-    private constructor();
-    free(): void;
-    [Symbol.dispose](): void;
-    /**
-     * Express ID of the building element.
-     */
-    readonly expressId: number;
-    /**
-     * Extrusion depth (metres).
-     */
-    readonly extrusionDepth: number;
-    /**
-     * Extrusion direction `[dx, dy, dz]` in WebGL Y-up world space (unit vector).
-     */
-    readonly extrusionDir: Float32Array;
-    /**
-     * Number of points per hole.
-     */
-    readonly holeCounts: Uint32Array;
-    /**
-     * All hole points concatenated: `[x0, y0, x1, y1, …]` (metres).
-     */
-    readonly holePoints: Float32Array;
-    /**
-     * IFC type name (e.g., `"IfcWall"`).
-     */
-    readonly ifcType: string;
-    /**
-     * Model index for multi-model federation.
-     */
-    readonly modelIndex: number;
-    /**
-     * Outer boundary: flat `[x0, y0, x1, y1, …]` in local profile space (metres).
-     */
-    readonly outerPoints: Float32Array;
-    /**
-     * 4 × 4 column-major transform in WebGL Y-up world space.
-     * `M * [x, y, 0, 1]ᵀ` gives the world position.
-     */
-    readonly transform: Float32Array;
-}
-
-/**
  * RTC offset information exposed to JavaScript
  */
 export class RtcOffsetJs {
@@ -1016,7 +927,6 @@ export interface InitOutput {
     readonly __wbg_gpugeometry_free: (a: number, b: number) => void;
     readonly __wbg_gpuinstancedgeometry_free: (a: number, b: number) => void;
     readonly __wbg_gpuinstancedgeometrycollection_free: (a: number, b: number) => void;
-    readonly __wbg_gpuinstancedgeometryref_free: (a: number, b: number) => void;
     readonly __wbg_gpumeshmetadata_free: (a: number, b: number) => void;
     readonly __wbg_ifcapi_free: (a: number, b: number) => void;
     readonly __wbg_instancedata_free: (a: number, b: number) => void;
@@ -1025,8 +935,6 @@ export interface InitOutput {
     readonly __wbg_meshcollection_free: (a: number, b: number) => void;
     readonly __wbg_meshcollectionwithrtc_free: (a: number, b: number) => void;
     readonly __wbg_meshdatajs_free: (a: number, b: number) => void;
-    readonly __wbg_profilecollection_free: (a: number, b: number) => void;
-    readonly __wbg_profileentryjs_free: (a: number, b: number) => void;
     readonly __wbg_rtcoffsetjs_free: (a: number, b: number) => void;
     readonly __wbg_set_georeferencejs_eastings: (a: number, b: number) => void;
     readonly __wbg_set_georeferencejs_northings: (a: number, b: number) => void;
@@ -1077,21 +985,8 @@ export interface InitOutput {
     readonly gpuinstancedgeometry_vertexDataLen: (a: number) => number;
     readonly gpuinstancedgeometry_vertexDataPtr: (a: number) => number;
     readonly gpuinstancedgeometrycollection_get: (a: number, b: number) => number;
-    readonly gpuinstancedgeometrycollection_getRef: (a: number, b: number) => number;
     readonly gpuinstancedgeometrycollection_length: (a: number) => number;
     readonly gpuinstancedgeometrycollection_new: () => number;
-    readonly gpuinstancedgeometryref_geometryId: (a: number) => bigint;
-    readonly gpuinstancedgeometryref_indicesByteLength: (a: number) => number;
-    readonly gpuinstancedgeometryref_indicesLen: (a: number) => number;
-    readonly gpuinstancedgeometryref_indicesPtr: (a: number) => number;
-    readonly gpuinstancedgeometryref_instanceCount: (a: number) => number;
-    readonly gpuinstancedgeometryref_instanceDataByteLength: (a: number) => number;
-    readonly gpuinstancedgeometryref_instanceDataLen: (a: number) => number;
-    readonly gpuinstancedgeometryref_instanceDataPtr: (a: number) => number;
-    readonly gpuinstancedgeometryref_instanceExpressIdsPtr: (a: number) => number;
-    readonly gpuinstancedgeometryref_vertexDataByteLength: (a: number) => number;
-    readonly gpuinstancedgeometryref_vertexDataLen: (a: number) => number;
-    readonly gpuinstancedgeometryref_vertexDataPtr: (a: number) => number;
     readonly gpumeshmetadata_color: (a: number, b: number) => void;
     readonly gpumeshmetadata_expressId: (a: number) => number;
     readonly gpumeshmetadata_ifcTypeIdx: (a: number) => number;
@@ -1101,7 +996,6 @@ export interface InitOutput {
     readonly gpumeshmetadata_vertexOffset: (a: number) => number;
     readonly ifcapi_debugProcessEntity953: (a: number, b: number, c: number, d: number) => void;
     readonly ifcapi_debugProcessFirstWall: (a: number, b: number, c: number, d: number) => void;
-    readonly ifcapi_extractProfiles: (a: number, b: number, c: number, d: number) => number;
     readonly ifcapi_getGeoReference: (a: number, b: number, c: number) => number;
     readonly ifcapi_getMemory: (a: number) => number;
     readonly ifcapi_is_ready: (a: number) => number;
@@ -1152,16 +1046,6 @@ export interface InitOutput {
     readonly meshdatajs_positions: (a: number) => number;
     readonly meshdatajs_triangleCount: (a: number) => number;
     readonly meshdatajs_vertexCount: (a: number) => number;
-    readonly profilecollection_get: (a: number, b: number) => number;
-    readonly profilecollection_length: (a: number) => number;
-    readonly profileentryjs_extrusionDepth: (a: number) => number;
-    readonly profileentryjs_extrusionDir: (a: number) => number;
-    readonly profileentryjs_holeCounts: (a: number) => number;
-    readonly profileentryjs_holePoints: (a: number) => number;
-    readonly profileentryjs_ifcType: (a: number, b: number) => void;
-    readonly profileentryjs_modelIndex: (a: number) => number;
-    readonly profileentryjs_outerPoints: (a: number) => number;
-    readonly profileentryjs_transform: (a: number) => number;
     readonly rtcoffsetjs_isSignificant: (a: number) => number;
     readonly rtcoffsetjs_toWorld: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly symboliccircle_centerX: (a: number) => number;
@@ -1195,6 +1079,10 @@ export interface InitOutput {
     readonly zerocopymesh_positions_ptr: (a: number) => number;
     readonly zerocopymesh_vertex_count: (a: number) => number;
     readonly init: () => void;
+    readonly gpuinstancedgeometryref_indicesLen: (a: number) => number;
+    readonly gpuinstancedgeometryref_instanceCount: (a: number) => number;
+    readonly gpuinstancedgeometryref_instanceDataLen: (a: number) => number;
+    readonly gpuinstancedgeometryref_vertexDataLen: (a: number) => number;
     readonly instancedmeshcollection_length: (a: number) => number;
     readonly instancedmeshcollection_totalGeometries: (a: number) => number;
     readonly meshcollectionwithrtc_length: (a: number) => number;
@@ -1205,19 +1093,28 @@ export interface InitOutput {
     readonly __wbg_set_rtcoffsetjs_x: (a: number, b: number) => void;
     readonly __wbg_set_rtcoffsetjs_y: (a: number, b: number) => void;
     readonly __wbg_set_rtcoffsetjs_z: (a: number, b: number) => void;
+    readonly gpuinstancedgeometryref_geometryId: (a: number) => bigint;
     readonly instancedgeometry_geometryId: (a: number) => bigint;
     readonly meshcollection_rtcOffsetX: (a: number) => number;
-    readonly profileentryjs_expressId: (a: number) => number;
     readonly symboliccircle_expressId: (a: number) => number;
+    readonly gpuinstancedgeometryref_indicesByteLength: (a: number) => number;
+    readonly gpuinstancedgeometryref_instanceDataByteLength: (a: number) => number;
+    readonly gpuinstancedgeometryref_vertexDataByteLength: (a: number) => number;
+    readonly gpuinstancedgeometrycollection_getRef: (a: number, b: number) => number;
     readonly zerocopymesh_triangle_count: (a: number) => number;
+    readonly gpuinstancedgeometryref_indicesPtr: (a: number) => number;
+    readonly gpuinstancedgeometryref_instanceDataPtr: (a: number) => number;
+    readonly gpuinstancedgeometryref_instanceExpressIdsPtr: (a: number) => number;
+    readonly gpuinstancedgeometryref_vertexDataPtr: (a: number) => number;
     readonly zerocopymesh_indices_ptr: (a: number) => number;
     readonly zerocopymesh_normals_ptr: (a: number) => number;
+    readonly __wbg_gpuinstancedgeometryref_free: (a: number, b: number) => void;
     readonly get_memory: () => number;
-    readonly __wasm_bindgen_func_elem_1066: (a: number, b: number) => void;
-    readonly __wasm_bindgen_func_elem_505: (a: number, b: number) => void;
-    readonly __wasm_bindgen_func_elem_1068: (a: number, b: number, c: number, d: number) => void;
-    readonly __wasm_bindgen_func_elem_1101: (a: number, b: number, c: number, d: number) => void;
-    readonly __wasm_bindgen_func_elem_507: (a: number, b: number) => void;
+    readonly __wasm_bindgen_func_elem_1016: (a: number, b: number) => void;
+    readonly __wasm_bindgen_func_elem_465: (a: number, b: number) => void;
+    readonly __wasm_bindgen_func_elem_1021: (a: number, b: number, c: number, d: number) => void;
+    readonly __wasm_bindgen_func_elem_1054: (a: number, b: number, c: number, d: number) => void;
+    readonly __wasm_bindgen_func_elem_469: (a: number, b: number) => void;
     readonly __wbindgen_export: (a: number) => void;
     readonly __wbindgen_export2: (a: number, b: number, c: number) => void;
     readonly __wbindgen_export3: (a: number, b: number) => number;

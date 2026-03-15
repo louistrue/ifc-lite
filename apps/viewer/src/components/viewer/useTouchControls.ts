@@ -93,22 +93,38 @@ export function useTouchControls(params: UseTouchControlsParams): void {
         };
         touchState.didMove = false;
 
-        // Set orbit pivot to what user touches (same as mouse click behavior)
+        // Set orbit pivot to the 3D point under the finger.
+        // On miss, place pivot at current distance along the finger ray.
         const rect = canvas.getBoundingClientRect();
-        const x = touchState.touches[0].clientX - rect.left;
-        const y = touchState.touches[0].clientY - rect.top;
-
-        // Uses visibility filtering so hidden elements don't affect orbit pivot
-        const pickResult = await renderer.pick(x, y, getPickOptions());
-        if (pickResult !== null) {
-          const center = getEntityCenter(geometryRef.current, pickResult.expressId);
+        const tx = touchState.touches[0].clientX - rect.left;
+        const ty = touchState.touches[0].clientY - rect.top;
+        const hit = renderer.raycastScene(tx, ty, {
+          hiddenIds: hiddenEntitiesRef.current,
+          isolatedIds: isolatedEntitiesRef.current,
+        });
+        if (hit?.intersection) {
+          camera.setOrbitCenter(hit.intersection.point);
+        } else if (selectedEntityIdRef.current) {
+          const center = getEntityCenter(geometryRef.current, selectedEntityIdRef.current);
           if (center) {
-            camera.setOrbitPivot(center);
+            camera.setOrbitCenter(center);
           } else {
-            camera.setOrbitPivot(null);
+            camera.setOrbitCenter(null);
           }
         } else {
-          camera.setOrbitPivot(null);
+          const ray = camera.unprojectToRay(tx, ty, canvas.width, canvas.height);
+          const target = camera.getTarget();
+          const toTarget = {
+            x: target.x - ray.origin.x,
+            y: target.y - ray.origin.y,
+            z: target.z - ray.origin.z,
+          };
+          const d = Math.max(1, toTarget.x * ray.direction.x + toTarget.y * ray.direction.y + toTarget.z * ray.direction.z);
+          camera.setOrbitCenter({
+            x: ray.origin.x + ray.direction.x * d,
+            y: ray.origin.y + ray.direction.y * d,
+            z: ray.origin.z + ray.direction.z * d,
+          });
         }
       } else if (touchState.touches.length === 1) {
         // Single touch after multi-touch - just update center for orbit
@@ -201,7 +217,6 @@ export function useTouchControls(params: UseTouchControlsParams): void {
 
       if (touchState.touches.length === 0) {
         camera.stopInertia();
-        camera.setOrbitPivot(null);
 
         // Tap-to-select: detect quick tap without significant movement
         const tapDuration = Date.now() - touchState.tapStartTime;
@@ -211,13 +226,12 @@ export function useTouchControls(params: UseTouchControlsParams): void {
         // - Was a single-finger touch (not after multi-touch gesture)
         // - Tap was quick (< 300ms)
         // - Didn't move significantly
-        // - Tool supports selection (not orbit/pan/walk/measure)
+        // - Tool supports selection (not pan/walk/measure)
         if (
           previousTouchCount === 1 &&
           !wasMultiTouch &&
           tapDuration < 300 &&
           !touchState.didMove &&
-          tool !== 'orbit' &&
           tool !== 'pan' &&
           tool !== 'walk' &&
           tool !== 'measure'

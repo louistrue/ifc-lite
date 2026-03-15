@@ -6,8 +6,14 @@ import type {
   BimBackend,
   EntityRef,
   EntityData,
+  EntityAttributeData,
   PropertySetData,
   QuantitySetData,
+  ClassificationData,
+  MaterialData,
+  TypePropertiesData,
+  DocumentData,
+  EntityRelationshipsData,
   QueryDescriptor,
   QueryFilter,
   ComparisonOp,
@@ -105,6 +111,11 @@ export class QueryNamespace {
   }
 
   /** Get all property sets for an entity */
+  attributes(ref: EntityRef): EntityAttributeData[] {
+    return this.backend.query.attributes(ref);
+  }
+
+  /** Get all property sets for an entity */
   properties(ref: EntityRef): PropertySetData[] {
     return this.backend.query.properties(ref);
   }
@@ -123,13 +134,48 @@ export class QueryNamespace {
     return this.backend.query.quantities(ref);
   }
 
-  /** Get a single quantity value */
-  quantity(ref: EntityRef, qsetName: string, quantityName: string): number | null {
+  /** Get all classifications for an entity */
+  classifications(ref: EntityRef): ClassificationData[] {
+    return this.backend.query.classifications(ref);
+  }
+
+  /** Get material assignment for an entity */
+  materials(ref: EntityRef): MaterialData | null {
+    return this.backend.query.materials(ref);
+  }
+
+  /** Get type-level property sets for an entity */
+  typeProperties(ref: EntityRef): TypePropertiesData | null {
+    return this.backend.query.typeProperties(ref);
+  }
+
+  /** Get linked documents for an entity */
+  documents(ref: EntityRef): DocumentData[] {
+    return this.backend.query.documents(ref);
+  }
+
+  /** Get structural relationship summary for an entity */
+  relationships(ref: EntityRef): EntityRelationshipsData {
+    return this.backend.query.relationships(ref);
+  }
+
+  /** Get a single quantity value. Supports 2-arg (ref, quantityName) or 3-arg (ref, qsetName, quantityName). */
+  quantity(ref: EntityRef, qsetNameOrQuantityName: string, quantityName?: string): number | null {
     const qsets = this.quantities(ref);
-    const qset = qsets.find(q => q.name === qsetName);
-    if (!qset) return null;
-    const qty = qset.quantities.find(q => q.name === quantityName);
-    return qty?.value ?? null;
+    if (quantityName !== undefined) {
+      // 3-arg: (ref, qsetName, quantityName)
+      const qset = qsets.find(q => q.name === qsetNameOrQuantityName);
+      if (!qset) return null;
+      const qty = qset.quantities.find(q => q.name === quantityName);
+      return qty?.value ?? null;
+    }
+    // 2-arg: (ref, quantityName) — search all qsets
+    const name = qsetNameOrQuantityName;
+    for (const qset of qsets) {
+      const qty = qset.quantities.find(q => q.name === name);
+      if (qty != null) return qty.value ?? null;
+    }
+    return null;
   }
 
   /** Get related entities by IFC relationship type */
@@ -179,5 +225,25 @@ export class QueryNamespace {
       current = this.containedIn(current.ref) ?? this.decomposedBy(current.ref);
     }
     return null;
+  }
+
+  /** Walk the spatial/aggregation chain from an entity up to the root */
+  path(ref: EntityRef): EntityData[] {
+    const result: EntityData[] = [];
+    let current = this.entity(ref);
+    const visited = new Set<string>();
+    while (current) {
+      const key = `${current.ref.modelId}:${current.ref.expressId}`;
+      if (visited.has(key)) break;
+      visited.add(key);
+      result.push(current);
+      current = this.containedIn(current.ref) ?? this.decomposedBy(current.ref);
+    }
+    return result.reverse();
+  }
+
+  /** Get all storeys across the current model scope */
+  storeys(): EntityData[] {
+    return this.create().byType('IfcBuildingStorey').toArray();
   }
 }

@@ -3,11 +3,18 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 /**
- * Camera orbit, pan, and zoom controls with spherical coordinate math.
- * Extracted from Camera class using composition pattern.
+ * Camera orbit, pan, and zoom controls.
+ *
+ * Orbit uses a pivot point:
+ * - Default pivot = camera.target (standard orbit)
+ * - When orbitCenter is set (e.g. selected object), both position AND target
+ *   rotate around it. This preserves the viewing direction while orbiting
+ *   around the selected object — standard BIM behavior where selecting an
+ *   object doesn't move the camera, only changes the orbit pivot.
  */
 
 import type { Camera as CameraType, Vec3, Mat4 } from './types.js';
+import { CAMERA_CONSTANTS as CC } from './constants.js';
 
 /** Projection mode for the camera */
 export type ProjectionMode = 'perspective' | 'orthographic';
@@ -25,15 +32,99 @@ export interface CameraInternalState {
   projectionMode: ProjectionMode;
   /** Orthographic half-height in world units (controls zoom level in ortho mode) */
   orthoSize: number;
+  /** Scene bounding box for tight orthographic near/far computation */
+  sceneBounds: { min: { x: number; y: number; z: number }; max: { x: number; y: number; z: number } } | null;
 }
+
+// ---------------------------------------------------------------------------
+// Tiny vec3 helpers (inline, no allocations beyond the return object)
+// ---------------------------------------------------------------------------
+
+/** Subtract a - b */
+function sub(a: Vec3, b: Vec3): Vec3 {
+  return { x: a.x - b.x, y: a.y - b.y, z: a.z - b.z };
+}
+
+function length(v: Vec3): number {
+  return Math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
+}
+
+function scale(v: Vec3, s: number): Vec3 {
+  return { x: v.x * s, y: v.y * s, z: v.z * s };
+}
+
+function normalize(v: Vec3): Vec3 {
+  const len = length(v);
+  return len > 1e-10 ? scale(v, 1 / len) : { x: 0, y: 0, z: 0 };
+}
+
+function cross(a: Vec3, b: Vec3): Vec3 {
+  return {
+    x: a.y * b.z - a.z * b.y,
+    y: a.z * b.x - a.x * b.z,
+    z: a.x * b.y - a.y * b.x,
+  };
+}
+
+/** Add offset to a Vec3 in place */
+function addInPlace(v: Vec3, offset: Vec3): void {
+  v.x += offset.x;
+  v.y += offset.y;
+  v.z += offset.z;
+}
+
+/** Copy xyz from src into dst */
+function copyInto(dst: Vec3, src: Vec3): void {
+  dst.x = src.x;
+  dst.y = src.y;
+  dst.z = src.z;
+}
+
+// ---------------------------------------------------------------------------
+// Spherical coordinate helpers
+// ---------------------------------------------------------------------------
+
+/** Convert a direction vector (from pivot to point) into spherical angles,
+ *  handling gimbal lock near the poles. */
+function toSpherical(dir: Vec3, dist: number): { theta: number; phi: number } {
+  let phi = Math.acos(Math.max(-1, Math.min(1, dir.y / dist)));
+  let theta: number;
+  const sinPhi = Math.sin(phi);
+
+  if (sinPhi > CC.POLE_THRESHOLD) {
+    theta = Math.atan2(dir.x, dir.z);
+  } else {
+    theta = 0;
+    phi = phi < Math.PI / 2 ? CC.MIN_PHI : CC.MAX_PHI;
+  }
+
+  return { theta, phi };
+}
+
+/** Convert spherical angles back to a Cartesian position relative to a pivot. */
+function fromSpherical(pivot: Vec3, dist: number, theta: number, phi: number): Vec3 {
+  const sinPhi = Math.sin(phi);
+  return {
+    x: pivot.x + dist * sinPhi * Math.sin(theta),
+    y: pivot.y + dist * Math.cos(phi),
+    z: pivot.z + dist * sinPhi * Math.cos(theta),
+  };
+}
+
+function clampPhi(phi: number): number {
+  return Math.max(CC.MIN_PHI, Math.min(CC.MAX_PHI, phi));
+}
+
+// ---------------------------------------------------------------------------
+// CameraControls
+// ---------------------------------------------------------------------------
 
 /**
  * Handles core camera movement: orbit, pan, and zoom.
- * Uses spherical coordinates for orbit with Y-up convention.
  */
 export class CameraControls {
-  /** Dynamic orbit pivot (for orbiting around selected element or cursor point) */
-  private orbitPivot: Vec3 | null = null;
+  /** Optional orbit pivot (set on object selection). null = orbit around camera.target. */
+  private orbitCenter: Vec3 | null = null;
 
   constructor(
     private readonly state: CameraInternalState,
@@ -41,152 +132,104 @@ export class CameraControls {
   ) {}
 
   /**
-   * Set temporary orbit pivot (for orbiting around selected element or cursor point)
-   * When set, orbit() will rotate around this point instead of the camera target
+   * Set the orbit center without moving the camera.
+   * Future orbit() calls will rotate around this point.
+   * Pass null to revert to orbiting around camera.target.
    */
-  setOrbitPivot(pivot: Vec3 | null): void {
-    this.orbitPivot = pivot ? { ...pivot } : null;
+  setOrbitCenter(center: Vec3 | null): void {
+    this.orbitCenter = center ? { ...center } : null;
   }
 
-  /**
-   * Get current orbit pivot (returns temporary pivot if set, otherwise target)
-   */
-  getOrbitPivot(): Vec3 {
-    return this.orbitPivot ? { ...this.orbitPivot } : { ...this.state.camera.target };
-  }
+  // -------------------------------------------------------------------------
+  // Orbit
+  // -------------------------------------------------------------------------
 
   /**
-   * Check if a temporary orbit pivot is set
-   */
-  hasOrbitPivot(): boolean {
-    return this.orbitPivot !== null;
-  }
-
-  /**
-   * Clear the orbit pivot
-   */
-  clearOrbitPivot(): void {
-    this.orbitPivot = null;
-  }
-
-  /**
-   * Orbit around target or pivot (Y-up coordinate system).
-   * If an orbit pivot is set, orbits around that point.
+   * Orbit the camera around a pivot point (Y-up turntable style).
    *
-   * Note: Does not handle velocity or preset view tracking;
-   * the Camera class coordinates those concerns.
+   * When orbitCenter is set (selected object), both position AND target
+   * rotate around the orbit center. The camera never moves on selection
+   * alone — only when the user actually drags to rotate.
    */
   orbit(deltaX: number, deltaY: number): void {
-    // Always ensure Y-up for consistent orbit behavior
     this.state.camera.up = { x: 0, y: 1, z: 0 };
 
-    // Invert controls: mouse movement direction = model rotation direction
-    const dx = -deltaX * 0.01;
-    const dy = -deltaY * 0.01;
+    const dx = -deltaX * CC.ORBIT_SENSITIVITY;
+    const dy = -deltaY * CC.ORBIT_SENSITIVITY;
 
-    // Use orbit pivot if set, otherwise use target
-    const pivotPoint = this.orbitPivot || this.state.camera.target;
-
-    const dir = {
-      x: this.state.camera.position.x - pivotPoint.x,
-      y: this.state.camera.position.y - pivotPoint.y,
-      z: this.state.camera.position.z - pivotPoint.z,
-    };
-
-    const distance = Math.sqrt(dir.x * dir.x + dir.y * dir.y + dir.z * dir.z);
-    if (distance < 1e-6) return;
-
-    // Y-up coordinate system using standard spherical coordinates
-    // theta: horizontal rotation around Y axis
-    // phi: vertical angle from Y axis (0 = top, PI = bottom)
-    let currentPhi = Math.acos(Math.max(-1, Math.min(1, dir.y / distance)));
-
-    // When at poles (top/bottom view), use a stable theta based on current direction
-    // to avoid gimbal lock issues
-    let theta: number;
-    const sinPhi = Math.sin(currentPhi);
-    if (sinPhi > 0.05) {
-      // Normal case - calculate theta from horizontal position
-      theta = Math.atan2(dir.x, dir.z);
+    if (this.orbitCenter !== null) {
+      this.orbitAroundExternalPivot(this.orbitCenter, dx, dy);
     } else {
-      // At a pole - determine which one and push away
-      theta = 0; // Default theta when at pole
-      if (currentPhi < Math.PI / 2) {
-        // Top pole (phi ~ 0) - push down
-        currentPhi = 0.15;
-      } else {
-        // Bottom pole (phi ~ PI) - push up
-        currentPhi = Math.PI - 0.15;
-      }
+      // Standard: rotate position around target
+      const newPos = this.rotateAroundPivot(this.state.camera.position, this.state.camera.target, dx, dy);
+      copyInto(this.state.camera.position, newPos);
     }
-
-    theta += dx;
-    const phi = currentPhi + dy;
-
-    // Clamp phi to prevent gimbal lock (stay away from exact poles)
-    const phiClamped = Math.max(0.15, Math.min(Math.PI - 0.15, phi));
-
-    // Calculate new camera position around pivot
-    const newPosX = pivotPoint.x + distance * Math.sin(phiClamped) * Math.sin(theta);
-    const newPosY = pivotPoint.y + distance * Math.cos(phiClamped);
-    const newPosZ = pivotPoint.z + distance * Math.sin(phiClamped) * Math.cos(theta);
-
-    // Update camera position
-    this.state.camera.position.x = newPosX;
-    this.state.camera.position.y = newPosY;
-    this.state.camera.position.z = newPosZ;
 
     this.updateMatrices();
   }
+
+  /**
+   * Rotate a point around the pivot by the given theta/phi deltas.
+   */
+  private rotateAroundPivot(point: Vec3, pivot: Vec3, dx: number, dy: number): Vec3 {
+    const dir = sub(point, pivot);
+    const dist = length(dir);
+    if (dist < 1e-6) return { ...point };
+
+    const { theta, phi } = toSpherical(dir, dist);
+    return fromSpherical(pivot, dist, theta + dx, clampPhi(phi + dy));
+  }
+
+  /**
+   * Orbit both camera.position and camera.target around an external pivot.
+   * Position rotates fully (theta + phi). Target only rotates horizontally
+   * (theta) so vertical dragging changes the viewing angle without moving
+   * the model up/down.
+   */
+  private orbitAroundExternalPivot(pivot: Vec3, dx: number, dy: number): void {
+    copyInto(this.state.camera.position,
+      this.rotateAroundPivot(this.state.camera.position, pivot, dx, dy));
+
+    // Target: horizontal rotation only (dx), keep Y fixed
+    const tx = this.state.camera.target.x - pivot.x;
+    const tz = this.state.camera.target.z - pivot.z;
+    const thetaTgt = Math.atan2(tx, tz) + dx;
+    const horizDist = Math.sqrt(tx * tx + tz * tz);
+
+    this.state.camera.target.x = pivot.x + horizDist * Math.sin(thetaTgt);
+    this.state.camera.target.z = pivot.z + horizDist * Math.cos(thetaTgt);
+    // target.y stays unchanged
+  }
+
+  // -------------------------------------------------------------------------
+  // Pan
+  // -------------------------------------------------------------------------
 
   /**
    * Pan camera (Y-up coordinate system).
-   *
-   * Note: Does not handle velocity; the Camera class coordinates that.
+   * Moves both position and target by the same offset (preserves orbit relationship).
    */
   pan(deltaX: number, deltaY: number): void {
-    const dir = {
-      x: this.state.camera.position.x - this.state.camera.target.x,
-      y: this.state.camera.position.y - this.state.camera.target.y,
-      z: this.state.camera.position.z - this.state.camera.target.z,
+    const dir = sub(this.state.camera.position, this.state.camera.target);
+    const dist = length(dir);
+
+    const right = normalize({ x: -dir.z, y: 0, z: dir.x });
+    const up = normalize(cross(right, dir));
+
+    const speed = dist * CC.PAN_SPEED_MULTIPLIER;
+    const offset = {
+      x: (right.x * deltaX + up.x * deltaY) * speed,
+      y: (right.y * deltaX + up.y * deltaY) * speed,
+      z: (right.z * deltaX + up.z * deltaY) * speed,
     };
-    const distance = Math.sqrt(dir.x * dir.x + dir.y * dir.y + dir.z * dir.z);
 
-    // Right vector: cross product of direction and up (0,1,0)
-    const right = {
-      x: -dir.z,
-      y: 0,
-      z: dir.x,
-    };
-    const rightLen = Math.sqrt(right.x * right.x + right.z * right.z);
-    if (rightLen > 1e-10) {
-      right.x /= rightLen;
-      right.z /= rightLen;
-    }
-
-    // Up vector: cross product of right and direction
-    const up = {
-      x: (right.z * dir.y - right.y * dir.z),
-      y: (right.x * dir.z - right.z * dir.x),
-      z: (right.y * dir.x - right.x * dir.y),
-    };
-    const upLen = Math.sqrt(up.x * up.x + up.y * up.y + up.z * up.z);
-    if (upLen > 1e-10) {
-      up.x /= upLen;
-      up.y /= upLen;
-      up.z /= upLen;
-    }
-
-    const panSpeed = distance * 0.001;
-    this.state.camera.target.x += (right.x * deltaX + up.x * deltaY) * panSpeed;
-    this.state.camera.target.y += (right.y * deltaX + up.y * deltaY) * panSpeed;
-    this.state.camera.target.z += (right.z * deltaX + up.z * deltaY) * panSpeed;
-    this.state.camera.position.x += (right.x * deltaX + up.x * deltaY) * panSpeed;
-    this.state.camera.position.y += (right.y * deltaX + up.y * deltaY) * panSpeed;
-    this.state.camera.position.z += (right.z * deltaX + up.z * deltaY) * panSpeed;
-
+    this.translateAll(offset);
     this.updateMatrices();
   }
+
+  // -------------------------------------------------------------------------
+  // Zoom
+  // -------------------------------------------------------------------------
 
   /**
    * Zoom camera towards mouse position.
@@ -195,98 +238,111 @@ export class CameraControls {
    * @param mouseY - Mouse Y position in canvas coordinates
    * @param canvasWidth - Canvas width
    * @param canvasHeight - Canvas height
-   *
-   * Note: Does not handle velocity; the Camera class coordinates that.
    */
   zoom(delta: number, mouseX?: number, mouseY?: number, canvasWidth?: number, canvasHeight?: number): void {
-    const dir = {
-      x: this.state.camera.position.x - this.state.camera.target.x,
-      y: this.state.camera.position.y - this.state.camera.target.y,
-      z: this.state.camera.position.z - this.state.camera.target.z,
-    };
-    const distance = Math.sqrt(dir.x * dir.x + dir.y * dir.y + dir.z * dir.z);
-    // Normalize delta (wheel events can have large values)
-    const normalizedDelta = Math.sign(delta) * Math.min(Math.abs(delta) * 0.001, 0.1);
+    const dir = sub(this.state.camera.position, this.state.camera.target);
+    const distance = length(dir);
+    if (distance < 1e-6) return; // Degenerate: position ≈ target, nothing to zoom
+
+    const normalizedDelta = Math.sign(delta) * Math.min(Math.abs(delta) * CC.ZOOM_SENSITIVITY, CC.MAX_ZOOM_DELTA);
     const zoomFactor = 1 + normalizedDelta;
-
-    // If mouse position provided, zoom towards that point
-    if (mouseX !== undefined && mouseY !== undefined && canvasWidth && canvasHeight) {
-      // Convert mouse to normalized device coordinates (-1 to 1)
-      const ndcX = (mouseX / canvasWidth) * 2 - 1;
-      const ndcY = 1 - (mouseY / canvasHeight) * 2; // Flip Y
-
-      // Calculate offset from center in world space
-      // Use the camera's right and up vectors
-      const forward = {
-        x: -dir.x / distance,
-        y: -dir.y / distance,
-        z: -dir.z / distance,
-      };
-
-      // Right = forward x up
-      const up = this.state.camera.up;
-      const right = {
-        x: forward.y * up.z - forward.z * up.y,
-        y: forward.z * up.x - forward.x * up.z,
-        z: forward.x * up.y - forward.y * up.x,
-      };
-      const rightLen = Math.sqrt(right.x * right.x + right.y * right.y + right.z * right.z);
-      if (rightLen > 1e-10) {
-        right.x /= rightLen;
-        right.y /= rightLen;
-        right.z /= rightLen;
-      }
-
-      // Actual up = right x forward
-      const actualUp = {
-        x: right.y * forward.z - right.z * forward.y,
-        y: right.z * forward.x - right.x * forward.z,
-        z: right.x * forward.y - right.y * forward.x,
-      };
-
-      // Calculate view frustum size at target distance
-      const halfHeight = this.state.projectionMode === 'orthographic'
-        ? this.state.orthoSize
-        : distance * Math.tan(this.state.camera.fov / 2);
-      const halfWidth = halfHeight * this.state.camera.aspect;
-
-      // World offset from center towards mouse position
-      const worldOffsetX = ndcX * halfWidth;
-      const worldOffsetY = ndcY * halfHeight;
-
-      // Point in world space that mouse is pointing at (on the target plane)
-      const mouseWorldPoint = {
-        x: this.state.camera.target.x + right.x * worldOffsetX + actualUp.x * worldOffsetY,
-        y: this.state.camera.target.y + right.y * worldOffsetX + actualUp.y * worldOffsetY,
-        z: this.state.camera.target.z + right.z * worldOffsetX + actualUp.z * worldOffsetY,
-      };
-
-      // Move both camera and target towards mouse point while zooming
-      const moveAmount = (1 - zoomFactor); // Negative when zooming in
-
-      this.state.camera.target.x += (mouseWorldPoint.x - this.state.camera.target.x) * moveAmount;
-      this.state.camera.target.y += (mouseWorldPoint.y - this.state.camera.target.y) * moveAmount;
-      this.state.camera.target.z += (mouseWorldPoint.z - this.state.camera.target.z) * moveAmount;
-    }
+    const forward = scale(dir, -1 / distance);
 
     if (this.state.projectionMode === 'orthographic') {
-      // Orthographic: scale view volume instead of moving camera
-      this.state.orthoSize = Math.max(0.01, this.state.orthoSize * zoomFactor);
-      // Still move camera position to keep orbit distance consistent for when switching back
-      const newDistance = Math.max(0.1, distance * zoomFactor);
-      const scale = newDistance / distance;
-      this.state.camera.position.x = this.state.camera.target.x + dir.x * scale;
-      this.state.camera.position.y = this.state.camera.target.y + dir.y * scale;
-      this.state.camera.position.z = this.state.camera.target.z + dir.z * scale;
+      // Compute the effective factor after clamping so mouse anchoring matches
+      // the actual zoom applied — prevents drift when orthoSize hits the floor.
+      const nextOrthoSize = Math.max(0.01, this.state.orthoSize * zoomFactor);
+      const effectiveFactor = nextOrthoSize / this.state.orthoSize;
+
+      if (mouseX !== undefined && mouseY !== undefined && canvasWidth && canvasHeight) {
+        this.shiftTargetTowardsMouse(dir, distance, forward, effectiveFactor, mouseX, mouseY, canvasWidth, canvasHeight);
+      }
+      this.zoomOrthographic(dir, nextOrthoSize);
     } else {
-      // Perspective: scale distance
-      const newDistance = Math.max(0.1, distance * zoomFactor);
-      const scale = newDistance / distance;
-      this.state.camera.position.x = this.state.camera.target.x + dir.x * scale;
-      this.state.camera.position.y = this.state.camera.target.y + dir.y * scale;
-      this.state.camera.position.z = this.state.camera.target.z + dir.z * scale;
+      if (mouseX !== undefined && mouseY !== undefined && canvasWidth && canvasHeight) {
+        this.shiftTargetTowardsMouse(dir, distance, forward, zoomFactor, mouseX, mouseY, canvasWidth, canvasHeight);
+      }
+      this.zoomPerspective(distance, forward, zoomFactor);
     }
 
     this.updateMatrices();
+  }
+
+  /** Orthographic: set view volume size, keep camera distance unchanged. */
+  private zoomOrthographic(dir: Vec3, nextOrthoSize: number): void {
+    this.state.orthoSize = nextOrthoSize;
+    this.state.camera.position.x = this.state.camera.target.x + dir.x;
+    this.state.camera.position.y = this.state.camera.target.y + dir.y;
+    this.state.camera.position.z = this.state.camera.target.z + dir.z;
+  }
+
+  /**
+   * Perspective: dolly-zoom — combines distance reduction with forward travel.
+   *
+   * Pure multiplicative zoom suffers from Zeno's paradox: each step covers a
+   * smaller absolute distance, so the user asymptotically approaches the target
+   * but can never pass it. By splitting each zoom step into distance reduction +
+   * forward dolly, the camera always makes real progress through the scene.
+   */
+  private zoomPerspective(distance: number, forward: Vec3, zoomFactor: number): void {
+    const zoomStep = distance * (1 - zoomFactor); // positive when zooming in
+    const dolly = zoomStep * 0.5;
+    const newDistance = Math.max(0.001, distance - dolly);
+
+    // Move target (and orbit center) forward to traverse the scene
+    const dollyOffset = scale(forward, dolly);
+    addInPlace(this.state.camera.target, dollyOffset);
+    if (this.orbitCenter) addInPlace(this.orbitCenter, dollyOffset);
+
+    // Position camera at new distance from updated target
+    const t = this.state.camera.target;
+    copyInto(this.state.camera.position, {
+      x: t.x - forward.x * newDistance,
+      y: t.y - forward.y * newDistance,
+      z: t.z - forward.z * newDistance,
+    });
+  }
+
+  /** Shift target toward the world point under the mouse cursor. */
+  private shiftTargetTowardsMouse(
+    dir: Vec3, distance: number, forward: Vec3, zoomFactor: number,
+    mouseX: number, mouseY: number, canvasWidth: number, canvasHeight: number,
+  ): void {
+    const ndcX = (mouseX / canvasWidth) * 2 - 1;
+    const ndcY = 1 - (mouseY / canvasHeight) * 2;
+
+    const right = normalize(cross(forward, this.state.camera.up));
+    const actualUp = cross(right, forward);
+
+    const halfHeight = this.state.projectionMode === 'orthographic'
+      ? this.state.orthoSize
+      : distance * Math.tan(this.state.camera.fov / 2);
+    const halfWidth = halfHeight * this.state.camera.aspect;
+
+    // World point under mouse cursor (on the target plane)
+    const t = this.state.camera.target;
+    const mouseWorld = {
+      x: t.x + right.x * ndcX * halfWidth + actualUp.x * ndcY * halfHeight,
+      y: t.y + right.y * ndcX * halfWidth + actualUp.y * ndcY * halfHeight,
+      z: t.z + right.z * ndcX * halfWidth + actualUp.z * ndcY * halfHeight,
+    };
+
+    const moveAmount = 1 - zoomFactor;
+    t.x += (mouseWorld.x - t.x) * moveAmount;
+    t.y += (mouseWorld.y - t.y) * moveAmount;
+    t.z += (mouseWorld.z - t.z) * moveAmount;
+  }
+
+  // -------------------------------------------------------------------------
+  // Helpers
+  // -------------------------------------------------------------------------
+
+  /** Translate target, position, and orbit center by the same offset. */
+  private translateAll(offset: Vec3): void {
+    addInPlace(this.state.camera.target, offset);
+    addInPlace(this.state.camera.position, offset);
+    if (this.orbitCenter) {
+      addInPlace(this.orbitCenter, offset);
+    }
   }
 }

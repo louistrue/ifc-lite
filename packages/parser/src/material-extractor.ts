@@ -19,6 +19,7 @@
  */
 
 import type { IfcEntity } from './entity-extractor';
+import { getString, getNumber, getBoolean, getReference, getReferences } from './attribute-helpers.js';
 
 export interface Material {
   id: number;
@@ -341,48 +342,6 @@ function extractMaterialAssociation(
     materialType,
     relatedObjects,
   };
-}
-
-// Helper functions to parse attribute values
-
-function getString(value: unknown): string | undefined {
-  if (value === null || value === undefined) return undefined;
-  if (typeof value === 'string') return value;
-  return String(value);
-}
-
-function getNumber(value: unknown): number | undefined {
-  if (value === null || value === undefined) return undefined;
-  if (typeof value === 'number') return value;
-  if (typeof value === 'string') {
-    const num = parseFloat(value);
-    return isNaN(num) ? undefined : num;
-  }
-  return undefined;
-}
-
-function getBoolean(value: unknown): boolean | undefined {
-  if (value === null || value === undefined) return undefined;
-  if (typeof value === 'boolean') return value;
-  if (value === '.T.' || value === 'T' || value === 'true') return true;
-  if (value === '.F.' || value === 'F' || value === 'false') return false;
-  return undefined;
-}
-
-function getReference(value: unknown): number | undefined {
-  if (value === null || value === undefined) return undefined;
-  if (typeof value === 'number') return value;
-  if (typeof value === 'string' && value.startsWith('#')) {
-    return parseInt(value.substring(1));
-  }
-  return undefined;
-}
-
-function getReferences(value: unknown): number[] | undefined {
-  if (!Array.isArray(value)) return undefined;
-  return value
-    .map(v => getReference(v))
-    .filter((ref): ref is number => ref !== undefined);
 }
 
 /**

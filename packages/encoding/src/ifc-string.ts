@@ -9,50 +9,117 @@
  * - \X4\XXXXXXXX\X0\ - Unicode 4-byte hex for chars outside BMP
  * - \X\XX\ - ISO-8859-1 hex encoding
  * - \S\X - Extended ASCII with escape
- * - \P..\ - Code page switches (stripped)
+ * - \P..\ - Code page switches (supported as directives and removed)
  */
 export function decodeIfcString(str: string): string {
   if (!str || typeof str !== 'string') return str;
 
-  let result = str;
+  let result = '';
+  let i = 0;
 
-  // Decode \X2\XXXX\X0\ patterns (Unicode 2-byte hex, can have multiple chars)
-  result = result.replace(/\\X2\\([0-9A-Fa-f]+)\\X0\\/g, (_, hex) => {
-    let decoded = '';
-    for (let i = 0; i < hex.length; i += 4) {
-      const charCode = parseInt(hex.substring(i, i + 4), 16);
-      if (!isNaN(charCode)) {
-        decoded += String.fromCharCode(charCode);
+  while (i < str.length) {
+    if (str[i] !== '\\') {
+      result += str[i];
+      i += 1;
+      continue;
+    }
+
+    // Handle code page directives like \PA\, \PB\, ... by consuming them.
+    if (str[i + 1] === 'P' && str[i + 3] === '\\') {
+      i += 4;
+      continue;
+    }
+
+    // Handle \S\X where byte value is ord(X) + 128 in ISO-8859-1.
+    if (str[i + 1] === 'S' && str[i + 2] === '\\' && i + 3 < str.length) {
+      result += String.fromCharCode(str.charCodeAt(i + 3) + 128);
+      i += 4;
+      continue;
+    }
+
+    // Handle \X\HH (8-bit value from ISO 10646 row 0 / ISO-8859-1 overlap).
+    if (str[i + 1] === 'X' && str[i + 2] === '\\' && i + 5 <= str.length) {
+      const hex = str.slice(i + 3, i + 5);
+      if (/^[0-9A-Fa-f]{2}$/.test(hex)) {
+        result += String.fromCharCode(parseInt(hex, 16));
+        i += 5;
+        continue;
       }
     }
-    return decoded;
-  });
 
-  // Decode \X4\XXXXXXXX\X0\ patterns (Unicode 4-byte hex for chars outside BMP)
-  result = result.replace(/\\X4\\([0-9A-Fa-f]+)\\X0\\/g, (_, hex) => {
-    let decoded = '';
-    for (let i = 0; i < hex.length; i += 8) {
-      const codePoint = parseInt(hex.substring(i, i + 8), 16);
-      if (!isNaN(codePoint)) {
-        decoded += String.fromCodePoint(codePoint);
+    // Handle \X2\....\X0\ (UTF-16 hex code units, 4 chars each).
+    if (str.startsWith('\\X2\\', i)) {
+      const end = str.indexOf('\\X0\\', i + 4);
+      if (end !== -1) {
+        const hex = str.slice(i + 4, end);
+        if (hex.length % 4 === 0 && /^[0-9A-Fa-f]+$/.test(hex)) {
+          for (let j = 0; j < hex.length; j += 4) {
+            result += String.fromCharCode(parseInt(hex.slice(j, j + 4), 16));
+          }
+          i = end + 4;
+          continue;
+        }
       }
     }
-    return decoded;
-  });
 
-  // Decode \X\XX\ patterns (ISO-8859-1 single byte)
-  result = result.replace(/\\X\\([0-9A-Fa-f]{2})/g, (_, hex) => {
-    const charCode = parseInt(hex, 16);
-    return !isNaN(charCode) ? String.fromCharCode(charCode) : '';
-  });
+    // Handle \X4\........\X0\ (Unicode scalar values, 8 hex digits each).
+    if (str.startsWith('\\X4\\', i)) {
+      const end = str.indexOf('\\X0\\', i + 4);
+      if (end !== -1) {
+        const hex = str.slice(i + 4, end);
+        if (hex.length % 8 === 0 && /^[0-9A-Fa-f]+$/.test(hex)) {
+          for (let j = 0; j < hex.length; j += 8) {
+            result += String.fromCodePoint(parseInt(hex.slice(j, j + 8), 16));
+          }
+          i = end + 4;
+          continue;
+        }
+      }
+    }
 
-  // Decode \S\X patterns (Latin extended, offset by 128)
-  result = result.replace(/\\S\\(.)/g, (_, char) => {
-    return String.fromCharCode(char.charCodeAt(0) + 128);
-  });
-
-  // Decode \P..\ code page switches (simplified - just remove them)
-  result = result.replace(/\\P[A-Z]?\\/g, '');
+    // Unknown escape sequence: keep the backslash and move on.
+    result += str[i];
+    i += 1;
+  }
 
   return result;
+}
+
+/**
+ * Encode a Unicode string to IFC STEP string escapes.
+ *
+ * - Printable ASCII (32..126) is kept as-is.
+ * - 8-bit values are encoded as \X\HH.
+ * - BMP values are encoded as \X2\HHHH\X0\.
+ * - Non-BMP values are encoded as \X4\HHHHHHHH\X0\.
+ */
+export function encodeIfcString(str: string): string {
+  if (!str || typeof str !== 'string') return str;
+
+  let encoded = '';
+  for (const ch of str) {
+    const codePoint = ch.codePointAt(0);
+    if (codePoint === undefined) {
+      continue;
+    }
+
+    if (codePoint >= 32 && codePoint <= 126 && ch !== '\\') {
+      encoded += ch;
+      continue;
+    }
+
+    if (codePoint <= 0xFF) {
+      encoded += `\\X\\${codePoint.toString(16).toUpperCase().padStart(2, '0')}`;
+      continue;
+    }
+
+    if (codePoint <= 0xFFFF) {
+      encoded += `\\X2\\${codePoint.toString(16).toUpperCase().padStart(4, '0')}\\X0\\`;
+      continue;
+    }
+
+    encoded += `\\X4\\${codePoint.toString(16).toUpperCase().padStart(8, '0')}\\X0\\`;
+  }
+
+  return encoded;
 }

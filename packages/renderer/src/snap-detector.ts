@@ -92,7 +92,10 @@ export class SnapDetector {
     screenSnapRadius: 20, // pixels
   };
 
-  // Cache for processed mesh geometry (vertices and edges)
+  // Cache for processed mesh geometry (vertices and edges).
+  // Invalidated via clearCache(), which is called by Renderer.destroy() and
+  // RaycastEngine.clearCaches(). Callers must invoke clearCaches() when models
+  // are loaded/unloaded to prevent stale entries from accumulating.
   private geometryCache = new Map<number, MeshGeometryCache>();
 
   /**
@@ -693,7 +696,10 @@ export class SnapDetector {
           if (!edgeData.has(key)) {
             edgeData.set(key, { v0, v1, idx0, idx1, normals: [triNormal] });
           } else {
-            edgeData.get(key)!.normals.push(triNormal);
+            const existing = edgeData.get(key);
+            if (existing) {
+              existing.normals.push(triNormal);
+            }
           }
         }
       }
@@ -717,8 +723,10 @@ export class SnapDetector {
           vertexValence.set(v1Key, (vertexValence.get(v1Key) || 0) + 1);
           if (!vertexEdges.has(v0Key)) vertexEdges.set(v0Key, []);
           if (!vertexEdges.has(v1Key)) vertexEdges.set(v1Key, []);
-          vertexEdges.get(v0Key)!.push(edgeIndex);
-          vertexEdges.get(v1Key)!.push(edgeIndex);
+          const v0Edges = vertexEdges.get(v0Key);
+          const v1Edges = vertexEdges.get(v1Key);
+          if (v0Edges) v0Edges.push(edgeIndex);
+          if (v1Edges) v1Edges.push(edgeIndex);
           continue;
         }
 
@@ -745,8 +753,10 @@ export class SnapDetector {
           vertexValence.set(v1Key, (vertexValence.get(v1Key) || 0) + 1);
           if (!vertexEdges.has(v0Key)) vertexEdges.set(v0Key, []);
           if (!vertexEdges.has(v1Key)) vertexEdges.set(v1Key, []);
-          vertexEdges.get(v0Key)!.push(edgeIndex);
-          vertexEdges.get(v1Key)!.push(edgeIndex);
+          const v0CreaseEdges = vertexEdges.get(v0Key);
+          const v1CreaseEdges = vertexEdges.get(v1Key);
+          if (v0CreaseEdges) v0CreaseEdges.push(edgeIndex);
+          if (v1CreaseEdges) v1CreaseEdges.push(edgeIndex);
         }
       }
     }

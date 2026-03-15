@@ -39,6 +39,9 @@ export default defineConfig({
       '@ifc-lite/ids': path.resolve(__dirname, '../../packages/ids/src'),
       '@ifc-lite/ifcx': path.resolve(__dirname, '../../packages/ifcx/src'),
       '@ifc-lite/mutations': path.resolve(__dirname, '../../packages/mutations/src'),
+      '@ifc-lite/sandbox/schema': path.resolve(__dirname, '../../packages/sandbox/src/bridge-schema.ts'),
+      '@ifc-lite/sdk': path.resolve(__dirname, '../../packages/sdk/src'),
+      '@ifc-lite/sandbox': path.resolve(__dirname, '../../packages/sandbox/src'),
       '@ifc-lite/embed-protocol': path.resolve(__dirname, '../../packages/embed-protocol/src'),
       '@ifc-lite/wasm': path.resolve(__dirname, '../../packages/wasm/pkg/ifc-lite.js'),
     },
@@ -56,6 +59,7 @@ export default defineConfig({
   },
   build: {
     target: 'esnext',
+    chunkSizeWarningLimit: 6000,
   },
   optimizeDeps: {
     exclude: ['@duckdb/duckdb-wasm', '@ifc-lite/wasm', 'parquet-wasm'],

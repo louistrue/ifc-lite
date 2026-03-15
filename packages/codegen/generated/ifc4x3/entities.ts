@@ -5,6 +5,451 @@
  * DO NOT EDIT - This file is auto-generated
  */
 
+import type {
+  IfcAbsorbedDoseMeasure,
+  IfcAccelerationMeasure,
+  IfcAmountOfSubstanceMeasure,
+  IfcAngularVelocityMeasure,
+  IfcArcIndex,
+  IfcAreaDensityMeasure,
+  IfcAreaMeasure,
+  IfcBinary,
+  IfcBoolean,
+  IfcBoxAlignment,
+  IfcCardinalPointReference,
+  IfcComplexNumber,
+  IfcCompoundPlaneAngleMeasure,
+  IfcContextDependentMeasure,
+  IfcCountMeasure,
+  IfcCurvatureMeasure,
+  IfcDate,
+  IfcDateTime,
+  IfcDayInMonthNumber,
+  IfcDayInWeekNumber,
+  IfcDescriptiveMeasure,
+  IfcDimensionCount,
+  IfcDoseEquivalentMeasure,
+  IfcDuration,
+  IfcDynamicViscosityMeasure,
+  IfcElectricCapacitanceMeasure,
+  IfcElectricChargeMeasure,
+  IfcElectricConductanceMeasure,
+  IfcElectricCurrentMeasure,
+  IfcElectricResistanceMeasure,
+  IfcElectricVoltageMeasure,
+  IfcEnergyMeasure,
+  IfcFontStyle,
+  IfcFontVariant,
+  IfcFontWeight,
+  IfcForceMeasure,
+  IfcFrequencyMeasure,
+  IfcGloballyUniqueId,
+  IfcHeatFluxDensityMeasure,
+  IfcHeatingValueMeasure,
+  IfcIdentifier,
+  IfcIlluminanceMeasure,
+  IfcInductanceMeasure,
+  IfcInteger,
+  IfcIntegerCountRateMeasure,
+  IfcIonConcentrationMeasure,
+  IfcIsothermalMoistureCapacityMeasure,
+  IfcKinematicViscosityMeasure,
+  IfcLabel,
+  IfcLanguageId,
+  IfcLengthMeasure,
+  IfcLineIndex,
+  IfcLinearForceMeasure,
+  IfcLinearMomentMeasure,
+  IfcLinearStiffnessMeasure,
+  IfcLinearVelocityMeasure,
+  IfcLogical,
+  IfcLuminousFluxMeasure,
+  IfcLuminousIntensityDistributionMeasure,
+  IfcLuminousIntensityMeasure,
+  IfcMagneticFluxDensityMeasure,
+  IfcMagneticFluxMeasure,
+  IfcMassDensityMeasure,
+  IfcMassFlowRateMeasure,
+  IfcMassMeasure,
+  IfcMassPerLengthMeasure,
+  IfcModulusOfElasticityMeasure,
+  IfcModulusOfLinearSubgradeReactionMeasure,
+  IfcModulusOfRotationalSubgradeReactionMeasure,
+  IfcModulusOfSubgradeReactionMeasure,
+  IfcMoistureDiffusivityMeasure,
+  IfcMolecularWeightMeasure,
+  IfcMomentOfInertiaMeasure,
+  IfcMonetaryMeasure,
+  IfcMonthInYearNumber,
+  IfcNonNegativeLengthMeasure,
+  IfcNormalisedRatioMeasure,
+  IfcNumericMeasure,
+  IfcPHMeasure,
+  IfcParameterValue,
+  IfcPlanarForceMeasure,
+  IfcPlaneAngleMeasure,
+  IfcPositiveInteger,
+  IfcPositiveLengthMeasure,
+  IfcPositivePlaneAngleMeasure,
+  IfcPositiveRatioMeasure,
+  IfcPowerMeasure,
+  IfcPresentableText,
+  IfcPressureMeasure,
+  IfcPropertySetDefinitionSet,
+  IfcRadioActivityMeasure,
+  IfcRatioMeasure,
+  IfcReal,
+  IfcRotationalFrequencyMeasure,
+  IfcRotationalMassMeasure,
+  IfcRotationalStiffnessMeasure,
+  IfcSectionModulusMeasure,
+  IfcSectionalAreaIntegralMeasure,
+  IfcShearModulusMeasure,
+  IfcSolidAngleMeasure,
+  IfcSoundPowerLevelMeasure,
+  IfcSoundPowerMeasure,
+  IfcSoundPressureLevelMeasure,
+  IfcSoundPressureMeasure,
+  IfcSpecificHeatCapacityMeasure,
+  IfcSpecularExponent,
+  IfcSpecularRoughness,
+  IfcStrippedOptional,
+  IfcTemperatureGradientMeasure,
+  IfcTemperatureRateOfChangeMeasure,
+  IfcText,
+  IfcTextAlignment,
+  IfcTextDecoration,
+  IfcTextFontName,
+  IfcTextTransformation,
+  IfcThermalAdmittanceMeasure,
+  IfcThermalConductivityMeasure,
+  IfcThermalExpansionCoefficientMeasure,
+  IfcThermalResistanceMeasure,
+  IfcThermalTransmittanceMeasure,
+  IfcThermodynamicTemperatureMeasure,
+  IfcTime,
+  IfcTimeMeasure,
+  IfcTimeStamp,
+  IfcTorqueMeasure,
+  IfcURIReference,
+  IfcVaporPermeabilityMeasure,
+  IfcVolumeMeasure,
+  IfcVolumetricFlowRateMeasure,
+  IfcWarpingConstantMeasure,
+  IfcWarpingMomentMeasure,
+  IfcWellKnownTextLiteral,
+} from './types.js';
+
+import type {
+  IfcActionRequestTypeEnum,
+  IfcActionSourceTypeEnum,
+  IfcActionTypeEnum,
+  IfcActuatorTypeEnum,
+  IfcAddressTypeEnum,
+  IfcAirTerminalBoxTypeEnum,
+  IfcAirTerminalTypeEnum,
+  IfcAirToAirHeatRecoveryTypeEnum,
+  IfcAlarmTypeEnum,
+  IfcAlignmentCantSegmentTypeEnum,
+  IfcAlignmentHorizontalSegmentTypeEnum,
+  IfcAlignmentTypeEnum,
+  IfcAlignmentVerticalSegmentTypeEnum,
+  IfcAnalysisModelTypeEnum,
+  IfcAnalysisTheoryTypeEnum,
+  IfcAnnotationTypeEnum,
+  IfcArithmeticOperatorEnum,
+  IfcAssemblyPlaceEnum,
+  IfcAudioVisualApplianceTypeEnum,
+  IfcBSplineCurveForm,
+  IfcBSplineSurfaceForm,
+  IfcBeamTypeEnum,
+  IfcBearingTypeEnum,
+  IfcBenchmarkEnum,
+  IfcBoilerTypeEnum,
+  IfcBooleanOperator,
+  IfcBridgePartTypeEnum,
+  IfcBridgeTypeEnum,
+  IfcBuildingElementPartTypeEnum,
+  IfcBuildingElementProxyTypeEnum,
+  IfcBuildingSystemTypeEnum,
+  IfcBuiltSystemTypeEnum,
+  IfcBurnerTypeEnum,
+  IfcCableCarrierFittingTypeEnum,
+  IfcCableCarrierSegmentTypeEnum,
+  IfcCableFittingTypeEnum,
+  IfcCableSegmentTypeEnum,
+  IfcCaissonFoundationTypeEnum,
+  IfcChangeActionEnum,
+  IfcChillerTypeEnum,
+  IfcChimneyTypeEnum,
+  IfcCoilTypeEnum,
+  IfcColumnTypeEnum,
+  IfcCommunicationsApplianceTypeEnum,
+  IfcComplexPropertyTemplateTypeEnum,
+  IfcCompressorTypeEnum,
+  IfcCondenserTypeEnum,
+  IfcConnectionTypeEnum,
+  IfcConstraintEnum,
+  IfcConstructionEquipmentResourceTypeEnum,
+  IfcConstructionMaterialResourceTypeEnum,
+  IfcConstructionProductResourceTypeEnum,
+  IfcControllerTypeEnum,
+  IfcConveyorSegmentTypeEnum,
+  IfcCooledBeamTypeEnum,
+  IfcCoolingTowerTypeEnum,
+  IfcCostItemTypeEnum,
+  IfcCostScheduleTypeEnum,
+  IfcCourseTypeEnum,
+  IfcCoveringTypeEnum,
+  IfcCrewResourceTypeEnum,
+  IfcCurtainWallTypeEnum,
+  IfcCurveInterpolationEnum,
+  IfcDamperTypeEnum,
+  IfcDataOriginEnum,
+  IfcDerivedUnitEnum,
+  IfcDirectionSenseEnum,
+  IfcDiscreteAccessoryTypeEnum,
+  IfcDistributionBoardTypeEnum,
+  IfcDistributionChamberElementTypeEnum,
+  IfcDistributionPortTypeEnum,
+  IfcDistributionSystemEnum,
+  IfcDocumentConfidentialityEnum,
+  IfcDocumentStatusEnum,
+  IfcDoorPanelOperationEnum,
+  IfcDoorPanelPositionEnum,
+  IfcDoorTypeEnum,
+  IfcDoorTypeOperationEnum,
+  IfcDuctFittingTypeEnum,
+  IfcDuctSegmentTypeEnum,
+  IfcDuctSilencerTypeEnum,
+  IfcEarthworksCutTypeEnum,
+  IfcEarthworksFillTypeEnum,
+  IfcElectricApplianceTypeEnum,
+  IfcElectricDistributionBoardTypeEnum,
+  IfcElectricFlowStorageDeviceTypeEnum,
+  IfcElectricFlowTreatmentDeviceTypeEnum,
+  IfcElectricGeneratorTypeEnum,
+  IfcElectricMotorTypeEnum,
+  IfcElectricTimeControlTypeEnum,
+  IfcElementAssemblyTypeEnum,
+  IfcElementCompositionEnum,
+  IfcEngineTypeEnum,
+  IfcEvaporativeCoolerTypeEnum,
+  IfcEvaporatorTypeEnum,
+  IfcEventTriggerTypeEnum,
+  IfcEventTypeEnum,
+  IfcExternalSpatialElementTypeEnum,
+  IfcFacilityPartCommonTypeEnum,
+  IfcFacilityUsageEnum,
+  IfcFanTypeEnum,
+  IfcFastenerTypeEnum,
+  IfcFilterTypeEnum,
+  IfcFireSuppressionTerminalTypeEnum,
+  IfcFlowDirectionEnum,
+  IfcFlowInstrumentTypeEnum,
+  IfcFlowMeterTypeEnum,
+  IfcFootingTypeEnum,
+  IfcFurnitureTypeEnum,
+  IfcGeographicElementTypeEnum,
+  IfcGeometricProjectionEnum,
+  IfcGeotechnicalStratumTypeEnum,
+  IfcGlobalOrLocalEnum,
+  IfcGridTypeEnum,
+  IfcHeatExchangerTypeEnum,
+  IfcHumidifierTypeEnum,
+  IfcImpactProtectionDeviceTypeEnum,
+  IfcInterceptorTypeEnum,
+  IfcInternalOrExternalEnum,
+  IfcInventoryTypeEnum,
+  IfcJunctionBoxTypeEnum,
+  IfcKerbTypeEnum,
+  IfcKnotType,
+  IfcLaborResourceTypeEnum,
+  IfcLampTypeEnum,
+  IfcLayerSetDirectionEnum,
+  IfcLightDistributionCurveEnum,
+  IfcLightEmissionSourceEnum,
+  IfcLightFixtureTypeEnum,
+  IfcLiquidTerminalTypeEnum,
+  IfcLoadGroupTypeEnum,
+  IfcLogicalOperatorEnum,
+  IfcMarineFacilityTypeEnum,
+  IfcMarinePartTypeEnum,
+  IfcMechanicalFastenerTypeEnum,
+  IfcMedicalDeviceTypeEnum,
+  IfcMemberTypeEnum,
+  IfcMobileTelecommunicationsApplianceTypeEnum,
+  IfcMooringDeviceTypeEnum,
+  IfcMotorConnectionTypeEnum,
+  IfcNavigationElementTypeEnum,
+  IfcObjectiveEnum,
+  IfcOccupantTypeEnum,
+  IfcOpeningElementTypeEnum,
+  IfcOutletTypeEnum,
+  IfcPavementTypeEnum,
+  IfcPerformanceHistoryTypeEnum,
+  IfcPermeableCoveringOperationEnum,
+  IfcPermitTypeEnum,
+  IfcPhysicalOrVirtualEnum,
+  IfcPileConstructionEnum,
+  IfcPileTypeEnum,
+  IfcPipeFittingTypeEnum,
+  IfcPipeSegmentTypeEnum,
+  IfcPlateTypeEnum,
+  IfcPreferredSurfaceCurveRepresentation,
+  IfcProcedureTypeEnum,
+  IfcProfileTypeEnum,
+  IfcProjectOrderTypeEnum,
+  IfcProjectedOrTrueLengthEnum,
+  IfcProjectionElementTypeEnum,
+  IfcPropertySetTemplateTypeEnum,
+  IfcProtectiveDeviceTrippingUnitTypeEnum,
+  IfcProtectiveDeviceTypeEnum,
+  IfcPumpTypeEnum,
+  IfcRailTypeEnum,
+  IfcRailingTypeEnum,
+  IfcRailwayPartTypeEnum,
+  IfcRailwayTypeEnum,
+  IfcRampFlightTypeEnum,
+  IfcRampTypeEnum,
+  IfcRecurrenceTypeEnum,
+  IfcReferentTypeEnum,
+  IfcReflectanceMethodEnum,
+  IfcReinforcedSoilTypeEnum,
+  IfcReinforcingBarRoleEnum,
+  IfcReinforcingBarSurfaceEnum,
+  IfcReinforcingBarTypeEnum,
+  IfcReinforcingMeshTypeEnum,
+  IfcRoadPartTypeEnum,
+  IfcRoadTypeEnum,
+  IfcRoleEnum,
+  IfcRoofTypeEnum,
+  IfcSIPrefix,
+  IfcSIUnitName,
+  IfcSanitaryTerminalTypeEnum,
+  IfcSectionTypeEnum,
+  IfcSensorTypeEnum,
+  IfcSequenceEnum,
+  IfcShadingDeviceTypeEnum,
+  IfcSignTypeEnum,
+  IfcSignalTypeEnum,
+  IfcSimplePropertyTemplateTypeEnum,
+  IfcSlabTypeEnum,
+  IfcSolarDeviceTypeEnum,
+  IfcSpaceHeaterTypeEnum,
+  IfcSpaceTypeEnum,
+  IfcSpatialZoneTypeEnum,
+  IfcStackTerminalTypeEnum,
+  IfcStairFlightTypeEnum,
+  IfcStairTypeEnum,
+  IfcStateEnum,
+  IfcStructuralCurveActivityTypeEnum,
+  IfcStructuralCurveMemberTypeEnum,
+  IfcStructuralSurfaceActivityTypeEnum,
+  IfcStructuralSurfaceMemberTypeEnum,
+  IfcSubContractResourceTypeEnum,
+  IfcSurfaceFeatureTypeEnum,
+  IfcSurfaceSide,
+  IfcSwitchingDeviceTypeEnum,
+  IfcSystemFurnitureElementTypeEnum,
+  IfcTankTypeEnum,
+  IfcTaskDurationEnum,
+  IfcTaskTypeEnum,
+  IfcTendonAnchorTypeEnum,
+  IfcTendonConduitTypeEnum,
+  IfcTendonTypeEnum,
+  IfcTextPath,
+  IfcTimeSeriesDataTypeEnum,
+  IfcTrackElementTypeEnum,
+  IfcTransformerTypeEnum,
+  IfcTransitionCode,
+  IfcTransportElementTypeEnum,
+  IfcTrimmingPreference,
+  IfcTubeBundleTypeEnum,
+  IfcUnitEnum,
+  IfcUnitaryControlElementTypeEnum,
+  IfcUnitaryEquipmentTypeEnum,
+  IfcValveTypeEnum,
+  IfcVehicleTypeEnum,
+  IfcVibrationDamperTypeEnum,
+  IfcVibrationIsolatorTypeEnum,
+  IfcVirtualElementTypeEnum,
+  IfcVoidingFeatureTypeEnum,
+  IfcWallTypeEnum,
+  IfcWasteTerminalTypeEnum,
+  IfcWindowPanelOperationEnum,
+  IfcWindowPanelPositionEnum,
+  IfcWindowTypeEnum,
+  IfcWindowTypePartitioningEnum,
+  IfcWorkCalendarTypeEnum,
+  IfcWorkPlanTypeEnum,
+  IfcWorkScheduleTypeEnum,
+} from './enums.js';
+
+import type {
+  IfcActorSelect,
+  IfcAppliedValueSelect,
+  IfcAxis2Placement,
+  IfcBendingParameterSelect,
+  IfcBooleanOperand,
+  IfcClassificationReferenceSelect,
+  IfcClassificationSelect,
+  IfcColour,
+  IfcColourOrFactor,
+  IfcCoordinateReferenceSystemSelect,
+  IfcCsgSelect,
+  IfcCurveFontOrScaledCurveFontSelect,
+  IfcCurveMeasureSelect,
+  IfcCurveOnSurface,
+  IfcCurveOrEdgeCurve,
+  IfcCurveStyleFontSelect,
+  IfcDefinitionSelect,
+  IfcDerivedMeasureValue,
+  IfcDocumentSelect,
+  IfcFillStyleSelect,
+  IfcGeometricSetSelect,
+  IfcGridPlacementDirectionSelect,
+  IfcHatchLineDistanceSelect,
+  IfcInterferenceSelect,
+  IfcLayeredItem,
+  IfcLibrarySelect,
+  IfcLightDistributionDataSourceSelect,
+  IfcMaterialSelect,
+  IfcMeasureValue,
+  IfcMetricValueSelect,
+  IfcModulusOfRotationalSubgradeReactionSelect,
+  IfcModulusOfSubgradeReactionSelect,
+  IfcModulusOfTranslationalSubgradeReactionSelect,
+  IfcObjectReferenceSelect,
+  IfcPointOrVertexPoint,
+  IfcProcessSelect,
+  IfcProductRepresentationSelect,
+  IfcProductSelect,
+  IfcPropertySetDefinitionSelect,
+  IfcResourceObjectSelect,
+  IfcResourceSelect,
+  IfcRotationalStiffnessSelect,
+  IfcSegmentIndexSelect,
+  IfcShell,
+  IfcSimpleValue,
+  IfcSizeSelect,
+  IfcSolidOrShell,
+  IfcSpaceBoundarySelect,
+  IfcSpatialReferenceSelect,
+  IfcSpecularHighlightSelect,
+  IfcStructuralActivityAssignmentSelect,
+  IfcSurfaceOrFaceSurface,
+  IfcSurfaceStyleElementSelect,
+  IfcTextFontSelect,
+  IfcTimeOrRatioSelect,
+  IfcTranslationalStiffnessSelect,
+  IfcTrimmingSelect,
+  IfcUnit,
+  IfcValue,
+  IfcVectorOrDirection,
+  IfcWarpingStiffnessSelect,
+} from './selects.js';
+
 /**
  * IfcRoot
  * @abstract
@@ -124,6 +569,8 @@ export interface IfcTypeObject extends IfcObjectDefinition {
  * @extends IfcTypeObject
  */
 export interface IfcTypeProduct extends IfcTypeObject {
+  RepresentationMaps?: UNIQUE IfcRepresentationMap[];
+  Tag?: IfcLabel;
 }
 
 /**
@@ -3479,6 +3926,10 @@ export interface IfcGradientCurve extends IfcCompositeCurve {
  * @extends IfcPositioningElement
  */
 export interface IfcGrid extends IfcPositioningElement {
+  UAxes: UNIQUE IfcGridAxis[];
+  VAxes: UNIQUE IfcGridAxis[];
+  WAxes?: UNIQUE IfcGridAxis[];
+  PredefinedType?: IfcGridTypeEnum;
 }
 
 /**
@@ -3619,6 +4070,7 @@ export interface IfcIndexedPolygonalFace extends IfcTessellatedItem {
  * @extends IfcIndexedPolygonalFace
  */
 export interface IfcIndexedPolygonalFaceWithVoids extends IfcIndexedPolygonalFace {
+  InnerCoordIndices: UNIQUE IfcPositiveInteger[][];
 }
 
 /**
@@ -4524,6 +4976,7 @@ export interface IfcOwnerHistory {
  * @extends IfcTopologicalRepresentationItem
  */
 export interface IfcPath extends IfcTopologicalRepresentationItem {
+  EdgeList: UNIQUE IfcOrientedEdge[];
 }
 
 /**
@@ -4770,6 +5223,7 @@ export interface IfcPointOnSurface extends IfcPoint {
  * @extends IfcLoop
  */
 export interface IfcPolyLoop extends IfcLoop {
+  Polygon: UNIQUE IfcCartesianPoint[];
 }
 
 /**
@@ -4796,6 +5250,8 @@ export interface IfcTessellatedFaceSet extends IfcTessellatedItem {
  */
 export interface IfcPolygonalFaceSet extends IfcTessellatedFaceSet {
   Closed?: IfcBoolean;
+  Faces: UNIQUE IfcIndexedPolygonalFace[];
+  PnIndex?: IfcPositiveInteger[];
 }
 
 /**
@@ -4986,6 +5442,8 @@ export interface IfcPropertyEnumeratedValue extends IfcSimpleProperty {
  */
 export interface IfcPropertyEnumeration extends IfcPropertyAbstraction {
   Name: IfcLabel;
+  EnumerationValues: UNIQUE IfcValue[];
+  Unit?: IfcUnit;
 }
 
 /**
@@ -5038,6 +5496,12 @@ export interface IfcPropertySingleValue extends IfcSimpleProperty {
  * @extends IfcSimpleProperty
  */
 export interface IfcPropertyTableValue extends IfcSimpleProperty {
+  DefiningValues?: UNIQUE IfcValue[];
+  DefinedValues?: IfcValue[];
+  Expression?: IfcText;
+  DefiningUnit?: IfcUnit;
+  DefinedUnit?: IfcUnit;
+  CurveInterpolation?: IfcCurveInterpolationEnum;
 }
 
 /**
@@ -6637,6 +7101,7 @@ export interface IfcStructuralLoadCase extends IfcStructuralLoadGroup {
  */
 export interface IfcStructuralLoadConfiguration extends IfcStructuralLoad {
   Values: IfcStructuralLoadOrResult[];
+  Locations?: number[];
 }
 
 /**
@@ -7295,6 +7760,7 @@ export interface IfcTextureCoordinateIndices {
  * @extends IfcTextureCoordinateIndices
  */
 export interface IfcTextureCoordinateIndicesWithVoids extends IfcTextureCoordinateIndices {
+  InnerTexCoordIndices: UNIQUE IfcPositiveInteger[][];
 }
 
 /**
@@ -7647,6 +8113,8 @@ export interface IfcVirtualElement extends IfcElement {
  * IfcVirtualGridIntersection
  */
 export interface IfcVirtualGridIntersection {
+  IntersectingAxes: UNIQUE IfcGridAxis[];
+  OffsetDistances: number[];
 }
 
 /**

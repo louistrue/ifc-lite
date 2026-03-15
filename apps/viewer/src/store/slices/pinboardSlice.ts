@@ -53,7 +53,14 @@ export interface SaveBasketViewOptions {
   section?: BasketSectionSnapshot | null;
 }
 
-/** Cross-slice state that pinboard reads/writes via the combined store */
+/**
+ * Cross-slice state that pinboard reads/writes via the combined store.
+ *
+ * When the basket is non-empty, pinboard owns `isolatedEntities` and
+ * `hiddenEntities` — it is the isolation mechanism.  The visibility slice
+ * also writes these fields for non-basket isolation (direct UI isolation).
+ * They share the same state fields by design.
+ */
 interface PinboardCrossSliceState {
   isolatedEntities: Set<number> | null;
   hiddenEntities: Set<number>;
@@ -166,6 +173,35 @@ function entityKeysToRefs(keys: Iterable<string>): EntityRef[] {
   return refs;
 }
 
+/**
+ * Compute isolation + hidden state from basket entities, unhiding any newly added refs.
+ *
+ * This is the single source of truth for the "basket → visibility" sync that
+ * several pinboard actions need.  The incremental add/remove methods bypass
+ * this for performance and maintain their own logic.
+ */
+function computeBasketVisibility(
+  nextBasket: Set<string>,
+  models: Map<string, { idOffset: number }>,
+  currentHidden: Set<number>,
+  unhideRefs?: EntityRef[],
+): { isolatedEntities: Set<number> | null; hiddenEntities: Set<number> } {
+  if (nextBasket.size === 0) {
+    return { isolatedEntities: null, hiddenEntities: currentHidden };
+  }
+  const isolatedEntities = basketToGlobalIds(nextBasket, models);
+  if (!unhideRefs || unhideRefs.length === 0) {
+    return { isolatedEntities, hiddenEntities: currentHidden };
+  }
+  const hiddenEntities = new Set<number>(currentHidden);
+  for (const ref of unhideRefs) {
+    const model = models.get(ref.modelId);
+    const offset = model?.idOffset ?? 0;
+    hiddenEntities.delete(ref.expressId + offset);
+  }
+  return { isolatedEntities, hiddenEntities };
+}
+
 function createViewId(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
     return crypto.randomUUID();
@@ -218,18 +254,10 @@ export const createPinboardSlice: StateCreator<
       for (const ref of refs) {
         next.add(entityRefToString(ref));
       }
-      const isolatedEntities = basketToGlobalIds(next, state.models);
-      const hiddenEntities = new Set<number>(state.hiddenEntities);
-      // Unhide any entities being added to basket
-      for (const ref of refs) {
-        const model = state.models.get(ref.modelId);
-        const offset = model?.idOffset ?? 0;
-        hiddenEntities.delete(ref.expressId + offset);
-      }
+      const visibility = computeBasketVisibility(next, state.models, state.hiddenEntities, refs);
       return {
         pinboardEntities: next,
-        isolatedEntities,
-        hiddenEntities,
+        ...visibility,
         activeBasketViewId: null,
       };
     });
@@ -257,20 +285,9 @@ export const createPinboardSlice: StateCreator<
     for (const ref of refs) {
       next.add(entityRefToString(ref));
     }
-    if (next.size === 0) {
-      set({ pinboardEntities: next, isolatedEntities: null, activeBasketViewId: null });
-      return;
-    }
     const s = get();
-    const hiddenEntities = new Set<number>(s.hiddenEntities);
-    // Unhide basket entities
-    for (const ref of refs) {
-      const model = s.models.get(ref.modelId);
-      const offset = model?.idOffset ?? 0;
-      hiddenEntities.delete(ref.expressId + offset);
-    }
-    const isolatedEntities = basketToGlobalIds(next, s.models);
-    set({ pinboardEntities: next, isolatedEntities, hiddenEntities, activeBasketViewId: null });
+    const visibility = computeBasketVisibility(next, s.models, s.hiddenEntities, refs);
+    set({ pinboardEntities: next, ...visibility, activeBasketViewId: null });
   },
 
   clearPinboard: () => set({ pinboardEntities: new Set(), isolatedEntities: null, activeBasketViewId: null }),
@@ -311,15 +328,8 @@ export const createPinboardSlice: StateCreator<
       next.add(entityRefToString(ref));
     }
     const s = get();
-    const hiddenEntities = new Set<number>(s.hiddenEntities);
-    // Unhide basket entities
-    for (const ref of refs) {
-      const model = s.models.get(ref.modelId);
-      const offset = model?.idOffset ?? 0;
-      hiddenEntities.delete(ref.expressId + offset);
-    }
-    const isolatedEntities = basketToGlobalIds(next, s.models);
-    set({ pinboardEntities: next, isolatedEntities, hiddenEntities, activeBasketViewId: null });
+    const visibility = computeBasketVisibility(next, s.models, s.hiddenEntities, refs);
+    set({ pinboardEntities: next, ...visibility, activeBasketViewId: null });
   },
 
   /** + Add entities to basket and update isolation (incremental — avoids re-parsing all strings) */
@@ -410,20 +420,11 @@ export const createPinboardSlice: StateCreator<
     get().clearEntitySelection?.();
     set((current) => {
       const nextPinboard = new Set<string>(entityRefs);
-      if (nextPinboard.size === 0) {
-        return { pinboardEntities: new Set(), isolatedEntities: null, activeBasketViewId: viewId };
-      }
-
-      const hiddenEntities = new Set<number>(current.hiddenEntities);
       const refs = entityKeysToRefs(nextPinboard);
-      for (const ref of refs) {
-        hiddenEntities.delete(refToGlobalId(ref, current.models));
-      }
-
+      const visibility = computeBasketVisibility(nextPinboard, current.models, current.hiddenEntities, refs);
       return {
-        pinboardEntities: nextPinboard,
-        isolatedEntities: basketToGlobalIds(nextPinboard, current.models),
-        hiddenEntities,
+        pinboardEntities: nextPinboard.size === 0 ? new Set() : nextPinboard,
+        ...visibility,
         activeBasketViewId: viewId,
       };
     });

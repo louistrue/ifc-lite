@@ -14,6 +14,7 @@
 
 import type { ComposedNode, UsdMesh, UsdTransform } from './types.js';
 import { ATTR } from './types.js';
+import { getNodeLineage, type TraversalFrame, walkComposedFrames } from './traversal.js';
 
 /**
  * MeshData interface compatible with @ifc-lite/geometry
@@ -44,69 +45,55 @@ export function extractGeometry(
   pathToId: Map<string, number>
 ): MeshData[] {
   const meshes: MeshData[] = [];
+  const contextByFrame = new WeakMap<TraversalFrame, GeometryContext | null>();
+  const transformByFrame = new WeakMap<TraversalFrame, Float32Array | null>();
 
-  for (const node of composed.values()) {
-    const mesh = node.attributes.get(ATTR.MESH) as UsdMesh | undefined;
-    if (!mesh) continue;
+  walkComposedFrames(composed, (frame) => {
+    const inheritedContext = frame.parent ? contextByFrame.get(frame.parent) ?? null : null;
+    const parentTransform = frame.parent ? transformByFrame.get(frame.parent) ?? null : null;
+    const context = resolveContext(frame.node, inheritedContext, pathToId);
+    const transform = combineTransforms(getNodeTransform(frame.node), parentTransform);
+    const lineage = getNodeLineage(frame);
 
-    // Try to get expressId from this node, or walk up to parent entity
-    const expressId = getExpressIdFromHierarchy(node, pathToId);
-    if (expressId === undefined) continue;
+    contextByFrame.set(frame, context);
+    transformByFrame.set(frame, transform);
 
-    // Get IFC type from parent (mesh nodes are usually children of element nodes)
-    const ifcType = getIfcTypeFromHierarchy(node);
-
-    // Get accumulated transform from hierarchy
-    const transform = getAccumulatedTransform(node);
-
-    // Convert USD mesh to MeshData
-    const meshData = convertUsdMesh(mesh, expressId, ifcType, transform);
-
-    // Apply presentation attributes
-    applyPresentation(meshData, node);
-
-    meshes.push(meshData);
-  }
+    const mesh = frame.node.attributes.get(ATTR.MESH) as UsdMesh | undefined;
+    if (mesh && context && !context.isTypeDefinition && !isInvisible(lineage)) {
+      const meshData = convertUsdMesh(mesh, context.expressId, context.ifcType, transform);
+      applyPresentation(meshData, lineage);
+      meshes.push(meshData);
+    }
+  });
 
   return meshes;
 }
 
 /**
- * Get expressId by walking up the hierarchy to find an entity with an ID.
- * This handles geometry on child nodes (like "Body") that don't have their own class.
+ * Resolve the nearest entity context for mesh association.
  */
-function getExpressIdFromHierarchy(
+type GeometryContext = {
+  expressId: number;
+  ifcType?: string;
+  isTypeDefinition: boolean;
+};
+
+function resolveContext(
   node: ComposedNode,
+  context: GeometryContext | null,
   pathToId: Map<string, number>
-): number | undefined {
-  let current: ComposedNode | undefined = node;
-
-  while (current) {
-    const expressId = pathToId.get(current.path);
-    if (expressId !== undefined) {
-      return expressId;
-    }
-    current = current.parent;
+): GeometryContext | null {
+  const ifcClass = node.attributes.get(ATTR.CLASS) as { code?: string } | undefined;
+  const expressId = pathToId.get(node.path);
+  if (expressId === undefined) {
+    return context;
   }
 
-  return undefined;
-}
-
-/**
- * Get IFC type by walking up the hierarchy to find a classified element.
- */
-function getIfcTypeFromHierarchy(node: ComposedNode): string | undefined {
-  let current: ComposedNode | undefined = node;
-
-  while (current) {
-    const ifcClass = current.attributes.get(ATTR.CLASS) as { code?: string } | undefined;
-    if (ifcClass?.code) {
-      return ifcClass.code;
-    }
-    current = current.parent;
-  }
-
-  return undefined;
+  return {
+    expressId,
+    ifcType: ifcClass?.code,
+    isTypeDefinition: (context?.isTypeDefinition ?? false) || isIfcTypeDefinition(node),
+  };
 }
 
 /**
@@ -188,38 +175,24 @@ function triangulatePolygons(faceVertexIndices: number[], faceVertexCounts: numb
 }
 
 /**
- * Get accumulated transform from node to root (in Z-up space).
- *
- * For row-major matrices with right-multiply (point * matrix), transforms must
- * be accumulated in child-to-parent order: child * parent * grandparent * root
+ * Get node-local transform matrix in Z-up space.
  */
-function getAccumulatedTransform(node: ComposedNode): Float32Array | null {
-  const transforms: Float32Array[] = [];
+function getNodeTransform(node: ComposedNode): Float32Array | null {
+  const xform = node.attributes.get(ATTR.TRANSFORM) as UsdTransform | undefined;
+  return xform?.transform ? flattenMatrix(xform.transform) : null;
+}
 
-  // Walk from node (child) up to root (parent), collecting transforms
-  let current: ComposedNode | undefined = node;
-  while (current) {
-    const xform = current.attributes.get(ATTR.TRANSFORM) as UsdTransform | undefined;
-    if (xform?.transform) {
-      // Flatten the matrix (no coordinate conversion needed - IFCX is Z-up)
-      const matrix = flattenMatrix(xform.transform);
-      // Push to end - builds array in child-to-parent order for row-major multiplication
-      transforms.push(matrix);
-    }
-    current = current.parent;
-  }
-
-  if (transforms.length === 0) return null;
-  if (transforms.length === 1) return transforms[0];
-
-  // Multiply transforms in child * parent * grandparent order (left to right)
-  // This is correct for row-major matrices where we do: point * accumulated_matrix
-  let result = transforms[0];
-  for (let i = 1; i < transforms.length; i++) {
-    result = multiplyMatrices(result, transforms[i]);
-  }
-
-  return result;
+/**
+ * Combine transforms using row-major, right-multiply order.
+ * For point * matrix math: childWorld = point * child * parent * root.
+ */
+function combineTransforms(
+  nodeTransform: Float32Array | null,
+  parentTransform: Float32Array | null
+): Float32Array | null {
+  if (!nodeTransform) return parentTransform;
+  if (!parentTransform) return nodeTransform;
+  return multiplyMatrices(nodeTransform, parentTransform);
 }
 
 /**
@@ -249,14 +222,32 @@ function applyTransform(x: number, y: number, z: number, m: Float32Array): [numb
   ];
 }
 
+
+function isIfcTypeDefinition(node: ComposedNode): boolean {
+  const customData = node.attributes.get('customdata') as { originalStepInstance?: string } | undefined;
+  const originalStepInstance = customData?.originalStepInstance;
+  if (typeof originalStepInstance !== 'string') return false;
+  return /=[A-Za-z0-9_]*Type\(/i.test(originalStepInstance);
+}
+
+function isInvisible(lineage: ComposedNode[]): boolean {
+  for (let i = lineage.length - 1; i >= 0; i--) {
+    const current = lineage[i];
+    const visibility = current.attributes.get(ATTR.VISIBILITY) as { visibility?: string } | undefined;
+    if (typeof visibility?.visibility === 'string') {
+      return visibility.visibility.toLowerCase() === 'invisible';
+    }
+  }
+  return false;
+}
+
 /**
  * Apply presentation attributes (color, opacity) to mesh.
  */
-function applyPresentation(mesh: MeshData, node: ComposedNode): void {
+function applyPresentation(mesh: MeshData, lineage: ComposedNode[]): void {
   // Check this node and its ancestors for presentation attributes
-  let current: ComposedNode | undefined = node;
-
-  while (current) {
+  for (let i = lineage.length - 1; i >= 0; i--) {
+    const current = lineage[i];
     const diffuse = current.attributes.get(ATTR.DIFFUSE_COLOR) as number[] | undefined;
     const opacity = current.attributes.get(ATTR.OPACITY) as number | undefined;
 
@@ -266,8 +257,6 @@ function applyPresentation(mesh: MeshData, node: ComposedNode): void {
       mesh.color = [r, g, b, a];
       return;
     }
-
-    current = current.parent;
   }
 }
 

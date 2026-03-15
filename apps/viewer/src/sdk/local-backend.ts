@@ -21,6 +21,7 @@ import type {
   SpatialBackendMethods,
   ExportBackendMethods,
   LensBackendMethods,
+  FilesBackendMethods,
 } from '@ifc-lite/sdk';
 import type { StoreApi } from './adapters/types.js';
 import { LEGACY_MODEL_ID } from './adapters/model-compat.js';
@@ -33,6 +34,7 @@ import { createMutateAdapter } from './adapters/mutate-adapter.js';
 import { createSpatialAdapter } from './adapters/spatial-adapter.js';
 import { createLensAdapter } from './adapters/lens-adapter.js';
 import { createExportAdapter } from './adapters/export-adapter.js';
+import { createFilesAdapter } from './adapters/files-adapter.js';
 
 export class LocalBackend implements BimBackend {
   readonly model: ModelBackendMethods;
@@ -44,6 +46,7 @@ export class LocalBackend implements BimBackend {
   readonly spatial: SpatialBackendMethods;
   readonly export: ExportBackendMethods;
   readonly lens: LensBackendMethods;
+  readonly files: FilesBackendMethods;
 
   private store: StoreApi;
 
@@ -58,6 +61,7 @@ export class LocalBackend implements BimBackend {
     this.spatial = createSpatialAdapter(store);
     this.lens = createLensAdapter(store);
     this.export = createExportAdapter(store);
+    this.files = createFilesAdapter(store);
   }
 
   subscribe(event: BimEventType, handler: (data: unknown) => void): () => void {
@@ -78,6 +82,7 @@ export class LocalBackend implements BimBackend {
                   model: {
                     id: model.id,
                     name: model.name,
+                    schema: model.schemaVersion,
                     schemaVersion: model.schemaVersion,
                     entityCount: model.ifcDataStore?.entities?.count ?? 0,
                     fileSize: model.fileSize,
@@ -92,6 +97,7 @@ export class LocalBackend implements BimBackend {
               model: {
                 id: LEGACY_MODEL_ID,
                 name: 'Model',
+                schema: state.ifcDataStore.schemaVersion ?? 'IFC4',
                 schemaVersion: state.ifcDataStore.schemaVersion ?? 'IFC4',
                 entityCount: state.ifcDataStore.entities?.count ?? 0,
                 fileSize: state.ifcDataStore.source?.byteLength ?? 0,

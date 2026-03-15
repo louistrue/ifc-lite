@@ -293,10 +293,10 @@ describe('EXPRESS Parser', () => {
 
       expect(allAttrs).toHaveLength(4);
       expect(allAttrs.map(a => a.name)).toEqual([
-        'Tag',       // IfcProduct
-        'ObjectType', // IfcObject
         'GlobalId',  // IfcRoot
         'Name',      // IfcRoot
+        'ObjectType', // IfcObject
+        'Tag',       // IfcProduct
       ]);
     });
 

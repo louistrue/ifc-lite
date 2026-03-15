@@ -72,6 +72,60 @@ describe('Entity Attribute Extraction', () => {
     expect(attrs.objectType).toBe('');
   });
 
+  it('should decode IFC encoded special characters (umlauts, etc.)', () => {
+    // Name contains \X2\00FC\X0\ which should decode to ü
+    const ifcEntity = `#789=IFCWALL('globalId1',#1,'Modelleinf\\X2\\00FC\\X0\\gepunkt','Br\\X2\\00FC\\X0\\cke \\X2\\00E4\\X0\\','Type \\X2\\00F6\\X0\\',#2,#3,.NOTDEFINED.);`;
+    const source = new TextEncoder().encode(ifcEntity);
+
+    const entityRef: EntityRef = {
+      expressId: 789,
+      type: 'IfcWall',
+      byteOffset: 0,
+      byteLength: source.length,
+      lineNumber: 1,
+    };
+
+    const store = {
+      source,
+      entityIndex: {
+        byId: new Map([[789, entityRef]]),
+        byType: new Map([['IFCWALL', [789]]]),
+      },
+    } as unknown as IfcDataStore;
+
+    const attrs = extractEntityAttributesOnDemand(store, 789);
+
+    expect(attrs.name).toBe('Modelleinfügepunkt');
+    expect(attrs.description).toBe('Brücke ä');
+    expect(attrs.objectType).toBe('Type ö');
+  });
+
+  it('should decode \\S\\ extended ASCII encoding', () => {
+    // \S\D should decode to Ä (D=68, 68+128=196=0xC4=Ä in ISO-8859-1)
+    const ifcEntity = `#790=IFCWALL('globalId2',#1,'\\S\\Dpfel','','',$,$,.NOTDEFINED.);`;
+    const source = new TextEncoder().encode(ifcEntity);
+
+    const entityRef: EntityRef = {
+      expressId: 790,
+      type: 'IfcWall',
+      byteOffset: 0,
+      byteLength: source.length,
+      lineNumber: 1,
+    };
+
+    const store = {
+      source,
+      entityIndex: {
+        byId: new Map([[790, entityRef]]),
+        byType: new Map([['IFCWALL', [790]]]),
+      },
+    } as unknown as IfcDataStore;
+
+    const attrs = extractEntityAttributesOnDemand(store, 790);
+
+    expect(attrs.name).toBe('Äpfel');
+  });
+
   it('should handle entity not found', () => {
     const store = {
       source: new Uint8Array(0),

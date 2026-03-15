@@ -91,7 +91,6 @@ export interface ComposedNode {
   path: string;
   attributes: Map<string, unknown>;
   children: Map<string, ComposedNode>;
-  parent?: ComposedNode;
 }
 
 // ============================================================================
@@ -146,7 +145,7 @@ export interface UsdTransform {
 
 export interface IfcClass {
   code: string;   // "IfcWall"
-  uri?: string;   // "https://identifier.buildingsmart.org/..."
+  uri: string;    // "https://identifier.buildingsmart.org/uri/buildingsmart/ifc/5/class/IfcWall"
 }
 
 // ============================================================================

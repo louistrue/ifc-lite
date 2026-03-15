@@ -14,7 +14,7 @@
  * - IFC5 → .ifcx
  */
 
-import { useState, useCallback, useMemo, useEffect } from 'react';
+import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import {
   Download,
   AlertCircle,
@@ -48,11 +48,13 @@ import {
   AlertDescription,
   AlertTitle,
 } from '@/components/ui/alert';
+import { Progress } from '@/components/ui/progress';
 import { useViewerStore } from '@/store';
+import { configureMutationView } from '@/utils/configureMutationView';
 import { toast } from '@/components/ui/toast';
-import { StepExporter, MergedExporter, Ifc5Exporter, type MergeModelInput } from '@ifc-lite/export';
+import { StepExporter, MergedExporter, Ifc5Exporter, IFC5_KNOWN_PROP_NAMES, type MergeModelInput, type ExportProgress, type StepExportProgress } from '@ifc-lite/export';
 import { MutablePropertyView } from '@ifc-lite/mutations';
-import { extractPropertiesOnDemand, extractQuantitiesOnDemand, type IfcDataStore } from '@ifc-lite/parser';
+import type { IfcDataStore } from '@ifc-lite/parser';
 
 type ExportScope = 'single' | 'merged';
 type SchemaVersion = 'IFC2X3' | 'IFC4' | 'IFC4X3' | 'IFC5';
@@ -83,8 +85,30 @@ export function ExportDialog({ trigger }: ExportDialogProps) {
   const [applyMutations, setApplyMutations] = useState(true);
   const [changesOnly, setChangesOnly] = useState(false);
   const [visibleOnly, setVisibleOnly] = useState(false);
+  const [onlyKnownProperties, setOnlyKnownProperties] = useState(true);
   const [isExporting, setIsExporting] = useState(false);
   const [exportResult, setExportResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [exportProgress, setExportProgress] = useState<{
+    phase: string;
+    percent: number;
+    entitiesProcessed: number;
+    entitiesTotal: number;
+    currentModel?: string;
+  } | null>(null);
+  const scrollAreaRef = useRef<HTMLDivElement>(null);
+  const prevProgressRef = useRef<typeof exportProgress>(null);
+
+  const scrollToBottom = useCallback(() => {
+    if (scrollAreaRef.current) {
+      scrollAreaRef.current.scrollTop = scrollAreaRef.current.scrollHeight;
+    }
+  }, []);
+
+  // Auto-scroll when progress first appears
+  useEffect(() => {
+    if (exportProgress && !prevProgressRef.current) scrollToBottom();
+    prevProgressRef.current = exportProgress;
+  }, [exportProgress, scrollToBottom]);
 
   // Derived: is this an IFC5/IFCX export?
   const isIfc5 = schema === 'IFC5';
@@ -147,19 +171,7 @@ export function ExportDialog({ trigger }: ExportDialogProps) {
     const dataStore = selectedModel.ifcDataStore;
     mutationView = new MutablePropertyView(dataStore.properties || null, selectedModelId);
 
-    // Set up on-demand property extraction if the data store supports it
-    if (dataStore.onDemandPropertyMap && dataStore.source?.length > 0) {
-      mutationView.setOnDemandExtractor((entityId: number) => {
-        return extractPropertiesOnDemand(dataStore as IfcDataStore, entityId);
-      });
-    }
-
-    // Set up on-demand quantity extraction if the data store supports it
-    if (dataStore.onDemandQuantityMap && dataStore.source?.length > 0) {
-      mutationView.setQuantityExtractor((entityId: number) => {
-        return extractQuantitiesOnDemand(dataStore as IfcDataStore, entityId);
-      });
-    }
+    configureMutationView(mutationView, dataStore as IfcDataStore);
 
     // Register the mutation view
     registerMutationView(selectedModelId, mutationView);
@@ -255,6 +267,29 @@ export function ExportDialog({ trigger }: ExportDialogProps) {
     return localIds.size > 0 ? localIds : null;
   }, [models, isolatedEntities, isolatedEntitiesByModel]);
 
+  // Detect if the model has properties that would be filtered by onlyKnownProperties.
+  // Only relevant for IFC5 exports — show the toggle only when there's something to filter.
+  const hasFilterableProperties = useMemo(() => {
+    if (!isIfc5 || !selectedModel?.ifcDataStore) return false;
+    const mutationView = getMutationView(selectedModelId);
+    const propSource = mutationView || selectedModel.ifcDataStore.properties;
+    if (!propSource) return false;
+
+    // Sample a few entities to check for unknown property names
+    const entities = selectedModel.ifcDataStore.entities;
+    const limit = Math.min(entities.count, 50);
+    for (let i = 0; i < limit; i++) {
+      const id = entities.expressId[i];
+      const psets = propSource.getForEntity(id);
+      for (const pset of psets) {
+        for (const prop of pset.properties) {
+          if (!IFC5_KNOWN_PROP_NAMES.has(prop.name)) return true;
+        }
+      }
+    }
+    return false;
+  }, [isIfc5, selectedModel, selectedModelId, getMutationView]);
+
   // Compute output format description for UI
   const outputInfo = useMemo(() => {
     if (changesOnly) {
@@ -273,6 +308,7 @@ export function ExportDialog({ trigger }: ExportDialogProps) {
 
     setIsExporting(true);
     setExportResult(null);
+    setExportProgress(null);
 
     try {
       // Handle merged export of all models (STEP only, not IFC5)
@@ -295,7 +331,7 @@ export function ExportDialog({ trigger }: ExportDialogProps) {
           }
         }
 
-        const result = mergedExporter.export({
+        const result = await mergedExporter.exportAsync({
           schema,
           projectStrategy: 'keep-first',
           visibleOnly,
@@ -303,7 +339,18 @@ export function ExportDialog({ trigger }: ExportDialogProps) {
           isolatedEntityIdsByModel: isolatedByModel,
           description: `Merged export of ${mergeInputs.length} models from ifc-lite`,
           application: 'ifc-lite',
+          onProgress: (p: ExportProgress) => setExportProgress({
+            phase: p.phase === 'preparing' ? 'Preparing models...'
+              : p.phase === 'entities' ? `Processing entities${p.currentModel ? ` (${p.currentModel})` : ''}...`
+              : 'Assembling file...',
+            percent: p.percent,
+            entitiesProcessed: p.entitiesProcessed,
+            entitiesTotal: p.entitiesTotal,
+            currentModel: p.currentModel,
+          }),
         });
+
+        setExportProgress(null);
 
         const blob = new Blob([result.content], { type: 'text/plain' });
         const url = URL.createObjectURL(blob);
@@ -315,7 +362,7 @@ export function ExportDialog({ trigger }: ExportDialogProps) {
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
 
-        const msg = `Merged ${result.stats.modelCount} models, ${result.stats.totalEntityCount} entities`;
+        const msg = `Merged ${result.stats.modelCount} models, ${result.stats.totalEntityCount.toLocaleString()} entities`;
         setExportResult({ success: true, message: msg });
         toast.success(msg);
         return;
@@ -367,6 +414,7 @@ export function ExportDialog({ trigger }: ExportDialogProps) {
           visibleOnly: effectiveVisibleOnly,
           hiddenEntityIds: localHidden,
           isolatedEntityIds: localIsolated,
+          onlyKnownProperties,
           author: 'ifc-lite',
         });
 
@@ -417,7 +465,7 @@ export function ExportDialog({ trigger }: ExportDialogProps) {
         const localHidden = visibleOnly ? getLocalHiddenIds(selectedModelId) : undefined;
         const localIsolated = visibleOnly ? getLocalIsolatedIds(selectedModelId) : undefined;
 
-        const result = exporter.export({
+        const result = await exporter.exportAsync({
           schema,
           includeGeometry,
           applyMutations,
@@ -426,7 +474,17 @@ export function ExportDialog({ trigger }: ExportDialogProps) {
           isolatedEntityIds: localIsolated,
           description: `Exported from ifc-lite with ${modifiedCount} modifications`,
           application: 'ifc-lite',
+          onProgress: (p: StepExportProgress) => setExportProgress({
+            phase: p.phase === 'preparing' ? 'Preparing export...'
+              : p.phase === 'entities' ? 'Processing entities...'
+              : 'Assembling file...',
+            percent: p.percent,
+            entitiesProcessed: p.entitiesProcessed,
+            entitiesTotal: p.entitiesTotal,
+          }),
         });
+
+        setExportProgress(null);
 
         const blob = new Blob([result.content], { type: 'text/plain' });
         const url = URL.createObjectURL(blob);
@@ -451,7 +509,7 @@ export function ExportDialog({ trigger }: ExportDialogProps) {
     } finally {
       setIsExporting(false);
     }
-  }, [selectedModel, selectedModelId, schema, isIfc5, exportScope, includeGeometry, applyMutations, changesOnly, visibleOnly, getMutationView, getLocalHiddenIds, getLocalIsolatedIds, modifiedCount, models]);
+  }, [selectedModel, selectedModelId, schema, isIfc5, exportScope, includeGeometry, applyMutations, changesOnly, visibleOnly, onlyKnownProperties, getMutationView, getLocalHiddenIds, getLocalIsolatedIds, modifiedCount, models]);
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -474,7 +532,7 @@ export function ExportDialog({ trigger }: ExportDialogProps) {
           </DialogDescription>
         </DialogHeader>
 
-        <div className="grid gap-4 py-4">
+        <div ref={scrollAreaRef} className="grid gap-4 py-4 max-h-[60vh] overflow-y-auto">
           {/* Scope selector (only for STEP schemas with multiple models) */}
           {!isIfc5 && !changesOnly && modelList.length > 1 && (
             <div className="flex items-center gap-4">
@@ -594,6 +652,19 @@ export function ExportDialog({ trigger }: ExportDialogProps) {
             </div>
           )}
 
+          {/* IFC5: strict property schema filtering */}
+          {isIfc5 && hasFilterableProperties && (
+            <div className="flex items-center justify-between">
+              <div>
+                <Label>Only Known IFC5 Properties</Label>
+                <p className="text-xs text-muted-foreground">
+                  Skip properties without an official IFC5 schema (avoids viewer warnings)
+                </p>
+              </div>
+              <Switch checked={onlyKnownProperties} onCheckedChange={setOnlyKnownProperties} />
+            </div>
+          )}
+
           {/* Stats */}
           {modifiedCount > 0 && (
             <Alert>
@@ -603,6 +674,22 @@ export function ExportDialog({ trigger }: ExportDialogProps) {
                 {modifiedCount} entities have been modified
               </AlertDescription>
             </Alert>
+          )}
+
+          {/* Export Progress */}
+          {isExporting && exportProgress && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-sm text-muted-foreground">
+                <span className="flex items-center gap-2">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  {exportProgress.phase}
+                </span>
+                <span>
+                  {exportProgress.entitiesProcessed.toLocaleString()} / {exportProgress.entitiesTotal.toLocaleString()} entities
+                </span>
+              </div>
+              <Progress value={exportProgress.percent * 100} />
+            </div>
           )}
 
           {/* Export result */}

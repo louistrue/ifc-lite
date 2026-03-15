@@ -127,12 +127,26 @@ function parseSpecification(el: Element, index: number): IDSSpecification {
     .map((v) => normalizeIfcVersion(v))
     .filter((v): v is IFCVersion => v !== null);
 
+  // Parse applicability
+  const applicabilityEl = getChildElement(el, 'applicability');
+  const applicability: IDSApplicability = {
+    facets: applicabilityEl ? parseFacets(applicabilityEl) : [],
+  };
+
   // Parse minOccurs/maxOccurs with NaN validation
-  const minOccursAttr = el.getAttribute('minOccurs');
-  const maxOccursAttr = el.getAttribute('maxOccurs');
+  // Per IDS 1.0 spec, these are on the <applicability> element,
+  // but also check the <specification> element for backwards compatibility
+  // Use nullish coalescing (??) instead of || because "0" is falsy in JS
+  // but is a valid attribute value for minOccurs/maxOccurs
+  const minOccursAttr =
+    (applicabilityEl ? applicabilityEl.getAttribute('minOccurs') : null) ??
+    el.getAttribute('minOccurs');
+  const maxOccursAttr =
+    (applicabilityEl ? applicabilityEl.getAttribute('maxOccurs') : null) ??
+    el.getAttribute('maxOccurs');
 
   let minOccurs: number | undefined;
-  if (minOccursAttr) {
+  if (minOccursAttr !== null) {
     const parsed = parseInt(minOccursAttr, 10);
     if (Number.isFinite(parsed)) {
       minOccurs = parsed;
@@ -140,22 +154,14 @@ function parseSpecification(el: Element, index: number): IDSSpecification {
   }
 
   let maxOccurs: number | 'unbounded' | undefined;
-  if (maxOccursAttr) {
+  if (maxOccursAttr !== null) {
+    const parsed = parseInt(maxOccursAttr, 10);
     if (maxOccursAttr === 'unbounded') {
       maxOccurs = 'unbounded';
-    } else {
-      const parsed = parseInt(maxOccursAttr, 10);
-      if (Number.isFinite(parsed)) {
-        maxOccurs = parsed;
-      }
+    } else if (Number.isFinite(parsed)) {
+      maxOccurs = parsed;
     }
   }
-
-  // Parse applicability
-  const applicabilityEl = getChildElement(el, 'applicability');
-  const applicability: IDSApplicability = {
-    facets: applicabilityEl ? parseFacets(applicabilityEl) : [],
-  };
 
   // Parse requirements
   const requirementsEl = getChildElement(el, 'requirements');

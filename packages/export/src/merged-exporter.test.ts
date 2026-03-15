@@ -50,6 +50,9 @@ function buildModel(id: string, name: string, entries: Array<[number, string, st
   return { id, name, dataStore: buildMockDataStore(entries) };
 }
 
+/** Decode Uint8Array content to string for test assertions */
+const decode = (bytes: Uint8Array) => new TextDecoder().decode(bytes);
+
 describe('MergedExporter', () => {
   it('should export a single model unchanged', () => {
     const model = buildModel('m1', 'Model1', [
@@ -60,11 +63,12 @@ describe('MergedExporter', () => {
 
     const exporter = new MergedExporter([model]);
     const result = exporter.export({ schema: 'IFC4', projectStrategy: 'keep-first' });
+    const content = decode(result.content);
 
-    expect(result.content).toContain('DATA;');
-    expect(result.content).toContain('END-ISO-10303-21;');
-    expect(result.content).toContain("#1=IFCPROJECT('g1'");
-    expect(result.content).toContain("#3=IFCWALL('g3'");
+    expect(content).toContain('DATA;');
+    expect(content).toContain('END-ISO-10303-21;');
+    expect(content).toContain("#1=IFCPROJECT('g1'");
+    expect(content).toContain("#3=IFCWALL('g3'");
     expect(result.stats.modelCount).toBe(1);
     expect(result.stats.totalEntityCount).toBe(3);
   });
@@ -86,21 +90,21 @@ describe('MergedExporter', () => {
     const result = exporter.export({ schema: 'IFC4', projectStrategy: 'keep-first' });
 
     // First model entities should have original IDs (offset 0)
-    expect(result.content).toContain("#1=IFCPROJECT('g1'");
-    expect(result.content).toContain("#3=IFCWALL('g3'");
+    expect(decode(result.content)).toContain("#1=IFCPROJECT('g1'");
+    expect(decode(result.content)).toContain("#3=IFCWALL('g3'");
 
     // Second model entities should have remapped IDs (offset = maxId of model1 = 3)
     // So #1→#4, #2→#5, #3→#6
     // But IfcProject from model2 should be SKIPPED (entity not emitted)
-    expect(result.content).not.toContain("#4=IFCPROJECT");
+    expect(decode(result.content)).not.toContain("#4=IFCPROJECT");
 
     // Building and Column should be remapped: #2→#5, #3→#6
-    expect(result.content).toContain('#5=IFCBUILDING');
-    expect(result.content).toContain('#6=IFCCOLUMN');
+    expect(decode(result.content)).toContain('#5=IFCBUILDING');
+    expect(decode(result.content)).toContain('#6=IFCCOLUMN');
 
     // Column originally referenced #1 (project). After merge, that reference
     // should be remapped to #1 (first model's project), NOT #4 (offset)
-    expect(result.content).toMatch(/#6=IFCCOLUMN\('g6',#1/);
+    expect(decode(result.content)).toMatch(/#6=IFCCOLUMN\('g6',#1/);
 
     expect(result.stats.modelCount).toBe(2);
   });
@@ -120,9 +124,9 @@ describe('MergedExporter', () => {
       hiddenEntityIdsByModel: new Map([['m1', new Set([3])]]), // Hide door
     });
 
-    expect(result.content).toContain("#1=IFCPROJECT"); // infrastructure always included
-    expect(result.content).toContain("#2=IFCWALL");    // visible wall
-    expect(result.content).not.toContain("#3=IFCDOOR"); // hidden door
+    expect(decode(result.content)).toContain("#1=IFCPROJECT"); // infrastructure always included
+    expect(decode(result.content)).toContain("#2=IFCWALL");    // visible wall
+    expect(decode(result.content)).not.toContain("#3=IFCDOOR"); // hidden door
   });
 
   it('should unify single site and remap spatial chain', () => {
@@ -146,19 +150,19 @@ describe('MergedExporter', () => {
     const result = exporter.export({ schema: 'IFC4', projectStrategy: 'keep-first' });
 
     // Project and Site from model2 should be unified (single instance each)
-    expect(result.content).not.toContain("IFCPROJECT('g3'");
-    expect(result.content).not.toContain("IFCSITE('g4'");
+    expect(decode(result.content)).not.toContain("IFCPROJECT('g3'");
+    expect(decode(result.content)).not.toContain("IFCSITE('g4'");
 
     // Model2's RelAgg Project→Site: fully redundant (both project and site
     // remapped to model1's) — should be SKIPPED to avoid duplicate tree nodes
-    expect(result.content).not.toContain("IFCRELAGGREGATES('r2'");
+    expect(decode(result.content)).not.toContain("IFCRELAGGREGATES('r2'");
 
     // Model2's RelAgg Site→Building: NOT redundant (building is new, not remapped)
     // site→#2 (unified), building→#6 (offset). Entity #5+offset(3)=#8
-    expect(result.content).toMatch(/#8=IFCRELAGGREGATES\('r3',\$,\$,\$,#2,\(#6\)\)/);
+    expect(decode(result.content)).toMatch(/#8=IFCRELAGGREGATES\('r3',\$,\$,\$,#2,\(#6\)\)/);
 
     // Model2's building is kept (no building in model1 to match)
-    expect(result.content).toContain("#6=IFCBUILDING('g5'");
+    expect(decode(result.content)).toContain("#6=IFCBUILDING('g5'");
   });
 
   it('should unify storeys with matching names', () => {
@@ -183,14 +187,14 @@ describe('MergedExporter', () => {
     const result = exporter.export({ schema: 'IFC4', projectStrategy: 'keep-first' });
 
     // Both storeys should be unified (same names)
-    expect(result.content).not.toContain("IFCBUILDINGSTOREY('g6'");
-    expect(result.content).not.toContain("IFCBUILDINGSTOREY('g7'");
+    expect(decode(result.content)).not.toContain("IFCBUILDINGSTOREY('g6'");
+    expect(decode(result.content)).not.toContain("IFCBUILDINGSTOREY('g7'");
 
     // Column from model2: #4→#8 (offset), references #2(storey)→#2 (unified)
-    expect(result.content).toMatch(/#8=IFCCOLUMN\('g8',\$,'C1',\$,#2/);
+    expect(decode(result.content)).toMatch(/#8=IFCCOLUMN\('g8',\$,'C1',\$,#2/);
 
     // RelContained: (#4→#8), #2→#2 (unified storey)
-    expect(result.content).toMatch(/#9=IFCRELCONTAINEDINSPATIALSTRUCTURE\('r1',\$,\$,\$,\(#8\),#2\)/);
+    expect(decode(result.content)).toMatch(/#9=IFCRELCONTAINEDINSPATIALSTRUCTURE\('r1',\$,\$,\$,\(#8\),#2\)/);
   });
 
   it('should unify storeys by elevation when names differ', () => {
@@ -210,12 +214,12 @@ describe('MergedExporter', () => {
     const result = exporter.export({ schema: 'IFC4', projectStrategy: 'keep-first' });
 
     // Names differ but elevations match → storeys should be unified
-    expect(result.content).not.toContain("IFCBUILDINGSTOREY('g5'");
-    expect(result.content).not.toContain("IFCBUILDINGSTOREY('g6'");
+    expect(decode(result.content)).not.toContain("IFCBUILDINGSTOREY('g5'");
+    expect(decode(result.content)).not.toContain("IFCBUILDINGSTOREY('g6'");
 
     // First model's storeys are preserved
-    expect(result.content).toContain("IFCBUILDINGSTOREY('g2'");
-    expect(result.content).toContain("IFCBUILDINGSTOREY('g3'");
+    expect(decode(result.content)).toContain("IFCBUILDINGSTOREY('g2'");
+    expect(decode(result.content)).toContain("IFCBUILDINGSTOREY('g3'");
   });
 
   it('should keep unmatched storeys as separate entities', () => {
@@ -236,10 +240,10 @@ describe('MergedExporter', () => {
     const result = exporter.export({ schema: 'IFC4', projectStrategy: 'keep-first' });
 
     // Ground Floor should be unified
-    expect(result.content).not.toContain("IFCBUILDINGSTOREY('g4'");
+    expect(decode(result.content)).not.toContain("IFCBUILDINGSTOREY('g4'");
 
     // Roof has no match in model1 → kept as new entity (#3+2=#5)
-    expect(result.content).toContain("#5=IFCBUILDINGSTOREY('g5'");
+    expect(decode(result.content)).toContain("#5=IFCBUILDINGSTOREY('g5'");
   });
 
   it('should throw if no models provided', () => {
@@ -255,10 +259,10 @@ describe('MergedExporter', () => {
     const result = exporter.export({ schema: 'IFC4', projectStrategy: 'keep-first' });
 
     // Valid STEP file structure
-    expect(result.content).toContain('ISO-10303-21;');
-    expect(result.content).toContain('HEADER;');
-    expect(result.content).toContain('DATA;');
-    expect(result.content).toContain('ENDSEC;');
-    expect(result.content).toContain('END-ISO-10303-21;');
+    expect(decode(result.content)).toContain('ISO-10303-21;');
+    expect(decode(result.content)).toContain('HEADER;');
+    expect(decode(result.content)).toContain('DATA;');
+    expect(decode(result.content)).toContain('ENDSEC;');
+    expect(decode(result.content)).toContain('END-ISO-10303-21;');
   });
 });

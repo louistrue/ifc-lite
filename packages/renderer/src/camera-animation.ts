@@ -33,11 +33,13 @@ export class CameraAnimator {
   private animationEndTarget: Vec3 | null = null;
   private animationStartUp: Vec3 | null = null;
   private animationEndUp: Vec3 | null = null;
+  private animationStartOrthoSize: number | null = null;
+  private animationEndOrthoSize: number | null = null;
   private animationEasing: ((t: number) => number) | null = null;
 
   // First-person mode
   private isFirstPersonMode = false;
-  private firstPersonSpeed = 0.1;
+  private walkVelocity = { x: 0, z: 0 };
 
   // Track preset view for rotation cycling (clicking same view rotates 90 degrees)
   private lastPresetView: string | null = null;
@@ -98,6 +100,11 @@ export class CameraAnimator {
         this.state.camera.target.y = this.animationStartTarget.y + (this.animationEndTarget.y - this.animationStartTarget.y) * t;
         this.state.camera.target.z = this.animationStartTarget.z + (this.animationEndTarget.z - this.animationStartTarget.z) * t;
 
+        // Interpolate orthoSize if animating orthographic zoom
+        if (this.animationStartOrthoSize !== null && this.animationEndOrthoSize !== null) {
+          this.state.orthoSize = this.animationStartOrthoSize + (this.animationEndOrthoSize - this.animationStartOrthoSize) * t;
+        }
+
         // Interpolate up vector if animating with up
         if (this.animationStartUp && this.animationEndUp) {
           // SLERP-like interpolation for up vector (normalized lerp)
@@ -132,6 +139,9 @@ export class CameraAnimator {
           this.state.camera.up.y = this.animationEndUp.y;
           this.state.camera.up.z = this.animationEndUp.z;
         }
+        if (this.animationEndOrthoSize !== null) {
+          this.state.orthoSize = this.animationEndOrthoSize;
+        }
         this.updateMatrices();
 
         this.animationStartTime = 0;
@@ -142,6 +152,8 @@ export class CameraAnimator {
         this.animationEndTarget = null;
         this.animationStartUp = null;
         this.animationEndUp = null;
+        this.animationStartOrthoSize = null;
+        this.animationEndOrthoSize = null;
         this.animationEasing = null;
       }
     }
@@ -197,7 +209,13 @@ export class CameraAnimator {
       z: center.z + distance * 0.6,
     };
 
-    return this.animateTo(endPos, endTarget, duration);
+    // Calculate orthoSize for orthographic mode so zoom level resets properly
+    const aspect = this.state.camera.aspect || 1;
+    const endOrthoSize = this.state.projectionMode === 'orthographic'
+      ? Math.max(0.01, maxSize / 2, maxSize / 2 / aspect) * 1.5
+      : undefined;
+
+    return this.animateTo(endPos, endTarget, duration, endOrthoSize);
   }
 
   /**
@@ -295,7 +313,13 @@ export class CameraAnimator {
       z: center.z + dir.z * distance,
     };
 
-    return this.animateTo(endPos, center, duration);
+    // Calculate orthoSize for orthographic mode so zoom level resets properly
+    const aspect = this.state.camera.aspect || 1;
+    const endOrthoSize = this.state.projectionMode === 'orthographic'
+      ? Math.max(0.01, maxSize / 2, maxSize / 2 / aspect) * 1.2
+      : undefined;
+
+    return this.animateTo(endPos, center, duration, endOrthoSize);
   }
 
   async zoomExtent(min: Vec3, max: Vec3, duration = 300): Promise<void> {
@@ -349,19 +373,32 @@ export class CameraAnimator {
       z: center.z + dir.z * distance,
     };
 
-    return this.animateTo(endPos, center, duration);
+    // Calculate orthoSize for orthographic mode so zoom level resets properly
+    const aspect = this.state.camera.aspect || 1;
+    const endOrthoSize = this.state.projectionMode === 'orthographic'
+      ? Math.max(0.01, maxSize / 2, maxSize / 2 / aspect) * 1.5
+      : undefined;
+
+    return this.animateTo(endPos, center, duration, endOrthoSize);
   }
 
   /**
    * Animate camera to position and target
    */
-  async animateTo(endPos: Vec3, endTarget: Vec3, duration = 500): Promise<void> {
+  async animateTo(endPos: Vec3, endTarget: Vec3, duration = 500, endOrthoSize?: number): Promise<void> {
     this.animationStartPos = { ...this.state.camera.position };
     this.animationStartTarget = { ...this.state.camera.target };
     this.animationEndPos = endPos;
     this.animationEndTarget = endTarget;
     this.animationStartUp = null;
     this.animationEndUp = null;
+    if (endOrthoSize !== undefined) {
+      this.animationStartOrthoSize = this.state.orthoSize;
+      this.animationEndOrthoSize = endOrthoSize;
+    } else {
+      this.animationStartOrthoSize = null;
+      this.animationEndOrthoSize = null;
+    }
     this.animationDuration = duration;
     this.animationStartTime = Date.now();
     this.animationEasing = this.easeOutCubic;
@@ -396,6 +433,8 @@ export class CameraAnimator {
     this.animationEndPos = endPos;
     this.animationEndTarget = endTarget;
     this.animationEndUp = endUp;
+    this.animationStartOrthoSize = null;
+    this.animationEndOrthoSize = null;
     this.animationDuration = duration;
     this.animationStartTime = Date.now();
     this.animationEasing = this.easeOutCubic;
@@ -428,49 +467,53 @@ export class CameraAnimator {
   }
 
   /**
-   * Move in first-person mode (Y-up coordinate system)
+   * Walk on the horizontal XZ plane (Y-up coordinate system).
+   * Forward/backward moves in the camera's horizontal facing direction.
+   * Left/right strafes perpendicular. Y position stays fixed (walking on ground).
+   * Speed scales with scene size. Movement uses smooth acceleration to avoid
+   * abrupt jumps — velocity ramps up over successive frames.
    */
-  moveFirstPerson(forward: number, right: number, up: number): void {
-    if (!this.isFirstPersonMode) return;
-
+  moveFirstPerson(forward: number, right: number, _up: number): void {
+    // Camera forward direction projected onto XZ plane
     const dir = {
       x: this.state.camera.target.x - this.state.camera.position.x,
-      y: this.state.camera.target.y - this.state.camera.position.y,
       z: this.state.camera.target.z - this.state.camera.position.z,
     };
-    const len = Math.sqrt(dir.x * dir.x + dir.y * dir.y + dir.z * dir.z);
-    if (len > 1e-10) {
-      dir.x /= len;
-      dir.y /= len;
-      dir.z /= len;
-    }
+    const horizLen = Math.sqrt(dir.x * dir.x + dir.z * dir.z);
+    if (horizLen < 1e-10) return;
 
-    // Right vector: cross product of direction and up (0,1,0)
-    const rightVec = {
-      x: -dir.z,
-      y: 0,
-      z: dir.x,
+    // Normalized horizontal forward and right vectors
+    const fwdX = dir.x / horizLen;
+    const fwdZ = dir.z / horizLen;
+    const rightX = -fwdZ;
+    const rightZ = fwdX;
+
+    // Target velocity from input (forward/right can be -2..2 with sprint)
+    const targetVelX = fwdX * forward + rightX * right;
+    const targetVelZ = fwdZ * forward + rightZ * right;
+
+    // Smooth acceleration: lerp current walk velocity toward target
+    this.walkVelocity.x += (targetVelX - this.walkVelocity.x) * 0.15;
+    this.walkVelocity.z += (targetVelZ - this.walkVelocity.z) * 0.15;
+
+    // Speed proportional to scene size (use camera-target distance as proxy)
+    const camDir = {
+      x: this.state.camera.position.x - this.state.camera.target.x,
+      y: this.state.camera.position.y - this.state.camera.target.y,
+      z: this.state.camera.position.z - this.state.camera.target.z,
     };
-    const rightLen = Math.sqrt(rightVec.x * rightVec.x + rightVec.z * rightVec.z);
-    if (rightLen > 1e-10) {
-      rightVec.x /= rightLen;
-      rightVec.z /= rightLen;
-    }
+    const distance = Math.sqrt(camDir.x * camDir.x + camDir.y * camDir.y + camDir.z * camDir.z);
+    const speed = Math.max(0.02, distance * 0.004);
 
-    // Up vector: cross product of right and direction
-    const upVec = {
-      x: (rightVec.z * dir.y - rightVec.y * dir.z),
-      y: (rightVec.x * dir.z - rightVec.z * dir.x),
-      z: (rightVec.y * dir.x - rightVec.x * dir.y),
-    };
+    // Apply smoothed velocity
+    const offsetX = this.walkVelocity.x * speed;
+    const offsetZ = this.walkVelocity.z * speed;
 
-    const speed = this.firstPersonSpeed;
-    this.state.camera.position.x += (dir.x * forward + rightVec.x * right + upVec.x * up) * speed;
-    this.state.camera.position.y += (dir.y * forward + rightVec.y * right + upVec.y * up) * speed;
-    this.state.camera.position.z += (dir.z * forward + rightVec.z * right + upVec.z * up) * speed;
-    this.state.camera.target.x += (dir.x * forward + rightVec.x * right + upVec.x * up) * speed;
-    this.state.camera.target.y += (dir.y * forward + rightVec.y * right + upVec.y * up) * speed;
-    this.state.camera.target.z += (dir.z * forward + rightVec.z * right + upVec.z * up) * speed;
+    // Move both position and target by the same offset (preserves view direction)
+    this.state.camera.position.x += offsetX;
+    this.state.camera.position.z += offsetZ;
+    this.state.camera.target.x += offsetX;
+    this.state.camera.target.z += offsetZ;
 
     this.updateMatrices();
   }
@@ -667,6 +710,8 @@ export class CameraAnimator {
     this.animationEndTarget = null;
     this.animationStartUp = null;
     this.animationEndUp = null;
+    this.animationStartOrthoSize = null;
+    this.animationEndOrthoSize = null;
     this.animationEasing = null;
     // Reset preset view tracking
     this.lastPresetView = null;

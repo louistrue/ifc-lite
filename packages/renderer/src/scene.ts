@@ -29,6 +29,7 @@ export class Scene {
   private batchedMeshIndex: Map<string, number> = new Map(); // Map bucketKey -> index in batchedMeshes array (O(1) lookup)
   private meshDataMap: Map<number, MeshData[]> = new Map(); // Map expressId -> MeshData[] (for lazy buffer creation, accumulates multiple pieces)
   private meshDataBatchKey: Map<MeshData, string> = new Map(); // Reverse lookup: MeshData -> bucketKey (O(1) removal in updateMeshColors)
+  private meshDataBatchIdx: Map<MeshData, number> = new Map(); // Reverse lookup: MeshData -> index in bucket array (O(1) removal)
   private boundingBoxes: Map<number, BoundingBox> = new Map(); // Map expressId -> bounding box (computed lazily)
 
   // Buffer-size-aware bucket splitting: when a single color group's geometry
@@ -57,6 +58,12 @@ export class Scene {
   // Temporary fragment batches created during streaming for immediate rendering.
   // Destroyed and replaced by proper merged batches in finalizeStreaming().
   private streamingFragments: BatchedMesh[] = [];
+
+  // ─── GPU-resident mode ──────────────────────────────────────────────
+  // After releaseGeometryData(), JS-side typed arrays are freed.
+  // Only lightweight metadata is retained for operations that don't need
+  // raw vertex data (bounding boxes, color key lookups, expressId sets).
+  private geometryReleased: boolean = false;
 
   /**
    * Add mesh to scene
@@ -256,6 +263,7 @@ export class Scene {
         bucket = [];
         this.batchedMeshData.set(bucketKey, bucket);
       }
+      this.meshDataBatchIdx.set(meshData, bucket.length);
       bucket.push(meshData);
 
       // Track reverse mapping for O(1) batch removal in updateMeshColors
@@ -432,6 +440,7 @@ export class Scene {
     this.batchedMeshIndex.clear();
     this.batchedMeshData.clear();
     this.meshDataBatchKey.clear();
+    this.meshDataBatchIdx.clear();
     this.activeBucketKey.clear();
     this.bucketVertexBytes.clear();
     this.pendingBatchKeys.clear();
@@ -458,6 +467,7 @@ export class Scene {
         bucket = [];
         this.batchedMeshData.set(bucketKey, bucket);
       }
+      this.meshDataBatchIdx.set(meshData, bucket.length);
       bucket.push(meshData);
       this.meshDataBatchKey.set(meshData, bucketKey);
       this.pendingBatchKeys.add(bucketKey);
@@ -465,6 +475,93 @@ export class Scene {
 
     // 6. One O(N) full rebuild from correctly-grouped data
     this.rebuildPendingBatches(device, pipeline);
+  }
+
+  /**
+   * Release JS-side mesh geometry data (positions, normals, indices) after
+   * GPU batches have been built. This frees the ~1.9GB of typed arrays that
+   * duplicate data already resident in GPU vertex/index buffers.
+   *
+   * After calling this method:
+   *  - Bounding boxes are precomputed and cached for all entities
+   *  - meshDataMap and batchedMeshData are cleared (typed arrays become GC-eligible)
+   *  - Color updates (updateMeshColors) are no longer available
+   *  - Partial batch creation and color overlays are no longer available
+   *  - CPU raycasting falls back to bounding-box-only (no triangle intersection)
+   *  - Selection highlighting must use GPU picking instead of CPU mesh reconstruction
+   *
+   * Call this after finalizeStreaming() when all color updates have been applied.
+   */
+  releaseGeometryData(): void {
+    if (this.geometryReleased) return;
+
+    // Guard: releasing while async batch work is in-flight would corrupt GPU state
+    if (this.pendingBatchKeys.size > 0 || this.streamingFragments.length > 0) {
+      console.warn(
+        `[Scene] releaseGeometryData() called with ${this.pendingBatchKeys.size} pending batches ` +
+        `and ${this.streamingFragments.length} streaming fragments still in-flight. ` +
+        `Call finalizeStreaming()/rebuildPendingBatches() first.`
+      );
+      return;
+    }
+
+    // 1. Precompute and cache ALL entity bounding boxes before releasing data
+    for (const [expressId, pieces] of this.meshDataMap) {
+      if (this.boundingBoxes.has(expressId)) continue;
+
+      let minX = Infinity, minY = Infinity, minZ = Infinity;
+      let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+
+      for (const piece of pieces) {
+        const positions = piece.positions;
+        for (let i = 0; i < positions.length; i += 3) {
+          const x = positions[i];
+          const y = positions[i + 1];
+          const z = positions[i + 2];
+          if (x < minX) minX = x;
+          if (y < minY) minY = y;
+          if (z < minZ) minZ = z;
+          if (x > maxX) maxX = x;
+          if (y > maxY) maxY = y;
+          if (z > maxZ) maxZ = z;
+        }
+      }
+
+      this.boundingBoxes.set(expressId, {
+        min: { x: minX, y: minY, z: minZ },
+        max: { x: maxX, y: maxY, z: maxZ },
+      });
+    }
+
+    // 2. Clear the heavy data structures — typed arrays become GC-eligible
+    this.meshDataMap.clear();
+    this.batchedMeshData.clear();
+    this.meshDataBatchKey = new Map();
+    this.activeBucketKey.clear();
+    this.bucketVertexBytes.clear();
+
+    // 3. Clear partial batch cache (would need mesh data to rebuild)
+    for (const batch of this.partialBatchCache.values()) {
+      batch.vertexBuffer.destroy();
+      batch.indexBuffer.destroy();
+      if (batch.uniformBuffer) batch.uniformBuffer.destroy();
+    }
+    this.partialBatchCache.clear();
+    this.partialBatchCacheKeys.clear();
+
+    this.geometryReleased = true;
+
+    console.log(
+      `[Scene] Released JS geometry data. ${this.boundingBoxes.size} bounding boxes cached. ` +
+      `${this.batchedMeshes.length} GPU batches retained.`
+    );
+  }
+
+  /**
+   * Whether JS geometry data has been released (GPU-resident mode).
+   */
+  isGeometryDataReleased(): boolean {
+    return this.geometryReleased;
   }
 
   /**
@@ -480,6 +577,11 @@ export class Scene {
     pipeline: RenderPipeline
   ): void {
     if (updates.size === 0) return;
+
+    if (this.geometryReleased) {
+      console.warn('[Scene] updateMeshColors called after geometry data was released — skipping.');
+      return;
+    }
 
     // Cache max buffer size if not yet set
     if (this.cachedMaxBufferSize === 0) {
@@ -514,14 +616,16 @@ export class Scene {
           // Remove from old bucket data using swap-remove for O(1)
           const oldBatchData = this.batchedMeshData.get(oldBucketKey);
           if (oldBatchData) {
-            const idx = oldBatchData.indexOf(meshData);
-            if (idx >= 0) {
-              // Swap with last element and pop — O(1) instead of O(N) splice
+            const idx = this.meshDataBatchIdx.get(meshData);
+            if (idx !== undefined && idx < oldBatchData.length && oldBatchData[idx] === meshData) {
               const last = oldBatchData.length - 1;
               if (idx !== last) {
-                oldBatchData[idx] = oldBatchData[last];
+                const swapped = oldBatchData[last];
+                oldBatchData[idx] = swapped;
+                this.meshDataBatchIdx.set(swapped, idx);
               }
               oldBatchData.pop();
+              this.meshDataBatchIdx.delete(meshData);
             }
             if (oldBatchData.length === 0) {
               this.batchedMeshData.delete(oldBucketKey);
@@ -542,6 +646,7 @@ export class Scene {
             newBucket = [];
             this.batchedMeshData.set(newBucketKey, newBucket);
           }
+          this.meshDataBatchIdx.set(meshData, newBucket.length);
           newBucket.push(meshData);
 
           // Update reverse mapping
@@ -830,6 +935,9 @@ export class Scene {
     device: GPUDevice,
     pipeline: RenderPipeline
   ): BatchedMesh | undefined {
+    // Cannot create partial batches after geometry data has been released
+    if (this.geometryReleased) return undefined;
+
     // Create cache key from colorKey + deterministic hash of all visible IDs
     // Using a proper hash over all IDs to avoid collisions when middle IDs differ
     const sortedIds = Array.from(visibleIds).sort((a, b) => a - b);
@@ -918,6 +1026,12 @@ export class Scene {
   ): void {
     // Destroy previous overlay batches
     this.destroyOverrideBatches();
+
+    if (this.geometryReleased) {
+      console.warn('[Scene] setColorOverrides called after geometry data was released — skipping.');
+      this.colorOverrides = null;
+      return;
+    }
 
     if (overrides.size === 0) {
       this.colorOverrides = null;
@@ -1045,6 +1159,7 @@ export class Scene {
     this.batchedMeshIndex.clear();
     this.meshDataMap.clear();
     this.meshDataBatchKey.clear();
+    this.meshDataBatchIdx.clear();
     this.boundingBoxes.clear();
     this.activeBucketKey.clear();
     this.bucketVertexBytes.clear();
@@ -1052,12 +1167,35 @@ export class Scene {
     this.pendingBatchKeys.clear();
     this.partialBatchCache.clear();
     this.partialBatchCacheKeys.clear();
+    this.geometryReleased = false;
   }
 
   /**
    * Calculate bounding box from actual mesh vertex data
    */
   getBounds(): { min: { x: number; y: number; z: number }; max: { x: number; y: number; z: number } } | null {
+    // When geometry data is released, compute bounds from cached bounding boxes
+    if (this.geometryReleased) {
+      if (this.boundingBoxes.size === 0) return null;
+
+      let minX = Infinity, minY = Infinity, minZ = Infinity;
+      let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+
+      for (const bbox of this.boundingBoxes.values()) {
+        if (bbox.min.x < minX) minX = bbox.min.x;
+        if (bbox.min.y < minY) minY = bbox.min.y;
+        if (bbox.min.z < minZ) minZ = bbox.min.z;
+        if (bbox.max.x > maxX) maxX = bbox.max.x;
+        if (bbox.max.y > maxY) maxY = bbox.max.y;
+        if (bbox.max.z > maxZ) maxZ = bbox.max.z;
+      }
+
+      return {
+        min: { x: minX, y: minY, z: minZ },
+        max: { x: maxX, y: maxY, z: maxZ },
+      };
+    }
+
     if (this.meshDataMap.size === 0) return null;
 
     let minX = Infinity, minY = Infinity, minZ = Infinity;
@@ -1094,9 +1232,13 @@ export class Scene {
   }
 
   /**
-   * Get all expressIds that have mesh data (for CPU raycasting)
+   * Get all expressIds that have mesh data (for CPU raycasting).
+   * After geometry release, returns expressIds from the cached bounding boxes.
    */
   getAllMeshDataExpressIds(): number[] {
+    if (this.geometryReleased) {
+      return Array.from(this.boundingBoxes.keys());
+    }
     return Array.from(this.meshDataMap.keys());
   }
 
@@ -1142,7 +1284,8 @@ export class Scene {
   }
 
   /**
-   * Ray-box intersection test (slab method)
+   * Ray-box intersection test (slab method).
+   * Handles zero ray direction components (axis-aligned rays) safely.
    */
   private rayIntersectsBox(
     rayOrigin: Vec3,
@@ -1152,23 +1295,94 @@ export class Scene {
   ): boolean {
     const bounds = [box.min, box.max];
 
-    let tmin = (bounds[rayDirSign[0]].x - rayOrigin.x) * rayDirInv.x;
-    let tmax = (bounds[1 - rayDirSign[0]].x - rayOrigin.x) * rayDirInv.x;
-    const tymin = (bounds[rayDirSign[1]].y - rayOrigin.y) * rayDirInv.y;
-    const tymax = (bounds[1 - rayDirSign[1]].y - rayOrigin.y) * rayDirInv.y;
+    let tmin = -Infinity;
+    let tmax = Infinity;
 
-    if (tmin > tymax || tymin > tmax) return false;
-    if (tymin > tmin) tmin = tymin;
-    if (tymax < tmax) tmax = tymax;
+    // X axis
+    if (!isFinite(rayDirInv.x)) {
+      if (rayOrigin.x < box.min.x || rayOrigin.x > box.max.x) return false;
+    } else {
+      tmin = (bounds[rayDirSign[0]].x - rayOrigin.x) * rayDirInv.x;
+      tmax = (bounds[1 - rayDirSign[0]].x - rayOrigin.x) * rayDirInv.x;
+    }
 
-    const tzmin = (bounds[rayDirSign[2]].z - rayOrigin.z) * rayDirInv.z;
-    const tzmax = (bounds[1 - rayDirSign[2]].z - rayOrigin.z) * rayDirInv.z;
+    // Y axis
+    if (!isFinite(rayDirInv.y)) {
+      if (rayOrigin.y < box.min.y || rayOrigin.y > box.max.y) return false;
+    } else {
+      const tymin = (bounds[rayDirSign[1]].y - rayOrigin.y) * rayDirInv.y;
+      const tymax = (bounds[1 - rayDirSign[1]].y - rayOrigin.y) * rayDirInv.y;
+      if (tmin > tymax || tymin > tmax) return false;
+      if (tymin > tmin) tmin = tymin;
+      if (tymax < tmax) tmax = tymax;
+    }
 
-    if (tmin > tzmax || tzmin > tmax) return false;
-    if (tzmin > tmin) tmin = tzmin;
-    if (tzmax < tmax) tmax = tzmax;
+    // Z axis
+    if (!isFinite(rayDirInv.z)) {
+      if (rayOrigin.z < box.min.z || rayOrigin.z > box.max.z) return false;
+    } else {
+      const tzmin = (bounds[rayDirSign[2]].z - rayOrigin.z) * rayDirInv.z;
+      const tzmax = (bounds[1 - rayDirSign[2]].z - rayOrigin.z) * rayDirInv.z;
+      if (tmin > tzmax || tzmin > tmax) return false;
+      if (tzmin > tmin) tmin = tzmin;
+      if (tzmax < tmax) tmax = tzmax;
+    }
 
     return tmax >= 0;
+  }
+
+  /**
+   * Ray-box intersection returning entry distance (tNear).
+   * Returns null if no intersection, otherwise the distance along the ray
+   * to the entry point (clamped to 0 if the ray originates inside the box).
+   * Handles zero ray direction components (axis-aligned rays) safely.
+   */
+  private rayBoxDistance(
+    rayOrigin: Vec3,
+    rayDirInv: Vec3,
+    rayDirSign: [number, number, number],
+    box: BoundingBox
+  ): number | null {
+    const bounds = [box.min, box.max];
+
+    let tmin = -Infinity;
+    let tmax = Infinity;
+
+    // X axis
+    if (!isFinite(rayDirInv.x)) {
+      // Ray parallel to X: miss if origin outside X slab
+      if (rayOrigin.x < box.min.x || rayOrigin.x > box.max.x) return null;
+    } else {
+      const t1 = (bounds[rayDirSign[0]].x - rayOrigin.x) * rayDirInv.x;
+      const t2 = (bounds[1 - rayDirSign[0]].x - rayOrigin.x) * rayDirInv.x;
+      tmin = t1;
+      tmax = t2;
+    }
+
+    // Y axis
+    if (!isFinite(rayDirInv.y)) {
+      if (rayOrigin.y < box.min.y || rayOrigin.y > box.max.y) return null;
+    } else {
+      const tymin = (bounds[rayDirSign[1]].y - rayOrigin.y) * rayDirInv.y;
+      const tymax = (bounds[1 - rayDirSign[1]].y - rayOrigin.y) * rayDirInv.y;
+      if (tmin > tymax || tymin > tmax) return null;
+      if (tymin > tmin) tmin = tymin;
+      if (tymax < tmax) tmax = tymax;
+    }
+
+    // Z axis
+    if (!isFinite(rayDirInv.z)) {
+      if (rayOrigin.z < box.min.z || rayOrigin.z > box.max.z) return null;
+    } else {
+      const tzmin = (bounds[rayDirSign[2]].z - rayOrigin.z) * rayDirInv.z;
+      const tzmax = (bounds[1 - rayDirSign[2]].z - rayOrigin.z) * rayDirInv.z;
+      if (tmin > tzmax || tzmin > tmax) return null;
+      if (tzmin > tmin) tmin = tzmin;
+      if (tzmax < tmax) tmax = tzmax;
+    }
+
+    if (tmax < 0) return null;
+    return tmin < 0 ? 0 : tmin;
   }
 
   /**
@@ -1233,6 +1447,23 @@ export class Scene {
 
     let closestHit: { expressId: number; distance: number; modelIndex?: number } | null = null;
     let closestDistance = Infinity;
+
+    // When geometry data has been released, use bounding-box-only raycast.
+    // This is less accurate but uses only the precomputed bounding boxes.
+    // For precise picking, callers should use GPU picking instead.
+    if (this.geometryReleased) {
+      for (const [expressId, bbox] of this.boundingBoxes) {
+        if (hiddenIds?.has(expressId)) continue;
+        if (isolatedIds !== null && isolatedIds !== undefined && !isolatedIds.has(expressId)) continue;
+
+        const tNear = this.rayBoxDistance(rayOrigin, rayDirInv, rayDirSign, bbox);
+        if (tNear !== null && tNear < closestDistance) {
+          closestDistance = tNear;
+          closestHit = { expressId, distance: tNear };
+        }
+      }
+      return closestHit;
+    }
 
     // First pass: filter by bounding box (fast)
     const candidates: number[] = [];

@@ -26,7 +26,6 @@ import {
 import { useModelSelection } from '../../hooks/useModelSelection.js';
 import {
   getEntityBounds,
-  getEntityCenter,
   getThemeClearColor,
   type ViewportStateRefs,
 } from '../../utils/viewportUtils.js';
@@ -53,6 +52,27 @@ export function Viewport({ geometry, geometryVersion, coordinateInfo, computedIs
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rendererRef = useRef<Renderer | null>(null);
   const [isInitialized, setIsInitialized] = useState(false);
+
+  const focusViewportForKeyboardShortcuts = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const activeElement = document.activeElement;
+    if (activeElement instanceof HTMLElement && activeElement !== canvas) {
+      const isEditable =
+        activeElement.tagName === 'INPUT' ||
+        activeElement.tagName === 'TEXTAREA' ||
+        activeElement.isContentEditable;
+
+      if (isEditable) {
+        activeElement.blur();
+      }
+    }
+
+    if (document.activeElement !== canvas) {
+      canvas.focus({ preventScroll: true });
+    }
+  }, []);
 
   // Selection state
   const { selectedEntityId, selectedEntityIds, setSelectedEntityId, setSelectedEntity, toggleSelection, models } = useSelectionState();
@@ -106,6 +126,10 @@ export function Viewport({ geometry, geometryVersion, coordinateInfo, computedIs
   // (useMouseControls/useTouchControls capture this at effect setup time)
   const handlePickForSelectionRef = useRef(handlePickForSelection);
   useEffect(() => { handlePickForSelectionRef.current = handlePickForSelection; }, [handlePickForSelection]);
+
+  // Orbit pivot is now set dynamically at the start of each orbit drag by
+  // raycasting under the cursor (see useMouseControls/useTouchControls).
+  // No need for selection-based orbit center — cursor-based is always better.
 
   // Multi-select handler: Ctrl+Click adds/removes from multi-selection
   // Properly populates both selectedEntitiesSet (multi-model) and selectedEntityIds (legacy)
@@ -384,7 +408,16 @@ export function Viewport({ geometry, geometryVersion, coordinateInfo, computedIs
   useEffect(() => { selectedEntityIdRef.current = selectedEntityId; }, [selectedEntityId]);
   useEffect(() => { selectedEntityIdsRef.current = selectedEntityIds; }, [selectedEntityIds]);
   useEffect(() => { selectedModelIndexRef.current = selectedModelIndex; }, [selectedModelIndex]);
-  useEffect(() => { activeToolRef.current = activeTool; }, [activeTool]);
+  useEffect(() => {
+    activeToolRef.current = activeTool;
+    // Sync first-person/walk mode with tool selection
+    const renderer = rendererRef.current;
+    if (renderer) {
+      const isWalk = activeTool === 'walk';
+      firstPersonModeRef.current = isWalk;
+      renderer.getCamera().enableFirstPersonMode(isWalk);
+    }
+  }, [activeTool]);
   useEffect(() => { pendingMeasurePointRef.current = pendingMeasurePoint; }, [pendingMeasurePoint]);
   useEffect(() => { activeMeasurementRef.current = activeMeasurement; }, [activeMeasurement]);
   useEffect(() => { snapEnabledRef.current = snapEnabled; }, [snapEnabled]);
@@ -425,8 +458,6 @@ export function Viewport({ geometry, geometryVersion, coordinateInfo, computedIs
     // Set cursor based on active tool
     if (activeTool === 'measure' || activeTool === 'draw-rect') {
       canvas.style.cursor = 'crosshair';
-    } else if (activeTool === 'pan' || activeTool === 'orbit') {
-      canvas.style.cursor = 'grab';
     } else {
       canvas.style.cursor = 'default';
     }
@@ -984,7 +1015,9 @@ export function Viewport({ geometry, geometryVersion, coordinateInfo, computedIs
     <canvas
       ref={canvasRef}
       data-viewport="main"
+      tabIndex={-1}
       className="w-full h-full block"
+      onPointerDown={focusViewportForKeyboardShortcuts}
     />
   );
 }

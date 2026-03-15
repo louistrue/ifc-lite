@@ -31,12 +31,7 @@ import { createListSlice, type ListSlice } from './slices/listSlice.js';
 import { createPinboardSlice, type PinboardSlice } from './slices/pinboardSlice.js';
 import { createLensSlice, type LensSlice } from './slices/lensSlice.js';
 import { createScriptSlice, type ScriptSlice } from './slices/scriptSlice.js';
-import { createEditorSlice, type EditorSlice } from './slices/editorSlice.js';
-import { createNodeEditorSlice, type NodeEditorSlice } from './slices/nodeEditorSlice.js';
-import { createViewsSlice, type ViewsSlice } from './slices/viewsSlice.js';
-import { createDrawRectSlice, type DrawRectSlice } from './slices/drawRectSlice.js';
-import { createBubbleGraphSlice, type BubbleGraphSlice } from './slices/bubbleGraphSlice.js';
-import { createObjectStylesSlice, type ObjectStylesSlice } from './slices/objectStylesSlice.js';
+import { createChatSlice, type ChatSlice } from './slices/chatSlice.js';
 import { invalidateVisibleBasketCache } from './basketVisibleSet.js';
 
 // Import constants for reset function
@@ -77,13 +72,9 @@ export type { LensSlice, Lens, LensRule, LensCriteria } from './slices/lensSlice
 
 // Re-export Script types
 export type { ScriptSlice } from './slices/scriptSlice.js';
-export type { EditorSlice } from './slices/editorSlice.js';
-export type { NodeEditorSlice } from './slices/nodeEditorSlice.js';
-export type { ViewsSlice, ViewDefinition, ViewType, ViewCameraState } from './slices/viewsSlice.js';
-export { newViewId } from './slices/viewsSlice.js';
-export type { DrawRectSlice } from './slices/drawRectSlice.js';
-export type { BubbleGraphSlice, BubbleGraphNode, BubbleGraphEdge, BuildingAxes, StoreyDiscipline, FlowNode } from './slices/bubbleGraphSlice.js';
-export type { ObjectStylesSlice } from './slices/objectStylesSlice.js';
+
+// Re-export Chat types
+export type { ChatSlice } from './slices/chatSlice.js';
 
 // Combined store type
 export type ViewerState = LoadingSlice &
@@ -105,12 +96,7 @@ export type ViewerState = LoadingSlice &
   PinboardSlice &
   LensSlice &
   ScriptSlice &
-  EditorSlice &
-  NodeEditorSlice &
-  ViewsSlice &
-  DrawRectSlice &
-  BubbleGraphSlice &
-  ObjectStylesSlice & {
+  ChatSlice & {
     resetViewerState: () => void;
   };
 
@@ -138,18 +124,13 @@ export const useViewerStore = create<ViewerState>()((...args) => ({
   ...createPinboardSlice(...args),
   ...createLensSlice(...args),
   ...createScriptSlice(...args),
-  ...createEditorSlice(...args),
-  ...createNodeEditorSlice(...args),
-  ...createViewsSlice(...args),
-  ...createDrawRectSlice(...args),
-  ...createBubbleGraphSlice(...args),
-  ...createObjectStylesSlice(...args),
+  ...createChatSlice(...args),
 
   // Reset all viewer state when loading new file
   // Note: Does NOT clear models - use clearAllModels() for that
   resetViewerState: () => {
     invalidateVisibleBasketCache();
-    const [set] = args;
+    const [set, get] = args;
     set({
       // Selection (legacy)
       selectedEntityId: null,
@@ -163,6 +144,7 @@ export const useViewerStore = create<ViewerState>()((...args) => ({
       // Visibility (legacy)
       hiddenEntities: new Set(),
       isolatedEntities: null,
+      classFilter: null,
       typeVisibility: {
         spaces: TYPE_VISIBILITY_DEFAULTS.SPACES,
         openings: TYPE_VISIBILITY_DEFAULTS.OPENINGS,
@@ -283,11 +265,6 @@ export const useViewerStore = create<ViewerState>()((...args) => ({
       idsLoading: false,
       idsProgress: null,
       idsError: null,
-
-      // Editor
-      editorPanelVisible: false,
-      editorNewProjectDialogOpen: false,
-      nodeEditorPanelVisible: false,
       idsActiveSpecificationId: null,
       idsActiveEntityId: null,
       // Keep idsDocument, idsValidationReport, idsLocale - user's work
@@ -310,6 +287,8 @@ export const useViewerStore = create<ViewerState>()((...args) => ({
       scriptExecutionState: 'idle' as const,
       scriptLastResult: null,
       scriptLastError: null,
+      scriptLastDiagnostics: [],
+      scriptAssistantTurnSnapshot: null,
       scriptDeleteConfirmId: null,
 
       // Lens - deactivate but keep saved lenses
@@ -319,6 +298,21 @@ export const useViewerStore = create<ViewerState>()((...args) => ({
       lensHiddenIds: new Set<number>(),
       lensRuleCounts: new Map<string, number>(),
       lensRuleEntityIds: new Map<string, number[]>(),
+
+      // Chat - keep messages and panel visible, reset streaming state
+      chatStatus: 'idle' as const,
+      chatStreamingContent: '',
+      chatError: null,
+      chatAbortController: null,
+
+      // Mutations - clear all mutation state so stale changes don't carry over
+      mutationViews: new Map(),
+      changeSets: new Map(),
+      activeChangeSetId: null,
+      undoStacks: new Map(),
+      redoStacks: new Map(),
+      dirtyModels: new Set(),
+      mutationVersion: get().mutationVersion + 1,
     });
   },
 }));

@@ -13,7 +13,6 @@ import { StatusBar } from './StatusBar';
 import { ViewportContainer } from './ViewportContainer';
 import { KeyboardShortcutsDialog, useKeyboardShortcutsDialog } from './KeyboardShortcutsDialog';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
-import { useIfcBridge } from '@/hooks/useIfcBridge';
 import { useViewerStore } from '@/store';
 import { EntityContextMenu } from './EntityContextMenu';
 import { HoverTooltip } from './HoverTooltip';
@@ -23,12 +22,6 @@ import { LensPanel } from './LensPanel';
 import { ListPanel } from './lists/ListPanel';
 import { ScriptPanel } from './ScriptPanel';
 import { CommandPalette } from './CommandPalette';
-import { EditorPanel } from './EditorPanel';
-import { NodeEditorPanel } from './NodeEditorPanel';
-import { ViewsPanel } from './ViewsPanel';
-import { ViewTabBar } from './ViewTabBar';
-import { ViewDrawingTab } from './ViewDrawingTab';
-import { BubbleGraphPanel } from './bubble-graph/BubbleGraphPanel';
 
 const BOTTOM_PANEL_MIN_HEIGHT = 120;
 const BOTTOM_PANEL_DEFAULT_HEIGHT = 300;
@@ -37,8 +30,6 @@ const BOTTOM_PANEL_MAX_RATIO = 0.7; // max 70% of container
 export function ViewerLayout() {
   // Initialize keyboard shortcuts
   useKeyboardShortcuts();
-  // Activate live IFC bridge polling (no-op when bridge is disconnected)
-  useIfcBridge();
   const shortcutsDialog = useKeyboardShortcutsDialog();
 
   // Command palette state
@@ -74,15 +65,6 @@ export function ViewerLayout() {
   const setLensPanelVisible = useViewerStore((s) => s.setLensPanelVisible);
   const scriptPanelVisible = useViewerStore((s) => s.scriptPanelVisible);
   const setScriptPanelVisible = useViewerStore((s) => s.setScriptPanelVisible);
-  const editorPanelVisible = useViewerStore((s) => s.editorPanelVisible);
-  const setEditorPanelVisible = useViewerStore((s) => s.setEditorPanelVisible);
-  const nodeEditorPanelVisible = useViewerStore((s) => s.nodeEditorPanelVisible);
-  const setNodeEditorPanelVisible = useViewerStore((s) => s.setNodeEditorPanelVisible);
-  const viewsPanelVisible = useViewerStore((s) => s.viewsPanelVisible);
-  const setViewsPanelVisible = useViewerStore((s) => s.setViewsPanelVisible);
-  const activeTab  = useViewerStore((s) => s.activeTab);
-  const bubbleGraphPanelVisible = useViewerStore((s) => s.bubbleGraphPanelVisible);
-  const toggleBubbleGraphPanel = useViewerStore((s) => s.toggleBubbleGraphPanel);
 
   // Panel refs for programmatic collapse/expand (command palette, keyboard shortcuts)
   const leftPanelRef = useRef<PanelImperativeHandle>(null);
@@ -192,7 +174,7 @@ export function ViewerLayout() {
 
         {/* Main Content Area - Desktop Layout */}
         {!isMobile && (
-          <div ref={containerRef} className="flex-1 min-h-0 flex flex-col relative">
+          <div ref={containerRef} className="flex-1 min-h-0 flex flex-col">
             {/* Top: horizontal split (hierarchy | viewport | properties) */}
             <div className="flex-1 min-h-0">
               <PanelGroup orientation="horizontal" className="h-full">
@@ -209,30 +191,17 @@ export function ViewerLayout() {
                     if (collapsed !== leftPanelCollapsed) setLeftPanelCollapsed(collapsed);
                   }}
                 >
-                  <div className="h-full w-full overflow-hidden">
+                  <div className="h-full w-full overflow-hidden panel-container">
                     <HierarchyPanel />
                   </div>
                 </Panel>
 
                 <PanelResizeHandle className="w-1.5 bg-border hover:bg-primary/50 active:bg-primary/70 transition-colors cursor-col-resize" />
 
-                {/* Center - Viewport + tab bar */}
+                {/* Center - Viewport */}
                 <Panel id="viewport-panel" defaultSize={58} minSize={30}>
-                  <div className="h-full w-full overflow-hidden flex flex-col">
-                    {/* Tab bar — only visible when view tabs are open */}
-                    <ViewTabBar />
-                    {/* Viewport area: 3D always mounted; 2D pane overlaid via absolute */}
-                    <div className="flex-1 min-h-0 relative overflow-hidden">
-                      <ViewportContainer />
-                      {/* 2D drawing tab sits on top of the 3D canvas when active.
-                          ViewportContainer stays mounted so Section2DPanel can
-                          generate drawings in the background. */}
-                      {activeTab !== '3d' && (
-                        <div className="absolute inset-0 z-10 bg-background">
-                          <ViewDrawingTab viewId={activeTab} />
-                        </div>
-                      )}
-                    </div>
+                  <div className="h-full w-full overflow-hidden">
+                    <ViewportContainer />
                   </div>
                 </Panel>
 
@@ -251,13 +220,9 @@ export function ViewerLayout() {
                     if (collapsed !== rightPanelCollapsed) setRightPanelCollapsed(collapsed);
                   }}
                 >
-                  <div className="h-full w-full overflow-hidden">
-                    {viewsPanelVisible ? (
-                      <ViewsPanel onClose={() => setViewsPanelVisible(false)} />
-                    ) : lensPanelVisible ? (
+                  <div className="h-full w-full overflow-hidden panel-container">
+                    {lensPanelVisible ? (
                       <LensPanel onClose={() => setLensPanelVisible(false)} />
-                    ) : editorPanelVisible ? (
-                      <EditorPanel onClose={() => setEditorPanelVisible(false)} />
                     ) : idsPanelVisible ? (
                       <IDSPanel onClose={() => setIdsPanelVisible(false)} />
                     ) : bcfPanelVisible ? (
@@ -287,18 +252,6 @@ export function ViewerLayout() {
                 </div>
               </div>
             )}
-
-            {/* Node Graph Editor - always mounted floating panel, hides via CSS so state survives loadFile */}
-            <NodeEditorPanel
-              visible={nodeEditorPanelVisible}
-              onClose={() => setNodeEditorPanelVisible(false)}
-            />
-
-            {/* BubbleGraph - structural building graph editor (modal overlay) */}
-            <BubbleGraphPanel
-              visible={bubbleGraphPanelVisible}
-              onClose={() => toggleBubbleGraphPanel()}
-            />
           </div>
         )}
 
@@ -336,7 +289,7 @@ export function ViewerLayout() {
               <div className="absolute inset-x-0 bottom-0 h-[50vh] bg-background border-t rounded-t-xl shadow-xl z-40 animate-in slide-in-from-bottom">
                 <div className="flex items-center justify-between p-2 border-b">
                   <span className="font-medium text-sm">
-                    {scriptPanelVisible ? 'Script' : listPanelVisible ? 'Lists' : lensPanelVisible ? 'Lens' : editorPanelVisible ? 'Editor' : idsPanelVisible ? 'IDS Validation' : bcfPanelVisible ? 'BCF Issues' : 'Properties'}
+                    {scriptPanelVisible ? 'Script' : listPanelVisible ? 'Lists' : lensPanelVisible ? 'Lens' : idsPanelVisible ? 'IDS Validation' : bcfPanelVisible ? 'BCF Issues' : 'Properties'}
                   </span>
                   <button
                     className="p-1 hover:bg-muted rounded"
@@ -346,7 +299,6 @@ export function ViewerLayout() {
                       if (listPanelVisible) setListPanelVisible(false);
                       if (bcfPanelVisible) setBcfPanelVisible(false);
                       if (lensPanelVisible) setLensPanelVisible(false);
-                      if (editorPanelVisible) setEditorPanelVisible(false);
                       if (idsPanelVisible) setIdsPanelVisible(false);
                     }}
                   >
@@ -363,8 +315,6 @@ export function ViewerLayout() {
                     <ListPanel onClose={() => setListPanelVisible(false)} />
                   ) : lensPanelVisible ? (
                     <LensPanel onClose={() => setLensPanelVisible(false)} />
-                  ) : editorPanelVisible ? (
-                    <EditorPanel onClose={() => setEditorPanelVisible(false)} />
                   ) : idsPanelVisible ? (
                     <IDSPanel onClose={() => setIdsPanelVisible(false)} />
                   ) : bcfPanelVisible ? (

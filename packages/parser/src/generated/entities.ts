@@ -530,6 +530,8 @@ export interface IfcTypeObject extends IfcObjectDefinition {
  * @extends IfcTypeObject
  */
 export interface IfcTypeProduct extends IfcTypeObject {
+  RepresentationMaps?: UNIQUE IfcRepresentationMap[];
+  Tag?: IfcLabel;
 }
 
 /**
@@ -3490,6 +3492,10 @@ export interface IfcGeometricRepresentationSubContext extends IfcGeometricRepres
  * @extends IfcProduct
  */
 export interface IfcGrid extends IfcProduct {
+  UAxes: UNIQUE IfcGridAxis[];
+  VAxes: UNIQUE IfcGridAxis[];
+  WAxes?: UNIQUE IfcGridAxis[];
+  PredefinedType?: IfcGridTypeEnum;
 }
 
 /**
@@ -3613,6 +3619,7 @@ export interface IfcIndexedPolygonalFace extends IfcTessellatedItem {
  * @extends IfcIndexedPolygonalFace
  */
 export interface IfcIndexedPolygonalFaceWithVoids extends IfcIndexedPolygonalFace {
+  InnerCoordIndices: UNIQUE IfcPositiveInteger[][];
 }
 
 /**
@@ -4382,6 +4389,7 @@ export interface IfcOwnerHistory {
  * @extends IfcTopologicalRepresentationItem
  */
 export interface IfcPath extends IfcTopologicalRepresentationItem {
+  EdgeList: UNIQUE IfcOrientedEdge[];
 }
 
 /**
@@ -4607,6 +4615,7 @@ export interface IfcPointOnSurface extends IfcPoint {
  * @extends IfcLoop
  */
 export interface IfcPolyLoop extends IfcLoop {
+  Polygon: UNIQUE IfcCartesianPoint[];
 }
 
 /**
@@ -4820,6 +4829,8 @@ export interface IfcPropertyEnumeratedValue extends IfcSimpleProperty {
  */
 export interface IfcPropertyEnumeration extends IfcPropertyAbstraction {
   Name: IfcLabel;
+  EnumerationValues: UNIQUE IfcValue[];
+  Unit?: IfcUnit;
 }
 
 /**
@@ -4872,6 +4883,12 @@ export interface IfcPropertySingleValue extends IfcSimpleProperty {
  * @extends IfcSimpleProperty
  */
 export interface IfcPropertyTableValue extends IfcSimpleProperty {
+  DefiningValues?: UNIQUE IfcValue[];
+  DefinedValues?: IfcValue[];
+  Expression?: IfcText;
+  DefiningUnit?: IfcUnit;
+  DefinedUnit?: IfcUnit;
+  CurveInterpolation?: IfcCurveInterpolationEnum;
 }
 
 /**
@@ -6280,6 +6297,7 @@ export interface IfcStructuralLoadCase extends IfcStructuralLoadGroup {
  */
 export interface IfcStructuralLoadConfiguration extends IfcStructuralLoad {
   Values: IfcStructuralLoadOrResult[];
+  Locations?: number[];
 }
 
 /**
@@ -7178,6 +7196,8 @@ export interface IfcVirtualElement extends IfcElement {
  * IfcVirtualGridIntersection
  */
 export interface IfcVirtualGridIntersection {
+  IntersectingAxes: UNIQUE IfcGridAxis[];
+  OffsetDistances: number[];
 }
 
 /**

@@ -314,4 +314,20 @@ fn fs_main(@builtin(position) fragPos: vec4<f32>) -> @location(0) vec4<f32> {
     updateOptions(options: Partial<PostProcessorOptions>): void {
         this.options = { ...this.options, ...options };
     }
+
+    private destroyed = false;
+
+    /**
+     * Destroy all GPU resources held by this post-processor.
+     * After calling this method the post-processor is no longer usable.
+     * Safe to call multiple times.
+     */
+    destroy(): void {
+        if (this.destroyed) return;
+        this.destroyed = true;
+        this.uniformBuffer.destroy();
+        this.cachedBindGroup = null;
+        this.cachedDepthView = null;
+        this.cachedObjectIdView = null;
+    }
 }

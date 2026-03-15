@@ -18,6 +18,7 @@ export class Picker {
   private expressIdBuffer: GPUBuffer;
   private bindGroup: GPUBindGroup;
   private maxMeshes: number = 100000; // Support up to 100K meshes (was 10K)
+  private destroyed = false;
 
   constructor(device: WebGPUDevice, width: number = 1, height: number = 1) {
     this.device = device.getDevice();
@@ -298,5 +299,19 @@ export class Picker {
         },
       ],
     });
+  }
+
+  /**
+   * Destroy all GPU resources held by this picker.
+   * After calling this method the picker is no longer usable.
+   * Safe to call multiple times.
+   */
+  destroy(): void {
+    if (this.destroyed) return;
+    this.destroyed = true;
+    this.colorTexture.destroy();
+    this.depthTexture.destroy();
+    this.uniformBuffer.destroy();
+    this.expressIdBuffer.destroy();
   }
 }

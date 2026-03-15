@@ -85,9 +85,6 @@ export interface UseMouseControlsParams {
     canvasHeight: number;
   } | null>;
 
-  /** When true, orbit (3D rotation) is suppressed — used for 2D views (floor plans, sections, elevations). */
-  rotationLockedRef: MutableRefObject<boolean>;
-
   // Callbacks
   handlePickForSelection: (pickResult: PickResult | null) => void;
   setHoverState: (state: { entityId: number; screenX: number; screenY: number }) => void;
@@ -110,12 +107,6 @@ export interface UseMouseControlsParams {
   calculateScale: () => void;
   getPickOptions: () => { isStreaming: boolean; hiddenIds: Set<number>; isolatedIds: Set<number> | null };
   hasPendingMeasurements: () => boolean;
-
-  // Draw-rect tool params
-  drawRectScreenStartRef: MutableRefObject<{ x: number; y: number } | null>;
-  setDrawRectScreenStart: (p: { x: number; y: number } | null) => void;
-  setDrawRectScreenCurrent: (p: { x: number; y: number } | null) => void;
-  onDrawRectCommit: (screenStart: { x: number; y: number }, screenEnd: { x: number; y: number }) => void;
 
   // Constants
   HOVER_SNAP_THROTTLE_MS: number;
@@ -209,7 +200,6 @@ export function useMouseControls(params: UseMouseControlsParams): void {
     lastClickTimeRef,
     lastClickPosRef,
     lastCameraStateRef,
-    rotationLockedRef,
     handlePickForSelection,
     setHoverState,
     clearHover,
@@ -231,10 +221,6 @@ export function useMouseControls(params: UseMouseControlsParams): void {
     calculateScale,
     getPickOptions,
     hasPendingMeasurements,
-    drawRectScreenStartRef,
-    setDrawRectScreenStart,
-    setDrawRectScreenCurrent,
-    onDrawRectCommit,
     HOVER_SNAP_THROTTLE_MS,
     SLOW_RAYCAST_THRESHOLD_MS,
     hoverThrottleMs,
@@ -333,56 +319,62 @@ export function useMouseControls(params: UseMouseControlsParams): void {
       // Determine action based on active tool and mouse button
       const tool = activeToolRef.current;
 
-      const willOrbit = !(tool === 'pan' || e.button === 1 || e.button === 2 ||
-        (tool === 'select' && e.shiftKey) ||
-        (tool !== 'orbit' && tool !== 'select' && e.shiftKey));
+      // Will this mousedown lead to an orbit drag?
+      const isPanGesture = tool === 'pan' || e.button === 1 || e.button === 2 ||
+        (tool === 'select' && e.shiftKey);
+      const willOrbit = !isPanGesture && (
+        tool === 'select' ||
+        (tool === 'measure' && e.shiftKey) ||
+        !e.shiftKey // default tools: no shift = orbit
+      );
 
-      // Set orbit pivot to what user clicks on (standard CAD/BIM behavior)
-      // Simple and predictable: orbit around clicked geometry, or model center if empty space
-      if (willOrbit && tool !== 'measure' && tool !== 'walk' && tool !== 'draw-rect') {
+      // Set orbit pivot to the 3D point under the cursor so rotation feels anchored
+      // to what the user is looking at. On miss, place pivot at current distance along
+      // the cursor ray so orbit always feels connected to where you're pointing.
+      if (willOrbit) {
         const rect = canvas.getBoundingClientRect();
-        const x = e.clientX - rect.left;
-        const y = e.clientY - rect.top;
-
-        // Pick at cursor position - orbit around what user is clicking on
-        // Uses visibility filtering so hidden elements don't affect orbit pivot
-        const pickResult = await renderer.pick(x, y, getPickOptions());
-        if (pickResult !== null) {
-          const center = getEntityCenter(geometryRef.current, pickResult.expressId);
+        const cx = e.clientX - rect.left;
+        const cy = e.clientY - rect.top;
+        const hit = renderer.raycastScene(cx, cy, {
+          hiddenIds: hiddenEntitiesRef.current,
+          isolatedIds: isolatedEntitiesRef.current,
+        });
+        if (hit?.intersection) {
+          camera.setOrbitCenter(hit.intersection.point);
+        } else if (selectedEntityIdRef.current) {
+          // No geometry under cursor but object selected — use its center
+          const center = getEntityCenter(geometryRef.current, selectedEntityIdRef.current);
           if (center) {
-            camera.setOrbitPivot(center);
+            camera.setOrbitCenter(center);
           } else {
-            camera.setOrbitPivot(null);
+            camera.setOrbitCenter(null);
           }
         } else {
-          // No geometry under cursor - orbit around current target (model center)
-          camera.setOrbitPivot(null);
+          // No geometry, no selection — project camera target onto the cursor ray.
+          // Places pivot at the model's depth but under the cursor.
+          const ray = camera.unprojectToRay(cx, cy, canvas.width, canvas.height);
+          const target = camera.getTarget();
+          const toTarget = {
+            x: target.x - ray.origin.x,
+            y: target.y - ray.origin.y,
+            z: target.z - ray.origin.z,
+          };
+          const d = Math.max(1, toTarget.x * ray.direction.x + toTarget.y * ray.direction.y + toTarget.z * ray.direction.z);
+          camera.setOrbitCenter({
+            x: ray.origin.x + ray.direction.x * d,
+            y: ray.origin.y + ray.direction.y * d,
+            z: ray.origin.z + ray.direction.z * d,
+          });
         }
       }
 
       if (tool === 'pan' || e.button === 1 || e.button === 2) {
         mouseState.isPanning = true;
         canvas.style.cursor = 'move';
-      } else if (tool === 'orbit') {
-        mouseState.isPanning = false;
-        canvas.style.cursor = 'grabbing';
       } else if (tool === 'select') {
         // Select tool: shift+drag = pan, normal drag = orbit
         mouseState.isPanning = e.shiftKey;
         canvas.style.cursor = e.shiftKey ? 'move' : 'grabbing';
-      } else if (tool === 'draw-rect') {
-        // Draw-rect tool: start drawing a rectangle from this cursor position
-        if (e.button === 0) {
-          mouseState.isDragging = false; // don't orbit
-          canvas.style.cursor = 'crosshair';
-          const rect = canvas.getBoundingClientRect();
-          const sx = e.clientX - rect.left;
-          const sy = e.clientY - rect.top;
-          drawRectScreenStartRef.current = { x: sx, y: sy };
-          setDrawRectScreenStart({ x: sx, y: sy });
-          setDrawRectScreenCurrent({ x: sx, y: sy });
-        }
-        return;
       } else if (tool === 'measure') {
         // Measure tool - shift+drag = orbit, normal drag = measure
         if (e.shiftKey) {
@@ -489,12 +481,6 @@ export function useMouseControls(params: UseMouseControlsParams): void {
       const x = e.clientX - rect.left;
       const y = e.clientY - rect.top;
       const tool = activeToolRef.current;
-
-      // Handle draw-rect tool live preview
-      if (tool === 'draw-rect' && drawRectScreenStartRef.current) {
-        setDrawRectScreenCurrent({ x, y });
-        return;
-      }
 
       // Handle measure tool live preview while dragging
       // IMPORTANT: Check tool first, not activeMeasurement, to prevent orbit conflict
@@ -721,13 +707,10 @@ export function useMouseControls(params: UseMouseControlsParams): void {
           // Negate dy: mouse Y increases downward, but we want upward drag to pan up
           camera.pan(dx, -dy, false);
         } else if (tool === 'walk') {
-          // Walk mode: left/right rotates, up/down moves forward/backward
-          if (!rotationLockedRef.current) camera.orbit(dx * 0.5, 0, false);
-          if (Math.abs(dy) > 2) {
-            camera.zoom(dy * 2, false); // Forward/backward movement
-          }
+          // Walk mode: mouse drag looks around (full orbit)
+          camera.orbit(dx, dy, false);
         } else {
-          if (!rotationLockedRef.current) camera.orbit(dx, dy, false);
+          camera.orbit(dx, dy, false);
         }
 
         mouseState.lastX = e.clientX;
@@ -804,25 +787,6 @@ export function useMouseControls(params: UseMouseControlsParams): void {
 
     const handleMouseUp = (e: MouseEvent) => {
       const tool = activeToolRef.current;
-
-      // Handle draw-rect tool commit
-      if (tool === 'draw-rect' && drawRectScreenStartRef.current) {
-        const rect = canvas.getBoundingClientRect();
-        const sx = e.clientX - rect.left;
-        const sy = e.clientY - rect.top;
-        const start = drawRectScreenStartRef.current;
-        const w = Math.abs(sx - start.x);
-        const h = Math.abs(sy - start.y);
-        // Only commit if the rectangle has meaningful size (> 5px in each dimension)
-        if (w > 5 && h > 5) {
-          onDrawRectCommit(start, { x: sx, y: sy });
-        }
-        drawRectScreenStartRef.current = null;
-        setDrawRectScreenStart(null);
-        setDrawRectScreenCurrent(null);
-        canvas.style.cursor = 'crosshair';
-        return;
-      }
 
       // Handle measure tool completion
       if (tool === 'measure' && activeMeasurementRef.current) {
@@ -908,9 +872,7 @@ export function useMouseControls(params: UseMouseControlsParams): void {
 
       mouseState.isDragging = false;
       mouseState.isPanning = false;
-      canvas.style.cursor = tool === 'pan' ? 'grab' : (tool === 'orbit' ? 'grab' : (tool === 'measure' ? 'crosshair' : 'default'));
-      // Clear orbit pivot after each orbit operation
-      camera.setOrbitPivot(null);
+      canvas.style.cursor = tool === 'pan' ? 'grab' : (tool === 'walk' ? 'crosshair' : (tool === 'measure' ? 'crosshair' : 'default'));
     };
 
     const handleMouseLeave = () => {
@@ -918,18 +880,13 @@ export function useMouseControls(params: UseMouseControlsParams): void {
       mouseState.isDragging = false;
       mouseState.isPanning = false;
       camera.stopInertia();
-      camera.setOrbitPivot(null);
-      // Cancel any in-progress draw-rect
-      if (drawRectScreenStartRef.current) {
-        drawRectScreenStartRef.current = null;
-        setDrawRectScreenStart(null);
-        setDrawRectScreenCurrent(null);
-      }
       // Restore cursor based on active tool
-      if (tool === 'measure' || tool === 'draw-rect') {
+      if (tool === 'measure') {
         canvas.style.cursor = 'crosshair';
-      } else if (tool === 'pan' || tool === 'orbit') {
+      } else if (tool === 'pan') {
         canvas.style.cursor = 'grab';
+      } else if (tool === 'walk') {
+        canvas.style.cursor = 'crosshair';
       } else {
         canvas.style.cursor = 'default';
       }
@@ -1035,8 +992,8 @@ export function useMouseControls(params: UseMouseControlsParams): void {
         return;
       }
 
-      // Skip selection for orbit/pan tools - they don't select
-      if (tool === 'orbit' || tool === 'pan' || tool === 'walk') {
+      // Skip selection for pan/walk tools - they don't select
+      if (tool === 'pan' || tool === 'walk') {
         return;
       }
 

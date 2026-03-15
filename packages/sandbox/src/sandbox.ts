@@ -23,6 +23,7 @@ import { transpileTypeScript } from './transpile.js';
 
 /** Cached WASM module promise — deduplicates concurrent init calls */
 let modulePromise: Promise<QuickJSWASMModule> | null = null;
+let nextSandboxSessionId = 1;
 
 function getModule(): Promise<QuickJSWASMModule> {
   if (!modulePromise) {
@@ -31,13 +32,21 @@ function getModule(): Promise<QuickJSWASMModule> {
   return modulePromise;
 }
 
+function createSandboxSessionId(): string {
+  const sessionId = nextSandboxSessionId;
+  nextSandboxSessionId += 1;
+  return `sandbox-${sessionId}`;
+}
+
 export class Sandbox {
   private runtime: QuickJSRuntime | null = null;
   private vm: QuickJSContext | null = null;
   private logs: LogEntry[] = [];
   private config: Required<SandboxConfig>;
+  private bridgeDispose: (() => void) | null = null;
   /** Mutable start time — updated by eval(), read by interrupt handler */
   private evalStartTime = 0;
+  private readonly sessionId = createSandboxSessionId();
 
   constructor(
     private sdk: BimContext,
@@ -70,8 +79,11 @@ export class Sandbox {
     this.vm = this.runtime.newContext();
 
     // Build the bim API inside the sandbox
-    const { logs } = buildBridge(this.vm, this.sdk, this.config.permissions);
+    const { logs, dispose } = buildBridge(this.vm, this.sdk, this.config.permissions, {
+      sandboxSessionId: this.sessionId,
+    });
     this.logs = logs;
+    this.bridgeDispose = dispose;
   }
 
   /**
@@ -125,6 +137,10 @@ export class Sandbox {
 
   /** Dispose the sandbox and free WASM memory */
   dispose(): void {
+    if (this.bridgeDispose) {
+      this.bridgeDispose();
+      this.bridgeDispose = null;
+    }
     if (this.vm) {
       this.vm.dispose();
       this.vm = null;

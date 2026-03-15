@@ -253,7 +253,7 @@ function extractRefsFromBytes(
 export function collectReferencedEntityIds(
   rootIds: Set<number>,
   source: Uint8Array,
-  entityIndex: Map<number, { byteOffset: number; byteLength: number }>,
+  entityIndex: { get(id: number): { byteOffset: number; byteLength: number } | undefined; has(id: number): boolean },
   excludeIds?: Set<number>,
 ): Set<number> {
   const visited = new Set<number>();
@@ -455,7 +455,7 @@ export function collectStyleEntities(
   closure: Set<number>,
   source: Uint8Array,
   entityIndex: {
-    byId: Map<number, { type: string; byteOffset: number; byteLength: number }>;
+    byId: { get(expressId: number): { type: string; byteOffset: number; byteLength: number } | undefined; has(expressId: number): boolean };
     byType: Map<string, number[]>;
   },
 ): void {

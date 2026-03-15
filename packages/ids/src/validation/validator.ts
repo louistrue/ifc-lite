@@ -176,7 +176,14 @@ async function validateSpecification(
   let status: 'pass' | 'fail' | 'not_applicable' = 'pass';
   if (applicableIds.length === 0) {
     // No applicable entities - check if that's allowed by cardinality
-    status = cardinalityResult?.passed === false ? 'fail' : 'not_applicable';
+    if (cardinalityResult?.passed === false) {
+      status = 'fail';
+    } else if (cardinalityResult?.passed === true) {
+      // Cardinality explicitly satisfied (e.g., prohibited spec with 0 matches)
+      status = 'pass';
+    } else {
+      status = 'not_applicable';
+    }
   } else if (failedCount > 0 || cardinalityResult?.passed === false) {
     status = 'fail';
   }

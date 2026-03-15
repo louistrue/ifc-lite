@@ -109,14 +109,14 @@ export class FrustumUtils {
       distance: m[15] - m[13],
     });
     
-    // Near plane
+    // Near plane (WebGPU clip space: z >= 0, so just row 2)
     planes.push({
       normal: [
-        m[3] + m[2],
-        m[7] + m[6],
-        m[11] + m[10],
+        m[2],
+        m[6],
+        m[10],
       ],
-      distance: m[15] + m[14],
+      distance: m[14],
     });
     
     // Far plane
