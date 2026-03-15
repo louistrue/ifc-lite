@@ -25,6 +25,7 @@ tokio = { version = "1", features = ["full"] }
 # IFC processing (workspace crates)
 ifc-lite-core = { path = "../../rust/core" }
 ifc-lite-geometry = { path = "../../rust/geometry" }
+ifc-lite-processing = { path = "../../rust/processing" }
 
 # Parallelism
 rayon = "1.10"

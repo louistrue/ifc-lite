@@ -7,6 +7,8 @@
 /// Server configuration.
 #[derive(Debug, Clone)]
 pub struct Config {
+    /// Host/IP to bind to (default: loopback — no firewall popup on Windows).
+    pub host: [u8; 4],
     /// Port to listen on.
     pub port: u16,
     /// Directory for cache storage.
@@ -33,6 +35,17 @@ impl Config {
     /// Load configuration from environment variables.
     pub fn from_env() -> Self {
         Self {
+            host: std::env::var("HOST")
+                .ok()
+                .and_then(|s| {
+                    let parts: Vec<u8> = s.split('.').filter_map(|p| p.parse().ok()).collect();
+                    if parts.len() == 4 {
+                        Some([parts[0], parts[1], parts[2], parts[3]])
+                    } else {
+                        None
+                    }
+                })
+                .unwrap_or([127, 0, 0, 1]),
             port: std::env::var("PORT")
                 .unwrap_or_else(|_| "8080".into())
                 .parse()
