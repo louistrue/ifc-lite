@@ -266,6 +266,42 @@ export interface EdgeData {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// PROFILE ENTRY (from WASM extractProfiles)
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * A raw profile polygon extracted from an IfcExtrudedAreaSolid element.
+ *
+ * All geometry is in **WebGL Y-up world space** (metres).
+ * Applying `transform` to `[x, y, 0, 1]` yields the world-space 3D position.
+ *
+ * Returned by `IfcAPI.extractProfiles()` (WASM).
+ */
+export interface ProfileEntry {
+  /** Express ID of the building element. */
+  expressId: number;
+  /** IFC type name (e.g., `"IfcWall"`). */
+  ifcType: string;
+  /** Outer boundary: flat `[x0, y0, x1, y1, …]` in local profile space (metres). */
+  outerPoints: Float32Array;
+  /** Number of points per hole. */
+  holeCounts: Uint32Array;
+  /** All hole points concatenated in local profile space (metres). */
+  holePoints: Float32Array;
+  /**
+   * 4 × 4 **column-major** transform in WebGL Y-up world space.
+   * `M * [x, y, 0, 1]ᵀ` → world position.
+   */
+  transform: Float32Array;
+  /** Extrusion direction `[dx, dy, dz]` in WebGL Y-up world space (unit vector). */
+  extrusionDir: Float32Array;
+  /** Extrusion depth in metres. */
+  extrusionDepth: number;
+  /** Model index for multi-model federation. */
+  modelIndex: number;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // UTILITY TYPES
 // ═══════════════════════════════════════════════════════════════════════════
 

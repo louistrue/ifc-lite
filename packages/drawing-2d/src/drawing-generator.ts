@@ -23,6 +23,7 @@ import type {
   CutSegment,
   Bounds2D,
   LineCategory,
+  ProfileEntry,
 } from './types';
 import { DEFAULT_SECTION_CONFIG } from './types';
 import { SectionCutter } from './section-cutter';
@@ -34,6 +35,7 @@ import { HatchGenerator } from './hatch-generator';
 import { SVGExporter } from './svg-exporter';
 import type { SVGExportOptions } from './svg-exporter';
 import { GPUSectionCutter, isGPUComputeAvailable } from './gpu-section-cutter';
+import { projectProfiles } from './profile-projector';
 import {
   boundsEmpty,
   boundsExtendPoint,
@@ -109,7 +111,8 @@ export class Drawing2DGenerator {
   async generate(
     meshes: MeshData[],
     config: SectionConfig,
-    options: Partial<GeneratorOptions> = {}
+    options: Partial<GeneratorOptions> = {},
+    profiles?: ProfileEntry[],
   ): Promise<Drawing2D> {
     const opts = { ...DEFAULT_OPTIONS, ...options };
     const startTime = performance.now();
@@ -170,26 +173,31 @@ export class Drawing2DGenerator {
     if (opts.includeProjection || opts.includeEdges) {
       report('edges', 0);
 
-      // Extract feature edges from all meshes
-      const allEdges = this.edgeExtractor.extractEdgesFromMeshes(meshes);
+      if (profiles && profiles.length > 0 && opts.includeProjection) {
+        // ── Clean path: profile-based projection (no tessellation artifacts) ──
+        projectionLines = projectProfiles(profiles, config.plane, config.projectionDepth);
+      }
 
-      // Filter edges in projection range
-      const projectionEdges = this.edgeExtractor.filterEdgesByDepth(
-        allEdges,
-        config.plane.axis,
-        config.plane.position,
-        config.projectionDepth,
-        config.plane.flipped
-      );
-
-      // Get view direction for silhouette detection
-      const viewDir = getViewDirection(config.plane.axis, config.plane.flipped);
-
-      // Extract silhouettes
-      const silhouettes = this.edgeExtractor.extractSilhouettes(projectionEdges, viewDir);
-
-      // Convert to drawing lines
       if (opts.includeEdges) {
+        // Feature edges and silhouettes always come from the mesh edge extractor
+        // Extract feature edges from all meshes
+        const allEdges = this.edgeExtractor.extractEdgesFromMeshes(meshes);
+
+        // Filter edges in projection range
+        const projectionEdges = this.edgeExtractor.filterEdgesByDepth(
+          allEdges,
+          config.plane.axis,
+          config.plane.position,
+          config.projectionDepth,
+          config.plane.flipped
+        );
+
+        // Get view direction for silhouette detection
+        const viewDir = getViewDirection(config.plane.axis, config.plane.flipped);
+
+        // Extract silhouettes
+        const silhouettes = this.edgeExtractor.extractSilhouettes(projectionEdges, viewDir);
+
         silhouetteLines = this.edgeExtractor.edgesToDrawingLines(
           silhouettes,
           config.plane.axis,
@@ -197,20 +205,40 @@ export class Drawing2DGenerator {
           'silhouette',
           config.plane.position
         );
-      }
 
-      // Non-silhouette feature edges become projection lines
-      if (opts.includeProjection) {
-        const creaseEdges = projectionEdges.filter(
-          (e) => e.type === 'crease' && !silhouettes.includes(e)
-        );
-        projectionLines = this.edgeExtractor.edgesToDrawingLines(
-          creaseEdges,
-          config.plane.axis,
-          config.plane.flipped,
-          'projection',
-          config.plane.position
-        );
+        // When no profile projection, fall back to crease edges for projection lines
+        if (opts.includeProjection && projectionLines.length === 0) {
+          const creaseEdges = projectionEdges.filter(
+            (e) => e.type === 'crease' && !silhouettes.includes(e)
+          );
+          projectionLines = this.edgeExtractor.edgesToDrawingLines(
+            creaseEdges,
+            config.plane.axis,
+            config.plane.flipped,
+            'projection',
+            config.plane.position
+          );
+        }
+      } else if (!profiles || profiles.length === 0) {
+        // Legacy path: no profiles and no edge extraction → use crease edges for projection
+        if (opts.includeProjection) {
+          const allEdges = this.edgeExtractor.extractEdgesFromMeshes(meshes);
+          const projectionEdges = this.edgeExtractor.filterEdgesByDepth(
+            allEdges,
+            config.plane.axis,
+            config.plane.position,
+            config.projectionDepth,
+            config.plane.flipped
+          );
+          const creaseEdges = projectionEdges.filter((e) => e.type === 'crease');
+          projectionLines = this.edgeExtractor.edgesToDrawingLines(
+            creaseEdges,
+            config.plane.axis,
+            config.plane.flipped,
+            'projection',
+            config.plane.position
+          );
+        }
       }
 
       // Filter out outlier lines that are abnormally long (likely artifacts)
