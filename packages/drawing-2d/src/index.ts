@@ -53,6 +53,9 @@ export type {
   // Edge data
   EdgeData,
 
+  // Profile extraction
+  ProfileEntry,
+
   // Utility types
   EntityKey,
 } from './types';
@@ -89,6 +92,12 @@ export type { LineMergerOptions } from './line-merger';
 // ═══════════════════════════════════════════════════════════════════════════
 
 export { EdgeExtractor, getViewDirection } from './edge-extractor';
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PROFILE PROJECTION (clean silhouettes from WASM profiles)
+// ═══════════════════════════════════════════════════════════════════════════
+
+export { projectProfiles } from './profile-projector';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // HIDDEN LINE REMOVAL
@@ -300,6 +309,26 @@ export type {
 
 // Re-export LineStyle from types (note: this shadows the style module's LineStyle)
 export type { LineStyle as ArchitecturalLineStyle } from './types';
+
+// ═══════════════════════════════════════════════════════════════════════════
+// OBJECT STYLES (Revit-like per-category graphic configuration)
+// ═══════════════════════════════════════════════════════════════════════════
+
+export {
+  DEFAULT_OBJECT_STYLES,
+  LINE_PATTERN_DASH_ARRAYS,
+  resolveObjectStyle,
+  isIfcTypeVisible,
+  getHiddenIfcTypes,
+} from './object-styles';
+
+export type {
+  LinePatternPreset,
+  ObjectStyleLineProps,
+  ObjectStyleHatch,
+  ObjectStyle,
+  ObjectStylesConfig,
+} from './object-styles';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // GRAPHIC OVERRIDES

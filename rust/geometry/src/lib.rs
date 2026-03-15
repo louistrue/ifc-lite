@@ -78,6 +78,7 @@ pub mod profiles;
 pub mod router;
 pub mod transform;
 pub mod triangulation;
+pub mod profile_extractor;
 pub mod void_analysis;
 pub mod void_index;
 
@@ -111,3 +112,4 @@ pub use void_analysis::{
     VoidClassification,
 };
 pub use void_index::{VoidIndex, VoidStatistics};
+pub use profile_extractor::{extract_profiles, ExtractedProfile};

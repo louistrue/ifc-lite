@@ -7,6 +7,7 @@
 //! Modern async/await API for parsing IFC files.
 
 mod debug;
+mod extract_profiles;
 mod georef;
 mod gpu_meshes;
 mod parsing;

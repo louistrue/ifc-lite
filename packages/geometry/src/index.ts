@@ -8,7 +8,7 @@
  */
 
 // IFC-Lite components (recommended - faster)
-export { IfcLiteBridge, type SymbolicRepresentationCollection, type SymbolicPolyline, type SymbolicCircle } from './ifc-lite-bridge.js';
+export { IfcLiteBridge, type SymbolicRepresentationCollection, type SymbolicPolyline, type SymbolicCircle, type ProfileCollection, type ProfileEntryJs } from './ifc-lite-bridge.js';
 export { IfcLiteMeshCollector, type StreamingColorUpdateEvent, type StreamingRtcOffsetEvent } from './ifc-lite-mesh-collector.js';
 import type { StreamingColorUpdateEvent, StreamingRtcOffsetEvent } from './ifc-lite-mesh-collector.js';
 
@@ -542,6 +542,23 @@ export class GeometryProcessor {
     const decoder = new TextDecoder();
     const content = decoder.decode(buffer);
     return this.bridge.parseSymbolicRepresentations(content);
+  }
+
+  /**
+   * Extract raw profile polygons from IfcExtrudedAreaSolid building elements.
+   * Returns clean per-element profile outlines + 3D placement transforms.
+   * Used by Drawing2DGenerator for artifact-free 2D projection.
+   * @param buffer IFC file buffer
+   * @param modelIndex Federation model index (0 for single-model files)
+   * @returns Collection of ProfileEntryJs items, or null if not initialized
+   */
+  extractProfiles(buffer: Uint8Array, modelIndex: number = 0): import('@ifc-lite/wasm').ProfileCollection | null {
+    if (!this.bridge || !this.bridge.isInitialized()) {
+      return null;
+    }
+    const decoder = new TextDecoder();
+    const content = decoder.decode(buffer);
+    return this.bridge.extractProfiles(content, modelIndex);
   }
 
   /**
