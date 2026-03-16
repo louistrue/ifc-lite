@@ -13,9 +13,19 @@ import type { EmbedUrlParams, ViewPreset } from '@ifc-lite/embed-protocol';
 
 const VALID_VIEWS: ViewPreset[] = ['top', 'bottom', 'front', 'back', 'left', 'right'];
 
+const DEMO_MODELS: Record<string, string> = {
+  default: 'https://www.steptools.com/docs/stpfiles/ifc/AC20-FZK-Haus.ifc',
+};
+
 export function parseUrlParams(): EmbedUrlParams {
   const params = new URLSearchParams(window.location.search);
   const result: EmbedUrlParams = {};
+
+  const demo = params.get('demo');
+  if (demo !== null) {
+    const key = demo || 'default';
+    if (DEMO_MODELS[key]) result.modelUrl = DEMO_MODELS[key];
+  }
 
   const modelUrl = params.get('modelUrl');
   if (modelUrl) result.modelUrl = modelUrl;
