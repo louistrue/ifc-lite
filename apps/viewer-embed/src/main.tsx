@@ -10,10 +10,13 @@
 
 import React from 'react';
 import ReactDOM from 'react-dom/client';
+import { TooltipProvider } from '@/components/ui/tooltip';
 import { EmbedViewer } from './components/EmbedViewer';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <EmbedViewer />
+    <TooltipProvider delayDuration={300}>
+      <EmbedViewer />
+    </TooltipProvider>
   </React.StrictMode>
 );
