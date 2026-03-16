@@ -5,10 +5,12 @@
 /**
  * Camera orbit, pan, and zoom controls.
  *
- * Orbit always rotates position around target (standard turntable).
- * When orbitCenter is set (raycast hit / selected object), target is moved
- * to that point so the camera orbits tightly around it — exactly how
- * BIMcollab ZOOM and other professional BIM viewers work.
+ * Orbit uses a pivot point:
+ * - Default pivot = camera.target (standard orbit — position rotates, target stays)
+ * - When orbitCenter is set (raycast hit / selected object), position orbits
+ *   around the external pivot and the look direction is rotated by the exact
+ *   same rotation (Rodrigues' formula). The camera never snaps sideways —
+ *   same behaviour as BIMcollab ZOOM's "orbit under cursor".
  */
 
 import type { Camera as CameraType, Vec3, Mat4 } from './types.js';
@@ -61,6 +63,23 @@ function cross(a: Vec3, b: Vec3): Vec3 {
     x: a.y * b.z - a.z * b.y,
     y: a.z * b.x - a.x * b.z,
     z: a.x * b.y - a.y * b.x,
+  };
+}
+
+function dot(a: Vec3, b: Vec3): number {
+  return a.x * b.x + a.y * b.y + a.z * b.z;
+}
+
+/** Rodrigues' rotation: rotate v around unit axis k by angle radians. */
+function rodrigues(v: Vec3, k: Vec3, angle: number): Vec3 {
+  const cosA = Math.cos(angle);
+  const sinA = Math.sin(angle);
+  const kDotV = dot(k, v);
+  const kxv = cross(k, v);
+  return {
+    x: v.x * cosA + kxv.x * sinA + k.x * kDotV * (1 - cosA),
+    y: v.y * cosA + kxv.y * sinA + k.y * kDotV * (1 - cosA),
+    z: v.z * cosA + kxv.z * sinA + k.z * kDotV * (1 - cosA),
   };
 }
 
@@ -145,25 +164,24 @@ export class CameraControls {
   /**
    * Orbit the camera around a pivot point (Y-up turntable style).
    *
-   * When orbitCenter is set, target moves to the orbit center so the camera
-   * orbits tightly around the 3D point (raycast hit / object center).
-   * This matches BIMcollab ZOOM behaviour: the orbit pivot IS the target.
+   * When orbitCenter is set, position orbits around the external pivot and
+   * the look direction rotates by the exact same rotation (Rodrigues' formula).
+   * The camera never snaps or slides sideways on selection — orbit starts
+   * from the current camera orientation and moves around the virtual center.
    */
   orbit(deltaX: number, deltaY: number): void {
     this.state.camera.up = { x: 0, y: 1, z: 0 };
 
-    // When an external pivot is set, move target there so orbit radius
-    // equals the camera-to-pivot distance (tight, close orbit).
-    if (this.orbitCenter !== null) {
-      copyInto(this.state.camera.target, this.orbitCenter);
-    }
-
     const dx = -deltaX * CC.ORBIT_SENSITIVITY;
     const dy = -deltaY * CC.ORBIT_SENSITIVITY;
 
-    // Standard turntable: rotate position around target
-    const newPos = this.rotateAroundPivot(this.state.camera.position, this.state.camera.target, dx, dy);
-    copyInto(this.state.camera.position, newPos);
+    if (this.orbitCenter !== null) {
+      this.orbitAroundExternalPivot(this.orbitCenter, dx, dy);
+    } else {
+      // Standard: rotate position around target, target stays fixed
+      const newPos = this.rotateAroundPivot(this.state.camera.position, this.state.camera.target, dx, dy);
+      copyInto(this.state.camera.position, newPos);
+    }
 
     this.updateMatrices();
   }
@@ -178,6 +196,51 @@ export class CameraControls {
 
     const { theta, phi } = toSpherical(dir, dist);
     return fromSpherical(pivot, dist, theta + dx, clampPhi(phi + dy));
+  }
+
+  /**
+   * Orbit around an external pivot (raycast hit / selected object).
+   *
+   * 1. Position orbits around pivot using spherical coords (tight radius,
+   *    pole-clamped).
+   * 2. The geometric rotation from old position to new position is computed
+   *    and applied to the look direction via Rodrigues' formula, so the
+   *    camera view rotates by exactly the same amount — no sideways snap.
+   */
+  private orbitAroundExternalPivot(pivot: Vec3, dx: number, dy: number): void {
+    // 1. Orbit position around external pivot (spherical, with pole clamping)
+    const oldOffset = sub(this.state.camera.position, pivot);
+    const dist = length(oldOffset);
+    if (dist < 1e-6) return;
+
+    const newPos = this.rotateAroundPivot(this.state.camera.position, pivot, dx, dy);
+    const newOffset = sub(newPos, pivot);
+
+    // 2. Derive the actual rotation that mapped oldOffset → newOffset
+    const oldDir = normalize(oldOffset);
+    const newDir = normalize(newOffset);
+    const rotAxis = cross(oldDir, newDir);
+    const rotAxisLen = length(rotAxis);
+
+    // 3. Apply that same rotation to the look vector
+    const look = sub(this.state.camera.target, this.state.camera.position);
+    let newLook: Vec3;
+
+    if (rotAxisLen > 1e-10) {
+      const axis = scale(rotAxis, 1 / rotAxisLen);
+      const cosAngle = Math.max(-1, Math.min(1, dot(oldDir, newDir)));
+      const angle = Math.acos(cosAngle);
+      newLook = rodrigues(look, axis, angle);
+    } else {
+      newLook = { ...look };
+    }
+
+    copyInto(this.state.camera.position, newPos);
+    copyInto(this.state.camera.target, {
+      x: newPos.x + newLook.x,
+      y: newPos.y + newLook.y,
+      z: newPos.z + newLook.z,
+    });
   }
 
   // -------------------------------------------------------------------------
