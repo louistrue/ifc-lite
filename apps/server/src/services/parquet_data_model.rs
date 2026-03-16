@@ -5,7 +5,7 @@
 //! Parquet serialization for IFC data model (entities, properties, relationships, spatial hierarchy).
 
 use crate::services::data_model::{DataModel, EntityMetadata, PropertySet, QuantitySet, Relationship, SpatialHierarchyData, SpatialNode};
-use arrow::array::{BooleanArray, ListArray, StringArray, UInt16Array, UInt32Array};
+use arrow::array::{BooleanArray, StringArray, UInt16Array, UInt32Array};
 use arrow::array::builder::ListBuilder;
 use arrow::array::UInt32Builder;
 use arrow::datatypes::{DataType, Field, Schema};
@@ -321,7 +321,7 @@ fn serialize_spatial_hierarchy(hierarchy: &SpatialHierarchyData) -> Result<Vec<u
 
 /// Serialize spatial nodes table with all fields.
 fn serialize_spatial_nodes_table(spatial_nodes: &[SpatialNode]) -> Result<Vec<u8>, DataModelParquetError> {
-    use arrow::array::{Float64Array, ListArray};
+    use arrow::array::Float64Array;
     
     let count = spatial_nodes.len();
     let mut entity_ids = Vec::with_capacity(count);

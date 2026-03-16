@@ -5,11 +5,9 @@
 //! Type definitions for API requests and responses.
 
 mod mesh;
-mod request;
 mod response;
 
 pub use mesh::MeshData;
-pub use request::ParseOptions;
 pub use response::{
     CoordinateInfo, MetadataResponse, ModelMetadata, ParseResponse, ProcessingStats, StreamEvent,
 };

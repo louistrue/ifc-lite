@@ -267,7 +267,6 @@ pub fn process_streaming(
             current_type: "indexing".into(),
         };
 
-        let mut batch_number = 0;
         let mut total_processed = 0;
         let mut all_meshes: Vec<MeshData> = Vec::new();
         let mut total_vertices = 0usize;
@@ -347,7 +346,7 @@ pub fn process_streaming(
             // Yield completed batches in order
             while let Some((chunk_len, last_type_name, meshes)) = completed_batches.remove(&next_expected_batch) {
                 total_processed += chunk_len;
-                batch_number = next_expected_batch;
+                let batch_number = next_expected_batch;
 
                 // Update stats
                 for mesh in &meshes {
