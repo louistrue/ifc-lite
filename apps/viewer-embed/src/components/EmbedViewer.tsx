@@ -281,7 +281,7 @@ export function EmbedViewer() {
             computedIsolatedIds={computedIsolatedIds}
             modelIdToIndex={modelIdToIndex}
           />
-          <ViewportOverlays />
+          <ViewportOverlays hideViewCube />
         </>
       )}
     </div>

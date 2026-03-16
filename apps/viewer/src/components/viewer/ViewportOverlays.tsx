@@ -18,7 +18,7 @@ import { cn } from '@/lib/utils';
 import { ViewCube, type ViewCubeRef } from './ViewCube';
 import { AxisHelper, type AxisHelperRef } from './AxisHelper';
 
-export function ViewportOverlays() {
+export function ViewportOverlays({ hideViewCube = false }: { hideViewCube?: boolean } = {}) {
   const selectedStoreys = useViewerStore((s) => s.selectedStoreys);
   const hiddenEntities = useViewerStore((s) => s.hiddenEntities);
   const isolatedEntities = useViewerStore((s) => s.isolatedEntities);
@@ -180,15 +180,17 @@ export function ViewportOverlays() {
       )}
 
       {/* ViewCube (top-right) */}
-      <div className="absolute top-6 right-6">
-        <ViewCube
-          ref={viewCubeRef}
-          onViewChange={handleViewChange}
-          onDrag={(deltaX, deltaY) => cameraCallbacks.orbit?.(deltaX, deltaY)}
-          rotationX={initialRotationX}
-          rotationY={initialRotationY}
-        />
-      </div>
+      {!hideViewCube && (
+        <div className="absolute top-6 right-6">
+          <ViewCube
+            ref={viewCubeRef}
+            onViewChange={handleViewChange}
+            onDrag={(deltaX, deltaY) => cameraCallbacks.orbit?.(deltaX, deltaY)}
+            rotationX={initialRotationX}
+            rotationY={initialRotationY}
+          />
+        </div>
+      )}
 
       {/* Axis Helper (bottom-left, above scale bar) - IFC Z-up convention */}
       <div className="absolute bottom-16 left-4">
