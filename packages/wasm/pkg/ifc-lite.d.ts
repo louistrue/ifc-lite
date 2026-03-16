@@ -55,6 +55,35 @@ export class GeoReferenceJs {
 }
 
 /**
+ * A single profile entry – raw 2D polygon + world transform
+ */
+export class ProfileEntryJs {
+    private constructor();
+    free(): void;
+    [Symbol.dispose](): void;
+    readonly expressId: number;
+    readonly ifcType: string;
+    readonly outerPoints: Float32Array;
+    readonly holeCounts: Uint32Array;
+    readonly holePoints: Float32Array;
+    readonly transform: Float32Array;
+    readonly extrusionDir: Float32Array;
+    readonly extrusionDepth: number;
+    readonly modelIndex: number;
+}
+
+/**
+ * A collection of extracted profiles
+ */
+export class ProfileCollection {
+    private constructor();
+    free(): void;
+    [Symbol.dispose](): void;
+    get(index: number): ProfileEntryJs | undefined;
+    readonly length: number;
+}
+
+/**
  * GPU-ready geometry stored in WASM linear memory
  *
  * Data layout:
@@ -266,6 +295,10 @@ export class IfcAPI {
      * Create and initialize the IFC API
      */
     constructor();
+    /**
+     * Extract raw profile polygons from all building elements with IfcExtrudedAreaSolid representations
+     */
+    extractProfiles(content: string, model_index: number): ProfileCollection;
     /**
      * Parse IFC file (traditional - waits for completion)
      *
