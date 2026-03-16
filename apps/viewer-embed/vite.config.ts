@@ -43,6 +43,7 @@ export default defineConfig({
       '@ifc-lite/sdk': path.resolve(__dirname, '../../packages/sdk/src'),
       '@ifc-lite/sandbox': path.resolve(__dirname, '../../packages/sandbox/src'),
       '@ifc-lite/embed-protocol': path.resolve(__dirname, '../../packages/embed-protocol/src'),
+      '@ifc-lite/lens': path.resolve(__dirname, '../../packages/lens/src'),
       '@ifc-lite/wasm': path.resolve(__dirname, '../../packages/wasm/pkg/ifc-lite.js'),
     },
   },
