@@ -66,6 +66,24 @@ function cross(a: Vec3, b: Vec3): Vec3 {
   };
 }
 
+/** Dot product */
+function dot(a: Vec3, b: Vec3): number {
+  return a.x * b.x + a.y * b.y + a.z * b.z;
+}
+
+/** Rodrigues' rotation: rotate v around unit axis k by angle (radians). */
+function rotateAroundAxis(v: Vec3, k: Vec3, angle: number): Vec3 {
+  const c = Math.cos(angle);
+  const s = Math.sin(angle);
+  const d = dot(k, v);
+  const cx = cross(k, v);
+  return {
+    x: v.x * c + cx.x * s + k.x * d * (1 - c),
+    y: v.y * c + cx.y * s + k.y * d * (1 - c),
+    z: v.z * c + cx.z * s + k.z * d * (1 - c),
+  };
+}
+
 /** Add offset to a Vec3 in place */
 function addInPlace(v: Vec3, offset: Vec3): void {
   v.x += offset.x;
@@ -181,17 +199,39 @@ export class CameraControls {
   }
 
   /**
-   * Orbit camera around an external pivot (selected object).
-   * Snaps the target to the pivot so the camera looks directly at the object,
-   * then rotates position fully (theta + phi) for free orbit from any angle.
+   * Orbit both position and target around an external pivot using axis-angle
+   * rotation. Both undergo the exact same rotation so the view doesn't jump
+   * when the pivot is off-center, and vertical orbit is fully free.
    */
   private orbitAroundExternalPivot(pivot: Vec3, dx: number, dy: number): void {
-    // Snap target to the pivot so the camera looks at the selected object
-    copyInto(this.state.camera.target, pivot);
+    let posRel = sub(this.state.camera.position, pivot);
+    let tgtRel = sub(this.state.camera.target, pivot);
 
-    // Rotate position around the pivot with full freedom
-    copyInto(this.state.camera.position,
-      this.rotateAroundPivot(this.state.camera.position, pivot, dx, dy));
+    // Horizontal: rotate both around Y axis
+    const yAxis: Vec3 = { x: 0, y: 1, z: 0 };
+    posRel = rotateAroundAxis(posRel, yAxis, dx);
+    tgtRel = rotateAroundAxis(tgtRel, yAxis, dx);
+
+    // Vertical: rotate both around camera's right axis
+    const right = normalize({ x: -posRel.z, y: 0, z: posRel.x });
+    if (length(right) < 1e-6) return; // degenerate (looking straight down/up)
+
+    // Clamp: check if vertical rotation would exceed pole limits
+    const dist = length(posRel);
+    const currentPhi = Math.acos(Math.max(-1, Math.min(1, posRel.y / dist)));
+    const newPhi = currentPhi + dy;
+    if (newPhi < CC.MIN_PHI || newPhi > CC.MAX_PHI) {
+      // Apply only horizontal rotation
+      copyInto(this.state.camera.position, { x: pivot.x + posRel.x, y: pivot.y + posRel.y, z: pivot.z + posRel.z });
+      copyInto(this.state.camera.target, { x: pivot.x + tgtRel.x, y: pivot.y + tgtRel.y, z: pivot.z + tgtRel.z });
+      return;
+    }
+
+    posRel = rotateAroundAxis(posRel, right, dy);
+    tgtRel = rotateAroundAxis(tgtRel, right, dy);
+
+    copyInto(this.state.camera.position, { x: pivot.x + posRel.x, y: pivot.y + posRel.y, z: pivot.z + posRel.z });
+    copyInto(this.state.camera.target, { x: pivot.x + tgtRel.x, y: pivot.y + tgtRel.y, z: pivot.z + tgtRel.z });
   }
 
   // -------------------------------------------------------------------------
