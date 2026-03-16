@@ -200,8 +200,8 @@ export class CameraControls {
 
   /**
    * Orbit both position and target around an external pivot using axis-angle
-   * rotation. Both undergo the exact same rotation so the view doesn't jump
-   * when the pivot is off-center, and vertical orbit is fully free.
+   * rotation. Both undergo the exact same rigid rotation so the view doesn't
+   * jump when the pivot is off-center, and vertical orbit is fully free.
    */
   private orbitAroundExternalPivot(pivot: Vec3, dx: number, dy: number): void {
     let posRel = sub(this.state.camera.position, pivot);
@@ -213,6 +213,8 @@ export class CameraControls {
     tgtRel = rotateAroundAxis(tgtRel, yAxis, dx);
 
     // Vertical: rotate both around camera's right axis
+    // The right vector formula gives the left-hand perpendicular, so negate
+    // dy to match the spherical convention (positive dy = move down = increase phi).
     const right = normalize({ x: -posRel.z, y: 0, z: posRel.x });
     if (length(right) < 1e-6) return; // degenerate (looking straight down/up)
 
@@ -227,8 +229,8 @@ export class CameraControls {
       return;
     }
 
-    posRel = rotateAroundAxis(posRel, right, dy);
-    tgtRel = rotateAroundAxis(tgtRel, right, dy);
+    posRel = rotateAroundAxis(posRel, right, -dy);
+    tgtRel = rotateAroundAxis(tgtRel, right, -dy);
 
     copyInto(this.state.camera.position, { x: pivot.x + posRel.x, y: pivot.y + posRel.y, z: pivot.z + posRel.z });
     copyInto(this.state.camera.target, { x: pivot.x + tgtRel.x, y: pivot.y + tgtRel.y, z: pivot.z + tgtRel.z });
