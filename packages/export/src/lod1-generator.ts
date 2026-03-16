@@ -23,10 +23,10 @@ export type GenerateLod1Options = {
 async function readIfcInput(input: IfcInput): Promise<ArrayBuffer> {
   if (typeof input === 'string') {
     const fs = await import('node:fs/promises');
-    return await fs.readFile(input);
+    return (await fs.readFile(input)).buffer as ArrayBuffer;
   }
   if (input instanceof ArrayBuffer) return input;
-  return input.buffer.slice(input.byteOffset, input.byteOffset + input.byteLength);
+  return input.buffer.slice(input.byteOffset, input.byteOffset + input.byteLength) as ArrayBuffer;
 }
 
 function buildBoxMeshFromAabb(min: Vec3, max: Vec3, expressId: number): MeshData {
