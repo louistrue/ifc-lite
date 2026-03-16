@@ -55,6 +55,10 @@
   ],
   "rewrites": [
     {
+      "source": "/demo/AC20-FZK-Haus.ifc",
+      "destination": "https://www.steptools.com/docs/stpfiles/ifc/AC20-FZK-Haus.ifc"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }
