@@ -222,12 +222,16 @@ fn extract_extruded_solid(
     // ExtrudedDirection (attr 2) in local solid space
     let local_dir = parse_extrusion_direction(solid, decoder);
 
-    // Depth (attr 3) — required attribute; reject if missing/malformed
-    let depth = solid
-        .get(3)
-        .and_then(|v| v.as_float())
-        .ok_or_else(|| Error::geometry("ExtrudedAreaSolid missing or invalid Depth attribute"))?
-        * unit_scale;
+    // Depth (attr 3) — required per IFC spec but default to 1.0 for robustness
+    // with malformed files (logged under debug_geometry feature)
+    let raw_depth = solid.get(3).and_then(|v| v.as_float());
+    #[cfg(feature = "debug_geometry")]
+    if raw_depth.is_none() {
+        eprintln!(
+            "[profile_extractor] #{element_id} ({ifc_type}): missing Depth, defaulting to 1.0"
+        );
+    }
+    let depth = raw_depth.unwrap_or(1.0) * unit_scale;
 
     // Combined transform: elem_placement * solid_position  (IFC Z-up, metres)
     let combined_ifc = elem_transform * solid_transform;
