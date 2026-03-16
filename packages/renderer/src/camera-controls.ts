@@ -181,15 +181,17 @@ export class CameraControls {
   }
 
   /**
-   * Orbit both camera.position and camera.target around an external pivot.
-   * Both rotate fully (theta + phi) so the user can freely look at the
-   * object from any angle, including above and below.
+   * Orbit camera around an external pivot (selected object).
+   * Snaps the target to the pivot so the camera looks directly at the object,
+   * then rotates position fully (theta + phi) for free orbit from any angle.
    */
   private orbitAroundExternalPivot(pivot: Vec3, dx: number, dy: number): void {
+    // Snap target to the pivot so the camera looks at the selected object
+    copyInto(this.state.camera.target, pivot);
+
+    // Rotate position around the pivot with full freedom
     copyInto(this.state.camera.position,
       this.rotateAroundPivot(this.state.camera.position, pivot, dx, dy));
-    copyInto(this.state.camera.target,
-      this.rotateAroundPivot(this.state.camera.target, pivot, dx, dy));
   }
 
   // -------------------------------------------------------------------------
