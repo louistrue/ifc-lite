@@ -45,7 +45,20 @@ impl Config {
                         None
                     }
                 })
-                .unwrap_or([127, 0, 0, 1]),
+                .unwrap_or_else(|| {
+                    // In containerised deployments (Docker, Railway, etc.) bind to
+                    // all interfaces so the service is reachable; on local dev use
+                    // loopback to avoid firewall popups on Windows/macOS.
+                    if std::path::Path::new("/.dockerenv").exists()
+                        || std::env::var("RAILWAY_ENVIRONMENT").is_ok()
+                        || std::env::var("FLY_APP_NAME").is_ok()
+                        || std::env::var("RENDER_SERVICE_ID").is_ok()
+                    {
+                        [0, 0, 0, 0]
+                    } else {
+                        [127, 0, 0, 1]
+                    }
+                }),
             port: std::env::var("PORT")
                 .unwrap_or_else(|_| "8080".into())
                 .parse()

@@ -242,6 +242,9 @@ export class IfcLiteBridge {
         operation: 'extractProfiles',
         data: { contentLength: content.length },
       });
+      if (this.isWasmRuntimeError(error)) {
+        this.markFatalWasmRuntimeError();
+      }
       throw error;
     }
   }

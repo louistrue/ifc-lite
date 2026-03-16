@@ -373,7 +373,7 @@ export function resolveObjectStyle(
       userOverride.hatch !== undefined
         ? userOverride.hatch === null
           ? null
-          : { ...( typeDefault.hatch ?? {} ), ...userOverride.hatch }
+          : { ...(typeDefault.hatch ?? DEFAULT_OBJECT_STYLES['_default'].hatch!), ...userOverride.hatch }
         : typeDefault.hatch,
   };
 }

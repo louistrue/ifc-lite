@@ -132,7 +132,7 @@ pub async fn parse_full(
 /// POST /api/v1/parse/stream - Streaming SSE parse.
 pub async fn parse_stream(
     State(state): State<AppState>,
-    Query(_query): Query<ParseQuery>,
+    Query(query): Query<ParseQuery>,
     mut multipart: Multipart,
 ) -> Result<Sse<impl futures::Stream<Item = Result<Event, Infallible>>>, ApiError> {
     // Extract file
@@ -143,6 +143,13 @@ pub async fn parse_stream(
         return Err(ApiError::FileTooLarge {
             max_mb: state.config.max_file_size_mb,
         });
+    }
+
+    if query.opening_filter != OpeningFilterMode::Default {
+        tracing::warn!(
+            opening_filter = ?query.opening_filter,
+            "opening_filter is not yet supported for streaming endpoint; using default mode"
+        );
     }
 
     let content = String::from_utf8(data)?;

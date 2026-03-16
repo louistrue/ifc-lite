@@ -94,11 +94,15 @@ export function parseGLBToMeshData(glb: Uint8Array): MeshData[] {
       throw new Error(`GLB accessor out of bounds: offset=${byteOffset} len=${byteLen} bufLen=${bin.byteLength}`);
     }
     const slice = bin.subarray(byteOffset, byteOffset + byteLen);
+    // Ensure 4-byte alignment; copy to a new buffer if the slice is unaligned
+    const aligned = (slice.byteOffset % 4 === 0)
+      ? slice
+      : new Uint8Array(slice);
     if (Number(acc.componentType) === 5126) {
-      return { array: new Float32Array(slice.buffer, slice.byteOffset, slice.byteLength / 4), count, components: comps };
+      return { array: new Float32Array(aligned.buffer, aligned.byteOffset, aligned.byteLength / 4), count, components: comps };
     }
     if (Number(acc.componentType) === 5125) {
-      return { array: new Uint32Array(slice.buffer, slice.byteOffset, slice.byteLength / 4), count, components: comps };
+      return { array: new Uint32Array(aligned.buffer, aligned.byteOffset, aligned.byteLength / 4), count, components: comps };
     }
     throw new Error('Unsupported accessor component type');
   };
