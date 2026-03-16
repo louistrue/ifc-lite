@@ -6,7 +6,7 @@
 
 use crate::error::ApiError;
 use crate::services::{
-    cache::DiskCache, extract_data_model, process_geometry, process_geometry_filtered,
+    cache::DiskCache, extract_data_model, process_geometry_filtered,
     process_streaming, serialize_data_model_to_parquet, serialize_to_parquet,
     serialize_to_parquet_optimized_with_stats, OpeningFilterMode, OptimizedStats, VERTEX_MULTIPLIER,
 };
