@@ -55,35 +55,6 @@ export class GeoReferenceJs {
 }
 
 /**
- * A single profile entry – raw 2D polygon + world transform
- */
-export class ProfileEntryJs {
-    private constructor();
-    free(): void;
-    [Symbol.dispose](): void;
-    readonly expressId: number;
-    readonly ifcType: string;
-    readonly outerPoints: Float32Array;
-    readonly holeCounts: Uint32Array;
-    readonly holePoints: Float32Array;
-    readonly transform: Float32Array;
-    readonly extrusionDir: Float32Array;
-    readonly extrusionDepth: number;
-    readonly modelIndex: number;
-}
-
-/**
- * A collection of extracted profiles
- */
-export class ProfileCollection {
-    private constructor();
-    free(): void;
-    [Symbol.dispose](): void;
-    get(index: number): ProfileEntryJs | undefined;
-    readonly length: number;
-}
-
-/**
  * GPU-ready geometry stored in WASM linear memory
  *
  * Data layout:
@@ -273,6 +244,29 @@ export class IfcAPI {
      */
     debugProcessFirstWall(content: string): string;
     /**
+     * Extract raw profile polygons from all building elements with `IfcExtrudedAreaSolid`
+     * representations.
+     *
+     * Returns a [`ProfileCollection`] whose entries each carry:
+     * - A 2D polygon (outer + holes) in local profile space (metres)
+     * - A 4 × 4 column-major transform in WebGL Y-up world space
+     * - Extrusion direction (world space) and depth (metres)
+     *
+     * Use [`ProfileProjector`] (TypeScript) to convert these into `DrawingLine[]`
+     * for clean projection without tessellation artifacts.
+     *
+     * ```javascript
+     * const api = new IfcAPI();
+     * const profiles = api.extractProfiles(ifcContent, 0);
+     * console.log('Profiles:', profiles.length);
+     * for (let i = 0; i < profiles.length; i++) {
+     *   const p = profiles.get(i);
+     *   console.log(p.ifcType, 'depth:', p.extrusionDepth);
+     * }
+     * ```
+     */
+    extractProfiles(content: string, model_index: number): ProfileCollection;
+    /**
      * Extract georeferencing information from IFC content
      * Returns null if no georeferencing is present
      *
@@ -295,10 +289,6 @@ export class IfcAPI {
      * Create and initialize the IFC API
      */
     constructor();
-    /**
-     * Extract raw profile polygons from all building elements with IfcExtrudedAreaSolid representations
-     */
-    extractProfiles(content: string, model_index: number): ProfileCollection;
     /**
      * Parse IFC file (traditional - waits for completion)
      *
@@ -741,6 +731,72 @@ export class MeshDataJs {
 }
 
 /**
+ * A collection of extracted profiles.
+ */
+export class ProfileCollection {
+    private constructor();
+    free(): void;
+    [Symbol.dispose](): void;
+    /**
+     * Get profile at `index`.  Returns `undefined` for out-of-bounds index.
+     */
+    get(index: number): ProfileEntryJs | undefined;
+    /**
+     * Number of profiles.
+     */
+    readonly length: number;
+}
+
+/**
+ * A single profile entry – raw 2D polygon + world transform.
+ *
+ * Profile points are in **local 2D profile space** (metres).
+ * Apply `transform` to `[x, y, 0, 1]` to get WebGL Y-up world coordinates.
+ */
+export class ProfileEntryJs {
+    private constructor();
+    free(): void;
+    [Symbol.dispose](): void;
+    /**
+     * Express ID of the building element.
+     */
+    readonly expressId: number;
+    /**
+     * Extrusion depth (metres).
+     */
+    readonly extrusionDepth: number;
+    /**
+     * Extrusion direction `[dx, dy, dz]` in WebGL Y-up world space (unit vector).
+     */
+    readonly extrusionDir: Float32Array;
+    /**
+     * Number of points per hole.
+     */
+    readonly holeCounts: Uint32Array;
+    /**
+     * All hole points concatenated: `[x0, y0, x1, y1, …]` (metres).
+     */
+    readonly holePoints: Float32Array;
+    /**
+     * IFC type name (e.g., `"IfcWall"`).
+     */
+    readonly ifcType: string;
+    /**
+     * Model index for multi-model federation.
+     */
+    readonly modelIndex: number;
+    /**
+     * Outer boundary: flat `[x0, y0, x1, y1, …]` in local profile space (metres).
+     */
+    readonly outerPoints: Float32Array;
+    /**
+     * 4 × 4 column-major transform in WebGL Y-up world space.
+     * `M * [x, y, 0, 1]ᵀ` gives the world position.
+     */
+    readonly transform: Float32Array;
+}
+
+/**
  * RTC offset information exposed to JavaScript
  */
 export class RtcOffsetJs {
@@ -968,6 +1024,8 @@ export interface InitOutput {
     readonly __wbg_meshcollection_free: (a: number, b: number) => void;
     readonly __wbg_meshcollectionwithrtc_free: (a: number, b: number) => void;
     readonly __wbg_meshdatajs_free: (a: number, b: number) => void;
+    readonly __wbg_profilecollection_free: (a: number, b: number) => void;
+    readonly __wbg_profileentryjs_free: (a: number, b: number) => void;
     readonly __wbg_rtcoffsetjs_free: (a: number, b: number) => void;
     readonly __wbg_set_georeferencejs_eastings: (a: number, b: number) => void;
     readonly __wbg_set_georeferencejs_northings: (a: number, b: number) => void;
@@ -1029,6 +1087,7 @@ export interface InitOutput {
     readonly gpumeshmetadata_vertexOffset: (a: number) => number;
     readonly ifcapi_debugProcessEntity953: (a: number, b: number, c: number, d: number) => void;
     readonly ifcapi_debugProcessFirstWall: (a: number, b: number, c: number, d: number) => void;
+    readonly ifcapi_extractProfiles: (a: number, b: number, c: number, d: number) => number;
     readonly ifcapi_getGeoReference: (a: number, b: number, c: number) => number;
     readonly ifcapi_getMemory: (a: number) => number;
     readonly ifcapi_is_ready: (a: number) => number;
@@ -1079,6 +1138,16 @@ export interface InitOutput {
     readonly meshdatajs_positions: (a: number) => number;
     readonly meshdatajs_triangleCount: (a: number) => number;
     readonly meshdatajs_vertexCount: (a: number) => number;
+    readonly profilecollection_get: (a: number, b: number) => number;
+    readonly profilecollection_length: (a: number) => number;
+    readonly profileentryjs_extrusionDepth: (a: number) => number;
+    readonly profileentryjs_extrusionDir: (a: number) => number;
+    readonly profileentryjs_holeCounts: (a: number) => number;
+    readonly profileentryjs_holePoints: (a: number) => number;
+    readonly profileentryjs_ifcType: (a: number, b: number) => void;
+    readonly profileentryjs_modelIndex: (a: number) => number;
+    readonly profileentryjs_outerPoints: (a: number) => number;
+    readonly profileentryjs_transform: (a: number) => number;
     readonly rtcoffsetjs_isSignificant: (a: number) => number;
     readonly rtcoffsetjs_toWorld: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly symboliccircle_centerX: (a: number) => number;
@@ -1129,6 +1198,7 @@ export interface InitOutput {
     readonly gpuinstancedgeometryref_geometryId: (a: number) => bigint;
     readonly instancedgeometry_geometryId: (a: number) => bigint;
     readonly meshcollection_rtcOffsetX: (a: number) => number;
+    readonly profileentryjs_expressId: (a: number) => number;
     readonly symboliccircle_expressId: (a: number) => number;
     readonly gpuinstancedgeometryref_indicesByteLength: (a: number) => number;
     readonly gpuinstancedgeometryref_instanceDataByteLength: (a: number) => number;
@@ -1143,11 +1213,11 @@ export interface InitOutput {
     readonly zerocopymesh_normals_ptr: (a: number) => number;
     readonly __wbg_gpuinstancedgeometryref_free: (a: number, b: number) => void;
     readonly get_memory: () => number;
-    readonly __wasm_bindgen_func_elem_1016: (a: number, b: number) => void;
-    readonly __wasm_bindgen_func_elem_465: (a: number, b: number) => void;
-    readonly __wasm_bindgen_func_elem_1021: (a: number, b: number, c: number, d: number) => void;
-    readonly __wasm_bindgen_func_elem_1054: (a: number, b: number, c: number, d: number) => void;
-    readonly __wasm_bindgen_func_elem_469: (a: number, b: number) => void;
+    readonly __wasm_bindgen_func_elem_1048: (a: number, b: number) => void;
+    readonly __wasm_bindgen_func_elem_488: (a: number, b: number) => void;
+    readonly __wasm_bindgen_func_elem_1050: (a: number, b: number, c: number, d: number) => void;
+    readonly __wasm_bindgen_func_elem_1083: (a: number, b: number, c: number, d: number) => void;
+    readonly __wasm_bindgen_func_elem_490: (a: number, b: number) => void;
     readonly __wbindgen_export: (a: number) => void;
     readonly __wbindgen_export2: (a: number, b: number, c: number) => void;
     readonly __wbindgen_export3: (a: number, b: number) => number;

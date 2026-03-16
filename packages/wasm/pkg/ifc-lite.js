@@ -837,6 +837,37 @@ export class IfcAPI {
         }
     }
     /**
+     * Extract raw profile polygons from all building elements with `IfcExtrudedAreaSolid`
+     * representations.
+     *
+     * Returns a [`ProfileCollection`] whose entries each carry:
+     * - A 2D polygon (outer + holes) in local profile space (metres)
+     * - A 4 × 4 column-major transform in WebGL Y-up world space
+     * - Extrusion direction (world space) and depth (metres)
+     *
+     * Use [`ProfileProjector`] (TypeScript) to convert these into `DrawingLine[]`
+     * for clean projection without tessellation artifacts.
+     *
+     * ```javascript
+     * const api = new IfcAPI();
+     * const profiles = api.extractProfiles(ifcContent, 0);
+     * console.log('Profiles:', profiles.length);
+     * for (let i = 0; i < profiles.length; i++) {
+     *   const p = profiles.get(i);
+     *   console.log(p.ifcType, 'depth:', p.extrusionDepth);
+     * }
+     * ```
+     * @param {string} content
+     * @param {number} model_index
+     * @returns {ProfileCollection}
+     */
+    extractProfiles(content, model_index) {
+        const ptr0 = passStringToWasm0(content, wasm.__wbindgen_export3, wasm.__wbindgen_export4);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.ifcapi_extractProfiles(this.__wbg_ptr, ptr0, len0, model_index);
+        return ProfileCollection.__wrap(ret);
+    }
+    /**
      * Extract georeferencing information from IFC content
      * Returns null if no georeferencing is present
      *
@@ -1756,6 +1787,159 @@ export class MeshDataJs {
 if (Symbol.dispose) MeshDataJs.prototype[Symbol.dispose] = MeshDataJs.prototype.free;
 
 /**
+ * A collection of extracted profiles.
+ */
+export class ProfileCollection {
+    static __wrap(ptr) {
+        ptr = ptr >>> 0;
+        const obj = Object.create(ProfileCollection.prototype);
+        obj.__wbg_ptr = ptr;
+        ProfileCollectionFinalization.register(obj, obj.__wbg_ptr, obj);
+        return obj;
+    }
+    __destroy_into_raw() {
+        const ptr = this.__wbg_ptr;
+        this.__wbg_ptr = 0;
+        ProfileCollectionFinalization.unregister(this);
+        return ptr;
+    }
+    free() {
+        const ptr = this.__destroy_into_raw();
+        wasm.__wbg_profilecollection_free(ptr, 0);
+    }
+    /**
+     * Get profile at `index`.  Returns `undefined` for out-of-bounds index.
+     * @param {number} index
+     * @returns {ProfileEntryJs | undefined}
+     */
+    get(index) {
+        const ret = wasm.profilecollection_get(this.__wbg_ptr, index);
+        return ret === 0 ? undefined : ProfileEntryJs.__wrap(ret);
+    }
+    /**
+     * Number of profiles.
+     * @returns {number}
+     */
+    get length() {
+        const ret = wasm.profilecollection_length(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+}
+if (Symbol.dispose) ProfileCollection.prototype[Symbol.dispose] = ProfileCollection.prototype.free;
+
+/**
+ * A single profile entry – raw 2D polygon + world transform.
+ *
+ * Profile points are in **local 2D profile space** (metres).
+ * Apply `transform` to `[x, y, 0, 1]` to get WebGL Y-up world coordinates.
+ */
+export class ProfileEntryJs {
+    static __wrap(ptr) {
+        ptr = ptr >>> 0;
+        const obj = Object.create(ProfileEntryJs.prototype);
+        obj.__wbg_ptr = ptr;
+        ProfileEntryJsFinalization.register(obj, obj.__wbg_ptr, obj);
+        return obj;
+    }
+    __destroy_into_raw() {
+        const ptr = this.__wbg_ptr;
+        this.__wbg_ptr = 0;
+        ProfileEntryJsFinalization.unregister(this);
+        return ptr;
+    }
+    free() {
+        const ptr = this.__destroy_into_raw();
+        wasm.__wbg_profileentryjs_free(ptr, 0);
+    }
+    /**
+     * Express ID of the building element.
+     * @returns {number}
+     */
+    get expressId() {
+        const ret = wasm.profileentryjs_expressId(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * Extrusion depth (metres).
+     * @returns {number}
+     */
+    get extrusionDepth() {
+        const ret = wasm.profileentryjs_extrusionDepth(this.__wbg_ptr);
+        return ret;
+    }
+    /**
+     * Extrusion direction `[dx, dy, dz]` in WebGL Y-up world space (unit vector).
+     * @returns {Float32Array}
+     */
+    get extrusionDir() {
+        const ret = wasm.profileentryjs_extrusionDir(this.__wbg_ptr);
+        return takeObject(ret);
+    }
+    /**
+     * Number of points per hole.
+     * @returns {Uint32Array}
+     */
+    get holeCounts() {
+        const ret = wasm.profileentryjs_holeCounts(this.__wbg_ptr);
+        return takeObject(ret);
+    }
+    /**
+     * All hole points concatenated: `[x0, y0, x1, y1, …]` (metres).
+     * @returns {Float32Array}
+     */
+    get holePoints() {
+        const ret = wasm.profileentryjs_holePoints(this.__wbg_ptr);
+        return takeObject(ret);
+    }
+    /**
+     * IFC type name (e.g., `"IfcWall"`).
+     * @returns {string}
+     */
+    get ifcType() {
+        let deferred1_0;
+        let deferred1_1;
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            wasm.profileentryjs_ifcType(retptr, this.__wbg_ptr);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            deferred1_0 = r0;
+            deferred1_1 = r1;
+            return getStringFromWasm0(r0, r1);
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+            wasm.__wbindgen_export2(deferred1_0, deferred1_1, 1);
+        }
+    }
+    /**
+     * Model index for multi-model federation.
+     * @returns {number}
+     */
+    get modelIndex() {
+        const ret = wasm.profileentryjs_modelIndex(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * Outer boundary: flat `[x0, y0, x1, y1, …]` in local profile space (metres).
+     * @returns {Float32Array}
+     */
+    get outerPoints() {
+        const ret = wasm.profileentryjs_outerPoints(this.__wbg_ptr);
+        return takeObject(ret);
+    }
+    /**
+     * 4 × 4 column-major transform in WebGL Y-up world space.
+     * `M * [x, y, 0, 1]ᵀ` gives the world position.
+     * @returns {Float32Array}
+     */
+    get transform() {
+        const ret = wasm.profileentryjs_transform(this.__wbg_ptr);
+        return takeObject(ret);
+    }
+}
+if (Symbol.dispose) ProfileEntryJs.prototype[Symbol.dispose] = ProfileEntryJs.prototype.free;
+
+/**
  * RTC offset information exposed to JavaScript
  */
 export class RtcOffsetJs {
@@ -2446,7 +2630,7 @@ function __wbg_get_imports() {
                     const a = state0.a;
                     state0.a = 0;
                     try {
-                        return __wasm_bindgen_func_elem_1054(a, state0.b, arg0, arg1);
+                        return __wasm_bindgen_func_elem_1083(a, state0.b, arg0, arg1);
                     } finally {
                         state0.a = a;
                     }
@@ -2529,12 +2713,12 @@ function __wbg_get_imports() {
         },
         __wbindgen_cast_0000000000000001: function(arg0, arg1) {
             // Cast intrinsic for `Closure(Closure { dtor_idx: 135, function: Function { arguments: [Externref], shim_idx: 136, ret: Result(Unit), inner_ret: Some(Result(Unit)) }, mutable: true }) -> Externref`.
-            const ret = makeMutClosure(arg0, arg1, wasm.__wasm_bindgen_func_elem_1016, __wasm_bindgen_func_elem_1021);
+            const ret = makeMutClosure(arg0, arg1, wasm.__wasm_bindgen_func_elem_1048, __wasm_bindgen_func_elem_1050);
             return addHeapObject(ret);
         },
         __wbindgen_cast_0000000000000002: function(arg0, arg1) {
             // Cast intrinsic for `Closure(Closure { dtor_idx: 46, function: Function { arguments: [], shim_idx: 47, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
-            const ret = makeMutClosure(arg0, arg1, wasm.__wasm_bindgen_func_elem_465, __wasm_bindgen_func_elem_469);
+            const ret = makeMutClosure(arg0, arg1, wasm.__wasm_bindgen_func_elem_488, __wasm_bindgen_func_elem_490);
             return addHeapObject(ret);
         },
         __wbindgen_cast_0000000000000003: function(arg0) {
@@ -2566,14 +2750,14 @@ function __wbg_get_imports() {
     };
 }
 
-function __wasm_bindgen_func_elem_469(arg0, arg1) {
-    wasm.__wasm_bindgen_func_elem_469(arg0, arg1);
+function __wasm_bindgen_func_elem_490(arg0, arg1) {
+    wasm.__wasm_bindgen_func_elem_490(arg0, arg1);
 }
 
-function __wasm_bindgen_func_elem_1021(arg0, arg1, arg2) {
+function __wasm_bindgen_func_elem_1050(arg0, arg1, arg2) {
     try {
         const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-        wasm.__wasm_bindgen_func_elem_1021(retptr, arg0, arg1, addHeapObject(arg2));
+        wasm.__wasm_bindgen_func_elem_1050(retptr, arg0, arg1, addHeapObject(arg2));
         var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
         var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
         if (r1) {
@@ -2584,8 +2768,8 @@ function __wasm_bindgen_func_elem_1021(arg0, arg1, arg2) {
     }
 }
 
-function __wasm_bindgen_func_elem_1054(arg0, arg1, arg2, arg3) {
-    wasm.__wasm_bindgen_func_elem_1054(arg0, arg1, addHeapObject(arg2), addHeapObject(arg3));
+function __wasm_bindgen_func_elem_1083(arg0, arg1, arg2, arg3) {
+    wasm.__wasm_bindgen_func_elem_1083(arg0, arg1, addHeapObject(arg2), addHeapObject(arg3));
 }
 
 const GeoReferenceJsFinalization = (typeof FinalizationRegistry === 'undefined')
@@ -2627,6 +2811,12 @@ const MeshCollectionWithRtcFinalization = (typeof FinalizationRegistry === 'unde
 const MeshDataJsFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_meshdatajs_free(ptr >>> 0, 1));
+const ProfileCollectionFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_profilecollection_free(ptr >>> 0, 1));
+const ProfileEntryJsFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_profileentryjs_free(ptr >>> 0, 1));
 const RtcOffsetJsFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_rtcoffsetjs_free(ptr >>> 0, 1));
