@@ -182,23 +182,14 @@ export class CameraControls {
 
   /**
    * Orbit both camera.position and camera.target around an external pivot.
-   * Position rotates fully (theta + phi). Target only rotates horizontally
-   * (theta) so vertical dragging changes the viewing angle without moving
-   * the model up/down.
+   * Both rotate fully (theta + phi) so the user can freely look at the
+   * object from any angle, including above and below.
    */
   private orbitAroundExternalPivot(pivot: Vec3, dx: number, dy: number): void {
     copyInto(this.state.camera.position,
       this.rotateAroundPivot(this.state.camera.position, pivot, dx, dy));
-
-    // Target: horizontal rotation only (dx), keep Y fixed
-    const tx = this.state.camera.target.x - pivot.x;
-    const tz = this.state.camera.target.z - pivot.z;
-    const thetaTgt = Math.atan2(tx, tz) + dx;
-    const horizDist = Math.sqrt(tx * tx + tz * tz);
-
-    this.state.camera.target.x = pivot.x + horizDist * Math.sin(thetaTgt);
-    this.state.camera.target.z = pivot.z + horizDist * Math.cos(thetaTgt);
-    // target.y stays unchanged
+    copyInto(this.state.camera.target,
+      this.rotateAroundPivot(this.state.camera.target, pivot, dx, dy));
   }
 
   // -------------------------------------------------------------------------
