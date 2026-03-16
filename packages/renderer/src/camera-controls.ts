@@ -201,45 +201,45 @@ export class CameraControls {
   /**
    * Orbit around an external pivot (raycast hit / selected object).
    *
-   * 1. Position orbits around pivot using spherical coords (tight radius,
-   *    pole-clamped).
-   * 2. The geometric rotation from old position to new position is computed
-   *    and applied to the look direction via Rodrigues' formula, so the
-   *    camera view rotates by exactly the same amount — no sideways snap.
+   * Uses axis-angle (Rodrigues) directly — no spherical coords — to avoid
+   * pole singularities. Horizontal drag rotates around world Y, vertical
+   * drag rotates around the camera's screen-right axis, with phi clamping
+   * to prevent pole flip.
    */
   private orbitAroundExternalPivot(pivot: Vec3, dx: number, dy: number): void {
-    // 1. Orbit position around external pivot (spherical, with pole clamping)
-    const oldOffset = sub(this.state.camera.position, pivot);
-    const dist = length(oldOffset);
+    let offset = sub(this.state.camera.position, pivot);
+    const dist = length(offset);
     if (dist < 1e-6) return;
+    let look = sub(this.state.camera.target, this.state.camera.position);
 
-    const newPos = this.rotateAroundPivot(this.state.camera.position, pivot, dx, dy);
-    const newOffset = sub(newPos, pivot);
+    const yAxis: Vec3 = { x: 0, y: 1, z: 0 };
 
-    // 2. Derive the actual rotation that mapped oldOffset → newOffset
-    const oldDir = normalize(oldOffset);
-    const newDir = normalize(newOffset);
-    const rotAxis = cross(oldDir, newDir);
-    const rotAxisLen = length(rotAxis);
+    // 1. Horizontal rotation around world Y (always stable)
+    offset = rodrigues(offset, yAxis, dx);
+    look = rodrigues(look, yAxis, dx);
 
-    // 3. Apply that same rotation to the look vector
-    const look = sub(this.state.camera.target, this.state.camera.position);
-    let newLook: Vec3;
+    // 2. Vertical rotation around camera right axis, clamped to prevent pole flip
+    const offsetDir = scale(offset, 1 / dist);
+    const currentPhi = Math.acos(Math.max(-1, Math.min(1, offsetDir.y)));
+    const clampedDy = clampPhi(currentPhi + dy) - currentPhi;
 
-    if (rotAxisLen > 1e-10) {
-      const axis = scale(rotAxis, 1 / rotAxisLen);
-      const cosAngle = Math.max(-1, Math.min(1, dot(oldDir, newDir)));
-      const angle = Math.acos(cosAngle);
-      newLook = rodrigues(look, axis, angle);
-    } else {
-      newLook = { ...look };
+    if (Math.abs(clampedDy) > 1e-10) {
+      const fwd = normalize(look);
+      const right = cross(fwd, yAxis);
+      const rLen = length(right);
+      if (rLen > 1e-6) {
+        const rightN = scale(right, 1 / rLen);
+        offset = rodrigues(offset, rightN, clampedDy);
+        look = rodrigues(look, rightN, clampedDy);
+      }
     }
 
+    const newPos = { x: pivot.x + offset.x, y: pivot.y + offset.y, z: pivot.z + offset.z };
     copyInto(this.state.camera.position, newPos);
     copyInto(this.state.camera.target, {
-      x: newPos.x + newLook.x,
-      y: newPos.y + newLook.y,
-      z: newPos.z + newLook.z,
+      x: newPos.x + look.x,
+      y: newPos.y + look.y,
+      z: newPos.z + look.z,
     });
   }
 
