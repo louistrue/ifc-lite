@@ -7,10 +7,10 @@
  *
  * Orbit uses a pivot point:
  * - Default pivot = camera.target (standard orbit)
- * - When orbitCenter is set (e.g. selected object), both position AND target
- *   rotate around it. This preserves the viewing direction while orbiting
- *   around the selected object — standard BIM behavior where selecting an
- *   object doesn't move the camera, only changes the orbit pivot.
+ * - When orbitCenter is set (e.g. selected object), position orbits around it
+ *   while the look direction (target - position) rotates by the same angles.
+ *   This keeps the pivot visually fixed on screen without snapping the camera
+ *   target to the object — standard BIM "orbit under cursor" behaviour.
  */
 
 import type { Camera as CameraType, Vec3, Mat4 } from './types.js';
@@ -147,9 +147,9 @@ export class CameraControls {
   /**
    * Orbit the camera around a pivot point (Y-up turntable style).
    *
-   * When orbitCenter is set (selected object), both position AND target
-   * rotate around the orbit center. The camera never moves on selection
-   * alone — only when the user actually drags to rotate.
+   * When orbitCenter is set (selected object), position orbits around it
+   * and the look direction rotates by the same angles. The camera never
+   * moves on selection alone — only when the user actually drags to rotate.
    */
   orbit(deltaX: number, deltaY: number): void {
     this.state.camera.up = { x: 0, y: 1, z: 0 };
@@ -182,20 +182,31 @@ export class CameraControls {
 
   /**
    * Orbit around an external pivot (selected object).
-   * Position orbits using standard spherical coords for tight, natural orbit.
-   * Target smoothly blends toward the pivot so the camera gradually looks at
-   * the object without a jarring snap on selection.
+   *
+   * 1. Position orbits around pivot using spherical coords (tight radius, full
+   *    vertical freedom).
+   * 2. The look direction (target − position) is rotated by the same dx/dy so
+   *    the pivot stays visually fixed on screen. We achieve this by rotating
+   *    the look vector around the origin with the same spherical deltas.
+   *
+   * The camera target is never set to the pivot, so there is no view snap on
+   * selection.
    */
   private orbitAroundExternalPivot(pivot: Vec3, dx: number, dy: number): void {
-    // Position: standard spherical orbit around pivot (full vertical freedom)
+    // 1. Orbit position around external pivot
     const newPos = this.rotateAroundPivot(this.state.camera.position, pivot, dx, dy);
-    copyInto(this.state.camera.position, newPos);
 
-    // Target: smoothly blend toward pivot so camera gradually looks at object
-    const blend = 0.15;
-    this.state.camera.target.x += (pivot.x - this.state.camera.target.x) * blend;
-    this.state.camera.target.y += (pivot.y - this.state.camera.target.y) * blend;
-    this.state.camera.target.z += (pivot.z - this.state.camera.target.z) * blend;
+    // 2. Rotate the look vector by the same angles (pivot = origin)
+    const look = sub(this.state.camera.target, this.state.camera.position);
+    const origin: Vec3 = { x: 0, y: 0, z: 0 };
+    const newLook = this.rotateAroundPivot(look, origin, dx, dy);
+
+    copyInto(this.state.camera.position, newPos);
+    copyInto(this.state.camera.target, {
+      x: newPos.x + newLook.x,
+      y: newPos.y + newLook.y,
+      z: newPos.z + newLook.z,
+    });
   }
 
   // -------------------------------------------------------------------------
