@@ -704,8 +704,7 @@ export function useMouseControls(params: UseMouseControlsParams): void {
 
         // Always update camera state immediately (feels responsive)
         if (mouseState.isPanning || tool === 'pan') {
-          // Negate dy: mouse Y increases downward, but we want upward drag to pan up
-          camera.pan(dx, -dy, false);
+          camera.pan(dx, dy, false);
         } else if (tool === 'walk') {
           // Walk mode: mouse drag looks around (full orbit)
           camera.orbit(dx, dy, false);
