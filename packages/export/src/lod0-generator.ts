@@ -29,10 +29,15 @@ async function readIfcInput(input: IfcInput): Promise<ArrayBuffer> {
   if (typeof input === 'string') {
     // Node-only path reading (dynamic import so browser bundles don't include fs)
     const fs = await import('node:fs/promises');
-    return (await fs.readFile(input)).buffer as ArrayBuffer;
+    const buf = await fs.readFile(input);
+    // Copy into tightly-sized buffer (fs.readFile may return a larger underlying ArrayBuffer)
+    return new Uint8Array(buf).buffer as ArrayBuffer;
   }
   if (input instanceof ArrayBuffer) return input;
-  // Uint8Array view
+  // Uint8Array view — avoid copy when already covering the entire buffer
+  if (input.byteOffset === 0 && input.byteLength === input.buffer.byteLength) {
+    return input.buffer as ArrayBuffer;
+  }
   return input.buffer.slice(input.byteOffset, input.byteOffset + input.byteLength) as ArrayBuffer;
 }
 
@@ -93,7 +98,7 @@ export async function generateLod0(input: IfcInput): Promise<Lod0Json> {
   const entityCache = new Map<number, any | null>();
   const placementCache = new Map<number, Float64Array>();
   const axisCache = new Map<number, Float64Array>();
-  const pointCache = new Map<number, Vec3>();
+  const pointCache = new Map<number, Vec3 | null>();
   const dirCache = new Map<number, Vec3>();
 
   const getEntity = (id: number): any | null => {
@@ -105,9 +110,12 @@ export async function generateLod0(input: IfcInput): Promise<Lod0Json> {
   };
 
   const getPoint = (id: number): Vec3 | null => {
-    if (pointCache.has(id)) return pointCache.get(id)!;
+    if (pointCache.has(id)) return pointCache.get(id) ?? null;
     const ent = getEntity(id);
-    if (!ent || String(ent.type || '').toUpperCase() !== 'IFCCARTESIANPOINT') return null;
+    if (!ent || String(ent.type || '').toUpperCase() !== 'IFCCARTESIANPOINT') {
+      pointCache.set(id, null);
+      return null;
+    }
     const coords = ent.attributes?.[0];
     let x = 0, y = 0, z = 0;
     if (Array.isArray(coords)) {

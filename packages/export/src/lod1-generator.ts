@@ -23,9 +23,14 @@ export type GenerateLod1Options = {
 async function readIfcInput(input: IfcInput): Promise<ArrayBuffer> {
   if (typeof input === 'string') {
     const fs = await import('node:fs/promises');
-    return (await fs.readFile(input)).buffer as ArrayBuffer;
+    const buf = await fs.readFile(input);
+    // Copy into tightly-sized buffer (fs.readFile may return a larger underlying ArrayBuffer)
+    return new Uint8Array(buf).buffer as ArrayBuffer;
   }
   if (input instanceof ArrayBuffer) return input;
+  if (input.byteOffset === 0 && input.byteLength === input.buffer.byteLength) {
+    return input.buffer as ArrayBuffer;
+  }
   return input.buffer.slice(input.byteOffset, input.byteOffset + input.byteLength) as ArrayBuffer;
 }
 

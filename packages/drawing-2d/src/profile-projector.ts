@@ -58,7 +58,7 @@ export function projectProfiles(
     let offset = 0;
     for (let h = 0; h < profile.holeCounts.length; h++) {
       const count = profile.holeCounts[h];
-      if (count * 2 <= offset + 1) {
+      if (count < 2 || offset + count * 2 > profile.holePoints.length) {
         offset += count * 2;
         continue;
       }
@@ -193,8 +193,6 @@ function depthAlong(
   axis: 'x' | 'y' | 'z',
   sectionPos: number,
 ): number {
-  const ai = axisIndex(axis);
-  const coords = [w0, w1] as const;
-  const avg = (coords[0][axis] + coords[1][axis]) / 2;
+  const avg = (w0[axis] + w1[axis]) / 2;
   return Math.abs(avg - sectionPos);
 }

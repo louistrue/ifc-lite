@@ -152,7 +152,12 @@ pub fn extract_profiles(content: &str, model_index: u32) -> Vec<ExtractedProfile
                         model_index,
                     ) {
                         Ok(entry) => results.push(entry),
-                        Err(_) => {} // Skip elements that fail to parse
+                        Err(_e) => {
+                            #[cfg(feature = "debug_geometry")]
+                            eprintln!(
+                                "[profile_extractor] Skipping #{id} ({ifc_type_name}): {_e}"
+                            );
+                        }
                     }
                 }
                 // TODO: IfcMappedItem — decompose instance transform, then recurse
@@ -217,11 +222,11 @@ fn extract_extruded_solid(
     // ExtrudedDirection (attr 2) in local solid space
     let local_dir = parse_extrusion_direction(solid, decoder);
 
-    // Depth (attr 3)
+    // Depth (attr 3) — required attribute; reject if missing/malformed
     let depth = solid
         .get(3)
         .and_then(|v| v.as_float())
-        .unwrap_or(1.0)
+        .ok_or_else(|| Error::geometry("ExtrudedAreaSolid missing or invalid Depth attribute"))?
         * unit_scale;
 
     // Combined transform: elem_placement * solid_position  (IFC Z-up, metres)

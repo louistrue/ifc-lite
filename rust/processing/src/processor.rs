@@ -151,8 +151,10 @@ fn normalize_ifc_property_name(raw: Option<&str>) -> Option<String> {
 }
 
 fn is_space_or_zone_type(ifc_type: &IfcType) -> bool {
-    let type_name = ifc_type.name();
-    type_name.starts_with("IfcSpace") || type_name.starts_with("IfcZone")
+    matches!(
+        ifc_type,
+        IfcType::IfcSpace | IfcType::IfcSpaceType | IfcType::IfcZone | IfcType::IfcSpatialZone | IfcType::IfcSpatialZoneType
+    )
 }
 
 fn collect_property_set_definition(property_set: &DecodedEntity) -> Option<PropertySetDefinition> {
