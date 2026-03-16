@@ -224,11 +224,10 @@ export class CameraControls {
     const clampedDy = clampPhi(currentPhi + dy) - currentPhi;
 
     if (Math.abs(clampedDy) > 1e-10) {
-      const fwd = normalize(look);
-      const right = cross(fwd, yAxis);
-      const rLen = length(right);
-      if (rLen > 1e-6) {
-        const rightN = scale(right, 1 / rLen);
+      // Right axis from offset's horizontal component — stable at poles,
+      // never flips like the look-based cross(fwd, Y) does.
+      const rightN = normalize({ x: -offset.z, y: 0, z: offset.x });
+      if (length(rightN) > 1e-6) {
         offset = rodrigues(offset, rightN, clampedDy);
         look = rodrigues(look, rightN, clampedDy);
       }
