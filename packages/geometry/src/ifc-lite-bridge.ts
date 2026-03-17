@@ -8,7 +8,7 @@
  */
 
 import { createLogger } from '@ifc-lite/data';
-import init, { IfcAPI, MeshCollection, MeshDataJs, InstancedMeshCollection, InstancedGeometry, InstanceData, SymbolicRepresentationCollection, SymbolicPolyline, SymbolicCircle } from '@ifc-lite/wasm';
+import init, { IfcAPI, initThreadPool, MeshCollection, MeshDataJs, InstancedMeshCollection, InstancedGeometry, InstanceData, SymbolicRepresentationCollection, SymbolicPolyline, SymbolicCircle } from '@ifc-lite/wasm';
 export type { MeshCollection, MeshDataJs, InstancedMeshCollection, InstancedGeometry, InstanceData, SymbolicRepresentationCollection, SymbolicPolyline, SymbolicCircle };
 
 const log = createLogger('Geometry');
@@ -78,14 +78,10 @@ export class IfcLiteBridge {
       // Initialize rayon thread pool for parallel geometry processing in WASM.
       // Requires SharedArrayBuffer (COOP/COEP headers). Falls back to single-threaded
       // if unavailable — rayon's par_iter() still works, just sequentially.
-      // Dynamic import: initThreadPool only exists after WASM is rebuilt with wasm-bindgen-rayon.
       if (typeof SharedArrayBuffer !== 'undefined') {
         try {
-          const wasm = await import('@ifc-lite/wasm');
-          if ('initThreadPool' in wasm && typeof wasm.initThreadPool === 'function') {
-            await wasm.initThreadPool(navigator.hardwareConcurrency);
-            log.info(`Thread pool initialized with ${navigator.hardwareConcurrency} threads`);
-          }
+          await initThreadPool(navigator.hardwareConcurrency);
+          log.info(`Thread pool initialized with ${navigator.hardwareConcurrency} threads`);
         } catch (e) {
           log.warn('Thread pool init failed, falling back to single-threaded geometry processing', e);
         }
