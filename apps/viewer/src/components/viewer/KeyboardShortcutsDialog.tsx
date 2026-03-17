@@ -3,7 +3,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { X, Info, Keyboard, Github, ExternalLink, Sparkles, ChevronDown, ChevronRight, Zap, Wrench, Plus, Package } from 'lucide-react';
+import { X, Info, Keyboard, Github, ExternalLink, Sparkles, ChevronDown, ChevronRight, Zap, Wrench, Plus, Package, ShieldCheck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { KEYBOARD_SHORTCUTS } from '@/hooks/useKeyboardShortcuts';
@@ -86,6 +86,34 @@ function AboutTab() {
             {tag}
           </span>
         ))}
+      </div>
+
+      {/* Privacy & Security */}
+      <div className="pt-2 border-t space-y-1.5">
+        <div className="flex items-center gap-1.5 text-sm font-medium">
+          <ShieldCheck className="h-3.5 w-3.5 text-emerald-500" />
+          Privacy &amp; Security
+        </div>
+        <p className="text-xs text-muted-foreground">
+          <span className="font-medium text-foreground">Your IFC data never leaves your device.</span>{' '}
+          All files are processed locally in the browser with{' '}
+          <a
+            href="https://webassembly.org/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="underline hover:text-foreground transition-colors"
+          >
+            WebAssembly
+          </a>.
+        </p>
+        <ul className="text-xs text-muted-foreground space-y-0.5 ml-3.5 list-disc">
+          <li>No server upload &ndash; everything stays on your device</li>
+          <li>WebAssembly (WASM) enables near-native performance in the browser</li>
+          <li>Your models and data remain private and secure</li>
+        </ul>
+        <p className="text-[11px] text-muted-foreground italic">
+          Verify it yourself: open DevTools (<kbd className="px-1 py-0.5 bg-muted rounded border font-mono text-[10px]">F12</kbd>), check the Network tab, and see that no IFC data is transmitted.
+        </p>
       </div>
 
       {/* Package Versions */}
