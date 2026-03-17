@@ -264,6 +264,18 @@ export class ColumnarParser {
             byType,
         };
 
+        // Time-based yielding: yield every ~4ms to maintain 60fps during parsing.
+        // Much better than count-based yielding which can block for 100ms+ on fast loops.
+        let lastYieldTime = performance.now();
+        const YIELD_BUDGET_MS = 4; // ~4ms = one frame at 60fps, leaves room for rendering
+        const maybeYield = async () => {
+            const now = performance.now();
+            if (now - lastYieldTime > YIELD_BUDGET_MS) {
+                await new Promise<void>(resolve => setTimeout(resolve, 0));
+                lastYieldTime = performance.now();
+            }
+        };
+
         // First pass: collect spatial, geometry, relationship, property, and type refs for targeted parsing
         const spatialRefs: EntityRef[] = [];
         const geometryRefs: EntityRef[] = [];
@@ -292,6 +304,7 @@ export class ColumnarParser {
             } else if (isIfcTypeLikeEntity(typeUpper)) {
                 typeObjectRefs.push(ref);
             }
+            await maybeYield();
         }
 
         // === TARGETED PARSING: Parse spatial and geometry entities for GlobalIds ===
@@ -324,6 +337,7 @@ export class ColumnarParser {
                 const name = typeof attrs[2] === 'string' ? attrs[2] : '';
                 parsedEntityData.set(ref.expressId, { globalId, name });
             }
+            await maybeYield();
         }
 
         // Parse type objects (IfcWallType, IfcDoorType, etc.) for GlobalId and Name
@@ -360,6 +374,7 @@ export class ColumnarParser {
                     }
                 }
             }
+            await maybeYield();
         }
 
         // === PARSE PROPERTY RELATIONSHIPS for on-demand loading ===
@@ -409,6 +424,7 @@ export class ColumnarParser {
                     }
                 }
             }
+            await maybeYield();
         }
 
         // === PARSE ASSOCIATION RELATIONSHIPS for on-demand classification/material/document loading ===
@@ -463,6 +479,7 @@ export class ColumnarParser {
                     }
                 }
             }
+            await maybeYield();
         }
 
         // === BUILD ENTITY TABLE with spatial data included ===
@@ -518,12 +535,11 @@ export class ColumnarParser {
             added++;
 
             processed++;
-            // Yield every 10000 entities for better interleaving with geometry streaming
-            if (processed % 10000 === 0) {
+            // Time-based yield to maintain 60fps
+            if (processed % 5000 === 0) {
                 options.onProgress?.({ phase: 'building entities', percent: 30 + (processed / totalEntities) * 50 });
-                // Direct yield - don't use maybeYield since we're already throttling
-                await new Promise(resolve => setTimeout(resolve, 0));
             }
+            await maybeYield();
         }
         
         const entityTable = entityTableBuilder.build();

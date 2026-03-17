@@ -473,8 +473,68 @@ export class Scene {
       this.pendingBatchKeys.add(bucketKey);
     }
 
-    // 6. One O(N) full rebuild from correctly-grouped data
-    this.rebuildPendingBatches(device, pipeline);
+    // 6. Incremental rebuild: process batch keys in time-sliced chunks
+    //    to avoid a 500-800ms frame freeze. Fragments are already destroyed
+    //    above so the scene is momentarily empty, but batches appear within
+    //    one frame as each chunk completes.
+    this.rebuildPendingBatchesIncremental(device, pipeline);
+  }
+
+  /**
+   * Rebuild pending batches incrementally, yielding to the browser every ~4ms
+   * to maintain 60fps during the rebuild. Falls back to synchronous rebuild
+   * if requestAnimationFrame is unavailable.
+   */
+  private rebuildPendingBatchesIncremental(device: GPUDevice, pipeline: RenderPipeline): void {
+    if (this.pendingBatchKeys.size === 0) return;
+
+    const keys = Array.from(this.pendingBatchKeys);
+    this.pendingBatchKeys.clear();
+    let idx = 0;
+    const BUDGET_MS = 4; // ~4ms per chunk to maintain 60fps
+
+    const processChunk = () => {
+      const start = performance.now();
+      while (idx < keys.length && (performance.now() - start) < BUDGET_MS) {
+        const key = keys[idx++];
+        const meshDataForKey = this.batchedMeshData.get(key);
+        const existingBatch = this.batchedMeshMap.get(key);
+
+        if (existingBatch) {
+          existingBatch.vertexBuffer.destroy();
+          existingBatch.indexBuffer.destroy();
+          if (existingBatch.uniformBuffer) {
+            existingBatch.uniformBuffer.destroy();
+          }
+        }
+
+        if (!meshDataForKey || meshDataForKey.length === 0) {
+          this.batchedMeshMap.delete(key);
+          this.batchedMeshData.delete(key);
+          continue;
+        }
+
+        const color = meshDataForKey[0].color;
+        const batch = this.createBatchedMesh(meshDataForKey, color, device, pipeline, key);
+        this.batchedMeshMap.set(key, batch);
+
+        // Update flat array
+        const existingIdx = this.batchedMeshIndex.get(key);
+        if (existingIdx !== undefined) {
+          this.batchedMeshes[existingIdx] = batch;
+        } else {
+          this.batchedMeshIndex.set(key, this.batchedMeshes.length);
+          this.batchedMeshes.push(batch);
+        }
+      }
+
+      if (idx < keys.length) {
+        // More keys to process — yield and continue next frame
+        setTimeout(processChunk, 0);
+      }
+    };
+
+    processChunk();
   }
 
   /**
