@@ -447,24 +447,27 @@ impl IfcAPI {
             }
         }
 
-        // Convert groups to InstancedGeometry
-        let mut collection = InstancedMeshCollection::new();
-        for (geometry_id, (mesh, instances)) in geometry_groups {
-            let mut instanced_geom =
-                InstancedGeometry::new(geometry_id, mesh.positions, mesh.normals, mesh.indices);
-
-            // Convert transforms from [f64; 16] to Vec<f32>
-            for (express_id, transform_array, color) in instances {
-                let mut transform_f32 = Vec::with_capacity(16);
-                for val in transform_array.iter() {
-                    transform_f32.push(*val as f32);
+        // Convert groups to InstancedGeometry in parallel (rayon)
+        use rayon::prelude::*;
+        let groups_vec: Vec<(u64, (Mesh, Vec<(u32, [f64; 16], [f32; 4])>))> =
+            geometry_groups.into_iter().collect();
+        let geometries: Vec<InstancedGeometry> = groups_vec
+            .into_par_iter()
+            .map(|(geometry_id, (mesh, instances))| {
+                let mut instanced_geom =
+                    InstancedGeometry::new(geometry_id, mesh.positions, mesh.normals, mesh.indices);
+                for (express_id, transform_array, color) in instances {
+                    let transform_f32: Vec<f32> = transform_array.iter().map(|&v| v as f32).collect();
+                    instanced_geom.add_instance(InstanceData::new(express_id, transform_f32, color));
                 }
-                instanced_geom.add_instance(InstanceData::new(express_id, transform_f32, color));
-            }
+                instanced_geom
+            })
+            .collect();
 
-            collection.add(instanced_geom);
+        let mut collection = InstancedMeshCollection::new();
+        for geom in geometries {
+            collection.add(geom);
         }
-
         collection
     }
 

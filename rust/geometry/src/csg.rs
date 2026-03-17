@@ -1349,16 +1349,16 @@ pub fn calculate_normals(mesh: &mut Mesh) {
         normals[i2] += normal;
     }
 
-    // Normalize and write back
-    mesh.normals.clear();
-    mesh.normals.reserve(vertex_count * 3);
-
-    for normal in normals {
-        let normalized = normal.try_normalize(1e-6).unwrap_or_else(|| Vector3::new(0.0, 0.0, 1.0));
-        mesh.normals.push(normalized.x as f32);
-        mesh.normals.push(normalized.y as f32);
-        mesh.normals.push(normalized.z as f32);
-    }
+    // Normalize and write back in parallel (rayon)
+    use rayon::prelude::*;
+    let flat_normals: Vec<f32> = normals
+        .par_iter()
+        .flat_map_iter(|normal| {
+            let n = normal.try_normalize(1e-6).unwrap_or_else(|| Vector3::new(0.0, 0.0, 1.0));
+            [n.x as f32, n.y as f32, n.z as f32]
+        })
+        .collect();
+    mesh.normals = flat_normals;
 }
 
 #[cfg(test)]
