@@ -128,21 +128,14 @@ describe('CameraControls – external pivot orbit (no snap)', () => {
     approxEqual(distBefore, distAfter, 1e-4);
   });
 
-  it('preserves distance from target to pivot', () => {
-    const distBefore = len(sub(state.camera.target, pivot));
-    controls.orbit(50, 30);
-    const distAfter = len(sub(state.camera.target, pivot));
-    approxEqual(distBefore, distAfter, 1e-4);
-  });
-
-  it('preserves look direction (pos→target vector direction) approximately', () => {
+  it('preserves look direction exactly (pos→target vector unchanged)', () => {
     const lookBefore = sub(state.camera.target, state.camera.position);
-    const lookLenBefore = len(lookBefore);
-    controls.orbit(10, 5); // small orbit
+    controls.orbit(50, 30);
     const lookAfter = sub(state.camera.target, state.camera.position);
-    const lookLenAfter = len(lookAfter);
-    // Distance between pos and target should be preserved
-    approxEqual(lookLenBefore, lookLenAfter, 0.5);
+    // Translation-based orbit preserves look vector exactly
+    approxEqual(lookBefore.x, lookAfter.x, 1e-6);
+    approxEqual(lookBefore.y, lookAfter.y, 1e-6);
+    approxEqual(lookBefore.z, lookAfter.z, 1e-6);
   });
 
   it('orbit center persists across multiple orbit calls', () => {

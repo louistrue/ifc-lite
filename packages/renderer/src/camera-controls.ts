@@ -158,13 +158,14 @@ export class CameraControls {
     const dy = -deltaY * CC.ORBIT_SENSITIVITY;
 
     if (this.orbitCenter !== null) {
-      // External pivot: rotate both position and target around it.
-      // Position gets full spherical rotation (theta + phi).
-      // Target gets the same rotation so the look direction is preserved.
-      copyInto(this.state.camera.position,
-        this.rotateAroundPivot(this.state.camera.position, this.orbitCenter, dx, dy));
-      copyInto(this.state.camera.target,
-        this.rotateAroundPivot(this.state.camera.target, this.orbitCenter, dx, dy));
+      // External pivot: orbit position around it, then translate target
+      // by the exact same displacement. This keeps the look direction
+      // perfectly stable (no wander) and the pivot fixed in world space.
+      const oldPos = { ...this.state.camera.position };
+      const newPos = this.rotateAroundPivot(oldPos, this.orbitCenter, dx, dy);
+      const displacement = sub(newPos, oldPos);
+      copyInto(this.state.camera.position, newPos);
+      addInPlace(this.state.camera.target, displacement);
     } else {
       // Standard: rotate position around target, target stays fixed.
       const newPos = this.rotateAroundPivot(this.state.camera.position, this.state.camera.target, dx, dy);
