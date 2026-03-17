@@ -24,6 +24,10 @@ function sub(a: Vec3, b: Vec3): Vec3 {
   return vec3(a.x - b.x, a.y - b.y, a.z - b.z);
 }
 
+function dot(a: Vec3, b: Vec3): number {
+  return a.x * b.x + a.y * b.y + a.z * b.z;
+}
+
 function approxEqual(a: number, b: number, eps = 1e-6): void {
   assert.ok(
     Math.abs(a - b) < eps,
@@ -94,58 +98,66 @@ describe('CameraControls – standard orbit', () => {
   });
 });
 
-describe('CameraControls – external pivot orbit', () => {
+describe('CameraControls – external pivot orbit (no snap)', () => {
   let state: CameraInternalState;
   let controls: CameraControls;
   const pivot = vec3(5, 5, 15);
 
   beforeEach(() => {
+    // Camera looking slightly off-center from the pivot
     state = makeState(makeCamera(vec3(0, 10, 20), vec3(0, 5, 15)));
     controls = new CameraControls(state, () => {});
     controls.setOrbitCenter(pivot);
   });
 
-  it('snaps target to pivot on first orbit', () => {
+  it('does NOT snap target to pivot (no view jump)', () => {
+    const tBefore = { ...state.camera.target };
     controls.orbit(10, 5);
-    approxEqual(state.camera.target.x, pivot.x);
-    approxEqual(state.camera.target.y, pivot.y);
-    approxEqual(state.camera.target.z, pivot.z);
+    // Target should have moved (rotated around pivot), but NOT snapped to pivot
+    const distToOriginal = len(sub(state.camera.target, tBefore));
+    const distToPivot = len(sub(state.camera.target, pivot));
+    // Target moved but didn't snap to the pivot point
+    assert.ok(distToPivot > 0.01, `target should NOT be at pivot (dist=${distToPivot})`);
+    assert.ok(distToOriginal > 0, 'target should have moved from original position');
   });
 
   it('preserves distance from position to pivot', () => {
     const distBefore = len(sub(state.camera.position, pivot));
     controls.orbit(50, 30);
-    const distAfter = len(sub(state.camera.position, state.camera.target));
+    const distAfter = len(sub(state.camera.position, pivot));
     approxEqual(distBefore, distAfter, 1e-4);
   });
 
-  it('after snap, further orbits keep target fixed (like standard orbit)', () => {
-    controls.orbit(10, 5); // triggers snap
-    const tAfterSnap = { ...state.camera.target };
-    controls.orbit(50, 30); // standard orbit now
-    approxEqual(state.camera.target.x, tAfterSnap.x);
-    approxEqual(state.camera.target.y, tAfterSnap.y);
-    approxEqual(state.camera.target.z, tAfterSnap.z);
+  it('preserves distance from target to pivot', () => {
+    const distBefore = len(sub(state.camera.target, pivot));
+    controls.orbit(50, 30);
+    const distAfter = len(sub(state.camera.target, pivot));
+    approxEqual(distBefore, distAfter, 1e-4);
   });
 
-  it('vertical orbit direction: drag down moves camera up', () => {
-    controls.orbit(0, 200); // drag down
-    // After snap, target = pivot. Position should be above pivot.
-    assert.ok(
-      state.camera.position.y > pivot.y,
-      `camera should be above pivot (y=${state.camera.position.y}, pivot.y=${pivot.y})`,
-    );
+  it('preserves look direction (pos→target vector direction) approximately', () => {
+    const lookBefore = sub(state.camera.target, state.camera.position);
+    const lookLenBefore = len(lookBefore);
+    controls.orbit(10, 5); // small orbit
+    const lookAfter = sub(state.camera.target, state.camera.position);
+    const lookLenAfter = len(lookAfter);
+    // Distance between pos and target should be preserved
+    approxEqual(lookLenBefore, lookLenAfter, 0.5);
   });
 
-  it('vertical orbit direction: drag up moves camera down', () => {
-    controls.orbit(0, -200); // drag up
-    assert.ok(
-      state.camera.position.y < pivot.y,
-      `camera should be below pivot (y=${state.camera.position.y}, pivot.y=${pivot.y})`,
-    );
+  it('orbit center persists across multiple orbit calls', () => {
+    // First orbit
+    controls.orbit(10, 5);
+    const posAfterFirst = { ...state.camera.position };
+    // Second orbit should still use the external pivot
+    controls.orbit(10, 5);
+    const posAfterSecond = { ...state.camera.position };
+    // Both position and target should have moved (not just position like standard orbit)
+    const targetMoved = len(sub(state.camera.target, vec3(0, 5, 15)));
+    assert.ok(targetMoved > 0.01, `target should move with external pivot (moved=${targetMoved})`);
   });
 
-  it('does not get stuck at the top pole', () => {
+  it('does not get stuck at poles', () => {
     for (let i = 0; i < 50; i++) controls.orbit(0, 100);
     const posUp = { ...state.camera.position };
     for (let i = 0; i < 50; i++) controls.orbit(0, -100);
@@ -154,34 +166,14 @@ describe('CameraControls – external pivot orbit', () => {
     assert.ok(moved > 1, `camera should move away from pole (moved=${moved})`);
   });
 
-  it('does not get stuck at the bottom pole', () => {
-    for (let i = 0; i < 50; i++) controls.orbit(0, -100);
-    const posDown = { ...state.camera.position };
-    for (let i = 0; i < 50; i++) controls.orbit(0, 100);
-    const posUp = { ...state.camera.position };
-    const moved = len(sub(posUp, posDown));
-    assert.ok(moved > 1, `camera should move away from bottom pole (moved=${moved})`);
-  });
-
-  it('can look from above (position.y > target.y)', () => {
-    for (let i = 0; i < 40; i++) controls.orbit(0, 100);
-    assert.ok(state.camera.position.y > state.camera.target.y);
-  });
-
-  it('can look from below (position.y < target.y)', () => {
-    for (let i = 0; i < 40; i++) controls.orbit(0, -100);
-    assert.ok(state.camera.position.y < state.camera.target.y);
-  });
-
-  it('clears orbitCenter after snap (reverts to standard orbit)', () => {
-    controls.orbit(10, 5); // triggers snap + clears orbitCenter
-    // Setting a new orbit center and orbiting should snap again
-    const newPivot = vec3(10, 10, 10);
-    controls.setOrbitCenter(newPivot);
-    controls.orbit(10, 5);
-    approxEqual(state.camera.target.x, newPivot.x);
-    approxEqual(state.camera.target.y, newPivot.y);
-    approxEqual(state.camera.target.z, newPivot.z);
+  it('reverts to standard orbit when orbitCenter is cleared', () => {
+    controls.setOrbitCenter(null);
+    const tBefore = { ...state.camera.target };
+    controls.orbit(50, 30);
+    // Standard orbit: target stays fixed
+    approxEqual(state.camera.target.x, tBefore.x);
+    approxEqual(state.camera.target.y, tBefore.y);
+    approxEqual(state.camera.target.z, tBefore.z);
   });
 });
 

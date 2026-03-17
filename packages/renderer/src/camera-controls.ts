@@ -7,9 +7,10 @@
  *
  * Orbit uses a pivot point:
  * - Default pivot = camera.target (standard orbit — position rotates, target stays)
- * - When orbitCenter is set (raycast hit), target snaps to the pivot and
- *   position orbits around it with plain spherical coords + phi clamping.
- *   Same simple approach as the viewer-embed camera: theta/phi + clamp.
+ * - When orbitCenter is set (raycast hit), both position AND target orbit
+ *   around the external pivot. Camera stays where it is on selection —
+ *   no snap, no view jump. The look direction is preserved because both
+ *   endpoints rotate by the same spherical delta.
  */
 
 import type { Camera as CameraType, Vec3, Mat4 } from './types.js';
@@ -146,9 +147,9 @@ export class CameraControls {
   /**
    * Orbit the camera around a pivot point (Y-up turntable style).
    *
-   * Both standard and external-pivot orbit use the same simple approach:
-   * position = pivot + spherical(theta, phi, dist), target = pivot.
-   * Matches the viewer-embed camera pattern.
+   * When orbitCenter is set, both position AND target rotate around the
+   * external pivot — no snap, no view jump. The camera stays exactly where
+   * it was when the user clicked; only dragging moves it.
    */
   orbit(deltaX: number, deltaY: number): void {
     this.state.camera.up = { x: 0, y: 1, z: 0 };
@@ -156,17 +157,19 @@ export class CameraControls {
     const dx = -deltaX * CC.ORBIT_SENSITIVITY;
     const dy = -deltaY * CC.ORBIT_SENSITIVITY;
 
-    const pivot = this.orbitCenter ?? this.state.camera.target;
-
-    // On first external-pivot orbit, snap target to pivot so subsequent
-    // frames use the simple "position orbits around target" model.
     if (this.orbitCenter !== null) {
-      copyInto(this.state.camera.target, this.orbitCenter);
-      this.orbitCenter = null;
+      // External pivot: rotate both position and target around it.
+      // Position gets full spherical rotation (theta + phi).
+      // Target gets the same rotation so the look direction is preserved.
+      copyInto(this.state.camera.position,
+        this.rotateAroundPivot(this.state.camera.position, this.orbitCenter, dx, dy));
+      copyInto(this.state.camera.target,
+        this.rotateAroundPivot(this.state.camera.target, this.orbitCenter, dx, dy));
+    } else {
+      // Standard: rotate position around target, target stays fixed.
+      const newPos = this.rotateAroundPivot(this.state.camera.position, this.state.camera.target, dx, dy);
+      copyInto(this.state.camera.position, newPos);
     }
-
-    const newPos = this.rotateAroundPivot(this.state.camera.position, pivot, dx, dy);
-    copyInto(this.state.camera.position, newPos);
 
     this.updateMatrices();
   }

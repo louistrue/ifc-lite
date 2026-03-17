@@ -2,4 +2,4 @@
 "@ifc-lite/renderer": patch
 ---
 
-Simplify external pivot orbit to match viewer-embed approach: target snaps to pivot, position orbits with plain spherical coords + phi clamping. Removes Rodrigues rotation, look-vector tracking, and clampLookVertical — same behavior with ~80% less code. No flips, no stuck poles, no axis inversion.
+Fix external pivot orbit: rotate both position AND target around the pivot instead of snapping target to pivot. Camera stays where it is on click — no view jump, no snap. The look direction is preserved because both endpoints rotate by the same spherical delta.
