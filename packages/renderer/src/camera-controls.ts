@@ -253,10 +253,12 @@ export class CameraControls {
     const clampedDy = clampPhi(currentPhi + dy) - currentPhi;
 
     if (Math.abs(clampedDy) > 1e-10) {
-      // Right axis = tangent to orbit sphere at position (perpendicular to
-      // offset in XZ plane). Always valid because phi is clamped away from
-      // the pole, so offset always has a horizontal component.
-      const rightN = normalize({ x: -offset.z, y: 0, z: offset.x });
+      // Right axis = tangent to orbit sphere in the phi-increasing direction.
+      // {offset.z, 0, -offset.x} ensures positive angle → phi increases
+      // (camera moves down), matching the spherical-coord convention used
+      // by clampedDy. Always valid because phi is clamped away from the
+      // pole, so offset always has a horizontal component.
+      const rightN = normalize({ x: offset.z, y: 0, z: -offset.x });
       offset = rodrigues(offset, rightN, clampedDy);
       look = rodrigues(look, rightN, clampedDy);
     }
