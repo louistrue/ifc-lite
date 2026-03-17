@@ -125,6 +125,10 @@ async function handleCommand(type: InboundCommandType, data: unknown, requestId?
 
     case 'LOAD_MODEL_BUFFER': {
       const buffer = data as ArrayBuffer;
+      const MAX_BUFFER_SIZE = 500 * 1024 * 1024; // 500 MB
+      if (buffer.byteLength > MAX_BUFFER_SIZE) {
+        throw new Error(`Model too large (${(buffer.byteLength / 1024 / 1024).toFixed(0)} MB). Max: 500 MB`);
+      }
       const stats = await ctx.loadModelFromBuffer(buffer);
       if (requestId) emitToParent(createResponse(requestId, stats));
       return;

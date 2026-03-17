@@ -50,7 +50,7 @@ export function EmbedViewer() {
     initBridge({
       getState: () => useViewerStore.getState(),
       loadModelFromUrl: async (url: string) => {
-        const response = await fetch(url);
+        const response = await fetch(url, { signal: AbortSignal.timeout(60_000) });
         if (!response.ok) throw new Error(`Failed to fetch model: ${response.statusText}`);
         const buffer = await response.arrayBuffer();
         const filename = url.split('/').pop() || 'model.ifc';
@@ -91,7 +91,7 @@ export function EmbedViewer() {
     (async () => {
       try {
         emitEvent('MODEL_LOADING', { progress: 0, phase: 'Fetching model...' });
-        const response = await fetch(urlParams.modelUrl!);
+        const response = await fetch(urlParams.modelUrl!, { signal: AbortSignal.timeout(60_000) });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const buffer = await response.arrayBuffer();
         const filename = urlParams.modelUrl!.split('/').pop() || 'model.ifc';
@@ -125,6 +125,39 @@ export function EmbedViewer() {
       });
     }
   }, [loading, geometryResult, ifcDataStore]);
+
+  // Emit selection events to parent
+  const selectedEntityId = useViewerStore((s) => s.selectedEntityId);
+  useEffect(() => {
+    if (selectedEntityId !== null) {
+      // Resolve metadata for the selected entity
+      const state = useViewerStore.getState();
+      const lookup = state.resolveGlobalIdFromModels(selectedEntityId);
+      const model = lookup ? state.models.get(lookup.modelId) : undefined;
+      const entities = model?.ifcDataStore?.entities;
+      emitEvent('ENTITY_SELECTED', {
+        id: selectedEntityId,
+        globalId: entities?.getGlobalId(lookup?.expressId ?? selectedEntityId) ?? undefined,
+        modelId: lookup?.modelId,
+        ifcType: entities?.getTypeName(lookup?.expressId ?? selectedEntityId) ?? undefined,
+      });
+    } else {
+      emitEvent('ENTITY_DESELECTED', undefined);
+    }
+  }, [selectedEntityId]);
+
+  // Emit camera rotation changes to parent (throttled)
+  const cameraRotation = useViewerStore((s) => s.cameraRotation);
+  const lastCameraEmit = useRef(0);
+  useEffect(() => {
+    const now = Date.now();
+    if (now - lastCameraEmit.current < 100) return; // throttle to 10Hz
+    lastCameraEmit.current = now;
+    emitEvent('CAMERA_CHANGED', {
+      azimuth: cameraRotation.azimuth,
+      elevation: cameraRotation.elevation,
+    });
+  }, [cameraRotation]);
 
   // Multi-model: create mapping from modelId to modelIndex
   const modelIdToIndex = useMemo(() => {
