@@ -272,6 +272,21 @@ export function EmbedViewer() {
         </div>
       )}
 
+      {/* Empty state: no model loaded and nothing in progress */}
+      {!loading && !error && !filteredGeometry?.length && !urlParams.modelUrl && webgpu.supported && (
+        <div style={{
+          position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+          fontFamily: 'system-ui', color: theme === 'dark' ? '#565f89' : '#9ca3af',
+        }}>
+          <div style={{ textAlign: 'center', padding: '2rem' }}>
+            <p style={{ fontSize: '0.9rem' }}>No model loaded</p>
+            <p style={{ fontSize: '0.75rem', opacity: 0.7, marginTop: '0.4rem' }}>
+              Use the SDK or pass a <code style={{ opacity: 0.9 }}>modelUrl</code> parameter
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* 3D Viewport — wrapper ensures canvas fills the container even
            when Tailwind utility classes (w-full h-full) are not generated */}
       {webgpu.supported && (
