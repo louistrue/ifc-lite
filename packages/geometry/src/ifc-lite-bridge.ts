@@ -83,7 +83,7 @@ export class IfcLiteBridge {
           await initThreadPool(navigator.hardwareConcurrency);
           log.info(`Thread pool initialized with ${navigator.hardwareConcurrency} threads`);
         } catch (e) {
-          log.warn('Thread pool init failed, falling back to single-threaded geometry processing', e);
+          log.warn('Thread pool init failed, falling back to single-threaded geometry processing', { data: e });
         }
       }
 
