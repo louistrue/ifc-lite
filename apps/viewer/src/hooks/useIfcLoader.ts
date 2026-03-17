@@ -300,23 +300,26 @@ export function useIfcLoader() {
       });
       await geometryProcessor.init();
 
-      // DEFER data model parsing - start it AFTER geometry streaming begins
-      // This ensures geometry gets first crack at the CPU for fast first frame
-      // Data model parsing is lower priority - UI can work without it initially
+      // PARALLEL data model parsing - start after first geometry batch for fast first frame.
+      // Uses yielding TypeScript scanner (not synchronous WASM scanner) so it interleaves
+      // with geometry batches on the main thread event loop.
       let resolveDataStore: (dataStore: IfcDataStore) => void;
       let rejectDataStore: (err: unknown) => void;
       const dataStorePromise = new Promise<IfcDataStore>((resolve, reject) => {
         resolveDataStore = resolve;
         rejectDataStore = reject;
       });
+      let dataModelParsingStarted = false;
 
       const startDataModelParsing = () => {
+        if (dataModelParsingStarted) return;
+        dataModelParsingStarted = true;
         // Use main thread - worker parsing disabled (IfcDataStore has closures that can't be serialized)
         const parser = new IfcParser();
-        const wasmApi = geometryProcessor.getApi();
-        parser.parseColumnar(buffer, {
-          wasmApi, // Pass WASM API for 5-10x faster entity scanning
-        }).then(dataStore => {
+        // Don't pass wasmApi: scanEntitiesFastBytes is synchronous and blocks main thread
+        // for ~7s on large files. The TypeScript scanner yields every 5000 entities,
+        // allowing geometry batches to interleave.
+        parser.parseColumnar(buffer, {}).then(dataStore => {
 
           // Calculate storey heights from elevation differences if not already populated
           if (dataStore.spatialHierarchy && dataStore.spatialHierarchy.storeyHeights.size === 0 && dataStore.spatialHierarchy.storeyElevations.size > 1) {
@@ -334,9 +337,8 @@ export function useIfcLoader() {
         });
       };
 
-      // Data model parsing is deferred to the 'complete' event (see below).
-      // Running it concurrently with geometry streaming steals main-thread cycles
-      // from the WASM↔JS bridge, adding ~1-2s to geometry completion time.
+      // Data model parsing starts after first geometry batch (see 'batch' handler).
+      // Uses yielding TS scanner to interleave with geometry batches.
 
       // Use adaptive processing: sync for small files, streaming for large files
       let estimatedTotal = 0;
@@ -439,6 +441,12 @@ export function useIfcLoader() {
                 pendingMeshes = [];
                 lastRenderTime = eventReceived;
 
+                // Start data model parsing after first batch renders (fast first frame achieved).
+                // Uses yielding TS scanner that interleaves with geometry batches.
+                if (batchCount === 1) {
+                  setTimeout(startDataModelParsing, 0);
+                }
+
                 // Update progress
                 const progressPercent = 50 + Math.min(45, (totalMeshes / Math.max(estimatedTotal / 10, totalMeshes)) * 45);
                 setProgress({
@@ -460,11 +468,8 @@ export function useIfcLoader() {
 
               finalCoordinateInfo = event.coordinateInfo ?? null;
 
-              // PERF: Defer data model parsing to next macrotask so the browser
-              // can paint the streaming-complete state first. parseColumnar()
-              // synchronously calls scanEntitiesFast() which blocks the main
-              // thread for ~7s on large files (487MB → 8.4M entities).
-              setTimeout(startDataModelParsing, 0);
+              // Ensure data model parsing has started (fallback if no batches were emitted)
+              startDataModelParsing();
 
               // Apply all accumulated color updates in a single store update
               // instead of one updateMeshColors() call per colorUpdate event.

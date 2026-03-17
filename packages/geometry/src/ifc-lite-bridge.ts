@@ -85,6 +85,8 @@ export class IfcLiteBridge {
         } catch (e) {
           log.warn('Thread pool init failed, falling back to single-threaded geometry processing', { data: e });
         }
+      } else {
+        log.warn('SharedArrayBuffer unavailable (missing COOP/COEP headers?) — geometry processing will be single-threaded');
       }
 
       this.ifcApi = new IfcAPI();
