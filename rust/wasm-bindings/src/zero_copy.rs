@@ -79,31 +79,28 @@ impl MeshDataJs {
     /// IFC Z-up → WebGL Y-up: swap Y/Z, negate new Z for right-handedness.
     /// Winding order reversed to compensate for the handedness flip.
     pub fn new(express_id: u32, ifc_type: String, mut mesh: Mesh, color: [f32; 4]) -> Self {
-        use rayon::prelude::*;
-        use rayon::slice::ParallelSliceMut;
-
-        // Convert positions: IFC Z-up → WebGL Y-up (parallel for large meshes)
-        mesh.positions.par_chunks_exact_mut(3).for_each(|chunk| {
+        // Convert positions: IFC Z-up → WebGL Y-up
+        for chunk in mesh.positions.chunks_exact_mut(3) {
             let y = chunk[1];
             let z = chunk[2];
             chunk[1] = z;   // New Y = old Z (vertical)
             chunk[2] = -y;  // New Z = -old Y (depth, negated for right-hand rule)
-        });
+        }
 
-        // Convert normals the same way (parallel)
-        mesh.normals.par_chunks_exact_mut(3).for_each(|chunk| {
+        // Convert normals the same way
+        for chunk in mesh.normals.chunks_exact_mut(3) {
             let y = chunk[1];
             let z = chunk[2];
             chunk[1] = z;
             chunk[2] = -y;
-        });
+        }
 
-        // Reverse winding order to compensate for handedness flip (parallel)
+        // Reverse winding order to compensate for handedness flip
         let remainder = mesh.indices.len() % 3;
         let end = mesh.indices.len() - remainder;
-        mesh.indices[..end].par_chunks_exact_mut(3).for_each(|tri: &mut [u32]| {
-            tri.swap(1, 2);
-        });
+        for i in (0..end).step_by(3) {
+            mesh.indices.swap(i + 1, i + 2);
+        }
 
         Self {
             express_id,

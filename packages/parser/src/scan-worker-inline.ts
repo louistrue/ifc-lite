@@ -209,16 +209,15 @@ function getWorkerBlobUrl(): string {
 
 /**
  * Scan IFC entities in a Web Worker (non-blocking).
- * Transfers the buffer to the worker to avoid copying.
- * Returns a copy of the buffer alongside results since transfer moves ownership.
+ * Sends a structured clone of the buffer to the worker (browser handles copy).
+ * Caller keeps the original buffer intact for columnar parsing.
  */
 export function scanEntitiesInWorker(
   buffer: ArrayBuffer,
-): Promise<{ refs: EntityRefWorkerResult[]; buffer: ArrayBuffer }> {
+): Promise<EntityRefWorkerResult[]> {
   return new Promise((resolve, reject) => {
     try {
       const worker = new Worker(getWorkerBlobUrl());
-      const bufferCopy = buffer.slice(0); // Copy — transfer moves ownership
 
       worker.onmessage = (e: MessageEvent) => {
         const { ids, offsets, lengths, lines, types, count } = e.data;
@@ -239,7 +238,7 @@ export function scanEntitiesInWorker(
         }
 
         worker.terminate();
-        resolve({ refs, buffer: bufferCopy });
+        resolve(refs);
       };
 
       worker.onerror = (e) => {
@@ -247,8 +246,9 @@ export function scanEntitiesInWorker(
         reject(new Error(`Scan worker error: ${e.message}`));
       };
 
-      // Transfer buffer to worker (zero-copy)
-      worker.postMessage(buffer, [buffer]);
+      // Send buffer copy to worker (structured clone — browser copies efficiently).
+      // Do NOT transfer: caller needs the original buffer for columnar parsing.
+      worker.postMessage(buffer);
     } catch (err) {
       reject(err);
     }

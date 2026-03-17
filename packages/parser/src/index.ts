@@ -189,14 +189,11 @@ export class IfcParser {
 
     let entityRefs: EntityRef[] = [];
     let processed = 0;
-    let workerBuffer: ArrayBuffer | null = null;
 
     // Try Web Worker scanner first (keeps main thread free for UI + geometry)
     if (typeof Worker !== 'undefined') {
       try {
-        const result = await scanEntitiesInWorker(buffer);
-        entityRefs = result.refs;
-        workerBuffer = result.buffer; // Worker transfers original, use copy
+        entityRefs = await scanEntitiesInWorker(buffer);
         processed = entityRefs.length;
       } catch (error) {
         console.warn('[IfcParser] Worker scan failed, falling back to main thread:', error);
@@ -268,10 +265,8 @@ export class IfcParser {
     options.onProgress?.({ phase: 'scanning', percent: 100 });
 
     // Build columnar structures with on-demand property extraction
-    // If worker was used, original buffer was transferred — use the copy
-    const sourceBuffer = workerBuffer ?? buffer;
     const columnarParser = new ColumnarParser();
-    const dataStore = await columnarParser.parseLite(sourceBuffer, entityRefs, options);
+    const dataStore = await columnarParser.parseLite(buffer, entityRefs, options);
     console.log(`[ColumnarParser] Parsed ${dataStore.entityCount} entities in ${dataStore.parseTime.toFixed(0)}ms`);
     return dataStore;
   }
