@@ -316,10 +316,10 @@ export function useIfcLoader() {
         dataModelParsingStarted = true;
         // Use main thread - worker parsing disabled (IfcDataStore has closures that can't be serialized)
         const parser = new IfcParser();
-        // Don't pass wasmApi: scanEntitiesFastBytes is synchronous and blocks main thread
-        // for ~7s on large files. The TypeScript scanner yields every 5000 entities,
-        // allowing geometry batches to interleave.
-        parser.parseColumnar(buffer, {}).then(dataStore => {
+        // Entity scanning runs in a Web Worker (non-blocking).
+        // wasmApi passed as fallback if Worker unavailable.
+        const wasmApi = geometryProcessor.getApi();
+        parser.parseColumnar(buffer, { wasmApi }).then(dataStore => {
 
           // Calculate storey heights from elevation differences if not already populated
           if (dataStore.spatialHierarchy && dataStore.spatialHierarchy.storeyHeights.size === 0 && dataStore.spatialHierarchy.storeyElevations.size > 1) {
