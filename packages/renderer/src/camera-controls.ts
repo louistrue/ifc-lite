@@ -6,11 +6,10 @@
  * Camera orbit, pan, and zoom controls.
  *
  * Orbit uses a pivot point:
- * - Default pivot = camera.target (standard orbit)
- * - When orbitCenter is set (e.g. selected object), both position AND target
- *   rotate around it. This preserves the viewing direction while orbiting
- *   around the selected object — standard BIM behavior where selecting an
- *   object doesn't move the camera, only changes the orbit pivot.
+ * - Default pivot = camera.target (standard orbit — position rotates, target stays)
+ * - When orbitCenter is set (raycast hit), target snaps to the pivot and
+ *   position orbits around it with plain spherical coords + phi clamping.
+ *   Same simple approach as the viewer-embed camera: theta/phi + clamp.
  */
 
 import type { Camera as CameraType, Vec3, Mat4 } from './types.js';
@@ -147,9 +146,9 @@ export class CameraControls {
   /**
    * Orbit the camera around a pivot point (Y-up turntable style).
    *
-   * When orbitCenter is set (selected object), both position AND target
-   * rotate around the orbit center. The camera never moves on selection
-   * alone — only when the user actually drags to rotate.
+   * Both standard and external-pivot orbit use the same simple approach:
+   * position = pivot + spherical(theta, phi, dist), target = pivot.
+   * Matches the viewer-embed camera pattern.
    */
   orbit(deltaX: number, deltaY: number): void {
     this.state.camera.up = { x: 0, y: 1, z: 0 };
@@ -157,13 +156,17 @@ export class CameraControls {
     const dx = -deltaX * CC.ORBIT_SENSITIVITY;
     const dy = -deltaY * CC.ORBIT_SENSITIVITY;
 
+    const pivot = this.orbitCenter ?? this.state.camera.target;
+
+    // On first external-pivot orbit, snap target to pivot so subsequent
+    // frames use the simple "position orbits around target" model.
     if (this.orbitCenter !== null) {
-      this.orbitAroundExternalPivot(this.orbitCenter, dx, dy);
-    } else {
-      // Standard: rotate position around target
-      const newPos = this.rotateAroundPivot(this.state.camera.position, this.state.camera.target, dx, dy);
-      copyInto(this.state.camera.position, newPos);
+      copyInto(this.state.camera.target, this.orbitCenter);
+      this.orbitCenter = null;
     }
+
+    const newPos = this.rotateAroundPivot(this.state.camera.position, pivot, dx, dy);
+    copyInto(this.state.camera.position, newPos);
 
     this.updateMatrices();
   }
@@ -178,27 +181,6 @@ export class CameraControls {
 
     const { theta, phi } = toSpherical(dir, dist);
     return fromSpherical(pivot, dist, theta + dx, clampPhi(phi + dy));
-  }
-
-  /**
-   * Orbit both camera.position and camera.target around an external pivot.
-   * Position rotates fully (theta + phi). Target only rotates horizontally
-   * (theta) so vertical dragging changes the viewing angle without moving
-   * the model up/down.
-   */
-  private orbitAroundExternalPivot(pivot: Vec3, dx: number, dy: number): void {
-    copyInto(this.state.camera.position,
-      this.rotateAroundPivot(this.state.camera.position, pivot, dx, dy));
-
-    // Target: horizontal rotation only (dx), keep Y fixed
-    const tx = this.state.camera.target.x - pivot.x;
-    const tz = this.state.camera.target.z - pivot.z;
-    const thetaTgt = Math.atan2(tx, tz) + dx;
-    const horizDist = Math.sqrt(tx * tx + tz * tz);
-
-    this.state.camera.target.x = pivot.x + horizDist * Math.sin(thetaTgt);
-    this.state.camera.target.z = pivot.z + horizDist * Math.cos(thetaTgt);
-    // target.y stays unchanged
   }
 
   // -------------------------------------------------------------------------
