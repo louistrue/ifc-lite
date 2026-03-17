@@ -272,9 +272,10 @@ export function EmbedViewer() {
         </div>
       )}
 
-      {/* 3D Viewport */}
+      {/* 3D Viewport — wrapper ensures canvas fills the container even
+           when Tailwind utility classes (w-full h-full) are not generated */}
       {webgpu.supported && (
-        <>
+        <div style={{ position: 'absolute', inset: 0 }}>
           <Viewport
             geometry={filteredGeometry}
             coordinateInfo={mergedGeometryResult?.coordinateInfo}
@@ -282,7 +283,7 @@ export function EmbedViewer() {
             modelIdToIndex={modelIdToIndex}
           />
           <ViewportOverlays hideViewCube />
-        </>
+        </div>
       )}
     </div>
   );
