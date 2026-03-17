@@ -300,24 +300,19 @@ export function useIfcLoader() {
       });
       await geometryProcessor.init();
 
-      // PARALLEL data model parsing - start after first geometry batch for fast first frame.
-      // Uses yielding TypeScript scanner (not synchronous WASM scanner) so it interleaves
-      // with geometry batches on the main thread event loop.
+      // Data model parsing starts after geometry completes.
+      // Entity scanning runs in a Web Worker (2s off-thread, non-blocking).
+      // Only the columnar parse (~2s) blocks the main thread.
       let resolveDataStore: (dataStore: IfcDataStore) => void;
       let rejectDataStore: (err: unknown) => void;
       const dataStorePromise = new Promise<IfcDataStore>((resolve, reject) => {
         resolveDataStore = resolve;
         rejectDataStore = reject;
       });
-      let dataModelParsingStarted = false;
 
       const startDataModelParsing = () => {
-        if (dataModelParsingStarted) return;
-        dataModelParsingStarted = true;
-        // Use main thread - worker parsing disabled (IfcDataStore has closures that can't be serialized)
         const parser = new IfcParser();
-        // Entity scanning runs in a Web Worker (non-blocking).
-        // wasmApi passed as fallback if Worker unavailable.
+        // wasmApi as fallback if Web Worker unavailable
         const wasmApi = geometryProcessor.getApi();
         parser.parseColumnar(buffer, { wasmApi }).then(dataStore => {
 
@@ -337,8 +332,8 @@ export function useIfcLoader() {
         });
       };
 
-      // Data model parsing starts after first geometry batch (see 'batch' handler).
-      // Uses yielding TS scanner to interleave with geometry batches.
+      // Data model parsing starts after geometry completes (see 'complete' handler).
+      // Entity scanning runs in a Web Worker (~2s, non-blocking).
 
       // Use adaptive processing: sync for small files, streaming for large files
       let estimatedTotal = 0;
@@ -441,12 +436,6 @@ export function useIfcLoader() {
                 pendingMeshes = [];
                 lastRenderTime = eventReceived;
 
-                // Start data model parsing after first batch renders (fast first frame achieved).
-                // Uses yielding TS scanner that interleaves with geometry batches.
-                if (batchCount === 1) {
-                  setTimeout(startDataModelParsing, 0);
-                }
-
                 // Update progress
                 const progressPercent = 50 + Math.min(45, (totalMeshes / Math.max(estimatedTotal / 10, totalMeshes)) * 45);
                 setProgress({
@@ -468,8 +457,10 @@ export function useIfcLoader() {
 
               finalCoordinateInfo = event.coordinateInfo ?? null;
 
-              // Ensure data model parsing has started (fallback if no batches were emitted)
-              startDataModelParsing();
+              // Start data model parsing now that geometry is done.
+              // Entity scanning runs in a Web Worker (non-blocking, ~2s),
+              // only the columnar parse (~2s) blocks the main thread.
+              setTimeout(startDataModelParsing, 0);
 
               // Apply all accumulated color updates in a single store update
               // instead of one updateMeshColors() call per colorUpdate event.
