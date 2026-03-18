@@ -80,8 +80,9 @@ export class IfcLiteBridge {
       // if unavailable — rayon's par_iter() still works, just sequentially.
       if (typeof SharedArrayBuffer !== 'undefined') {
         try {
-          await initThreadPool(navigator.hardwareConcurrency);
-          log.info(`Thread pool initialized with ${navigator.hardwareConcurrency} threads`);
+          const threads = navigator.hardwareConcurrency || 4;
+          await initThreadPool(threads);
+          log.info(`Thread pool initialized with ${threads} threads`);
         } catch (e) {
           log.warn('Thread pool init failed, falling back to single-threaded geometry processing', { data: e });
         }

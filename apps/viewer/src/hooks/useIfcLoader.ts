@@ -10,7 +10,7 @@
  * Extracted from useIfc.ts for better separation of concerns
  */
 
-import { useCallback } from 'react';
+import { useCallback, useRef } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useViewerStore } from '../store.js';
 import { IfcParser, detectFormat, parseIfcx, type IfcDataStore } from '@ifc-lite/parser';
@@ -69,6 +69,10 @@ function computeFastFingerprint(buffer: ArrayBuffer): string {
  * Includes binary cache support for fast subsequent loads
  */
 export function useIfcLoader() {
+  // Guard against stale async writes when user loads a new file before previous completes.
+  // Incremented on each loadFile call; deferred callbacks check their captured session.
+  const loadSessionRef = useRef(0);
+
   const {
     setLoading,
     setError,
@@ -97,6 +101,7 @@ export function useIfcLoader() {
 
   const loadFile = useCallback(async (file: File) => {
     const { resetViewerState, clearAllModels } = useViewerStore.getState();
+    const currentSession = ++loadSessionRef.current;
 
     // Track total elapsed time for complete user experience
     const totalStartTime = performance.now();
@@ -321,6 +326,7 @@ export function useIfcLoader() {
           // Emit spatial hierarchy EARLY — lets the panel render while
           // property/association parsing continues (~0.5-1s earlier).
           onSpatialReady: (partialStore) => {
+            if (loadSessionRef.current !== currentSession) return;
             if (partialStore.spatialHierarchy && partialStore.spatialHierarchy.storeyHeights.size === 0 && partialStore.spatialHierarchy.storeyElevations.size > 1) {
               const calculatedHeights = calculateStoreyHeights(partialStore.spatialHierarchy.storeyElevations);
               for (const [storeyId, height] of calculatedHeights) {
@@ -331,7 +337,7 @@ export function useIfcLoader() {
             spatialEmitted = true;
           },
         }).then(dataStore => {
-
+          if (loadSessionRef.current !== currentSession) return;
           // Calculate storey heights from elevation differences if not already populated
           if (dataStore.spatialHierarchy && dataStore.spatialHierarchy.storeyHeights.size === 0 && dataStore.spatialHierarchy.storeyElevations.size > 1) {
             const calculatedHeights = calculateStoreyHeights(dataStore.spatialHierarchy.storeyElevations);
@@ -501,6 +507,8 @@ export function useIfcLoader() {
               // Build spatial index and cache in background (non-blocking)
               // Wait for data model to complete first
               dataStorePromise.then(dataStore => {
+                // Guard: skip if user loaded a new file since this load started
+                if (loadSessionRef.current !== currentSession) return;
                 // Build spatial index from meshes (in background)
                 if (allMeshes.length > 0) {
                   const buildIndex = () => {
