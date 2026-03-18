@@ -512,6 +512,7 @@ export function useIfcLoader() {
                 // Build spatial index from meshes (in background)
                 if (allMeshes.length > 0) {
                   const buildIndex = () => {
+                    if (loadSessionRef.current !== currentSession) return;
                     try {
                       const spatialIndex = buildSpatialIndex(allMeshes);
                       dataStore.spatialIndex = spatialIndex;
@@ -521,11 +522,13 @@ export function useIfcLoader() {
                     }
                   };
 
-                  // Use requestIdleCallback if available (type assertion for optional browser API)
+                  // Defer spatial index build so it doesn't block orbit/pan right after load.
+                  // Use requestIdleCallback without a tight timeout — let the browser decide
+                  // when the main thread is genuinely idle.
                   if ('requestIdleCallback' in window) {
-                    (window as { requestIdleCallback: (cb: () => void, opts?: { timeout: number }) => void }).requestIdleCallback(buildIndex, { timeout: 2000 });
+                    (window as { requestIdleCallback: (cb: () => void, opts?: { timeout: number }) => void }).requestIdleCallback(buildIndex, { timeout: 10000 });
                   } else {
-                    setTimeout(buildIndex, 100);
+                    setTimeout(buildIndex, 500);
                   }
                 }
 
