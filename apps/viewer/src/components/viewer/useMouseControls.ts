@@ -339,10 +339,24 @@ export function useMouseControls(params: UseMouseControlsParams): void {
         const rect = canvas.getBoundingClientRect();
         const cx = e.clientX - rect.left;
         const cy = e.clientY - rect.top;
-        const hit = renderer.raycastScene(cx, cy, {
-          hiddenIds: hiddenEntitiesRef.current,
-          isolatedIds: isolatedEntitiesRef.current,
-        });
+
+        // For large models, skip the expensive CPU raycast (collectVisibleMeshData +
+        // BVH build over 200K+ meshes can block the main thread for seconds).
+        // Instead, project the camera target onto the cursor ray for a fast pivot.
+        const scene = renderer.getScene();
+        const batchedMeshes = scene.getBatchedMeshes();
+        let totalEntities = scene.getMeshes().length;
+        for (const b of batchedMeshes) totalEntities += b.expressIds.length;
+        const isLargeModel = totalEntities > 50_000;
+
+        let hit: { intersection: { point: { x: number; y: number; z: number } } } | null = null;
+        if (!isLargeModel) {
+          hit = renderer.raycastScene(cx, cy, {
+            hiddenIds: hiddenEntitiesRef.current,
+            isolatedIds: isolatedEntitiesRef.current,
+          });
+        }
+
         if (hit?.intersection) {
           camera.setOrbitCenter(hit.intersection.point);
         } else if (selectedEntityIdRef.current) {
@@ -354,7 +368,7 @@ export function useMouseControls(params: UseMouseControlsParams): void {
             camera.setOrbitCenter(null);
           }
         } else {
-          // No geometry, no selection — project camera target onto the cursor ray.
+          // No geometry hit or large model — project camera target onto the cursor ray.
           // Places pivot at the model's depth but under the cursor.
           const ray = camera.unprojectToRay(cx, cy, canvas.width, canvas.height);
           const target = camera.getTarget();
