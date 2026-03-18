@@ -120,15 +120,18 @@ self.onmessage = function(e) {
       }
       if (pos === typeStart) continue;
 
-      // Cache type name
-      var typeHash = pos - typeStart;
+      // Cache type name — use length + hash compound key and verify on hit
+      // to avoid silent collisions from 32-bit hash alone.
+      var typeLen = pos - typeStart;
+      var typeHash = typeLen;
       for (var i = typeStart; i < pos; i++) {
         typeHash = (typeHash * 31 + buf[i]) | 0;
       }
-      var typeName = typeCache.get(typeHash);
-      if (typeName === undefined) {
+      var cacheKey = typeLen + ':' + typeHash;
+      var typeName = typeCache.get(cacheKey);
+      if (typeName === undefined || typeName.length !== typeLen) {
         typeName = String.fromCharCode.apply(null, buf.subarray(typeStart, pos));
-        typeCache.set(typeHash, typeName);
+        typeCache.set(cacheKey, typeName);
       }
 
       // Skip whitespace
@@ -180,19 +183,24 @@ self.onmessage = function(e) {
     }
   }
 
-  // Trim arrays and send back
+  // Trim arrays once, reuse for both message and transfer list
+  var needsTrim = ids.buffer.byteLength > count * 4;
+  var trimmedIds = needsTrim ? ids.slice(0, count) : ids;
+  var trimmedOffsets = needsTrim ? offsets.slice(0, count) : offsets;
+  var trimmedLengths = needsTrim ? lengths.slice(0, count) : lengths;
+  var trimmedLines = needsTrim ? lines.slice(0, count) : lines;
   self.postMessage({
-    ids: ids.buffer.byteLength > count * 4 ? ids.slice(0, count).buffer : ids.buffer,
-    offsets: offsets.buffer.byteLength > count * 4 ? offsets.slice(0, count).buffer : offsets.buffer,
-    lengths: lengths.buffer.byteLength > count * 4 ? lengths.slice(0, count).buffer : lengths.buffer,
-    lines: lines.buffer.byteLength > count * 4 ? lines.slice(0, count).buffer : lines.buffer,
+    ids: trimmedIds.buffer,
+    offsets: trimmedOffsets.buffer,
+    lengths: trimmedLengths.buffer,
+    lines: trimmedLines.buffer,
     types: types.slice(0, count),
     count: count,
   }, [
-    ids.buffer.byteLength > count * 4 ? ids.slice(0, count).buffer : ids.buffer,
-    offsets.buffer.byteLength > count * 4 ? offsets.slice(0, count).buffer : offsets.buffer,
-    lengths.buffer.byteLength > count * 4 ? lengths.slice(0, count).buffer : lengths.buffer,
-    lines.buffer.byteLength > count * 4 ? lines.slice(0, count).buffer : lines.buffer,
+    trimmedIds.buffer,
+    trimmedOffsets.buffer,
+    trimmedLengths.buffer,
+    trimmedLines.buffer,
   ]);
 };
 `;
