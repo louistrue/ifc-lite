@@ -538,20 +538,30 @@ export class ColumnarParser {
         const uint8Buffer = new Uint8Array(buffer);
         const totalEntities = entityRefs.length;
 
+        // Phase timing for performance profiling
+        let phaseStart = startTime;
+        const logPhase = (name: string) => {
+            const now = performance.now();
+            console.log(`[parseLite] ${name}: ${Math.round(now - phaseStart)}ms`);
+            phaseStart = now;
+        };
+
         options.onProgress?.({ phase: 'building', percent: 0 });
 
         // Detect schema version from FILE_SCHEMA header
         const schemaVersion = detectSchemaVersion(uint8Buffer);
 
-        // Initialize builders
+        // Initialize builders (entity table capacity set after categorization below)
         const strings = new StringTable();
-        const entityTableBuilder = new EntityTableBuilder(totalEntities, strings);
         const propertyTableBuilder = new PropertyTableBuilder(strings);
         const quantityTableBuilder = new QuantityTableBuilder(strings);
         const relationshipGraphBuilder = new RelationshipGraphBuilder();
 
+        logPhase('init builders');
+
         // Build compact entity index (typed arrays instead of Map for ~3x memory reduction)
         const compactByIdIndex = buildCompactEntityIndex(entityRefs);
+        logPhase('compact entity index');
 
         // Single pass: build byType index AND categorize entities simultaneously.
         // Uses a type-name cache to avoid calling .toUpperCase() on 4.4M refs
@@ -618,6 +628,15 @@ export class ColumnarParser {
             else if (cat === CAT_RELEVANT) otherRelevantRefs.push(ref);
         }
 
+        logPhase(`categorize ${totalEntities} → spatial:${spatialRefs.length} geom:${geometryRefs.length} rel:${relationshipRefs.length} propRel:${propertyRelRefs.length} assocRel:${associationRelRefs.length} type:${typeObjectRefs.length} other:${otherRelevantRefs.length}`);
+
+        // Create entity table builder with EXACT capacity (not totalEntities which
+        // includes millions of geometry-representation entities we don't store).
+        // For a 14M entity file, this reduces allocation from ~546MB to ~20MB.
+        const relevantCount = spatialRefs.length + geometryRefs.length + typeObjectRefs.length
+            + relationshipRefs.length + otherRelevantRefs.length;
+        const entityTableBuilder = new EntityTableBuilder(relevantCount, strings);
+
         const entityIndex = {
             byId: compactByIdIndex as EntityByIdIndex,
             byType,
@@ -661,11 +680,13 @@ export class ColumnarParser {
 
         // Geometry + type object entities: batch extract GlobalId+Name with 2 TextDecoder calls
         options.onProgress?.({ phase: 'parsing geometry names', percent: 12 });
+        logPhase('spatial entities');
         const geomData = batchExtractGlobalIdAndName(uint8Buffer, geometryRefs);
         for (const [id, data] of geomData) parsedEntityData.set(id, data);
 
         await yieldIfNeeded();
 
+        logPhase('batch geom GlobalId+Name');
         const typeData = batchExtractGlobalIdAndName(uint8Buffer, typeObjectRefs);
         for (const [id, data] of typeData) parsedEntityData.set(id, data);
 
@@ -695,6 +716,8 @@ export class ColumnarParser {
             }
         }
 
+        logPhase('byte-level relationships');
+
         // === BUILD ENTITY TABLE from categorized arrays ===
         // Instead of iterating ALL 4.4M entityRefs, iterate only categorized arrays
         // (~100K-200K total). This eliminates a 200-300ms loop over 4.4M items.
@@ -723,7 +746,9 @@ export class ColumnarParser {
         addEntityBatch(relationshipRefs, false, false);
         addEntityBatch(otherRelevantRefs, false, false);
 
+        logPhase('add entity batches');
         const entityTable = entityTableBuilder.build();
+        logPhase('entity table build()');
 
         // Empty property/quantity tables - use on-demand extraction instead
         const propertyTable = propertyTableBuilder.build();
@@ -732,6 +757,7 @@ export class ColumnarParser {
         // Build intermediate relationship graph (spatial/hierarchy edges only).
         // Property/association edges are added later; final graph is rebuilt at the end.
         const hierarchyRelGraph = relationshipGraphBuilder.build();
+        logPhase('hierarchy rel graph build()');
 
         await yieldIfNeeded();
 
@@ -775,6 +801,7 @@ export class ColumnarParser {
             relationships: hierarchyRelGraph,
             spatialHierarchy,
         };
+        logPhase('spatial hierarchy');
         options.onSpatialReady?.(earlyStore);
 
         await yieldIfNeeded(); // Let geometry process after hierarchy emission
@@ -854,6 +881,7 @@ export class ColumnarParser {
         }
 
         // Rebuild relationship graph with ALL edges (hierarchy + property + association)
+        logPhase('property+association rels');
         const fullRelationshipGraph = relationshipGraphBuilder.build();
 
         const parseTime = performance.now() - startTime;
