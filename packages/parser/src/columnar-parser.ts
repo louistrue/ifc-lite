@@ -224,14 +224,14 @@ export class ColumnarParser {
      * Properties are parsed lazily when accessed, not upfront.
      * This provides instant UI responsiveness even for very large files.
      */
-    parseLite(
+    async parseLite(
         buffer: ArrayBuffer,
         entityRefs: EntityRef[],
         options: {
             onProgress?: (progress: { phase: string; percent: number }) => void;
             onSpatialReady?: (partialStore: IfcDataStore) => void;
         } = {}
-    ): IfcDataStore {
+    ): Promise<IfcDataStore> {
         const startTime = performance.now();
         const uint8Buffer = new Uint8Array(buffer);
         const totalEntities = entityRefs.length;
@@ -309,6 +309,12 @@ export class ColumnarParser {
             }
         }
 
+        // Yield to main thread between heavy phases so geometry streaming callbacks
+        // can fire. Only ~5-6 yields total ≈ 5ms overhead (vs 110K+ per-iteration yields).
+        const yieldToGeometry = () => new Promise<void>(resolve => setTimeout(resolve, 0));
+
+        await yieldToGeometry(); // Let geometry process after categorization
+
         // === TARGETED PARSING: Parse spatial and geometry entities for GlobalIds ===
         options.onProgress?.({ phase: 'parsing spatial', percent: 10 });
 
@@ -340,6 +346,8 @@ export class ColumnarParser {
                 parsedEntityData.set(ref.expressId, { globalId, name });
             }
         }
+
+        await yieldToGeometry(); // Let geometry process after heavy geometry parsing
 
         // Parse type objects (IfcWallType, IfcDoorType, etc.) for GlobalId and Name
         // Type objects derive from IfcRoot: attrs[0]=GlobalId, attrs[2]=Name
@@ -416,6 +424,8 @@ export class ColumnarParser {
         // Property/association edges are added later; final graph is rebuilt at the end.
         const hierarchyRelGraph = relationshipGraphBuilder.build();
 
+        await yieldToGeometry(); // Let geometry process before hierarchy build
+
         // === EXTRACT LENGTH UNIT SCALE ===
         options.onProgress?.({ phase: 'extracting units', percent: 85 });
         const lengthUnitScale = extractLengthUnitScale(uint8Buffer, entityIndex);
@@ -457,6 +467,8 @@ export class ColumnarParser {
             spatialHierarchy,
         };
         options.onSpatialReady?.(earlyStore);
+
+        await yieldToGeometry(); // Let geometry process after hierarchy emission
 
         // === DEFERRED: Parse property and association relationships ===
         // These are NOT needed for the spatial hierarchy panel.
@@ -503,6 +515,8 @@ export class ColumnarParser {
                 }
             }
         }
+
+        await yieldToGeometry(); // Let geometry process after property parsing
 
         // === DEFERRED: Parse association relationships ===
         options.onProgress?.({ phase: 'parsing associations', percent: 95 });

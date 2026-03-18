@@ -269,7 +269,7 @@ export class IfcParser {
 
     // Build columnar structures with on-demand property extraction
     const columnarParser = new ColumnarParser();
-    const dataStore = columnarParser.parseLite(buffer, entityRefs, options);
+    const dataStore = await columnarParser.parseLite(buffer, entityRefs, options);
     console.log(`[ColumnarParser] Parsed ${dataStore.entityCount} entities in ${dataStore.parseTime.toFixed(0)}ms`);
     return dataStore;
   }
