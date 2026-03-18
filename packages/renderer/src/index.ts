@@ -323,12 +323,15 @@ export class Renderer {
         const device = this.device.getDevice();
         const viewProj = this.camera.getViewProjMatrix().m;
         const visualEnhancement = this.resolveVisualEnhancement(options.visualEnhancement);
-        const edgeEnabled = visualEnhancement.enabled && visualEnhancement.edgeContrast.enabled;
+        // Skip expensive visual effects during interaction (orbit/pan/zoom)
+        // to keep frame times low on integrated GPUs (MacBook Air etc.)
+        const interacting = options.isInteracting === true;
+        const edgeEnabled = !interacting && visualEnhancement.enabled && visualEnhancement.edgeContrast.enabled;
         const edgeIntensity = Math.min(3.0, Math.max(0.0, visualEnhancement.edgeContrast.intensity));
         const edgeEnabledU32 = edgeEnabled ? 1 : 0;
         const edgeIntensityMilliU32 = Math.round(edgeIntensity * 1000);
-        const contactEnabled = visualEnhancement.enabled && visualEnhancement.contactShading.quality !== 'off';
-        const separationEnabled = visualEnhancement.enabled
+        const contactEnabled = !interacting && visualEnhancement.enabled && visualEnhancement.contactShading.quality !== 'off';
+        const separationEnabled = !interacting && visualEnhancement.enabled
             && visualEnhancement.separationLines.enabled
             && visualEnhancement.separationLines.quality !== 'off';
         const needsObjectIdPass = contactEnabled || separationEnabled;

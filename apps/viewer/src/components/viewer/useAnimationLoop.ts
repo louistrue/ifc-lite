@@ -161,7 +161,7 @@ export function useAnimationLoop(params: UseAnimationLoopParams): void {
           selectedModelIndex: selectedModelIndexRef.current,
           clearColor: clearColorRef.current,
           visualEnhancement: visualEnhancementRef.current,
-          isInteracting: isInteractingRef.current,
+          isInteracting: isInteractingRef.current || isAnimating,
           buildingRotation: coordinateInfoRef.current?.buildingRotation,
           sectionPlane: activeToolRef.current === 'section' ? {
             ...sectionPlaneRef.current,
