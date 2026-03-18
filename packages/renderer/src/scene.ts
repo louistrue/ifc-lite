@@ -406,36 +406,22 @@ export class Scene {
   finalizeStreaming(device: GPUDevice, pipeline: RenderPipeline): void {
     if (this.streamingFragments.length === 0) return;
 
-    // 1. Destroy all fragment GPU resources
-    const fragmentSet = new Set(this.streamingFragments);
-    for (const fragment of this.streamingFragments) {
-      fragment.vertexBuffer.destroy();
-      fragment.indexBuffer.destroy();
-      if (fragment.uniformBuffer) {
-        fragment.uniformBuffer.destroy();
-      }
-    }
+    // Save references to old fragments/batches — keep them rendering
+    // until the new proper batches are fully built (no visual gap).
+    const oldFragments = this.streamingFragments;
+    const oldBatches = this.batchedMeshes;
+    const fragmentSet = new Set(oldFragments);
     this.streamingFragments = [];
 
-    // 2. Destroy any pre-existing proper batches (non-fragments)
-    for (const batch of this.batchedMeshes) {
-      if (!fragmentSet.has(batch)) {
-        batch.vertexBuffer.destroy();
-        batch.indexBuffer.destroy();
-        if (batch.uniformBuffer) {
-          batch.uniformBuffer.destroy();
-        }
-      }
-    }
-
-    // 3. Collect ALL accumulated meshData before clearing state
+    // 1. Collect ALL accumulated meshData before clearing state
     const allMeshData: MeshData[] = [];
     for (const data of this.batchedMeshData.values()) {
       for (const md of data) allMeshData.push(md);
     }
 
-    // 4. Clear all bucket/batch state for a clean rebuild
-    this.batchedMeshes = [];
+    // 2. Clear all bucket/batch state for a clean rebuild
+    // NOTE: batchedMeshes keeps the OLD array reference — the renderer
+    // continues to draw from it until we swap in the new array below.
     this.batchedMeshMap.clear();
     this.batchedMeshIndex.clear();
     this.batchedMeshData.clear();
@@ -455,7 +441,7 @@ export class Scene {
     this.partialBatchCache.clear();
     this.partialBatchCacheKeys.clear();
 
-    // 5. Re-group ALL meshData by their CURRENT color.
+    // 3. Re-group ALL meshData by their CURRENT color.
     //    meshData.color may have been mutated in-place since the mesh was
     //    first bucketed, so the original bucket key is stale. Re-grouping
     //    by current color ensures batches render with correct colors.
@@ -473,68 +459,27 @@ export class Scene {
       this.pendingBatchKeys.add(bucketKey);
     }
 
-    // 6. Incremental rebuild: process batch keys in time-sliced chunks
-    //    to avoid a 500-800ms frame freeze. Fragments are already destroyed
-    //    above so the scene is momentarily empty, but batches appear within
-    //    one frame as each chunk completes.
-    this.rebuildPendingBatchesIncremental(device, pipeline);
-  }
+    // 4. Build new proper batches into a fresh array
+    this.batchedMeshes = [];
+    this.rebuildPendingBatches(device, pipeline);
 
-  /**
-   * Rebuild pending batches incrementally, yielding to the browser every ~4ms
-   * to maintain 60fps during the rebuild. Falls back to synchronous rebuild
-   * if requestAnimationFrame is unavailable.
-   */
-  private rebuildPendingBatchesIncremental(device: GPUDevice, pipeline: RenderPipeline): void {
-    if (this.pendingBatchKeys.size === 0) return;
-
-    const keys = Array.from(this.pendingBatchKeys);
-    this.pendingBatchKeys.clear();
-    let idx = 0;
-    const BUDGET_MS = 4; // ~4ms per chunk to maintain 60fps
-
-    const processChunk = () => {
-      const start = performance.now();
-      while (idx < keys.length && (performance.now() - start) < BUDGET_MS) {
-        const key = keys[idx++];
-        const meshDataForKey = this.batchedMeshData.get(key);
-        const existingBatch = this.batchedMeshMap.get(key);
-
-        if (existingBatch) {
-          existingBatch.vertexBuffer.destroy();
-          existingBatch.indexBuffer.destroy();
-          if (existingBatch.uniformBuffer) {
-            existingBatch.uniformBuffer.destroy();
-          }
-        }
-
-        if (!meshDataForKey || meshDataForKey.length === 0) {
-          this.batchedMeshMap.delete(key);
-          this.batchedMeshData.delete(key);
-          continue;
-        }
-
-        const color = meshDataForKey[0].color;
-        const batch = this.createBatchedMesh(meshDataForKey, color, device, pipeline, key);
-        this.batchedMeshMap.set(key, batch);
-
-        // Update flat array
-        const existingIdx = this.batchedMeshIndex.get(key);
-        if (existingIdx !== undefined) {
-          this.batchedMeshes[existingIdx] = batch;
-        } else {
-          this.batchedMeshIndex.set(key, this.batchedMeshes.length);
-          this.batchedMeshes.push(batch);
+    // 5. NOW destroy old fragment/batch GPU resources (new batches are live)
+    for (const fragment of oldFragments) {
+      fragment.vertexBuffer.destroy();
+      fragment.indexBuffer.destroy();
+      if (fragment.uniformBuffer) {
+        fragment.uniformBuffer.destroy();
+      }
+    }
+    for (const batch of oldBatches) {
+      if (!fragmentSet.has(batch)) {
+        batch.vertexBuffer.destroy();
+        batch.indexBuffer.destroy();
+        if (batch.uniformBuffer) {
+          batch.uniformBuffer.destroy();
         }
       }
-
-      if (idx < keys.length) {
-        // More keys to process — yield and continue next frame
-        setTimeout(processChunk, 0);
-      }
-    };
-
-    processChunk();
+    }
   }
 
   /**

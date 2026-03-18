@@ -265,10 +265,14 @@ export class ColumnarParser {
         };
 
         // Time-based yielding: yield every ~4ms to maintain 60fps during parsing.
-        // Much better than count-based yielding which can block for 100ms+ on fast loops.
+        // IMPORTANT: performance.now() is expensive at millions of calls, so we
+        // gate it behind a counter — only check wall-clock every 2000 iterations.
         let lastYieldTime = performance.now();
-        const YIELD_BUDGET_MS = 4; // ~4ms = one frame at 60fps, leaves room for rendering
+        let yieldCounter = 0;
+        const YIELD_BUDGET_MS = 4;
+        const YIELD_CHECK_INTERVAL = 2000; // Check time every 2000 iterations
         const maybeYield = async () => {
+            if (++yieldCounter % YIELD_CHECK_INTERVAL !== 0) return;
             const now = performance.now();
             if (now - lastYieldTime > YIELD_BUDGET_MS) {
                 await new Promise<void>(resolve => setTimeout(resolve, 0));
