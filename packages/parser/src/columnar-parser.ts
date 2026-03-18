@@ -264,15 +264,12 @@ export class ColumnarParser {
             byType,
         };
 
-        // Time-based yielding: yield every ~4ms to maintain 60fps during parsing.
-        // IMPORTANT: performance.now() is expensive at millions of calls, so we
-        // gate it behind a counter — only check wall-clock every 2000 iterations.
+        // Time-based yielding for smaller loops (relationships, properties, etc.)
+        // CRITICAL: Do NOT use in 4.4M-iteration loops — even a no-op `await`
+        // creates a Promise+microtask per call, adding 8-10s of overhead.
         let lastYieldTime = performance.now();
-        let yieldCounter = 0;
         const YIELD_BUDGET_MS = 4;
-        const YIELD_CHECK_INTERVAL = 2000; // Check time every 2000 iterations
         const maybeYield = async () => {
-            if (++yieldCounter % YIELD_CHECK_INTERVAL !== 0) return;
             const now = performance.now();
             if (now - lastYieldTime > YIELD_BUDGET_MS) {
                 await new Promise<void>(resolve => setTimeout(resolve, 0));
@@ -308,7 +305,7 @@ export class ColumnarParser {
             } else if (isIfcTypeLikeEntity(typeUpper)) {
                 typeObjectRefs.push(ref);
             }
-            await maybeYield();
+            // No yield here — 4.4M iterations of Set.has() + push is <100ms sync
         }
 
         // === TARGETED PARSING: Parse spatial and geometry entities for GlobalIds ===
@@ -539,11 +536,10 @@ export class ColumnarParser {
             added++;
 
             processed++;
-            // Time-based yield to maintain 60fps
             if (processed % 5000 === 0) {
                 options.onProgress?.({ phase: 'building entities', percent: 30 + (processed / totalEntities) * 50 });
             }
-            await maybeYield();
+            // No yield here — 4.4M iterations of filter + map.set is <200ms sync
         }
         
         const entityTable = entityTableBuilder.build();
