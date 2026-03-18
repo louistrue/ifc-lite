@@ -808,45 +808,54 @@ export class ColumnarParser {
 
         // === DEFERRED: Parse property and association relationships ===
         // These are NOT needed for the spatial hierarchy panel.
-        // Parsing ~60K entities here adds ~0.5-1s that no longer blocks the panel.
         options.onProgress?.({ phase: 'parsing property refs', percent: 92 });
 
         const onDemandPropertyMap = new Map<number, number[]>();
         const onDemandQuantityMap = new Map<number, number[]>();
 
-        // Property rels: byte-level scanning (numbers only, no TextDecoder)
+        // Pre-build Sets of property set / quantity set IDs from already-categorized refs.
+        // This replaces 252K binary searches on the 14M compact entity index with O(1) Set lookups.
+        const propertySetIds = new Set<number>();
+        const quantitySetIds = new Set<number>();
+        for (const ref of propertyEntityRefs) {
+            const tu = getTypeUpper(ref.type);
+            if (tu === 'IFCPROPERTYSET') propertySetIds.add(ref.expressId);
+            else if (tu === 'IFCELEMENTQUANTITY') quantitySetIds.add(ref.expressId);
+        }
+
+        // Property rels: byte-level scanning + addEdge (now fast with SoA builder).
+        let totalPropRelObjects = 0;
         for (let pi = 0; pi < propertyRelRefs.length; pi++) {
             if ((pi & 0x3FF) === 0) await yieldIfNeeded();
             const ref = propertyRelRefs[pi];
             const result = extractPropertyRelFast(uint8Buffer, ref.byteOffset, ref.byteLength);
             if (result) {
                 const { relatedObjects, relatingDef } = result;
+                totalPropRelObjects += relatedObjects.length;
 
                 for (const objId of relatedObjects) {
                     relationshipGraphBuilder.addEdge(relatingDef, objId, RelationshipType.DefinesByProperties, ref.expressId);
                 }
 
-                const defRef = entityIndex.byId.get(relatingDef);
-                if (defRef) {
-                    const defTypeUpper = getTypeUpper(defRef.type);
-                    const isPropertySet = defTypeUpper === 'IFCPROPERTYSET';
-                    const isQuantitySet = defTypeUpper === 'IFCELEMENTQUANTITY';
+                // Build on-demand property/quantity maps using pre-built Sets (O(1) vs binary search)
+                const isPropSet = propertySetIds.has(relatingDef);
+                const isQtySet = !isPropSet && quantitySetIds.has(relatingDef);
 
-                    if (isPropertySet || isQuantitySet) {
-                        const targetMap = isPropertySet ? onDemandPropertyMap : onDemandQuantityMap;
-                        for (const objId of relatedObjects) {
-                            let list = targetMap.get(objId);
-                            if (!list) { list = []; targetMap.set(objId, list); }
-                            list.push(relatingDef);
-                        }
+                if (isPropSet || isQtySet) {
+                    const targetMap = isPropSet ? onDemandPropertyMap : onDemandQuantityMap;
+                    for (const objId of relatedObjects) {
+                        let list = targetMap.get(objId);
+                        if (!list) { list = []; targetMap.set(objId, list); }
+                        list.push(relatingDef);
                     }
                 }
             }
         }
+        console.log(`[parseLite] propertyRels: ${propertyRelRefs.length} rels, ${totalPropRelObjects} total relatedObjects`);
 
         await yieldIfNeeded();
 
-        // Association rels: byte-level scanning (numbers only, no TextDecoder)
+        // Association rels: byte-level scanning, no addEdge (same reasoning as property rels)
         options.onProgress?.({ phase: 'parsing associations', percent: 95 });
 
         const onDemandClassificationMap = new Map<number, number[]>();
@@ -854,7 +863,6 @@ export class ColumnarParser {
         const onDemandDocumentMap = new Map<number, number[]>();
 
         for (const ref of associationRelRefs) {
-            // Same layout as property rels: attr[4]=relatedObjects, attr[5]=relatingRef
             const result = extractPropertyRelFast(uint8Buffer, ref.byteOffset, ref.byteLength);
             if (result) {
                 const { relatedObjects, relatingDef: relatingRef } = result;
@@ -883,6 +891,7 @@ export class ColumnarParser {
         // Rebuild relationship graph with ALL edges (hierarchy + property + association)
         logPhase('property+association rels');
         const fullRelationshipGraph = relationshipGraphBuilder.build();
+        logPhase('relationship graph build()');
 
         const parseTime = performance.now() - startTime;
         options.onProgress?.({ phase: 'complete', percent: 100 });
