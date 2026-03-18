@@ -118,6 +118,7 @@ export class Renderer {
 
     // Diagnostic frame counter
     private _renderFrameCount: number = 0;
+    private _interactionLogCount: number = 0;
 
     // Dirty flag: set by requestRender(), consumed by the animation loop.
     // Centralises all render scheduling — callers never call render() directly.
@@ -1052,7 +1053,7 @@ export class Renderer {
             device.queue.submit([encoder.finish()]);
 
             const _renderMs = performance.now() - _rt0;
-            if (_logFrame || _renderMs > 50) {
+            if (_logFrame || _renderMs > 50 || (interacting && this._interactionLogCount++ < 30)) {
                 const batchCount = this.scene.getBatchedMeshes().length;
                 const meshCount = meshes.length;
                 console.log(

@@ -93,6 +93,7 @@ export function useAnimationLoop(params: UseAnimationLoopParams): void {
     let lastScaleUpdate = 0;
     let lastRenderTime = 0;
     let frameLogCounter = 0;
+    let interactionLogCount = 0;
 
     // Adaptive render throttle: large models get fewer FPS during continuous
     // rendering (interaction + inertia) to prevent the main thread from being
@@ -173,8 +174,9 @@ export function useAnimationLoop(params: UseAnimationLoopParams): void {
           } : undefined,
         });
         const renderMs = performance.now() - t0;
-        if (renderMs > 16 || frameLogCounter++ < 5) {
-          console.log(`[AnimLoop] render: ${renderMs.toFixed(1)}ms | interacting=${isInteractingRef.current} animating=${isAnimating} throttle=${continuousThrottleMs}ms deltaFrame=${deltaTime.toFixed(0)}ms`);
+        const isInteractionFrame = isInteractingRef.current || isAnimating;
+        if (renderMs > 16 || frameLogCounter++ < 5 || (isInteractionFrame && interactionLogCount++ < 30)) {
+          console.log(`[AnimLoop] render: ${renderMs.toFixed(1)}ms | interacting=${isInteractingRef.current} animating=${isAnimating} throttle=${continuousThrottleMs}ms deltaFrame=${deltaTime.toFixed(0)}ms batches=${scene.getBatchedMeshes().length}`);
         }
         lastRenderTime = currentTime;
       }

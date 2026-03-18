@@ -275,7 +275,10 @@ export function useGeometryStreaming(params: UseGeometryStreamingParams): void {
         if (dev && pipe) {
           const t0 = performance.now();
           r.getScene().finalizeStreamingAsync(dev, pipe).then(() => {
-            console.log(`[GeomStream] finalizeStreamingAsync complete: ${(performance.now() - t0).toFixed(0)}ms`);
+            const batchCount = r.getScene().getBatchedMeshes().length;
+            let totalIdx = 0;
+            for (const b of r.getScene().getBatchedMeshes()) totalIdx += b.indexCount;
+            console.log(`[GeomStream] finalizeStreamingAsync complete: ${(performance.now() - t0).toFixed(0)}ms → ${batchCount} consolidated batches, ${(totalIdx / 3 / 1e6).toFixed(1)}M triangles`);
             r.clearCaches();
             r.requestRender();
           });
