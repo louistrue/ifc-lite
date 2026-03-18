@@ -72,6 +72,9 @@ export interface UseMouseControlsParams {
   lastRenderTimeRef: MutableRefObject<number>;
   renderPendingRef: MutableRefObject<boolean>;
 
+  // Interaction state — set during drag, cleared on mouseup
+  isInteractingRef: MutableRefObject<boolean>;
+
   // Click detection refs
   lastClickTimeRef: MutableRefObject<number>;
   lastClickPosRef: MutableRefObject<{ x: number; y: number } | null>;
@@ -197,6 +200,7 @@ export function useMouseControls(params: UseMouseControlsParams): void {
     hoverTooltipsEnabledRef,
     lastRenderTimeRef,
     renderPendingRef,
+    isInteractingRef,
     lastClickTimeRef,
     lastClickPosRef,
     lastCameraStateRef,
@@ -715,57 +719,16 @@ export function useMouseControls(params: UseMouseControlsParams): void {
         mouseState.lastX = e.clientX;
         mouseState.lastY = e.clientY;
 
-        // PERFORMANCE: Adaptive throttle based on model size
-        // Small models: 60fps, Large: 40fps, Huge: 30fps
-        const meshCount = geometryRef.current?.length ?? 0;
-        const throttleMs = meshCount > 50000 ? RENDER_THROTTLE_MS_HUGE
-          : meshCount > 10000 ? RENDER_THROTTLE_MS_LARGE
-            : RENDER_THROTTLE_MS_SMALL;
+        // Signal the animation loop to render.
+        // No throttle needed — the loop runs at display refresh rate and
+        // coalesces multiple requestRender() calls into one frame.
+        isInteractingRef.current = true;
+        renderer.requestRender();
+        updateCameraRotationRealtime(camera.getRotation());
+        calculateScale();
 
-        const now = performance.now();
-        if (now - lastRenderTimeRef.current >= throttleMs) {
-          lastRenderTimeRef.current = now;
-          renderer.render({
-            hiddenIds: hiddenEntitiesRef.current,
-            isolatedIds: isolatedEntitiesRef.current,
-            selectedId: selectedEntityIdRef.current,
-            selectedModelIndex: selectedModelIndexRef.current,
-            clearColor: clearColorRef.current,
-            isInteracting: true,
-            sectionPlane: activeToolRef.current === 'section' ? {
-              ...sectionPlaneRef.current,
-              min: sectionRangeRef.current?.min,
-              max: sectionRangeRef.current?.max,
-            } : undefined,
-          });
-          // Update ViewCube rotation in real-time during drag
-          updateCameraRotationRealtime(camera.getRotation());
-          calculateScale();
-        } else if (!renderPendingRef.current) {
-          // Schedule a final render for when throttle expires
-          // IMPORTANT: Keep isInteracting: true during drag to prevent flickering
-          // caused by post-processing toggling on/off between throttled frames.
-          // Post-processing is restored on mouseup (non-interacting render).
-          renderPendingRef.current = true;
-          requestAnimationFrame(() => {
-            renderPendingRef.current = false;
-            renderer.render({
-              hiddenIds: hiddenEntitiesRef.current,
-              isolatedIds: isolatedEntitiesRef.current,
-              selectedId: selectedEntityIdRef.current,
-              selectedModelIndex: selectedModelIndexRef.current,
-              clearColor: clearColorRef.current,
-              isInteracting: true,
-              sectionPlane: activeToolRef.current === 'section' ? {
-                ...sectionPlaneRef.current,
-                min: sectionRangeRef.current?.min,
-                max: sectionRangeRef.current?.max,
-              } : undefined,
-            });
-            updateCameraRotationRealtime(camera.getRotation());
-            calculateScale();
-          });
-        }
+
+
         // Clear hover while dragging
         clearHover();
       } else if (hoverTooltipsEnabledRef.current) {
@@ -785,6 +748,12 @@ export function useMouseControls(params: UseMouseControlsParams): void {
     };
 
     const handleMouseUp = (e: MouseEvent) => {
+      // Clear interaction flag so the animation loop restores post-processing
+      if (isInteractingRef.current) {
+        isInteractingRef.current = false;
+        renderer.requestRender();
+      }
+
       const tool = activeToolRef.current;
 
       // Handle measure tool completion
@@ -902,61 +871,23 @@ export function useMouseControls(params: UseMouseControlsParams): void {
       openContextMenu(pickResult?.expressId ?? null, e.clientX, e.clientY);
     };
 
+    // Debounce: clear isInteracting 150ms after the last wheel event
+    let wheelIdleTimer: ReturnType<typeof setTimeout> | null = null;
+
     const handleWheel = (e: WheelEvent) => {
       e.preventDefault();
+      if (wheelIdleTimer) clearTimeout(wheelIdleTimer);
+      wheelIdleTimer = setTimeout(() => {
+        isInteractingRef.current = false;
+        renderer.requestRender();
+      }, 150);
       const rect = canvas.getBoundingClientRect();
       const mouseX = e.clientX - rect.left;
       const mouseY = e.clientY - rect.top;
       camera.zoom(e.deltaY, false, mouseX, mouseY, canvas.width, canvas.height);
 
-      // PERFORMANCE: Adaptive throttle for wheel zoom (same as orbit)
-      // Without this, every wheel event triggers a synchronous render —
-      // wheel events fire at 60-120Hz which overwhelms the GPU on large models.
-      const meshCount = geometryRef.current?.length ?? 0;
-      const throttleMs = meshCount > 50000 ? RENDER_THROTTLE_MS_HUGE
-        : meshCount > 10000 ? RENDER_THROTTLE_MS_LARGE
-          : RENDER_THROTTLE_MS_SMALL;
-
-      const now = performance.now();
-      if (now - lastRenderTimeRef.current >= throttleMs) {
-        lastRenderTimeRef.current = now;
-        renderer.render({
-          hiddenIds: hiddenEntitiesRef.current,
-          isolatedIds: isolatedEntitiesRef.current,
-          selectedId: selectedEntityIdRef.current,
-          selectedModelIndex: selectedModelIndexRef.current,
-          clearColor: clearColorRef.current,
-          isInteracting: true,
-          sectionPlane: activeToolRef.current === 'section' ? {
-            ...sectionPlaneRef.current,
-            min: sectionRangeRef.current?.min,
-            max: sectionRangeRef.current?.max,
-          } : undefined,
-        });
-        calculateScale();
-      } else if (!renderPendingRef.current) {
-        // Schedule a final render to ensure we always render the last zoom position
-        // IMPORTANT: Keep isInteracting: true to prevent flickering from post-processing
-        // toggling. Post-processing is restored by the zoom idle timer below.
-        renderPendingRef.current = true;
-        requestAnimationFrame(() => {
-          renderPendingRef.current = false;
-          renderer.render({
-            hiddenIds: hiddenEntitiesRef.current,
-            isolatedIds: isolatedEntitiesRef.current,
-            selectedId: selectedEntityIdRef.current,
-            selectedModelIndex: selectedModelIndexRef.current,
-            clearColor: clearColorRef.current,
-            isInteracting: true,
-            sectionPlane: activeToolRef.current === 'section' ? {
-              ...sectionPlaneRef.current,
-              min: sectionRangeRef.current?.min,
-              max: sectionRangeRef.current?.max,
-            } : undefined,
-          });
-          calculateScale();
-        });
-      }
+      isInteractingRef.current = true;
+      renderer.requestRender();
 
       // Update measurement screen coordinates immediately during zoom (only in measure mode)
       if (activeToolRef.current === 'measure') {
@@ -1051,6 +982,7 @@ export function useMouseControls(params: UseMouseControlsParams): void {
       canvas.removeEventListener('contextmenu', handleContextMenu);
       canvas.removeEventListener('wheel', handleWheel);
       canvas.removeEventListener('click', handleClick);
+      if (wheelIdleTimer) clearTimeout(wheelIdleTimer);
 
       // Cancel pending raycast requests
       if (measureRaycastFrameRef.current !== null) {

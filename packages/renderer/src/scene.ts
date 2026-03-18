@@ -59,6 +59,12 @@ export class Scene {
   // Destroyed and replaced by proper merged batches in finalizeStreaming().
   private streamingFragments: BatchedMesh[] = [];
 
+  // ─── Mesh command queue ────────────────────────────────────────────
+  // Decouples React state updates from GPU work.  Callers push meshes
+  // via queueMeshes() (instant, no GPU), and the animation loop drains
+  // the queue via flushPending() with a per-frame time budget.
+  private meshQueue: MeshData[] = [];
+
   // ─── GPU-resident mode ──────────────────────────────────────────────
   // After releaseGeometryData(), JS-side typed arrays are freed.
   // Only lightweight metadata is retained for operations that don't need
@@ -358,6 +364,44 @@ export class Scene {
    */
   hasPendingBatches(): boolean {
     return this.pendingBatchKeys.size > 0;
+  }
+
+  // ─── Mesh command queue ──────────────────────────────────────────────
+
+  /**
+   * Queue meshes for deferred GPU upload.
+   * Instant (no GPU work) — safe to call from React effects.
+   * The animation loop calls flushPending() each frame to drain the queue.
+   */
+  queueMeshes(meshes: MeshData[]): void {
+    for (let i = 0; i < meshes.length; i++) {
+      this.meshQueue.push(meshes[i]);
+    }
+  }
+
+  /** True if the mesh queue has pending work. */
+  hasQueuedMeshes(): boolean {
+    return this.meshQueue.length > 0;
+  }
+
+  /**
+   * Drain the mesh queue with a per-frame time budget.
+   * Processes queued meshes through appendToBatches in streaming mode
+   * (creates lightweight fragment batches for immediate rendering).
+   *
+   * @returns true if any meshes were processed (caller should render)
+   */
+  flushPending(device: GPUDevice, pipeline: RenderPipeline, budgetMs: number = 8): boolean {
+    if (this.meshQueue.length === 0) return false;
+
+    // Drain the entire queue in one appendToBatches call.
+    // The queue coalesces multiple React batches into a single GPU upload,
+    // which is already bounded by the WASM→JS batch interval (~50-200ms).
+    // If individual uploads become too large, time-slice here.
+    const meshes = this.meshQueue;
+    this.meshQueue = [];
+    this.appendToBatches(meshes, device, pipeline, true);
+    return true;
   }
 
   /**

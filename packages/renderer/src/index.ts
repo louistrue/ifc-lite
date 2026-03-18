@@ -116,6 +116,10 @@ export class Renderer {
     private lastRenderErrorTime: number = 0;
     private readonly RENDER_ERROR_THROTTLE_MS = 1000;
 
+    // Dirty flag: set by requestRender(), consumed by the animation loop.
+    // Centralises all render scheduling — callers never call render() directly.
+    private _renderRequested: boolean = false;
+
     // Pooled per-frame buffers to avoid GC pressure from per-batch Float32Array allocations
     // A single 192-byte uniform buffer (48 floats) is reused for all batches/meshes within a frame
     private readonly uniformScratch = new Float32Array(48);
@@ -1113,6 +1117,31 @@ export class Renderer {
      */
     clearCaches(): void {
         this.raycastEngine.clearCaches();
+    }
+
+    // ─── Dirty-flag render scheduling ────────────────────────────────────
+    // The animation loop is THE render path.  Everything else (mouse, touch,
+    // keyboard, streaming, visibility changes, theme changes) calls
+    // requestRender() to set the dirty flag.  The loop drains scene queues,
+    // resolves render options via refs, and issues a single render() call.
+
+    /**
+     * Request a render on the next animation frame.
+     * Safe to call many times per frame — only one render will happen.
+     */
+    requestRender(): void {
+        this._renderRequested = true;
+    }
+
+    /**
+     * Consume the render request flag.  Returns true (and resets the flag)
+     * if a render was requested since the last call.  Used by the animation
+     * loop to decide whether to render.
+     */
+    consumeRenderRequest(): boolean {
+        if (!this._renderRequested) return false;
+        this._renderRequested = false;
+        return true;
     }
 
     /**

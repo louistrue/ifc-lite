@@ -3,12 +3,23 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 /**
- * Geometry streaming hook for the 3D viewport
- * Handles mesh batching, incremental loading, dedup, camera fitting
+ * Geometry streaming hook for the 3D viewport.
+ *
+ * Responsibilities:
+ *   1. Detect new / incremental / cleared geometry and manage scene state.
+ *   2. During streaming: queue meshes via scene.queueMeshes() (instant, no GPU).
+ *      The animation loop drains the queue each frame with a time budget.
+ *   3. On streaming complete: time-sliced finalize + bounds refit.
+ *   4. Camera fitting (initial + post-stream refit).
+ *   5. Color update effects (mesh recolor + lens overlays).
+ *
+ * This hook NEVER calls renderer.render() directly.  All render scheduling
+ * goes through renderer.requestRender(), and the single animation loop
+ * issues the actual render() call.
  */
 
 import { useEffect, useRef, type MutableRefObject } from 'react';
-import { Renderer, MathUtils, type Scene, type RenderPipeline } from '@ifc-lite/renderer';
+import type { Renderer } from '@ifc-lite/renderer';
 import type { MeshData, CoordinateInfo } from '@ifc-lite/geometry';
 
 export interface UseGeometryStreamingParams {
@@ -25,9 +36,16 @@ export interface UseGeometryStreamingParams {
   pendingColorUpdates: Map<number, [number, number, number, number]> | null;
   clearPendingMeshColorUpdates: () => void;
   clearPendingColorUpdates: () => void;
-  // Clear color ref — color update renders must preserve theme background
   clearColorRef: MutableRefObject<[number, number, number, number]>;
 }
+
+// Default bounds used when geometry is cleared
+const DEFAULT_BOUNDS = {
+  min: { x: -100, y: -100, z: -100 },
+  max: { x: 100, y: 100, z: 100 },
+};
+
+const MAX_VALID_COORD = 10000;
 
 export function useGeometryStreaming(params: UseGeometryStreamingParams): void {
   const {
@@ -45,50 +63,35 @@ export function useGeometryStreaming(params: UseGeometryStreamingParams): void {
     clearColorRef,
   } = params;
 
-  // Track processed meshes for incremental updates
-  // Uses string keys to support compound keys (expressId:color) for submeshes
+  // ─── Tracking refs ───────────────────────────────────────────────────
   const processedMeshIdsRef = useRef<Set<string>>(new Set());
-  const lastGeometryLengthRef = useRef<number>(0);
+  const lastGeometryLengthRef = useRef(0);
   const lastGeometryRef = useRef<MeshData[] | null>(null);
-  const cameraFittedRef = useRef<boolean>(false);
-  const finalBoundsRefittedRef = useRef<boolean>(false); // Track if we've refitted after streaming
+  const cameraFittedRef = useRef(false);
+  const finalBoundsRefittedRef = useRef(false);
+  const cameraSnapshotRef = useRef<{ px: number; py: number; pz: number; tx: number; ty: number; tz: number } | null>(null);
+  const prevIsStreamingRef = useRef(isStreaming);
 
-  // Track camera state after initial fit to detect user interaction during streaming.
-  // If user orbits/pans/zooms during streaming, we preserve their position at completion
-  // instead of snapping back to the computed view. Bounds still update for "home" etc.
-  const cameraStateAfterFitRef = useRef<{ px: number; py: number; pz: number; tx: number; ty: number; tz: number } | null>(null);
-
-  // Render throttling during streaming
-  const lastStreamRenderTimeRef = useRef<number>(0);
-  const STREAM_RENDER_THROTTLE_MS = 200; // Render at most every 200ms during streaming
-
-  // Queue for deferred streaming fragment creation.
-  // Instead of blocking the main thread with mergeGeometry per streaming batch,
-  // we queue meshes and process them in the next rAF, so orbit/pan events can fire.
-  const pendingStreamMeshesRef = useRef<MeshData[]>([]);
-  const streamRafRef = useRef<number | null>(null);
-
+  // ─── Main geometry effect ────────────────────────────────────────────
+  // Runs on every geometry change (new file, incremental batch, visibility toggle).
+  // During streaming this is hot-path — it must be FAST (no GPU work).
   useEffect(() => {
     const renderer = rendererRef.current;
 
-    // Handle geometry cleared/null - reset refs so next load is treated as new file
+    // Geometry cleared/null — reset so next load is fresh
     if (!geometry) {
       if (lastGeometryLengthRef.current > 0 || lastGeometryRef.current !== null) {
-        // Geometry was cleared - reset tracking refs
         lastGeometryLengthRef.current = 0;
         lastGeometryRef.current = null;
         processedMeshIdsRef.current.clear();
         cameraFittedRef.current = false;
         finalBoundsRefittedRef.current = false;
-        cameraStateAfterFitRef.current = null;
-        // Clear scene if renderer is ready
+        cameraSnapshotRef.current = null;
         if (renderer && isInitialized) {
           renderer.getScene().clear();
           renderer.getCamera().reset();
-          geometryBoundsRef.current = {
-            min: { x: -100, y: -100, z: -100 },
-            max: { x: 100, y: 100, z: 100 },
-          };
+          geometryBoundsRef.current = { ...DEFAULT_BOUNDS };
+          renderer.requestRender();
         }
       }
       return;
@@ -103,120 +106,75 @@ export function useGeometryStreaming(params: UseGeometryStreamingParams): void {
     const currentLength = geometry.length;
     const lastLength = lastGeometryLengthRef.current;
 
-    // Use length-based detection instead of reference comparison
-    // React creates new array references on every appendGeometryBatch call,
-    // so reference comparison would always trigger scene.clear()
+    // ── Classify the change ──
     const isIncremental = currentLength > lastLength && lastLength > 0;
     const isNewFile = currentLength > 0 && lastLength === 0;
     const isCleared = currentLength === 0;
 
     if (isCleared) {
-      // Geometry cleared (could be visibility change or file unload)
-      // Clear scene but DON'T reset camera - user may just be hiding models
       scene.clear();
       processedMeshIdsRef.current.clear();
-      // Keep cameraFittedRef to preserve camera position when models are shown again
       lastGeometryLengthRef.current = 0;
       lastGeometryRef.current = null;
-      // Note: Don't reset camera or bounds - preserve user's view
+      renderer.requestRender();
       return;
-    } else if (isNewFile) {
-      // New file loaded - reset camera and bounds
+    }
+
+    if (isNewFile) {
       scene.clear();
       processedMeshIdsRef.current.clear();
       cameraFittedRef.current = false;
       finalBoundsRefittedRef.current = false;
-      cameraStateAfterFitRef.current = null;
+      cameraSnapshotRef.current = null;
       lastGeometryLengthRef.current = 0;
       lastGeometryRef.current = geometry;
-      // Reset camera state (clear orbit pivot, stop inertia, cancel animations)
       renderer.getCamera().reset();
-      // Reset geometry bounds to default
-      geometryBoundsRef.current = {
-        min: { x: -100, y: -100, z: -100 },
-        max: { x: 100, y: 100, z: 100 },
-      };
+      geometryBoundsRef.current = { ...DEFAULT_BOUNDS };
     } else if (!isIncremental && currentLength !== lastLength) {
-      // Length changed but not incremental - could be:
-      // 1. Length decreased (model hidden) - DON'T reset camera
-      // 2. Length increased but lastLength > 0 (new file loaded while another was open) - DO reset
-      const isLengthDecrease = currentLength < lastLength;
-
-      if (isLengthDecrease) {
-        // Model visibility changed (hidden) - rebuild scene but keep camera
+      if (currentLength < lastLength) {
+        // Length decreased (model hidden) — rebuild scene, keep camera
         scene.clear();
         processedMeshIdsRef.current.clear();
-        // Don't reset cameraFittedRef - keep current camera position
-        lastGeometryLengthRef.current = 0; // Reset so meshes get re-added
+        lastGeometryLengthRef.current = 0;
         lastGeometryRef.current = geometry;
-        // Note: Don't reset camera or bounds - user wants to keep their view
       } else {
-        // New file loaded while another was open - full reset
+        // New file while another was open — full reset
         scene.clear();
         processedMeshIdsRef.current.clear();
         cameraFittedRef.current = false;
         finalBoundsRefittedRef.current = false;
-        cameraStateAfterFitRef.current = null;
+        cameraSnapshotRef.current = null;
         lastGeometryLengthRef.current = 0;
         lastGeometryRef.current = geometry;
-        // Reset camera state
         renderer.getCamera().reset();
-        // Reset geometry bounds to default
-        geometryBoundsRef.current = {
-          min: { x: -100, y: -100, z: -100 },
-          max: { x: 100, y: 100, z: 100 },
-        };
+        geometryBoundsRef.current = { ...DEFAULT_BOUNDS };
       }
     } else if (currentLength === lastLength) {
-      // No geometry change — bounds refit is handled by the deferred
-      // streaming-complete callback (isStreaming transition effect above).
-      return;
+      return; // No change
     }
 
-    // Detect post-streaming type visibility toggle: geometry grew while NOT streaming.
-    // The filtered array was rebuilt from scratch (spaces/openings/site toggled ON),
-    // with new meshes interleaved throughout — not just appended at the end.
-    // We must clear the scene and re-add ALL meshes.
-    // Distinguish from streaming-completion (prevIsStreaming→!isStreaming) where new
-    // meshes ARE appended at the end and scene should NOT be cleared.
+    // Visibility toggle while NOT streaming — array rebuilt from scratch
     if (isIncremental && !isStreaming && !prevIsStreamingRef.current) {
       scene.clear();
       processedMeshIdsRef.current.clear();
-      // Don't reset camera or bounds — user just toggled visibility
       lastGeometryLengthRef.current = 0;
       lastGeometryRef.current = geometry;
     }
 
-    // For incremental batches: update reference and continue to add new meshes
     if (isIncremental) {
       lastGeometryRef.current = geometry;
     } else if (lastGeometryRef.current === null) {
       lastGeometryRef.current = geometry;
     }
 
-    // PERF: During streaming, new meshes are ALWAYS appended at the end.
-    // Skip the compound key dedup (208K string allocations + Set lookups)
-    // and array copy (.slice()). Use index-based iteration directly.
-    //
-    // FIX: Use fast path for incremental appends too (not just streaming).
-    // When streaming completes, isStreaming becomes false in the same render as the
-    // final appendGeometryBatch. The slow path would re-add ALL meshes because
-    // processedMeshIdsRef was never populated during streaming, causing double geometry.
-    // For visibility toggles, lastGeometryLengthRef was reset to 0 above, so the
-    // fast path naturally starts from 0 (adding ALL meshes after scene.clear).
+    // ── Extract new meshes ──
     let newMeshes: MeshData[];
     if (isStreaming || isIncremental) {
-      // Fast path: iterate from lastLength directly
-      // During streaming: new meshes appended at end, start = previous length
-      // After visibility toggle: scene was cleared, start = 0, adds everything
+      // Fast path: new meshes are always appended at end
       const start = lastGeometryLengthRef.current;
-      newMeshes = [];
-      for (let i = start; i < geometry.length; i++) {
-        newMeshes.push(geometry[i]);
-      }
+      newMeshes = geometry.slice(start);
     } else {
-      // Slow path: scan entire array for unprocessed meshes
-      // Only used when array was fully rebuilt (not incremental)
+      // Slow path: scan for unprocessed meshes (full rebuild)
       newMeshes = [];
       for (let i = 0; i < geometry.length; i++) {
         const meshData = geometry[i];
@@ -228,348 +186,171 @@ export function useGeometryStreaming(params: UseGeometryStreamingParams): void {
       }
     }
 
+    // ── Route meshes to scene ──
     if (newMeshes.length > 0) {
-      // Batch meshes by color for efficient rendering (reduces draw calls from N to ~100-500)
-      // This dramatically improves performance for large models (50K+ meshes)
       const pipeline = renderer.getPipeline();
       if (pipeline) {
         if (isStreaming) {
-          // STREAMING: Queue meshes and defer fragment creation to rAF.
-          // appendToBatches → createStreamingFragments → mergeGeometry is expensive
-          // (interleaves all vertices, creates GPU buffers). Deferring to rAF lets
-          // the browser process mouse events between frames so orbit stays smooth.
-          for (let i = 0; i < newMeshes.length; i++) {
-            pendingStreamMeshesRef.current.push(newMeshes[i]);
-          }
-          if (streamRafRef.current === null) {
-            const capturedDevice = device;
-            const capturedPipeline = pipeline;
-            const capturedScene = scene;
-            const capturedRenderer = renderer;
-            streamRafRef.current = requestAnimationFrame(() => {
-              streamRafRef.current = null;
-              const queued = pendingStreamMeshesRef.current;
-              if (queued.length === 0) return;
-              pendingStreamMeshesRef.current = [];
-              capturedScene.appendToBatches(queued, capturedDevice, capturedPipeline, true);
-              capturedRenderer.clearCaches();
-              capturedRenderer.render({ clearColor: clearColorRef.current });
-              lastStreamRenderTimeRef.current = Date.now();
-            });
-          }
+          // Queue for the animation loop — zero GPU work here.
+          scene.queueMeshes(newMeshes);
         } else {
-          // NON-STREAMING: Process immediately (visibility toggles, etc.)
+          // Non-streaming: process immediately (visibility toggles, etc.)
           scene.appendToBatches(newMeshes, device, pipeline, false);
+          renderer.clearCaches();
         }
-      } else {
-        // Fallback: add individual meshes if pipeline not ready
-        for (const meshData of newMeshes) {
-          const vertexCount = meshData.positions.length / 3;
-          const interleaved = new Float32Array(vertexCount * 6);
-          for (let i = 0; i < vertexCount; i++) {
-            const base = i * 6;
-            const posBase = i * 3;
-            interleaved[base] = meshData.positions[posBase];
-            interleaved[base + 1] = meshData.positions[posBase + 1];
-            interleaved[base + 2] = meshData.positions[posBase + 2];
-            interleaved[base + 3] = meshData.normals[posBase];
-            interleaved[base + 4] = meshData.normals[posBase + 1];
-            interleaved[base + 5] = meshData.normals[posBase + 2];
-          }
-
-          const vertexBuffer = device.createBuffer({
-            size: interleaved.byteLength,
-            usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
-          });
-          device.queue.writeBuffer(vertexBuffer, 0, interleaved);
-
-          const indexBuffer = device.createBuffer({
-            size: meshData.indices.byteLength,
-            usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
-          });
-          device.queue.writeBuffer(indexBuffer, 0, meshData.indices);
-
-          scene.addMesh({
-            expressId: meshData.expressId,
-            vertexBuffer,
-            indexBuffer,
-            indexCount: meshData.indices.length,
-            transform: MathUtils.identity(),
-            color: meshData.color,
-          });
-        }
-      }
-
-      // Invalidate caches when new geometry is added (not during streaming —
-      // the rAF callback handles it after fragment creation)
-      if (!isStreaming) {
-        renderer.clearCaches();
       }
     }
 
     lastGeometryLengthRef.current = currentLength;
 
-    // Fit camera and store bounds
-    // IMPORTANT: Fit camera immediately when we have valid bounds to avoid starting inside model
-    // The default camera position (50, 50, 100) is inside most models that are shifted to origin
+    // ── Fit camera ──
     if (!cameraFittedRef.current && coordinateInfo?.shiftedBounds) {
-      const shiftedBounds = coordinateInfo.shiftedBounds;
-      const maxSize = Math.max(
-        shiftedBounds.max.x - shiftedBounds.min.x,
-        shiftedBounds.max.y - shiftedBounds.min.y,
-        shiftedBounds.max.z - shiftedBounds.min.z
-      );
-      // Fit camera immediately when we have valid bounds
-      // For streaming: the first batch already has complete bounds from coordinate handler
-      // (bounds are calculated from ALL geometry before streaming starts)
-      // Waiting for streaming to complete causes the camera to start inside the model
+      const sb = coordinateInfo.shiftedBounds;
+      const maxSize = Math.max(sb.max.x - sb.min.x, sb.max.y - sb.min.y, sb.max.z - sb.min.z);
       if (maxSize > 0 && Number.isFinite(maxSize)) {
-        renderer.getCamera().fitToBounds(shiftedBounds.min, shiftedBounds.max);
-        geometryBoundsRef.current = { min: { ...shiftedBounds.min }, max: { ...shiftedBounds.max } };
+        renderer.getCamera().fitToBounds(sb.min, sb.max);
+        geometryBoundsRef.current = { min: { ...sb.min }, max: { ...sb.max } };
         cameraFittedRef.current = true;
-        // Snapshot camera state so we can detect user interaction during streaming
         const pos = renderer.getCamera().getPosition();
         const tgt = renderer.getCamera().getTarget();
-        cameraStateAfterFitRef.current = { px: pos.x, py: pos.y, pz: pos.z, tx: tgt.x, ty: tgt.y, tz: tgt.z };
+        cameraSnapshotRef.current = { px: pos.x, py: pos.y, pz: pos.z, tx: tgt.x, ty: tgt.y, tz: tgt.z };
       }
     } else if (!cameraFittedRef.current && geometry.length > 0 && !isStreaming) {
-      // Fallback: calculate bounds from geometry array (only when streaming is complete)
-      // This ensures we have complete bounds before fitting camera
-      const fallbackBounds = {
-        min: { x: Infinity, y: Infinity, z: Infinity },
-        max: { x: -Infinity, y: -Infinity, z: -Infinity },
-      };
-
-      // Max coordinate threshold - matches CoordinateHandler's NORMAL_COORD_THRESHOLD
-      // Coordinates beyond this are likely corrupted or unshifted original coordinates
-      const MAX_VALID_COORD = 10000;
-
-      for (const meshData of geometry) {
-        for (let i = 0; i < meshData.positions.length; i += 3) {
-          const x = meshData.positions[i];
-          const y = meshData.positions[i + 1];
-          const z = meshData.positions[i + 2];
-          // Filter out corrupted/unshifted vertices (> 10km from origin)
-          const isValid = Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z) &&
-            Math.abs(x) < MAX_VALID_COORD && Math.abs(y) < MAX_VALID_COORD && Math.abs(z) < MAX_VALID_COORD;
-          if (isValid) {
-            fallbackBounds.min.x = Math.min(fallbackBounds.min.x, x);
-            fallbackBounds.min.y = Math.min(fallbackBounds.min.y, y);
-            fallbackBounds.min.z = Math.min(fallbackBounds.min.z, z);
-            fallbackBounds.max.x = Math.max(fallbackBounds.max.x, x);
-            fallbackBounds.max.y = Math.max(fallbackBounds.max.y, y);
-            fallbackBounds.max.z = Math.max(fallbackBounds.max.z, z);
-          }
-        }
-      }
-
-      const maxSize = Math.max(
-        fallbackBounds.max.x - fallbackBounds.min.x,
-        fallbackBounds.max.y - fallbackBounds.min.y,
-        fallbackBounds.max.z - fallbackBounds.min.z
-      );
-
-      if (fallbackBounds.min.x !== Infinity && maxSize > 0 && Number.isFinite(maxSize)) {
-        renderer.getCamera().fitToBounds(fallbackBounds.min, fallbackBounds.max);
-        geometryBoundsRef.current = fallbackBounds;
+      const bounds = computeBounds(geometry);
+      if (bounds) {
+        renderer.getCamera().fitToBounds(bounds.min, bounds.max);
+        geometryBoundsRef.current = bounds;
         cameraFittedRef.current = true;
         const pos = renderer.getCamera().getPosition();
         const tgt = renderer.getCamera().getTarget();
-        cameraStateAfterFitRef.current = { px: pos.x, py: pos.y, pz: pos.z, tx: tgt.x, ty: tgt.y, tz: tgt.z };
+        cameraSnapshotRef.current = { px: pos.x, py: pos.y, pz: pos.z, tx: tgt.x, ty: tgt.y, tz: tgt.z };
       }
     }
 
-    // Note: Background instancing conversion removed
-    // Regular MeshData meshes are rendered directly with their correct positions
-    // Instancing conversion would require preserving actual mesh transforms, which is complex
-    // For now, we render regular meshes directly (fast enough for most cases)
-
-    // During streaming, rendering is handled by the rAF callback (see above).
-    // For non-streaming (visibility toggles etc.), render immediately.
-    if (!isStreaming) {
-      renderer.render({
-        clearColor: clearColorRef.current,
-      });
-      lastStreamRenderTimeRef.current = Date.now();
-    }
+    renderer.requestRender();
   }, [geometry, geometryVersion, coordinateInfo, isInitialized, isStreaming]);
 
-  // Force render when streaming completes (progress goes from <100% to 100% or null).
-  // Heavy work (finalizeStreaming + bounds scan) is DEFERRED so the user can
-  // orbit/pan immediately — streaming fragments keep rendering in the meantime.
-  const prevIsStreamingRef = useRef(isStreaming);
-  const finalizePendingRef = useRef(false);
+  // ─── Streaming complete: finalize + bounds refit ─────────────────────
   useEffect(() => {
     const renderer = rendererRef.current;
     if (!renderer || !isInitialized) return;
 
-    // If streaming just completed (was streaming, now not)
     if (prevIsStreamingRef.current && !isStreaming) {
-      // Flush any queued stream meshes before finalizing
-      if (streamRafRef.current !== null) {
-        cancelAnimationFrame(streamRafRef.current);
-        streamRafRef.current = null;
-      }
-      const queuedMeshes = pendingStreamMeshesRef.current;
-      if (queuedMeshes.length > 0) {
-        pendingStreamMeshesRef.current = [];
-        const device = renderer.getGPUDevice();
-        const pipeline = renderer.getPipeline();
-        if (device && pipeline) {
-          renderer.getScene().appendToBatches(queuedMeshes, device, pipeline, true);
-        }
+      // Flush any remaining queued meshes synchronously before finalize
+      const device = renderer.getGPUDevice();
+      const pipeline = renderer.getPipeline();
+      const scene = renderer.getScene();
+      if (device && pipeline && scene.hasQueuedMeshes()) {
+        scene.flushPending(device, pipeline);
       }
 
-      // Render immediately with existing streaming fragments — user can interact NOW
-      renderer.render({
-        clearColor: clearColorRef.current,
-      });
-      lastStreamRenderTimeRef.current = Date.now();
+      renderer.requestRender();
 
-      // Defer the heavy O(N) merge + bounds scan so the browser can process
-      // pending input events (orbit, pan, zoom) first. Streaming fragments
-      // continue rendering correctly until the proper batches replace them.
-      finalizePendingRef.current = true;
+      // Defer heavy work so the browser processes pending input events first.
+      // Streaming fragments keep rendering until proper batches replace them.
       const capturedGeometry = geometry;
       const timer = setTimeout(() => {
-        finalizePendingRef.current = false;
         const r = rendererRef.current;
         if (!r) return;
 
-        // Compute exact bounds and refit camera (~15ms, fast).
-        // Runs before async finalize so camera fits even if finalize is still in progress.
+        // Compute exact bounds and refit camera (fast ~15ms scan)
         if (cameraFittedRef.current && !finalBoundsRefittedRef.current && capturedGeometry && capturedGeometry.length > 0) {
-          const MAX_VALID_COORD = 10000;
-          const exactBounds = {
-            min: { x: Infinity, y: Infinity, z: Infinity },
-            max: { x: -Infinity, y: -Infinity, z: -Infinity },
-          };
-          for (let gi = 0; gi < capturedGeometry.length; gi++) {
-            const positions = capturedGeometry[gi].positions;
-            for (let i = 0; i < positions.length; i += 3) {
-              const x = positions[i];
-              const y = positions[i + 1];
-              const z = positions[i + 2];
-              if (Math.abs(x) < MAX_VALID_COORD && Math.abs(y) < MAX_VALID_COORD && Math.abs(z) < MAX_VALID_COORD) {
-                if (x < exactBounds.min.x) exactBounds.min.x = x;
-                if (y < exactBounds.min.y) exactBounds.min.y = y;
-                if (z < exactBounds.min.z) exactBounds.min.z = z;
-                if (x > exactBounds.max.x) exactBounds.max.x = x;
-                if (y > exactBounds.max.y) exactBounds.max.y = y;
-                if (z > exactBounds.max.z) exactBounds.max.z = z;
-              }
-            }
-          }
-
-          const exactMaxSize = Math.max(
-            exactBounds.max.x - exactBounds.min.x,
-            exactBounds.max.y - exactBounds.min.y,
-            exactBounds.max.z - exactBounds.min.z
-          );
-
-          if (exactBounds.min.x !== Infinity && exactMaxSize > 0 && Number.isFinite(exactMaxSize)) {
-            const snap = cameraStateAfterFitRef.current;
-            let userMovedCamera = false;
-            if (snap) {
-              const pos = r.getCamera().getPosition();
-              const tgt = r.getCamera().getTarget();
-              const EPS = 0.5;
-              userMovedCamera =
-                Math.abs(pos.x - snap.px) > EPS || Math.abs(pos.y - snap.py) > EPS || Math.abs(pos.z - snap.pz) > EPS ||
-                Math.abs(tgt.x - snap.tx) > EPS || Math.abs(tgt.y - snap.ty) > EPS || Math.abs(tgt.z - snap.tz) > EPS;
-            }
-
-            if (!userMovedCamera) {
+          const exactBounds = computeBounds(capturedGeometry);
+          if (exactBounds) {
+            if (!userMovedCamera(r, cameraSnapshotRef.current)) {
               r.getCamera().fitToBounds(exactBounds.min, exactBounds.max);
             }
-
-            geometryBoundsRef.current = { min: { ...exactBounds.min }, max: { ...exactBounds.max } };
+            geometryBoundsRef.current = exactBounds;
             finalBoundsRefittedRef.current = true;
           }
         }
 
-        const device = r.getGPUDevice();
-        const pipeline = r.getPipeline();
-        const scene = r.getScene();
-
-        // Time-sliced full merge: rebuild proper batches in chunks (~8ms each),
-        // yielding to the event loop so orbit/pan stays responsive.
-        if (device && pipeline) {
-          scene.finalizeStreamingAsync(device, pipeline).then(() => {
-            r.render({ clearColor: clearColorRef.current });
-            lastStreamRenderTimeRef.current = Date.now();
+        // Time-sliced finalize: rebuild proper batches in ~8ms chunks
+        const dev = r.getGPUDevice();
+        const pipe = r.getPipeline();
+        if (dev && pipe) {
+          r.getScene().finalizeStreamingAsync(dev, pipe).then(() => {
+            r.clearCaches();
+            r.requestRender();
           });
         }
       }, 0);
 
       prevIsStreamingRef.current = isStreaming;
-      return () => {
-        clearTimeout(timer);
-        finalizePendingRef.current = false;
-      };
+      return () => clearTimeout(timer);
     }
     prevIsStreamingRef.current = isStreaming;
   }, [isStreaming, isInitialized]);
 
-  // Apply pending color updates as overlay batches (lens coloring).
-  // Uses scene.setColorOverrides() which builds overlay batches rendered on top
-  // of original geometry via depthCompare 'equal'. Original batches are NEVER
-  // modified, so clearing lens is instant (no batch rebuild).
+  // ─── Mesh color updates (style/material deferred colors) ─────────────
   useEffect(() => {
-    if (pendingMeshColorUpdates === null) return;
-
-    if (!isInitialized) return;
-
+    if (pendingMeshColorUpdates === null || !isInitialized) return;
     const renderer = rendererRef.current;
     if (!renderer) return;
 
     const device = renderer.getGPUDevice();
     const pipeline = renderer.getPipeline();
     const scene = renderer.getScene();
-
     if (device && pipeline && pendingMeshColorUpdates.size > 0) {
       scene.updateMeshColors(pendingMeshColorUpdates, device, pipeline);
-      renderer.render({
-        clearColor: clearColorRef.current,
-      });
+      renderer.requestRender();
       clearPendingMeshColorUpdates();
     }
   }, [pendingMeshColorUpdates, isInitialized, clearPendingMeshColorUpdates]);
 
+  // ─── Lens color overlays ─────────────────────────────────────────────
   useEffect(() => {
-    if (pendingColorUpdates === null) return;
-
-    // Wait until viewport is initialized before applying color updates
-    if (!isInitialized) return;
-
+    if (pendingColorUpdates === null || !isInitialized) return;
     const renderer = rendererRef.current;
     if (!renderer) return;
 
     const device = renderer.getGPUDevice();
     const pipeline = renderer.getPipeline();
     const scene = renderer.getScene();
-
     if (device && pipeline) {
       if (pendingColorUpdates.size === 0) {
-        // Empty map = clear overrides (lens deactivated)
         scene.clearColorOverrides();
       } else {
-        // Non-empty map = set color overrides
         scene.setColorOverrides(pendingColorUpdates, device, pipeline);
       }
-      // Re-render with current theme background — render() without options
-      // defaults to black background.  Do NOT pass hiddenIds/isolatedIds here:
-      // visibility filtering causes partial batches which write depth only for
-      // visible elements, but overlay batches cover all geometry.  Without
-      // filtering, all original batches write depth for every entity, ensuring
-      // depthCompare 'equal' matches exactly for the overlay pass.
-      // The next render from useRenderUpdates will apply the correct visibility.
-      renderer.render({
-        clearColor: clearColorRef.current,
-      });
+      renderer.requestRender();
       clearPendingColorUpdates();
     }
   }, [pendingColorUpdates, isInitialized, clearPendingColorUpdates]);
+}
+
+// ─── Helpers ─────────────────────────────────────────────────────────────
+
+function computeBounds(meshes: MeshData[]): { min: { x: number; y: number; z: number }; max: { x: number; y: number; z: number } } | null {
+  let minX = Infinity, minY = Infinity, minZ = Infinity;
+  let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+  for (let gi = 0; gi < meshes.length; gi++) {
+    const positions = meshes[gi].positions;
+    for (let i = 0; i < positions.length; i += 3) {
+      const x = positions[i], y = positions[i + 1], z = positions[i + 2];
+      if (Math.abs(x) < MAX_VALID_COORD && Math.abs(y) < MAX_VALID_COORD && Math.abs(z) < MAX_VALID_COORD) {
+        if (x < minX) minX = x; if (y < minY) minY = y; if (z < minZ) minZ = z;
+        if (x > maxX) maxX = x; if (y > maxY) maxY = y; if (z > maxZ) maxZ = z;
+      }
+    }
+  }
+  const maxSize = Math.max(maxX - minX, maxY - minY, maxZ - minZ);
+  if (minX === Infinity || maxSize <= 0 || !Number.isFinite(maxSize)) return null;
+  return { min: { x: minX, y: minY, z: minZ }, max: { x: maxX, y: maxY, z: maxZ } };
+}
+
+function userMovedCamera(
+  renderer: Renderer,
+  snapshot: { px: number; py: number; pz: number; tx: number; ty: number; tz: number } | null,
+): boolean {
+  if (!snapshot) return false;
+  const pos = renderer.getCamera().getPosition();
+  const tgt = renderer.getCamera().getTarget();
+  const EPS = 0.5;
+  return (
+    Math.abs(pos.x - snapshot.px) > EPS || Math.abs(pos.y - snapshot.py) > EPS || Math.abs(pos.z - snapshot.pz) > EPS ||
+    Math.abs(tgt.x - snapshot.tx) > EPS || Math.abs(tgt.y - snapshot.ty) > EPS || Math.abs(tgt.z - snapshot.tz) > EPS
+  );
 }
 
 export default useGeometryStreaming;

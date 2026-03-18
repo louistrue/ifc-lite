@@ -530,19 +530,7 @@ export function Viewport({ geometry, geometryVersion, coordinateInfo, computedIs
 
       const camera = renderer.getCamera();
       const renderCurrent = () => {
-        renderer.render({
-          hiddenIds: hiddenEntitiesRef.current,
-          isolatedIds: isolatedEntitiesRef.current,
-          selectedId: selectedEntityIdRef.current,
-          selectedModelIndex: selectedModelIndexRef.current,
-          clearColor: clearColorRef.current,
-          visualEnhancement: visualEnhancementRef.current,
-          sectionPlane: activeToolRef.current === 'section' ? {
-            ...sectionPlaneRef.current,
-            min: sectionRangeRef.current?.min,
-            max: sectionRangeRef.current?.max,
-          } : undefined,
-        });
+        renderer.requestRender();
       };
 
       // Register camera callbacks for ViewCube and other controls
@@ -699,6 +687,10 @@ export function Viewport({ geometry, geometryVersion, coordinateInfo, computedIs
   // Sync on every render since mouseState is mutated directly by event handlers
   mouseIsDraggingRef.current = mouseStateRef.current.isDragging;
 
+  // isInteracting: set by mouse/touch controls during drag, cleared on mouseup/touchend.
+  // The animation loop reads this to skip post-processing during rapid camera movement.
+  const isInteractingRef = useRef(false);
+
   // ===== Extracted hooks =====
   useMouseControls({
     canvasRef,
@@ -726,6 +718,7 @@ export function Viewport({ geometry, geometryVersion, coordinateInfo, computedIs
     hoverTooltipsEnabledRef,
     lastRenderTimeRef,
     renderPendingRef,
+    isInteractingRef,
     lastClickTimeRef,
     lastClickPosRef,
     lastCameraStateRef,
@@ -772,6 +765,7 @@ export function Viewport({ geometry, geometryVersion, coordinateInfo, computedIs
     sectionPlaneRef,
     sectionRangeRef,
     geometryRef,
+    isInteractingRef,
     handlePickForSelection: (pickResult) => handlePickForSelectionRef.current(pickResult),
     getPickOptions,
   });
@@ -812,6 +806,9 @@ export function Viewport({ geometry, geometryVersion, coordinateInfo, computedIs
     sectionPlaneRef,
     sectionRangeRef,
     visualEnhancementRef,
+    selectedEntityIdsRef,
+    coordinateInfoRef,
+    isInteractingRef,
     lastCameraStateRef,
     updateCameraRotationRealtime,
     calculateScale,
