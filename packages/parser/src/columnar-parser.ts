@@ -9,7 +9,7 @@
  * Instead of multiple passes through entities, we extract everything in ONE loop.
  */
 
-import type { EntityRef, IfcEntity, Relationship } from './types.js';
+import type { EntityRef } from './types.js';
 import { SpatialHierarchyBuilder } from './spatial-hierarchy-builder.js';
 import { EntityExtractor } from './entity-extractor.js';
 import { extractLengthUnitScale } from './unit-extractor.js';
@@ -200,6 +200,312 @@ function isIfcTypeLikeEntity(typeUpper: string): boolean {
     return typeUpper.endsWith('TYPE') || typeUpper.endsWith('STYLE');
 }
 
+// ==========================================
+// Byte-level helpers for fast extraction
+// These avoid per-entity TextDecoder calls by working on raw bytes.
+// ==========================================
+
+/**
+ * Find the byte range of a quoted string at a specific attribute position in STEP entity bytes.
+ * Returns [start, end) byte offsets (excluding quotes), or null if not found.
+ *
+ * @param buffer - The IFC file buffer
+ * @param entityStart - byte offset of the entity
+ * @param entityLen - byte length of the entity
+ * @param attrIndex - 0-based attribute index (0=GlobalId, 2=Name)
+ */
+function findQuotedAttrRange(
+    buffer: Uint8Array,
+    entityStart: number,
+    entityLen: number,
+    attrIndex: number,
+): [number, number] | null {
+    const end = entityStart + entityLen;
+    let pos = entityStart;
+
+    // Skip to opening paren '(' after TYPE name
+    while (pos < end && buffer[pos] !== 0x28 /* ( */) pos++;
+    if (pos >= end) return null;
+    pos++; // skip '('
+
+    // Skip commas to reach the target attribute
+    if (attrIndex > 0) {
+        let toSkip = attrIndex;
+        let depth = 0;
+        let inStr = false;
+        while (pos < end && toSkip > 0) {
+            const ch = buffer[pos];
+            if (ch === 0x27 /* ' */) {
+                if (inStr && pos + 1 < end && buffer[pos + 1] === 0x27) {
+                    pos += 2; continue;
+                }
+                inStr = !inStr;
+            } else if (!inStr) {
+                if (ch === 0x28) depth++;
+                else if (ch === 0x29) depth--;
+                else if (ch === 0x2C && depth === 0) toSkip--;
+            }
+            pos++;
+        }
+    }
+
+    // Skip whitespace
+    while (pos < end && (buffer[pos] === 0x20 || buffer[pos] === 0x09)) pos++;
+
+    // Check for quoted string
+    if (pos >= end || buffer[pos] !== 0x27 /* ' */) return null;
+    pos++; // skip opening quote
+    const start = pos;
+
+    // Find closing quote (handle escaped quotes '')
+    while (pos < end) {
+        if (buffer[pos] === 0x27) {
+            if (pos + 1 < end && buffer[pos + 1] === 0x27) {
+                pos += 2; continue;
+            }
+            break;
+        }
+        pos++;
+    }
+    return [start, pos];
+}
+
+/**
+ * Batch extract GlobalId (attr[0]) and Name (attr[2]) for many entities using
+ * only 2 TextDecoder.decode() calls total (one for all GlobalIds, one for all Names).
+ *
+ * This is ~100x faster than calling extractEntity() per entity for large batches
+ * because it eliminates per-entity TextDecoder overhead which is significant in Firefox.
+ *
+ * Returns a Map from expressId → { globalId, name }.
+ */
+function batchExtractGlobalIdAndName(
+    buffer: Uint8Array,
+    refs: EntityRef[],
+): Map<number, { globalId: string; name: string }> {
+    const result = new Map<number, { globalId: string; name: string }>();
+    if (refs.length === 0) return result;
+
+    // Phase 1: Scan byte ranges for GlobalId and Name positions (no string allocation)
+    const gidRanges: Array<[number, number]> = []; // [start, end) for each entity
+    const nameRanges: Array<[number, number]> = [];
+    const validIndices: number[] = []; // indices into refs for entities with valid ranges
+
+    for (let i = 0; i < refs.length; i++) {
+        const ref = refs[i];
+        const gidRange = findQuotedAttrRange(buffer, ref.byteOffset, ref.byteLength, 0);
+        const nameRange = findQuotedAttrRange(buffer, ref.byteOffset, ref.byteLength, 2);
+
+        gidRanges.push(gidRange ?? [0, 0]);
+        nameRanges.push(nameRange ?? [0, 0]);
+        validIndices.push(i);
+    }
+
+    // Phase 2: Concatenate all GlobalId bytes into one buffer, decode once
+    // Use null byte (0x00) as separator (never appears in IFC string content)
+    let totalGidBytes = 0;
+    let totalNameBytes = 0;
+    for (let i = 0; i < validIndices.length; i++) {
+        const [gs, ge] = gidRanges[i];
+        const [ns, ne] = nameRanges[i];
+        totalGidBytes += (ge - gs) + 1; // +1 for separator
+        totalNameBytes += (ne - ns) + 1;
+    }
+
+    const gidBuf = new Uint8Array(totalGidBytes);
+    const nameBuf = new Uint8Array(totalNameBytes);
+    let gidOffset = 0;
+    let nameOffset = 0;
+
+    for (let i = 0; i < validIndices.length; i++) {
+        const [gs, ge] = gidRanges[i];
+        const [ns, ne] = nameRanges[i];
+
+        if (ge > gs) {
+            gidBuf.set(buffer.subarray(gs, ge), gidOffset);
+            gidOffset += ge - gs;
+        }
+        gidBuf[gidOffset++] = 0; // null separator
+
+        if (ne > ns) {
+            nameBuf.set(buffer.subarray(ns, ne), nameOffset);
+            nameOffset += ne - ns;
+        }
+        nameBuf[nameOffset++] = 0;
+    }
+
+    // Phase 3: Two TextDecoder calls for ALL entities
+    const decoder = new TextDecoder();
+    const allGids = decoder.decode(gidBuf.subarray(0, gidOffset));
+    const allNames = decoder.decode(nameBuf.subarray(0, nameOffset));
+    const gids = allGids.split('\0');
+    const names = allNames.split('\0');
+
+    // Phase 4: Build result map
+    for (let i = 0; i < validIndices.length; i++) {
+        const ref = refs[validIndices[i]];
+        result.set(ref.expressId, {
+            globalId: gids[i] || '',
+            name: names[i] || '',
+        });
+    }
+
+    return result;
+}
+
+// ==========================================
+// Byte-level relationship scanners (numbers only, no TextDecoder)
+// ==========================================
+
+/**
+ * Skip N commas at depth 0 in STEP bytes.
+ */
+function skipCommas(buffer: Uint8Array, start: number, end: number, count: number): number {
+    let pos = start;
+    let remaining = count;
+    let depth = 0;
+    let inString = false;
+    while (pos < end && remaining > 0) {
+        const ch = buffer[pos];
+        if (ch === 0x27) {
+            if (inString && pos + 1 < end && buffer[pos + 1] === 0x27) { pos += 2; continue; }
+            inString = !inString;
+        } else if (!inString) {
+            if (ch === 0x28) depth++;
+            else if (ch === 0x29) depth--;
+            else if (ch === 0x2C && depth === 0) remaining--;
+        }
+        pos++;
+    }
+    return pos;
+}
+
+/** Read a #ID entity reference as a number. Returns -1 if not an entity ref. */
+function readRefId(buffer: Uint8Array, pos: number, end: number): [number, number] {
+    while (pos < end && (buffer[pos] === 0x20 || buffer[pos] === 0x09)) pos++;
+    if (pos < end && buffer[pos] === 0x23) {
+        pos++;
+        let num = 0;
+        while (pos < end && buffer[pos] >= 0x30 && buffer[pos] <= 0x39) {
+            num = num * 10 + (buffer[pos] - 0x30);
+            pos++;
+        }
+        return [num, pos];
+    }
+    return [-1, pos];
+}
+
+/** Read a list of entity refs (#id1,#id2,...) or a single #id. Returns [ids, newPos]. */
+function readRefList(buffer: Uint8Array, pos: number, end: number): [number[], number] {
+    while (pos < end && (buffer[pos] === 0x20 || buffer[pos] === 0x09)) pos++;
+    const ids: number[] = [];
+
+    if (pos < end && buffer[pos] === 0x28) {
+        pos++;
+        while (pos < end && buffer[pos] !== 0x29) {
+            while (pos < end && (buffer[pos] === 0x20 || buffer[pos] === 0x09 || buffer[pos] === 0x2C)) pos++;
+            if (pos < end && buffer[pos] === 0x23) {
+                const [id, np] = readRefId(buffer, pos, end);
+                if (id >= 0) ids.push(id);
+                pos = np;
+            } else if (pos < end && buffer[pos] !== 0x29) {
+                pos++;
+            }
+        }
+    } else if (pos < end && buffer[pos] === 0x23) {
+        const [id, np] = readRefId(buffer, pos, end);
+        if (id >= 0) ids.push(id);
+        pos = np;
+    }
+    return [ids, pos];
+}
+
+/**
+ * Extract relatingObject and relatedObjects from a relationship entity using byte-level scanning.
+ * No TextDecoder needed - only extracts numeric entity IDs.
+ */
+function extractRelFast(
+    buffer: Uint8Array,
+    byteOffset: number,
+    byteLength: number,
+    typeUpper: string,
+): { relatingObject: number; relatedObjects: number[] } | null {
+    const end = byteOffset + byteLength;
+    let pos = byteOffset;
+
+    while (pos < end && buffer[pos] !== 0x28) pos++;
+    if (pos >= end) return null;
+    pos++;
+
+    // Skip to attr[4] (all IfcRelationship subtypes have 4 shared IfcRoot+IfcRelationship attrs)
+    pos = skipCommas(buffer, pos, end, 4);
+
+    if (typeUpper === 'IFCRELCONTAINEDINSPATIALSTRUCTURE'
+        || typeUpper === 'IFCRELREFERENCEDINSPATIALSTRUCTURE'
+        || typeUpper === 'IFCRELDEFINESBYPROPERTIES'
+        || typeUpper === 'IFCRELDEFINESBYTYPE') {
+        // attr[4]=RelatedObjects, attr[5]=RelatingObject
+        const [related, rp] = readRefList(buffer, pos, end);
+        pos = rp;
+        while (pos < end && buffer[pos] !== 0x2C) pos++;
+        pos++;
+        const [relating, _] = readRefId(buffer, pos, end);
+        if (relating < 0 || related.length === 0) return null;
+        return { relatingObject: relating, relatedObjects: related };
+    } else if (typeUpper === 'IFCRELASSIGNSTOGROUP' || typeUpper === 'IFCRELASSIGNSTOPRODUCT') {
+        const [related, rp] = readRefList(buffer, pos, end);
+        pos = skipCommas(buffer, rp, end, 2);
+        const [relating, _] = readRefId(buffer, pos, end);
+        if (relating < 0 || related.length === 0) return null;
+        return { relatingObject: relating, relatedObjects: related };
+    } else if (typeUpper === 'IFCRELCONNECTSELEMENTS' || typeUpper === 'IFCRELCONNECTSPATHELEMENTS') {
+        pos = skipCommas(buffer, pos, end, 1);
+        const [relating, rp2] = readRefId(buffer, pos, end);
+        pos = skipCommas(buffer, rp2, end, 1);
+        const [related, _] = readRefId(buffer, pos, end);
+        if (relating < 0 || related < 0) return null;
+        return { relatingObject: relating, relatedObjects: [related] };
+    } else {
+        // Default: attr[4]=RelatingObject, attr[5]=RelatedObject(s)
+        const [relating, rp] = readRefId(buffer, pos, end);
+        if (relating < 0) return null;
+        pos = rp;
+        while (pos < end && buffer[pos] !== 0x2C) pos++;
+        pos++;
+        const [related, _] = readRefList(buffer, pos, end);
+        if (related.length === 0) return null;
+        return { relatingObject: relating, relatedObjects: related };
+    }
+}
+
+/**
+ * Extract property rel data: attr[4]=relatedObjects, attr[5]=relatingDef.
+ * Numbers only, no TextDecoder.
+ */
+function extractPropertyRelFast(
+    buffer: Uint8Array,
+    byteOffset: number,
+    byteLength: number,
+): { relatedObjects: number[]; relatingDef: number } | null {
+    const end = byteOffset + byteLength;
+    let pos = byteOffset;
+
+    while (pos < end && buffer[pos] !== 0x28) pos++;
+    if (pos >= end) return null;
+    pos++;
+
+    pos = skipCommas(buffer, pos, end, 4);
+
+    const [relatedObjects, rp] = readRefList(buffer, pos, end);
+    pos = rp;
+    while (pos < end && buffer[pos] !== 0x2C) pos++;
+    pos++;
+
+    const [relatingDef, _] = readRefId(buffer, pos, end);
+    if (relatingDef < 0 || relatedObjects.length === 0) return null;
+    return { relatedObjects, relatingDef };
+}
+
 function detectSchemaVersion(buffer: Uint8Array): IfcDataStore['schemaVersion'] {
     const headerEnd = Math.min(buffer.length, 2000);
     const headerText = new TextDecoder().decode(buffer.subarray(0, headerEnd)).toUpperCase();
@@ -331,54 +637,59 @@ export class ColumnarParser {
             }
         };
 
-        // === TARGETED PARSING: Parse spatial and geometry entities for GlobalIds ===
-        options.onProgress?.({ phase: 'parsing spatial', percent: 10 });
+        // === TARGETED PARSING using batch byte-level extraction ===
+        // Uses 2 TextDecoder.decode() calls total for ALL entity GlobalIds/Names
+        // (instead of per-entity calls), and pure byte scanning for relationships.
+        options.onProgress?.({ phase: 'parsing entities', percent: 10 });
 
         const extractor = new EntityExtractor(uint8Buffer);
-        const parsedEntityData = new Map<number, { globalId: string; name: string }>();
 
-        // Helper to extract GlobalId+Name from an entity with IfcRoot attrs
-        const extractGlobalIdName = (ref: EntityRef) => {
+        // Spatial entities: small count, use extractEntity for full accuracy
+        const parsedEntityData = new Map<number, { globalId: string; name: string }>();
+        for (const ref of spatialRefs) {
             const entity = extractor.extractEntity(ref);
             if (entity) {
                 const attrs = entity.attributes || [];
-                const globalId = typeof attrs[0] === 'string' ? attrs[0] : '';
-                const name = typeof attrs[2] === 'string' ? attrs[2] : '';
-                parsedEntityData.set(ref.expressId, { globalId, name });
+                parsedEntityData.set(ref.expressId, {
+                    globalId: typeof attrs[0] === 'string' ? attrs[0] : '',
+                    name: typeof attrs[2] === 'string' ? attrs[2] : '',
+                });
             }
-        };
-
-        // Parse spatial entities (typically < 100 entities)
-        for (const ref of spatialRefs) extractGlobalIdName(ref);
-
-        // Parse geometry entities for GlobalIds — yield every ~80ms within the loop
-        options.onProgress?.({ phase: 'parsing geometry globalIds', percent: 12 });
-        for (let i = 0; i < geometryRefs.length; i++) {
-            extractGlobalIdName(geometryRefs[i]);
-            if ((i & 0x3FF) === 0) await yieldIfNeeded(); // check every 1024 entities
         }
 
-        // Parse type objects (IfcWallType, IfcDoorType, etc.) for GlobalId and Name
-        for (const ref of typeObjectRefs) extractGlobalIdName(ref);
         await yieldIfNeeded();
 
-        // Parse relationship entities (typically < 10k entities)
-        // CRITICAL: relationships are needed for spatial hierarchy, parse early
+        // Geometry + type object entities: batch extract GlobalId+Name with 2 TextDecoder calls
+        options.onProgress?.({ phase: 'parsing geometry names', percent: 12 });
+        const geomData = batchExtractGlobalIdAndName(uint8Buffer, geometryRefs);
+        for (const [id, data] of geomData) parsedEntityData.set(id, data);
+
+        await yieldIfNeeded();
+
+        const typeData = batchExtractGlobalIdAndName(uint8Buffer, typeObjectRefs);
+        for (const [id, data] of typeData) parsedEntityData.set(id, data);
+
+        await yieldIfNeeded();
+
+        // Relationships: byte-level scanning (numbers only, no TextDecoder)
         options.onProgress?.({ phase: 'parsing relationships', percent: 20 });
 
-        const relationships: Relationship[] = [];
+        // Use a toUpperCase cache across relationship refs (same type name set)
+        const typeUpperCache = new Map<string, string>();
+        const getTypeUpper = (type: string) => {
+            let u = typeUpperCache.get(type);
+            if (u === undefined) { u = type.toUpperCase(); typeUpperCache.set(type, u); }
+            return u;
+        };
+
         for (const ref of relationshipRefs) {
-            const entity = extractor.extractEntity(ref);
-            if (entity) {
-                const typeUpper = entity.type.toUpperCase();
-                const rel = this.extractRelationshipFast(entity, typeUpper);
-                if (rel) {
-                    relationships.push(rel);
-                    const relType = REL_TYPE_MAP[typeUpper];
-                    if (relType) {
-                        for (const targetId of rel.relatedObjects) {
-                            relationshipGraphBuilder.addEdge(rel.relatingObject, targetId, relType, rel.relatingObject);
-                        }
+            const typeUpper = getTypeUpper(ref.type);
+            const rel = extractRelFast(uint8Buffer, ref.byteOffset, ref.byteLength, typeUpper);
+            if (rel) {
+                const relType = REL_TYPE_MAP[typeUpper];
+                if (relType) {
+                    for (const targetId of rel.relatedObjects) {
+                        relationshipGraphBuilder.addEdge(rel.relatingObject, targetId, relType, rel.relatingObject);
                     }
                 }
             }
@@ -476,49 +787,39 @@ export class ColumnarParser {
         const onDemandPropertyMap = new Map<number, number[]>();
         const onDemandQuantityMap = new Map<number, number[]>();
 
+        // Property rels: byte-level scanning (numbers only, no TextDecoder)
         for (let pi = 0; pi < propertyRelRefs.length; pi++) {
-            if ((pi & 0x3FF) === 0) await yieldIfNeeded(); // yield every 1024 entities
+            if ((pi & 0x3FF) === 0) await yieldIfNeeded();
             const ref = propertyRelRefs[pi];
-            const entity = extractor.extractEntity(ref);
-            if (entity) {
-                const attrs = entity.attributes || [];
-                const relatedObjects = attrs[4];
-                const relatingDef = attrs[5];
+            const result = extractPropertyRelFast(uint8Buffer, ref.byteOffset, ref.byteLength);
+            if (result) {
+                const { relatedObjects, relatingDef } = result;
 
-                if (typeof relatingDef === 'number' && Array.isArray(relatedObjects)) {
-                    for (const objId of relatedObjects) {
-                        if (typeof objId === 'number') {
-                            relationshipGraphBuilder.addEdge(relatingDef, objId, RelationshipType.DefinesByProperties, ref.expressId);
-                        }
-                    }
+                for (const objId of relatedObjects) {
+                    relationshipGraphBuilder.addEdge(relatingDef, objId, RelationshipType.DefinesByProperties, ref.expressId);
+                }
 
-                    const defRef = entityIndex.byId.get(relatingDef);
-                    if (defRef) {
-                        const defTypeUpper = defRef.type.toUpperCase();
-                        const isPropertySet = defTypeUpper === 'IFCPROPERTYSET';
-                        const isQuantitySet = defTypeUpper === 'IFCELEMENTQUANTITY';
+                const defRef = entityIndex.byId.get(relatingDef);
+                if (defRef) {
+                    const defTypeUpper = getTypeUpper(defRef.type);
+                    const isPropertySet = defTypeUpper === 'IFCPROPERTYSET';
+                    const isQuantitySet = defTypeUpper === 'IFCELEMENTQUANTITY';
 
-                        if (isPropertySet || isQuantitySet) {
-                            const targetMap = isPropertySet ? onDemandPropertyMap : onDemandQuantityMap;
-                            for (const objId of relatedObjects) {
-                                if (typeof objId === 'number') {
-                                    let list = targetMap.get(objId);
-                                    if (!list) {
-                                        list = [];
-                                        targetMap.set(objId, list);
-                                    }
-                                    list.push(relatingDef);
-                                }
-                            }
+                    if (isPropertySet || isQuantitySet) {
+                        const targetMap = isPropertySet ? onDemandPropertyMap : onDemandQuantityMap;
+                        for (const objId of relatedObjects) {
+                            let list = targetMap.get(objId);
+                            if (!list) { list = []; targetMap.set(objId, list); }
+                            list.push(relatingDef);
                         }
                     }
                 }
             }
         }
 
-        await yieldIfNeeded(); // Let geometry process after property parsing
+        await yieldIfNeeded();
 
-        // === DEFERRED: Parse association relationships ===
+        // Association rels: byte-level scanning (numbers only, no TextDecoder)
         options.onProgress?.({ phase: 'parsing associations', percent: 95 });
 
         const onDemandClassificationMap = new Map<number, number[]>();
@@ -526,43 +827,27 @@ export class ColumnarParser {
         const onDemandDocumentMap = new Map<number, number[]>();
 
         for (const ref of associationRelRefs) {
-            const entity = extractor.extractEntity(ref);
-            if (entity) {
-                const attrs = entity.attributes || [];
-                const relatedObjects = attrs[4];
-                const relatingRef = attrs[5];
+            // Same layout as property rels: attr[4]=relatedObjects, attr[5]=relatingRef
+            const result = extractPropertyRelFast(uint8Buffer, ref.byteOffset, ref.byteLength);
+            if (result) {
+                const { relatedObjects, relatingDef: relatingRef } = result;
+                const typeUpper = getTypeUpper(ref.type);
 
-                if (typeof relatingRef === 'number' && Array.isArray(relatedObjects)) {
-                    const typeUpper = ref.type.toUpperCase();
-
-                    if (typeUpper === 'IFCRELASSOCIATESCLASSIFICATION') {
-                        for (const objId of relatedObjects) {
-                            if (typeof objId === 'number') {
-                                let list = onDemandClassificationMap.get(objId);
-                                if (!list) {
-                                    list = [];
-                                    onDemandClassificationMap.set(objId, list);
-                                }
-                                list.push(relatingRef);
-                            }
-                        }
-                    } else if (typeUpper === 'IFCRELASSOCIATESMATERIAL') {
-                        for (const objId of relatedObjects) {
-                            if (typeof objId === 'number') {
-                                onDemandMaterialMap.set(objId, relatingRef);
-                            }
-                        }
-                    } else if (typeUpper === 'IFCRELASSOCIATESDOCUMENT') {
-                        for (const objId of relatedObjects) {
-                            if (typeof objId === 'number') {
-                                let list = onDemandDocumentMap.get(objId);
-                                if (!list) {
-                                    list = [];
-                                    onDemandDocumentMap.set(objId, list);
-                                }
-                                list.push(relatingRef);
-                            }
-                        }
+                if (typeUpper === 'IFCRELASSOCIATESCLASSIFICATION') {
+                    for (const objId of relatedObjects) {
+                        let list = onDemandClassificationMap.get(objId);
+                        if (!list) { list = []; onDemandClassificationMap.set(objId, list); }
+                        list.push(relatingRef);
+                    }
+                } else if (typeUpper === 'IFCRELASSOCIATESMATERIAL') {
+                    for (const objId of relatedObjects) {
+                        onDemandMaterialMap.set(objId, relatingRef);
+                    }
+                } else if (typeUpper === 'IFCRELASSOCIATESDOCUMENT') {
+                    for (const objId of relatedObjects) {
+                        let list = onDemandDocumentMap.get(objId);
+                        if (!list) { list = []; onDemandDocumentMap.set(objId, list); }
+                        list.push(relatingRef);
                     }
                 }
             }
@@ -584,45 +869,6 @@ export class ColumnarParser {
             onDemandMaterialMap,
             onDemandDocumentMap,
         };
-    }
-
-    /**
-     * Fast relationship extraction - inline for performance
-     */
-    private extractRelationshipFast(entity: IfcEntity, typeUpper: string): Relationship | null {
-        const attrs = entity.attributes;
-        if (attrs.length < 6) return null;
-
-        let relatingObject: unknown;
-        let relatedObjects: unknown;
-
-        if (typeUpper === 'IFCRELDEFINESBYPROPERTIES' || typeUpper === 'IFCRELDEFINESBYTYPE'
-            || typeUpper === 'IFCRELCONTAINEDINSPATIALSTRUCTURE' || typeUpper === 'IFCRELREFERENCEDINSPATIALSTRUCTURE') {
-            relatedObjects = attrs[4];
-            relatingObject = attrs[5];
-        } else if (typeUpper === 'IFCRELASSIGNSTOGROUP' || typeUpper === 'IFCRELASSIGNSTOPRODUCT') {
-            relatedObjects = attrs[4];
-            relatingObject = attrs.length > 6 ? attrs[6] : undefined;
-        } else if (typeUpper === 'IFCRELCONNECTSELEMENTS' || typeUpper === 'IFCRELCONNECTSPATHELEMENTS') {
-            relatingObject = attrs[5];
-            relatedObjects = attrs.length > 6 ? attrs[6] : undefined;
-        } else {
-            relatingObject = attrs[4];
-            relatedObjects = attrs[5];
-        }
-
-        if (typeof relatingObject !== 'number') return null;
-
-        let relatedArray: number[];
-        if (Array.isArray(relatedObjects)) {
-            relatedArray = relatedObjects.filter((id): id is number => typeof id === 'number');
-        } else if (typeof relatedObjects === 'number') {
-            relatedArray = [relatedObjects];
-        } else {
-            return null;
-        }
-
-        return { type: entity.type, relatingObject, relatedObjects: relatedArray };
     }
 
     /**
