@@ -9,7 +9,7 @@
  * Instead of multiple passes through entities, we extract everything in ONE loop.
  */
 
-import type { EntityRef, IfcEntity, Relationship } from './types.js';
+import type { EntityRef } from './types.js';
 import { SpatialHierarchyBuilder } from './spatial-hierarchy-builder.js';
 import { EntityExtractor } from './entity-extractor.js';
 import { extractLengthUnitScale } from './unit-extractor.js';
@@ -204,6 +204,323 @@ function isIfcTypeLikeEntity(typeUpper: string): boolean {
  * Detect the IFC schema version from the STEP FILE_SCHEMA header.
  * Scans the first 2000 bytes for FILE_SCHEMA(('IFC2X3')), FILE_SCHEMA(('IFC4')), etc.
  */
+/**
+ * Fast byte-level extraction of GlobalId (attr[0]) and Name (attr[2]) from raw STEP bytes.
+ * Avoids TextDecoder, regex, and full attribute parsing — ~10-50x faster than extractEntity().
+ *
+ * IFC entity format: #ID = TYPE('GlobalId22Chars',#owner,'Name',...);
+ * GlobalId is always a 22-char string at attr[0]. Name is a string at attr[2].
+ */
+function extractGlobalIdAndNameFast(
+    buffer: Uint8Array,
+    byteOffset: number,
+    byteLength: number,
+): { globalId: string; name: string } {
+    const end = byteOffset + byteLength;
+    let pos = byteOffset;
+
+    // Skip to opening paren '(' after TYPE name
+    while (pos < end && buffer[pos] !== 0x28 /* ( */) pos++;
+    if (pos >= end) return { globalId: '', name: '' };
+    pos++; // skip '('
+
+    // --- Attr[0]: GlobalId (always a quoted string) ---
+    // Skip whitespace
+    while (pos < end && (buffer[pos] === 0x20 || buffer[pos] === 0x09)) pos++;
+
+    let globalId = '';
+    if (pos < end && buffer[pos] === 0x27 /* ' */) {
+        pos++; // skip opening quote
+        const start = pos;
+        while (pos < end && buffer[pos] !== 0x27 /* ' */) pos++;
+        // GlobalId is ASCII-only, safe to use fromCharCode
+        globalId = String.fromCharCode.apply(null, buffer.subarray(start, pos) as unknown as number[]);
+        pos++; // skip closing quote
+    }
+
+    // --- Skip to attr[2]: Name (skip past 2 commas at depth 0) ---
+    let commasToSkip = 2;
+    let depth = 0;
+    let inString = false;
+    while (pos < end && commasToSkip > 0) {
+        const ch = buffer[pos];
+        if (ch === 0x27 /* ' */) {
+            if (inString && pos + 1 < end && buffer[pos + 1] === 0x27) {
+                pos += 2; // escaped quote
+                continue;
+            }
+            inString = !inString;
+        } else if (!inString) {
+            if (ch === 0x28 /* ( */) depth++;
+            else if (ch === 0x29 /* ) */) depth--;
+            else if (ch === 0x2C /* , */ && depth === 0) commasToSkip--;
+        }
+        pos++;
+    }
+
+    // --- Attr[2]: Name ---
+    // Skip whitespace
+    while (pos < end && (buffer[pos] === 0x20 || buffer[pos] === 0x09)) pos++;
+
+    let name = '';
+    if (pos < end && buffer[pos] === 0x27 /* ' */) {
+        pos++; // skip opening quote
+        const start = pos;
+        // Find closing quote (handle escaped quotes)
+        while (pos < end) {
+            if (buffer[pos] === 0x27) {
+                if (pos + 1 < end && buffer[pos + 1] === 0x27) {
+                    pos += 2; // skip escaped quote
+                    continue;
+                }
+                break; // closing quote
+            }
+            pos++;
+        }
+        // Name may contain non-ASCII (IFC encoded), decode manually
+        name = String.fromCharCode.apply(null, buffer.subarray(start, pos) as unknown as number[]);
+    }
+
+    return { globalId, name };
+}
+
+/**
+ * Skip N commas at depth 0 in STEP bytes, handling strings and nested parens.
+ * Returns the position after the Nth comma.
+ */
+function skipCommas(buffer: Uint8Array, start: number, end: number, count: number): number {
+    let pos = start;
+    let remaining = count;
+    let depth = 0;
+    let inString = false;
+    while (pos < end && remaining > 0) {
+        const ch = buffer[pos];
+        if (ch === 0x27) {
+            if (inString && pos + 1 < end && buffer[pos + 1] === 0x27) {
+                pos += 2;
+                continue;
+            }
+            inString = !inString;
+        } else if (!inString) {
+            if (ch === 0x28) depth++;
+            else if (ch === 0x29) depth--;
+            else if (ch === 0x2C && depth === 0) remaining--;
+        }
+        pos++;
+    }
+    return pos;
+}
+
+/** Read a single entity reference (#ID) from the buffer at pos, return -1 if not found */
+function readEntityRef(buffer: Uint8Array, pos: number, end: number): { id: number; pos: number } {
+    while (pos < end && (buffer[pos] === 0x20 || buffer[pos] === 0x09)) pos++;
+    if (pos < end && buffer[pos] === 0x23) {
+        pos++;
+        let num = 0;
+        while (pos < end && buffer[pos] >= 0x30 && buffer[pos] <= 0x39) {
+            num = num * 10 + (buffer[pos] - 0x30);
+            pos++;
+        }
+        return { id: num, pos };
+    }
+    return { id: -1, pos };
+}
+
+/** Read a list of entity refs (#id1, #id2, ...) or a single entity ref */
+function readEntityRefListOrSingle(buffer: Uint8Array, pos: number, end: number): { ids: number[]; pos: number } {
+    while (pos < end && (buffer[pos] === 0x20 || buffer[pos] === 0x09)) pos++;
+    const ids: number[] = [];
+
+    if (pos < end && buffer[pos] === 0x28 /* ( */) {
+        // List: (#id1, #id2, ...)
+        pos++;
+        while (pos < end && buffer[pos] !== 0x29) {
+            while (pos < end && (buffer[pos] === 0x20 || buffer[pos] === 0x09 || buffer[pos] === 0x2C)) pos++;
+            if (pos < end && buffer[pos] === 0x23) {
+                const r = readEntityRef(buffer, pos, end);
+                if (r.id >= 0) ids.push(r.id);
+                pos = r.pos;
+            } else if (pos < end && buffer[pos] !== 0x29) {
+                pos++;
+            }
+        }
+    } else if (pos < end && buffer[pos] === 0x23) {
+        // Single ref: #id
+        const r = readEntityRef(buffer, pos, end);
+        if (r.id >= 0) ids.push(r.id);
+        pos = r.pos;
+    }
+    return { ids, pos };
+}
+
+/**
+ * Fast byte-level extraction of relationship data from STEP bytes.
+ * Handles all IFC relationship attribute layouts.
+ */
+function extractRelationshipFast(
+    buffer: Uint8Array,
+    byteOffset: number,
+    byteLength: number,
+    typeUpper: string,
+): { relatingObject: number; relatedObjects: number[] } | null {
+    const end = byteOffset + byteLength;
+    let pos = byteOffset;
+
+    // Skip to opening paren '(' after TYPE name
+    while (pos < end && buffer[pos] !== 0x28) pos++;
+    if (pos >= end) return null;
+    pos++; // skip '('
+
+    // Skip 4 commas to reach attr[4]
+    pos = skipCommas(buffer, pos, end, 4);
+
+    // Different relationship types have different attribute layouts:
+    if (typeUpper === 'IFCRELCONTAINEDINSPATIALSTRUCTURE'
+        || typeUpper === 'IFCRELREFERENCEDINSPATIALSTRUCTURE'
+        || typeUpper === 'IFCRELDEFINESBYPROPERTIES'
+        || typeUpper === 'IFCRELDEFINESBYTYPE') {
+        // attr[4]=RelatedObjects list, attr[5]=RelatingObject
+        const related = readEntityRefListOrSingle(buffer, pos, end);
+
+        // Skip comma to attr[5]
+        pos = related.pos;
+        while (pos < end && buffer[pos] !== 0x2C) pos++;
+        pos++;
+
+        const relating = readEntityRef(buffer, pos, end);
+        if (relating.id < 0 || related.ids.length === 0) return null;
+        return { relatingObject: relating.id, relatedObjects: related.ids };
+    } else if (typeUpper === 'IFCRELASSIGNSTOGROUP' || typeUpper === 'IFCRELASSIGNSTOPRODUCT') {
+        // attr[4]=RelatedObjects list, attr[5]=RelatedObjectsType, attr[6]=RelatingGroup/Product
+        const related = readEntityRefListOrSingle(buffer, pos, end);
+        // Skip 2 more commas to reach attr[6]
+        pos = skipCommas(buffer, related.pos, end, 2);
+        const relating = readEntityRef(buffer, pos, end);
+        if (relating.id < 0 || related.ids.length === 0) return null;
+        return { relatingObject: relating.id, relatedObjects: related.ids };
+    } else if (typeUpper === 'IFCRELCONNECTSELEMENTS' || typeUpper === 'IFCRELCONNECTSPATHELEMENTS') {
+        // attr[4]=ConnectionGeometry, attr[5]=RelatingElement, attr[6]=RelatedElement
+        pos = skipCommas(buffer, pos, end, 1); // skip attr[4] → attr[5]
+        const relating = readEntityRef(buffer, pos, end);
+        pos = skipCommas(buffer, relating.pos, end, 1); // skip → attr[6]
+        const related = readEntityRef(buffer, pos, end);
+        if (relating.id < 0 || related.id < 0) return null;
+        return { relatingObject: relating.id, relatedObjects: [related.id] };
+    } else {
+        // Default: attr[4]=RelatingObject, attr[5]=RelatedObject(s)
+        // Covers: IfcRelAggregates, IfcRelVoidsElement, IfcRelFillsElement, IfcRelSpaceBoundary, IfcRelNests
+        const relating = readEntityRef(buffer, pos, end);
+        if (relating.id < 0) return null;
+
+        // Skip comma to attr[5]
+        pos = relating.pos;
+        while (pos < end && buffer[pos] !== 0x2C) pos++;
+        pos++;
+
+        const related = readEntityRefListOrSingle(buffer, pos, end);
+        if (related.ids.length === 0) return null;
+        return { relatingObject: relating.id, relatedObjects: related.ids };
+    }
+}
+
+/**
+ * Fast byte-level extraction of property relationship data from STEP bytes.
+ * Extracts relatedObjects list (attr[4]) and relatingPropertyDefinition (attr[5]).
+ *
+ * Format: #ID = IFCRELDEFINESBYPROPERTIES('guid',#owner,'name',$,(#obj1,#obj2),#propSet);
+ */
+function extractPropertyRelFast(
+    buffer: Uint8Array,
+    byteOffset: number,
+    byteLength: number,
+): { relatedObjects: number[]; relatingDef: number } | null {
+    const end = byteOffset + byteLength;
+    let pos = byteOffset;
+
+    // Skip to opening paren
+    while (pos < end && buffer[pos] !== 0x28) pos++;
+    if (pos >= end) return null;
+    pos++;
+
+    // Skip 4 commas at depth 0 to reach attr[4]
+    let commasToSkip = 4;
+    let depth = 0;
+    let inString = false;
+    while (pos < end && commasToSkip > 0) {
+        const ch = buffer[pos];
+        if (ch === 0x27) {
+            if (inString && pos + 1 < end && buffer[pos + 1] === 0x27) {
+                pos += 2;
+                continue;
+            }
+            inString = !inString;
+        } else if (!inString) {
+            if (ch === 0x28) depth++;
+            else if (ch === 0x29) depth--;
+            else if (ch === 0x2C && depth === 0) commasToSkip--;
+        }
+        pos++;
+    }
+
+    // --- Attr[4]: relatedObjects list ---
+    while (pos < end && (buffer[pos] === 0x20 || buffer[pos] === 0x09)) pos++;
+
+    const relatedObjects: number[] = [];
+    if (pos < end && buffer[pos] === 0x28 /* ( */) {
+        pos++;
+        while (pos < end && buffer[pos] !== 0x29) {
+            while (pos < end && (buffer[pos] === 0x20 || buffer[pos] === 0x09 || buffer[pos] === 0x2C)) pos++;
+            if (pos < end && buffer[pos] === 0x23) {
+                pos++;
+                let num = 0;
+                while (pos < end && buffer[pos] >= 0x30 && buffer[pos] <= 0x39) {
+                    num = num * 10 + (buffer[pos] - 0x30);
+                    pos++;
+                }
+                relatedObjects.push(num);
+            } else if (pos < end && buffer[pos] !== 0x29) {
+                pos++;
+            }
+        }
+        if (pos < end) pos++; // skip )
+    }
+
+    // Skip comma to attr[5]
+    while (pos < end && buffer[pos] !== 0x2C) pos++;
+    pos++;
+
+    // --- Attr[5]: relatingPropertyDefinition (#ID) ---
+    while (pos < end && (buffer[pos] === 0x20 || buffer[pos] === 0x09)) pos++;
+
+    let relatingDef = -1;
+    if (pos < end && buffer[pos] === 0x23) {
+        pos++;
+        let num = 0;
+        while (pos < end && buffer[pos] >= 0x30 && buffer[pos] <= 0x39) {
+            num = num * 10 + (buffer[pos] - 0x30);
+            pos++;
+        }
+        relatingDef = num;
+    }
+
+    if (relatingDef < 0 || relatedObjects.length === 0) return null;
+    return { relatedObjects, relatingDef };
+}
+
+/**
+ * Fast byte-level extraction of association relationship data.
+ * Same layout as property rels: attr[4] = relatedObjects, attr[5] = relatingRef
+ */
+function extractAssociationRelFast(
+    buffer: Uint8Array,
+    byteOffset: number,
+    byteLength: number,
+): { relatedObjects: number[]; relatingRef: number } | null {
+    const result = extractPropertyRelFast(buffer, byteOffset, byteLength);
+    if (!result) return null;
+    return { relatedObjects: result.relatedObjects, relatingRef: result.relatingDef };
+}
+
 function detectSchemaVersion(buffer: Uint8Array): IfcDataStore['schemaVersion'] {
     const headerEnd = Math.min(buffer.length, 2000);
     const headerText = new TextDecoder().decode(buffer.subarray(0, headerEnd)).toUpperCase();
@@ -251,24 +568,11 @@ export class ColumnarParser {
         // Build compact entity index (typed arrays instead of Map for ~3x memory reduction)
         const compactByIdIndex = buildCompactEntityIndex(entityRefs);
 
-        // Also build byType index (Map<string, number[]>)
+        // Single pass: build byType index AND categorize entities simultaneously.
+        // Uses a type-name cache to avoid calling .toUpperCase() on 4.4M refs
+        // (only ~776 unique type names in IFC4).
         const byType = new Map<string, number[]>();
-        for (const ref of entityRefs) {
-            let typeList = byType.get(ref.type);
-            if (!typeList) {
-                typeList = [];
-                byType.set(ref.type, typeList);
-            }
-            typeList.push(ref.expressId);
-        }
 
-        const entityIndex = {
-            byId: compactByIdIndex as EntityByIdIndex,
-            byType,
-        };
-
-        // First pass: categorize ALL entity refs in one sync loop (~100ms for 4.4M).
-        // Also collect "other relevant" entities to avoid a second 4.4M iteration.
         const RELEVANT_ENTITY_PREFIXES = new Set([
             'IFCWALL', 'IFCSLAB', 'IFCBEAM', 'IFCCOLUMN', 'IFCPLATE', 'IFCDOOR', 'IFCWINDOW',
             'IFCROOF', 'IFCSTAIR', 'IFCRAILING', 'IFCRAMP', 'IFCFOOTING', 'IFCPILE',
@@ -278,6 +582,30 @@ export class ColumnarParser {
             'IFCPROJECT', 'IFCCOVERING', 'IFCANNOTATION', 'IFCGRID',
         ]);
 
+        // Category constants for the lookup cache
+        const CAT_SKIP = 0, CAT_SPATIAL = 1, CAT_GEOMETRY = 2, CAT_HIERARCHY_REL = 3,
+              CAT_PROPERTY_REL = 4, CAT_PROPERTY_ENTITY = 5, CAT_ASSOCIATION_REL = 6,
+              CAT_TYPE_OBJECT = 7, CAT_RELEVANT = 8;
+
+        // Cache: type name → category (avoids 4.4M .toUpperCase() calls)
+        const typeCategoryCache = new Map<string, number>();
+        function getCategory(type: string): number {
+            let cat = typeCategoryCache.get(type);
+            if (cat !== undefined) return cat;
+            const upper = type.toUpperCase();
+            if (SPATIAL_TYPES.has(upper)) cat = CAT_SPATIAL;
+            else if (GEOMETRY_TYPES.has(upper)) cat = CAT_GEOMETRY;
+            else if (HIERARCHY_REL_TYPES.has(upper)) cat = CAT_HIERARCHY_REL;
+            else if (PROPERTY_REL_TYPES.has(upper)) cat = CAT_PROPERTY_REL;
+            else if (PROPERTY_ENTITY_TYPES.has(upper)) cat = CAT_PROPERTY_ENTITY;
+            else if (ASSOCIATION_REL_TYPES.has(upper)) cat = CAT_ASSOCIATION_REL;
+            else if (isIfcTypeLikeEntity(upper)) cat = CAT_TYPE_OBJECT;
+            else if (RELEVANT_ENTITY_PREFIXES.has(upper) || upper.startsWith('IFCREL')) cat = CAT_RELEVANT;
+            else cat = CAT_SKIP;
+            typeCategoryCache.set(type, cat);
+            return cat;
+        }
+
         const spatialRefs: EntityRef[] = [];
         const geometryRefs: EntityRef[] = [];
         const relationshipRefs: EntityRef[] = [];
@@ -285,29 +613,30 @@ export class ColumnarParser {
         const propertyEntityRefs: EntityRef[] = [];
         const associationRelRefs: EntityRef[] = [];
         const typeObjectRefs: EntityRef[] = [];
-        // Catch-all for entities relevant to entity table but not in explicit categories
         const otherRelevantRefs: EntityRef[] = [];
 
         for (const ref of entityRefs) {
-            const typeUpper = ref.type.toUpperCase();
-            if (SPATIAL_TYPES.has(typeUpper)) {
-                spatialRefs.push(ref);
-            } else if (GEOMETRY_TYPES.has(typeUpper)) {
-                geometryRefs.push(ref);
-            } else if (HIERARCHY_REL_TYPES.has(typeUpper)) {
-                relationshipRefs.push(ref);
-            } else if (PROPERTY_REL_TYPES.has(typeUpper)) {
-                propertyRelRefs.push(ref);
-            } else if (PROPERTY_ENTITY_TYPES.has(typeUpper)) {
-                propertyEntityRefs.push(ref);
-            } else if (ASSOCIATION_REL_TYPES.has(typeUpper)) {
-                associationRelRefs.push(ref);
-            } else if (isIfcTypeLikeEntity(typeUpper)) {
-                typeObjectRefs.push(ref);
-            } else if (RELEVANT_ENTITY_PREFIXES.has(typeUpper) || typeUpper.startsWith('IFCREL')) {
-                otherRelevantRefs.push(ref);
-            }
+            // Build byType index
+            let typeList = byType.get(ref.type);
+            if (!typeList) { typeList = []; byType.set(ref.type, typeList); }
+            typeList.push(ref.expressId);
+
+            // Categorize (cached — .toUpperCase() called once per unique type)
+            const cat = getCategory(ref.type);
+            if (cat === CAT_SPATIAL) spatialRefs.push(ref);
+            else if (cat === CAT_GEOMETRY) geometryRefs.push(ref);
+            else if (cat === CAT_HIERARCHY_REL) relationshipRefs.push(ref);
+            else if (cat === CAT_PROPERTY_REL) propertyRelRefs.push(ref);
+            else if (cat === CAT_PROPERTY_ENTITY) propertyEntityRefs.push(ref);
+            else if (cat === CAT_ASSOCIATION_REL) associationRelRefs.push(ref);
+            else if (cat === CAT_TYPE_OBJECT) typeObjectRefs.push(ref);
+            else if (cat === CAT_RELEVANT) otherRelevantRefs.push(ref);
         }
+
+        const entityIndex = {
+            byId: compactByIdIndex as EntityByIdIndex,
+            byType,
+        };
 
         // Yield to main thread between heavy phases so geometry streaming callbacks
         // can fire. Only ~5-6 yields total ≈ 5ms overhead (vs 110K+ per-iteration yields).
@@ -315,72 +644,45 @@ export class ColumnarParser {
 
         await yieldToGeometry(); // Let geometry process after categorization
 
-        // === TARGETED PARSING: Parse spatial and geometry entities for GlobalIds ===
+        // === TARGETED PARSING: Extract GlobalId+Name using fast byte-level scanner ===
+        // ~10-50x faster than extractEntity() — no TextDecoder, no regex, no full attr parsing.
         options.onProgress?.({ phase: 'parsing spatial', percent: 10 });
 
-        const extractor = new EntityExtractor(uint8Buffer);
         const parsedEntityData = new Map<number, { globalId: string; name: string }>();
 
-        // Parse spatial entities (typically < 100 entities)
+        // Parse spatial entities (typically < 100 entities) — byte-level scan
         for (const ref of spatialRefs) {
-            const entity = extractor.extractEntity(ref);
-            if (entity) {
-                const attrs = entity.attributes || [];
-                const globalId = typeof attrs[0] === 'string' ? attrs[0] : '';
-                const name = typeof attrs[2] === 'string' ? attrs[2] : '';
-                parsedEntityData.set(ref.expressId, { globalId, name });
-            } else {
-                console.warn(`[ColumnarParser] Failed to extract spatial entity #${ref.expressId} (${ref.type})`);
-            }
+            parsedEntityData.set(ref.expressId,
+                extractGlobalIdAndNameFast(uint8Buffer, ref.byteOffset, ref.byteLength));
         }
 
-        // Parse geometry entities for GlobalIds (needed for BCF component references)
-        // IFC entities with geometry have GlobalId at attribute[0] and Name at attribute[2]
+        // Parse geometry entities for GlobalIds — byte-level scan (~39K entities)
         options.onProgress?.({ phase: 'parsing geometry globalIds', percent: 12 });
         for (const ref of geometryRefs) {
-            const entity = extractor.extractEntity(ref);
-            if (entity) {
-                const attrs = entity.attributes || [];
-                const globalId = typeof attrs[0] === 'string' ? attrs[0] : '';
-                const name = typeof attrs[2] === 'string' ? attrs[2] : '';
-                parsedEntityData.set(ref.expressId, { globalId, name });
-            }
+            parsedEntityData.set(ref.expressId,
+                extractGlobalIdAndNameFast(uint8Buffer, ref.byteOffset, ref.byteLength));
         }
 
-        await yieldToGeometry(); // Let geometry process after heavy geometry parsing
+        await yieldToGeometry(); // Let geometry process after geometry parsing
 
-        // Parse type objects (IfcWallType, IfcDoorType, etc.) for GlobalId and Name
-        // Type objects derive from IfcRoot: attrs[0]=GlobalId, attrs[2]=Name
-        // Needed for IDS validation against type entities
+        // Parse type objects — byte-level scan
         for (const ref of typeObjectRefs) {
-            const entity = extractor.extractEntity(ref);
-            if (entity) {
-                const attrs = entity.attributes || [];
-                const globalId = typeof attrs[0] === 'string' ? attrs[0] : '';
-                const name = typeof attrs[2] === 'string' ? attrs[2] : '';
-                parsedEntityData.set(ref.expressId, { globalId, name });
-            }
+            parsedEntityData.set(ref.expressId,
+                extractGlobalIdAndNameFast(uint8Buffer, ref.byteOffset, ref.byteLength));
         }
 
-        // Parse relationship entities (typically < 10k entities)
+        // Parse relationship entities — byte-level scan for relating/related IDs
         // CRITICAL: relationships are needed for spatial hierarchy, parse early
         options.onProgress?.({ phase: 'parsing relationships', percent: 20 });
 
-        const relationships: Relationship[] = [];
         for (const ref of relationshipRefs) {
-            const entity = extractor.extractEntity(ref);
-            if (entity) {
-                const typeUpper = entity.type.toUpperCase();
-                const rel = this.extractRelationshipFast(entity, typeUpper);
-                if (rel) {
-                    relationships.push(rel);
-
-                    // Add to relationship graph
-                    const relType = REL_TYPE_MAP[typeUpper];
-                    if (relType) {
-                        for (const targetId of rel.relatedObjects) {
-                            relationshipGraphBuilder.addEdge(rel.relatingObject, targetId, relType, rel.relatingObject);
-                        }
+            const typeUpper = ref.type.toUpperCase();
+            const rel = extractRelationshipFast(uint8Buffer, ref.byteOffset, ref.byteLength, typeUpper);
+            if (rel) {
+                const relType = REL_TYPE_MAP[typeUpper];
+                if (relType) {
+                    for (const targetId of rel.relatedObjects) {
+                        relationshipGraphBuilder.addEdge(rel.relatingObject, targetId, relType, rel.relatingObject);
                     }
                 }
             }
@@ -479,37 +781,29 @@ export class ColumnarParser {
         const onDemandQuantityMap = new Map<number, number[]>();
 
         for (const ref of propertyRelRefs) {
-            const entity = extractor.extractEntity(ref);
-            if (entity) {
-                const attrs = entity.attributes || [];
-                const relatedObjects = attrs[4];
-                const relatingDef = attrs[5];
+            const result = extractPropertyRelFast(uint8Buffer, ref.byteOffset, ref.byteLength);
+            if (result) {
+                const { relatedObjects, relatingDef } = result;
 
-                if (typeof relatingDef === 'number' && Array.isArray(relatedObjects)) {
-                    for (const objId of relatedObjects) {
-                        if (typeof objId === 'number') {
-                            relationshipGraphBuilder.addEdge(relatingDef, objId, RelationshipType.DefinesByProperties, ref.expressId);
-                        }
-                    }
+                for (const objId of relatedObjects) {
+                    relationshipGraphBuilder.addEdge(relatingDef, objId, RelationshipType.DefinesByProperties, ref.expressId);
+                }
 
-                    const defRef = entityIndex.byId.get(relatingDef);
-                    if (defRef) {
-                        const defTypeUpper = defRef.type.toUpperCase();
-                        const isPropertySet = defTypeUpper === 'IFCPROPERTYSET';
-                        const isQuantitySet = defTypeUpper === 'IFCELEMENTQUANTITY';
+                const defRef = entityIndex.byId.get(relatingDef);
+                if (defRef) {
+                    const defTypeUpper = defRef.type.toUpperCase();
+                    const isPropertySet = defTypeUpper === 'IFCPROPERTYSET';
+                    const isQuantitySet = defTypeUpper === 'IFCELEMENTQUANTITY';
 
-                        if (isPropertySet || isQuantitySet) {
-                            const targetMap = isPropertySet ? onDemandPropertyMap : onDemandQuantityMap;
-                            for (const objId of relatedObjects) {
-                                if (typeof objId === 'number') {
-                                    let list = targetMap.get(objId);
-                                    if (!list) {
-                                        list = [];
-                                        targetMap.set(objId, list);
-                                    }
-                                    list.push(relatingDef);
-                                }
+                    if (isPropertySet || isQuantitySet) {
+                        const targetMap = isPropertySet ? onDemandPropertyMap : onDemandQuantityMap;
+                        for (const objId of relatedObjects) {
+                            let list = targetMap.get(objId);
+                            if (!list) {
+                                list = [];
+                                targetMap.set(objId, list);
                             }
+                            list.push(relatingDef);
                         }
                     }
                 }
@@ -526,43 +820,32 @@ export class ColumnarParser {
         const onDemandDocumentMap = new Map<number, number[]>();
 
         for (const ref of associationRelRefs) {
-            const entity = extractor.extractEntity(ref);
-            if (entity) {
-                const attrs = entity.attributes || [];
-                const relatedObjects = attrs[4];
-                const relatingRef = attrs[5];
+            const result = extractAssociationRelFast(uint8Buffer, ref.byteOffset, ref.byteLength);
+            if (result) {
+                const { relatedObjects, relatingRef } = result;
+                const typeUpper = ref.type.toUpperCase();
 
-                if (typeof relatingRef === 'number' && Array.isArray(relatedObjects)) {
-                    const typeUpper = ref.type.toUpperCase();
-
-                    if (typeUpper === 'IFCRELASSOCIATESCLASSIFICATION') {
-                        for (const objId of relatedObjects) {
-                            if (typeof objId === 'number') {
-                                let list = onDemandClassificationMap.get(objId);
-                                if (!list) {
-                                    list = [];
-                                    onDemandClassificationMap.set(objId, list);
-                                }
-                                list.push(relatingRef);
-                            }
+                if (typeUpper === 'IFCRELASSOCIATESCLASSIFICATION') {
+                    for (const objId of relatedObjects) {
+                        let list = onDemandClassificationMap.get(objId);
+                        if (!list) {
+                            list = [];
+                            onDemandClassificationMap.set(objId, list);
                         }
-                    } else if (typeUpper === 'IFCRELASSOCIATESMATERIAL') {
-                        for (const objId of relatedObjects) {
-                            if (typeof objId === 'number') {
-                                onDemandMaterialMap.set(objId, relatingRef);
-                            }
+                        list.push(relatingRef);
+                    }
+                } else if (typeUpper === 'IFCRELASSOCIATESMATERIAL') {
+                    for (const objId of relatedObjects) {
+                        onDemandMaterialMap.set(objId, relatingRef);
+                    }
+                } else if (typeUpper === 'IFCRELASSOCIATESDOCUMENT') {
+                    for (const objId of relatedObjects) {
+                        let list = onDemandDocumentMap.get(objId);
+                        if (!list) {
+                            list = [];
+                            onDemandDocumentMap.set(objId, list);
                         }
-                    } else if (typeUpper === 'IFCRELASSOCIATESDOCUMENT') {
-                        for (const objId of relatedObjects) {
-                            if (typeof objId === 'number') {
-                                let list = onDemandDocumentMap.get(objId);
-                                if (!list) {
-                                    list = [];
-                                    onDemandDocumentMap.set(objId, list);
-                                }
-                                list.push(relatingRef);
-                            }
-                        }
+                        list.push(relatingRef);
                     }
                 }
             }
@@ -583,57 +866,6 @@ export class ColumnarParser {
             onDemandClassificationMap,
             onDemandMaterialMap,
             onDemandDocumentMap,
-        };
-    }
-
-    /**
-     * Fast relationship extraction - inline for performance
-     */
-    private extractRelationshipFast(entity: IfcEntity, typeUpper: string): Relationship | null {
-        const attrs = entity.attributes;
-        if (attrs.length < 6) return null;
-
-        let relatingObject: unknown;
-        let relatedObjects: unknown;
-
-        if (typeUpper === 'IFCRELDEFINESBYPROPERTIES' || typeUpper === 'IFCRELDEFINESBYTYPE'
-            || typeUpper === 'IFCRELCONTAINEDINSPATIALSTRUCTURE' || typeUpper === 'IFCRELREFERENCEDINSPATIALSTRUCTURE') {
-            // [4]=RelatedObjects/RelatedElements, [5]=RelatingPropertyDef/Type/Structure
-            relatedObjects = attrs[4];
-            relatingObject = attrs[5];
-        } else if (typeUpper === 'IFCRELASSIGNSTOGROUP' || typeUpper === 'IFCRELASSIGNSTOPRODUCT') {
-            // IfcRelAssigns subtypes: [4]=RelatedObjects, [5]=RelatedObjectsType, [6]=RelatingGroup/Product
-            relatedObjects = attrs[4];
-            relatingObject = attrs.length > 6 ? attrs[6] : undefined;
-        } else if (typeUpper === 'IFCRELCONNECTSELEMENTS' || typeUpper === 'IFCRELCONNECTSPATHELEMENTS') {
-            // [4]=ConnectionGeometry, [5]=RelatingElement, [6]=RelatedElement
-            relatingObject = attrs[5];
-            relatedObjects = attrs.length > 6 ? attrs[6] : undefined;
-        } else {
-            // IfcRelAggregates, IfcRelVoidsElement, IfcRelFillsElement, IfcRelSpaceBoundary, etc.
-            // [4]=RelatingObject, [5]=RelatedObject(s)
-            relatingObject = attrs[4];
-            relatedObjects = attrs[5];
-        }
-
-        if (typeof relatingObject !== 'number') {
-            return null;
-        }
-
-        // Handle both 1-to-many (array) and 1-to-1 (single ref) relationships
-        let relatedArray: number[];
-        if (Array.isArray(relatedObjects)) {
-            relatedArray = relatedObjects.filter((id): id is number => typeof id === 'number');
-        } else if (typeof relatedObjects === 'number') {
-            relatedArray = [relatedObjects];
-        } else {
-            return null;
-        }
-
-        return {
-            type: entity.type,
-            relatingObject,
-            relatedObjects: relatedArray,
         };
     }
 
