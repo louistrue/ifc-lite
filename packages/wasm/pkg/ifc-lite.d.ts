@@ -1110,11 +1110,11 @@ export interface InitOutput {
     readonly zerocopymesh_normals_ptr: (a: number) => number;
     readonly __wbg_gpuinstancedgeometryref_free: (a: number, b: number) => void;
     readonly get_memory: () => number;
-    readonly __wasm_bindgen_func_elem_1016: (a: number, b: number) => void;
-    readonly __wasm_bindgen_func_elem_465: (a: number, b: number) => void;
-    readonly __wasm_bindgen_func_elem_1021: (a: number, b: number, c: number, d: number) => void;
-    readonly __wasm_bindgen_func_elem_1054: (a: number, b: number, c: number, d: number) => void;
-    readonly __wasm_bindgen_func_elem_469: (a: number, b: number) => void;
+    readonly __wasm_bindgen_func_elem_1024: (a: number, b: number) => void;
+    readonly __wasm_bindgen_func_elem_474: (a: number, b: number) => void;
+    readonly __wasm_bindgen_func_elem_1026: (a: number, b: number, c: number, d: number) => void;
+    readonly __wasm_bindgen_func_elem_1059: (a: number, b: number, c: number, d: number) => void;
+    readonly __wasm_bindgen_func_elem_476: (a: number, b: number) => void;
     readonly __wbindgen_export: (a: number) => void;
     readonly __wbindgen_export2: (a: number, b: number, c: number) => void;
     readonly __wbindgen_export3: (a: number, b: number) => number;
