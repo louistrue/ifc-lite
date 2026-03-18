@@ -568,7 +568,27 @@ export function useIfcLoader() {
       );
       console.log(`[useIfc] TOTAL LOAD TIME (local): ${totalElapsedMs.toFixed(0)}ms (${(totalElapsedMs / 1000).toFixed(1)}s)`);
 
+      console.log('[useIfc] About to setLoading(false)');
       setLoading(false);
+      console.log('[useIfc] setLoading(false) done');
+
+      // Monitor for long tasks after load completes (helps diagnose post-load freezes)
+      if (typeof PerformanceObserver !== 'undefined') {
+        try {
+          const obs = new PerformanceObserver((list) => {
+            for (const entry of list.getEntries()) {
+              if (entry.duration > 100) {
+                console.warn(`[useIfc] LONG TASK: ${entry.duration.toFixed(0)}ms at ${entry.startTime.toFixed(0)}ms`);
+              }
+            }
+          });
+          obs.observe({ type: 'longtask', buffered: false });
+          // Auto-cleanup after 30s
+          setTimeout(() => obs.disconnect(), 30000);
+        } catch {
+          // PerformanceObserver longtask not supported
+        }
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error');
       setLoading(false);

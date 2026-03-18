@@ -253,9 +253,13 @@ export function useGeometryStreaming(params: UseGeometryStreamingParams): void {
         const r = rendererRef.current;
         if (!r) return;
 
+        console.log('[GeomStream] Streaming ended — starting finalize');
+
         // Compute exact bounds and refit camera (fast ~15ms scan)
         if (cameraFittedRef.current && !finalBoundsRefittedRef.current && capturedGeometry && capturedGeometry.length > 0) {
+          const t0 = performance.now();
           const exactBounds = computeBounds(capturedGeometry);
+          console.log(`[GeomStream] computeBounds: ${(performance.now() - t0).toFixed(0)}ms`);
           if (exactBounds) {
             if (!userMovedCamera(r, cameraSnapshotRef.current)) {
               r.getCamera().fitToBounds(exactBounds.min, exactBounds.max);
@@ -269,7 +273,9 @@ export function useGeometryStreaming(params: UseGeometryStreamingParams): void {
         const dev = r.getGPUDevice();
         const pipe = r.getPipeline();
         if (dev && pipe) {
+          const t0 = performance.now();
           r.getScene().finalizeStreamingAsync(dev, pipe).then(() => {
+            console.log(`[GeomStream] finalizeStreamingAsync complete: ${(performance.now() - t0).toFixed(0)}ms`);
             r.clearCaches();
             r.requestRender();
           });
