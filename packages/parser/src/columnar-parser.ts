@@ -224,11 +224,14 @@ export class ColumnarParser {
      * Properties are parsed lazily when accessed, not upfront.
      * This provides instant UI responsiveness even for very large files.
      */
-    async parseLite(
+    parseLite(
         buffer: ArrayBuffer,
         entityRefs: EntityRef[],
-        options: { onProgress?: (progress: { phase: string; percent: number }) => void } = {}
-    ): Promise<IfcDataStore> {
+        options: {
+            onProgress?: (progress: { phase: string; percent: number }) => void;
+            onSpatialReady?: (partialStore: IfcDataStore) => void;
+        } = {}
+    ): IfcDataStore {
         const startTime = performance.now();
         const uint8Buffer = new Uint8Array(buffer);
         const totalEntities = entityRefs.length;
@@ -264,20 +267,17 @@ export class ColumnarParser {
             byType,
         };
 
-        // Time-based yielding for smaller loops (relationships, properties, etc.)
-        // CRITICAL: Do NOT use in 4.4M-iteration loops — even a no-op `await`
-        // creates a Promise+microtask per call, adding 8-10s of overhead.
-        let lastYieldTime = performance.now();
-        const YIELD_BUDGET_MS = 4;
-        const maybeYield = async () => {
-            const now = performance.now();
-            if (now - lastYieldTime > YIELD_BUDGET_MS) {
-                await new Promise<void>(resolve => setTimeout(resolve, 0));
-                lastYieldTime = performance.now();
-            }
-        };
+        // First pass: categorize ALL entity refs in one sync loop (~100ms for 4.4M).
+        // Also collect "other relevant" entities to avoid a second 4.4M iteration.
+        const RELEVANT_ENTITY_PREFIXES = new Set([
+            'IFCWALL', 'IFCSLAB', 'IFCBEAM', 'IFCCOLUMN', 'IFCPLATE', 'IFCDOOR', 'IFCWINDOW',
+            'IFCROOF', 'IFCSTAIR', 'IFCRAILING', 'IFCRAMP', 'IFCFOOTING', 'IFCPILE',
+            'IFCMEMBER', 'IFCCURTAINWALL', 'IFCBUILDINGELEMENTPROXY', 'IFCFURNISHINGELEMENT',
+            'IFCFLOWSEGMENT', 'IFCFLOWTERMINAL', 'IFCFLOWCONTROLLER', 'IFCFLOWFITTING',
+            'IFCSPACE', 'IFCOPENINGELEMENT', 'IFCSITE', 'IFCBUILDING', 'IFCBUILDINGSTOREY',
+            'IFCPROJECT', 'IFCCOVERING', 'IFCANNOTATION', 'IFCGRID',
+        ]);
 
-        // First pass: collect spatial, geometry, relationship, property, and type refs for targeted parsing
         const spatialRefs: EntityRef[] = [];
         const geometryRefs: EntityRef[] = [];
         const relationshipRefs: EntityRef[] = [];
@@ -285,10 +285,10 @@ export class ColumnarParser {
         const propertyEntityRefs: EntityRef[] = [];
         const associationRelRefs: EntityRef[] = [];
         const typeObjectRefs: EntityRef[] = [];
+        // Catch-all for entities relevant to entity table but not in explicit categories
+        const otherRelevantRefs: EntityRef[] = [];
 
         for (const ref of entityRefs) {
-
-            // Categorize refs for targeted parsing
             const typeUpper = ref.type.toUpperCase();
             if (SPATIAL_TYPES.has(typeUpper)) {
                 spatialRefs.push(ref);
@@ -304,8 +304,9 @@ export class ColumnarParser {
                 associationRelRefs.push(ref);
             } else if (isIfcTypeLikeEntity(typeUpper)) {
                 typeObjectRefs.push(ref);
+            } else if (RELEVANT_ENTITY_PREFIXES.has(typeUpper) || typeUpper.startsWith('IFCREL')) {
+                otherRelevantRefs.push(ref);
             }
-            // No yield here — 4.4M iterations of Set.has() + push is <100ms sync
         }
 
         // === TARGETED PARSING: Parse spatial and geometry entities for GlobalIds ===
@@ -338,7 +339,6 @@ export class ColumnarParser {
                 const name = typeof attrs[2] === 'string' ? attrs[2] : '';
                 parsedEntityData.set(ref.expressId, { globalId, name });
             }
-            await maybeYield();
         }
 
         // Parse type objects (IfcWallType, IfcDoorType, etc.) for GlobalId and Name
@@ -355,6 +355,7 @@ export class ColumnarParser {
         }
 
         // Parse relationship entities (typically < 10k entities)
+        // CRITICAL: relationships are needed for spatial hierarchy, parse early
         options.onProgress?.({ phase: 'parsing relationships', percent: 20 });
 
         const relationships: Relationship[] = [];
@@ -375,34 +376,110 @@ export class ColumnarParser {
                     }
                 }
             }
-            await maybeYield();
         }
 
-        // === PARSE PROPERTY RELATIONSHIPS for on-demand loading ===
-        options.onProgress?.({ phase: 'parsing property refs', percent: 25 });
+        // === BUILD ENTITY TABLE from categorized arrays ===
+        // Instead of iterating ALL 4.4M entityRefs, iterate only categorized arrays
+        // (~100K-200K total). This eliminates a 200-300ms loop over 4.4M items.
+        options.onProgress?.({ phase: 'building entities', percent: 30 });
+
+        // Helper to add entities with pre-parsed data
+        const addEntityBatch = (refs: EntityRef[], hasGeometry: boolean, isType: boolean) => {
+            for (const ref of refs) {
+                const entityData = parsedEntityData.get(ref.expressId);
+                entityTableBuilder.add(
+                    ref.expressId,
+                    ref.type,
+                    entityData?.globalId || '',
+                    entityData?.name || '',
+                    '', // description
+                    '', // objectType
+                    hasGeometry,
+                    isType
+                );
+            }
+        };
+
+        addEntityBatch(spatialRefs, false, false);
+        addEntityBatch(geometryRefs, true, false);
+        addEntityBatch(typeObjectRefs, false, true);
+        addEntityBatch(relationshipRefs, false, false);
+        addEntityBatch(otherRelevantRefs, false, false);
+
+        const entityTable = entityTableBuilder.build();
+
+        // Empty property/quantity tables - use on-demand extraction instead
+        const propertyTable = propertyTableBuilder.build();
+        const quantityTable = quantityTableBuilder.build();
+
+        // Build intermediate relationship graph (spatial/hierarchy edges only).
+        // Property/association edges are added later; final graph is rebuilt at the end.
+        const hierarchyRelGraph = relationshipGraphBuilder.build();
+
+        // === EXTRACT LENGTH UNIT SCALE ===
+        options.onProgress?.({ phase: 'extracting units', percent: 85 });
+        const lengthUnitScale = extractLengthUnitScale(uint8Buffer, entityIndex);
+
+        // === BUILD SPATIAL HIERARCHY ===
+        options.onProgress?.({ phase: 'building hierarchy', percent: 90 });
+
+        let spatialHierarchy: SpatialHierarchy | undefined;
+        try {
+            const hierarchyBuilder = new SpatialHierarchyBuilder();
+            spatialHierarchy = hierarchyBuilder.build(
+                entityTable,
+                hierarchyRelGraph,
+                strings,
+                uint8Buffer,
+                entityIndex,
+                lengthUnitScale
+            );
+        } catch (error) {
+            console.warn('[ColumnarParser] Failed to build spatial hierarchy:', error);
+        }
+
+        // === EMIT SPATIAL HIERARCHY EARLY ===
+        // The hierarchy panel can render immediately while property/association
+        // parsing continues. This lets the panel appear at the same time as
+        // geometry streaming completes.
+        const earlyStore: IfcDataStore = {
+            fileSize: buffer.byteLength,
+            schemaVersion,
+            entityCount: totalEntities,
+            parseTime: performance.now() - startTime,
+            source: uint8Buffer,
+            entityIndex,
+            strings,
+            entities: entityTable,
+            properties: propertyTable,
+            quantities: quantityTable,
+            relationships: hierarchyRelGraph,
+            spatialHierarchy,
+        };
+        options.onSpatialReady?.(earlyStore);
+
+        // === DEFERRED: Parse property and association relationships ===
+        // These are NOT needed for the spatial hierarchy panel.
+        // Parsing ~60K entities here adds ~0.5-1s that no longer blocks the panel.
+        options.onProgress?.({ phase: 'parsing property refs', percent: 92 });
 
         const onDemandPropertyMap = new Map<number, number[]>();
         const onDemandQuantityMap = new Map<number, number[]>();
 
-        // Parse IfcRelDefinesByProperties to build entity -> pset/qset mapping
-        // ALSO add to relationship graph so cache loads can rebuild on-demand maps
         for (const ref of propertyRelRefs) {
             const entity = extractor.extractEntity(ref);
             if (entity) {
                 const attrs = entity.attributes || [];
-                // IfcRelDefinesByProperties: relatedObjects at [4], relatingPropertyDefinition at [5]
                 const relatedObjects = attrs[4];
                 const relatingDef = attrs[5];
 
                 if (typeof relatingDef === 'number' && Array.isArray(relatedObjects)) {
-                    // Add to relationship graph (needed for cache rebuild)
                     for (const objId of relatedObjects) {
                         if (typeof objId === 'number') {
                             relationshipGraphBuilder.addEdge(relatingDef, objId, RelationshipType.DefinesByProperties, ref.expressId);
                         }
                     }
 
-                    // Find if the relating definition is a property set or quantity set
                     const defRef = entityIndex.byId.get(relatingDef);
                     if (defRef) {
                         const defTypeUpper = defRef.type.toUpperCase();
@@ -425,10 +502,11 @@ export class ColumnarParser {
                     }
                 }
             }
-            await maybeYield();
         }
 
-        // === PARSE ASSOCIATION RELATIONSHIPS for on-demand classification/material/document loading ===
+        // === DEFERRED: Parse association relationships ===
+        options.onProgress?.({ phase: 'parsing associations', percent: 95 });
+
         const onDemandClassificationMap = new Map<number, number[]>();
         const onDemandMaterialMap = new Map<number, number>();
         const onDemandDocumentMap = new Map<number, number[]>();
@@ -437,10 +515,6 @@ export class ColumnarParser {
             const entity = extractor.extractEntity(ref);
             if (entity) {
                 const attrs = entity.attributes || [];
-                // IfcRelAssociates subtypes:
-                // [0] GlobalId, [1] OwnerHistory, [2] Name, [3] Description
-                // [4] RelatedObjects (list of element IDs)
-                // [5] RelatingClassification / RelatingMaterial / RelatingDocument
                 const relatedObjects = attrs[4];
                 const relatingRef = attrs[5];
 
@@ -459,8 +533,6 @@ export class ColumnarParser {
                             }
                         }
                     } else if (typeUpper === 'IFCRELASSOCIATESMATERIAL') {
-                        // IFC allows multiple IfcRelAssociatesMaterial per element but typically
-                        // only one is valid. Last-write-wins: later relationships override earlier ones.
                         for (const objId of relatedObjects) {
                             if (typeof objId === 'number') {
                                 onDemandMaterialMap.set(objId, relatingRef);
@@ -480,118 +552,23 @@ export class ColumnarParser {
                     }
                 }
             }
-            await maybeYield();
         }
 
-        // === BUILD ENTITY TABLE with spatial data included ===
-        options.onProgress?.({ phase: 'building entities', percent: 30 });
-
-        // OPTIMIZATION: Only add entities that are useful for the viewer UI
-        // Skip geometric primitives like IFCCARTESIANPOINT, IFCDIRECTION, etc.
-        // This reduces 4M+ entities to ~100K relevant ones
-        const RELEVANT_ENTITY_PREFIXES = new Set([
-            'IFCWALL', 'IFCSLAB', 'IFCBEAM', 'IFCCOLUMN', 'IFCPLATE', 'IFCDOOR', 'IFCWINDOW',
-            'IFCROOF', 'IFCSTAIR', 'IFCRAILING', 'IFCRAMP', 'IFCFOOTING', 'IFCPILE',
-            'IFCMEMBER', 'IFCCURTAINWALL', 'IFCBUILDINGELEMENTPROXY', 'IFCFURNISHINGELEMENT',
-            'IFCFLOWSEGMENT', 'IFCFLOWTERMINAL', 'IFCFLOWCONTROLLER', 'IFCFLOWFITTING',
-            'IFCSPACE', 'IFCOPENINGELEMENT', 'IFCSITE', 'IFCBUILDING', 'IFCBUILDINGSTOREY',
-            'IFCPROJECT', 'IFCCOVERING', 'IFCANNOTATION', 'IFCGRID',
-        ]);
-        
-        let processed = 0;
-        let added = 0;
-        for (const ref of entityRefs) {
-            const typeUpper = ref.type.toUpperCase();
-            
-            // Skip non-relevant entities (geometric primitives, etc.)
-            const hasGeometry = GEOMETRY_TYPES.has(typeUpper);
-            const isType = isIfcTypeLikeEntity(typeUpper);
-            const isSpatial = SPATIAL_TYPES.has(typeUpper);
-            const isRelevant = hasGeometry || isType || isSpatial || 
-                RELEVANT_ENTITY_PREFIXES.has(typeUpper) ||
-                typeUpper.startsWith('IFCREL') ||  // Keep relationships for hierarchy
-                onDemandPropertyMap.has(ref.expressId) ||  // Keep entities with properties
-                onDemandQuantityMap.has(ref.expressId);    // Keep entities with quantities
-            
-            if (!isRelevant) {
-                processed++;
-                continue;
-            }
-
-            // Get parsed data (GlobalId, Name) for spatial and geometry entities
-            const entityData = parsedEntityData.get(ref.expressId);
-            const globalId = entityData?.globalId || '';
-            const name = entityData?.name || '';
-
-            entityTableBuilder.add(
-                ref.expressId,
-                ref.type,
-                globalId,
-                name,
-                '', // description
-                '', // objectType
-                hasGeometry,
-                isType
-            );
-            added++;
-
-            processed++;
-            if (processed % 5000 === 0) {
-                options.onProgress?.({ phase: 'building entities', percent: 30 + (processed / totalEntities) * 50 });
-            }
-            // No yield here — 4.4M iterations of filter + map.set is <200ms sync
-        }
-        
-        const entityTable = entityTableBuilder.build();
-
-        // Empty property/quantity tables - use on-demand extraction instead
-        const propertyTable = propertyTableBuilder.build();
-        const quantityTable = quantityTableBuilder.build();
-        const relationshipGraph = relationshipGraphBuilder.build();
-
-        // === EXTRACT LENGTH UNIT SCALE ===
-        options.onProgress?.({ phase: 'extracting units', percent: 85 });
-        const lengthUnitScale = extractLengthUnitScale(uint8Buffer, entityIndex);
-
-        // === BUILD SPATIAL HIERARCHY ===
-        options.onProgress?.({ phase: 'building hierarchy', percent: 90 });
-
-        let spatialHierarchy: SpatialHierarchy | undefined;
-        try {
-            const hierarchyBuilder = new SpatialHierarchyBuilder();
-            spatialHierarchy = hierarchyBuilder.build(
-                entityTable,
-                relationshipGraph,
-                strings,
-                uint8Buffer,
-                entityIndex,
-                lengthUnitScale
-            );
-        } catch (error) {
-            console.warn('[ColumnarParser] Failed to build spatial hierarchy:', error);
-        }
+        // Rebuild relationship graph with ALL edges (hierarchy + property + association)
+        const fullRelationshipGraph = relationshipGraphBuilder.build();
 
         const parseTime = performance.now() - startTime;
         options.onProgress?.({ phase: 'complete', percent: 100 });
 
         return {
-            fileSize: buffer.byteLength,
-            schemaVersion,
-            entityCount: totalEntities,
+            ...earlyStore,
             parseTime,
-            source: uint8Buffer,
-            entityIndex,
-            strings,
-            entities: entityTable,
-            properties: propertyTable,
-            quantities: quantityTable,
-            relationships: relationshipGraph,
-            spatialHierarchy,
-            onDemandPropertyMap, // For instant property access
-            onDemandQuantityMap, // For instant quantity access
-            onDemandClassificationMap, // For instant classification access
-            onDemandMaterialMap, // For instant material access
-            onDemandDocumentMap, // For instant document access
+            relationships: fullRelationshipGraph,
+            onDemandPropertyMap,
+            onDemandQuantityMap,
+            onDemandClassificationMap,
+            onDemandMaterialMap,
+            onDemandDocumentMap,
         };
     }
 

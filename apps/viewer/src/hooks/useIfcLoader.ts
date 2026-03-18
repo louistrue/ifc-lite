@@ -315,7 +315,22 @@ export function useIfcLoader() {
         const parser = new IfcParser();
         // wasmApi as fallback if Web Worker unavailable
         const wasmApi = geometryProcessor.getApi();
-        parser.parseColumnar(buffer, { wasmApi }).then(dataStore => {
+        let spatialEmitted = false;
+        parser.parseColumnar(buffer, {
+          wasmApi,
+          // Emit spatial hierarchy EARLY — lets the panel render while
+          // property/association parsing continues (~0.5-1s earlier).
+          onSpatialReady: (partialStore) => {
+            if (partialStore.spatialHierarchy && partialStore.spatialHierarchy.storeyHeights.size === 0 && partialStore.spatialHierarchy.storeyElevations.size > 1) {
+              const calculatedHeights = calculateStoreyHeights(partialStore.spatialHierarchy.storeyElevations);
+              for (const [storeyId, height] of calculatedHeights) {
+                partialStore.spatialHierarchy.storeyHeights.set(storeyId, height);
+              }
+            }
+            setIfcDataStore(partialStore);
+            spatialEmitted = true;
+          },
+        }).then(dataStore => {
 
           // Calculate storey heights from elevation differences if not already populated
           if (dataStore.spatialHierarchy && dataStore.spatialHierarchy.storeyHeights.size === 0 && dataStore.spatialHierarchy.storeyElevations.size > 1) {
@@ -325,6 +340,7 @@ export function useIfcLoader() {
             }
           }
 
+          // Update with full data (includes property/association maps)
           setIfcDataStore(dataStore);
           resolveDataStore(dataStore);
         }).catch(err => {

@@ -91,6 +91,9 @@ import { scanEntitiesInWorker } from './scan-worker-inline.js';
 export interface ParseOptions {
   onProgress?: (progress: { phase: string; percent: number }) => void;
   wasmApi?: any; // Optional IfcAPI instance for WASM-accelerated entity scanning
+  /** Called when spatial hierarchy is ready, BEFORE property/association parsing completes.
+   *  Use this to show the hierarchy panel early while the full parse finishes. */
+  onSpatialReady?: (partialStore: import('./columnar-parser.js').IfcDataStore) => void;
 }
 
 /**
@@ -266,7 +269,7 @@ export class IfcParser {
 
     // Build columnar structures with on-demand property extraction
     const columnarParser = new ColumnarParser();
-    const dataStore = await columnarParser.parseLite(buffer, entityRefs, options);
+    const dataStore = columnarParser.parseLite(buffer, entityRefs, options);
     console.log(`[ColumnarParser] Parsed ${dataStore.entityCount} entities in ${dataStore.parseTime.toFixed(0)}ms`);
     return dataStore;
   }
