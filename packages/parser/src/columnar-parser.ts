@@ -317,11 +317,19 @@ export class ColumnarParser {
             byType,
         };
 
-        // Yield to main thread between heavy phases so geometry streaming callbacks
-        // can fire. Only ~5-6 yields total ≈ 5ms overhead (vs 110K+ per-iteration yields).
-        const yieldToGeometry = () => new Promise<void>(resolve => setTimeout(resolve, 0));
-
-        await yieldToGeometry(); // Let geometry process after categorization
+        // Time-based yielding: yield to the main thread every ~80ms so geometry
+        // streaming callbacks can fire. This limits main-thread blocking to short
+        // bursts that don't starve geometry, while adding minimal overhead (~15 yields
+        // × ~1ms each ≈ 15ms total over the full parse).
+        const YIELD_INTERVAL_MS = 80;
+        let lastYieldTime = performance.now();
+        const yieldIfNeeded = async () => {
+            const now = performance.now();
+            if (now - lastYieldTime >= YIELD_INTERVAL_MS) {
+                await new Promise<void>(resolve => setTimeout(resolve, 0));
+                lastYieldTime = performance.now();
+            }
+        };
 
         // === TARGETED PARSING: Parse spatial and geometry entities for GlobalIds ===
         options.onProgress?.({ phase: 'parsing spatial', percent: 10 });
@@ -329,41 +337,30 @@ export class ColumnarParser {
         const extractor = new EntityExtractor(uint8Buffer);
         const parsedEntityData = new Map<number, { globalId: string; name: string }>();
 
+        // Helper to extract GlobalId+Name from an entity with IfcRoot attrs
+        const extractGlobalIdName = (ref: EntityRef) => {
+            const entity = extractor.extractEntity(ref);
+            if (entity) {
+                const attrs = entity.attributes || [];
+                const globalId = typeof attrs[0] === 'string' ? attrs[0] : '';
+                const name = typeof attrs[2] === 'string' ? attrs[2] : '';
+                parsedEntityData.set(ref.expressId, { globalId, name });
+            }
+        };
+
         // Parse spatial entities (typically < 100 entities)
-        for (const ref of spatialRefs) {
-            const entity = extractor.extractEntity(ref);
-            if (entity) {
-                const attrs = entity.attributes || [];
-                const globalId = typeof attrs[0] === 'string' ? attrs[0] : '';
-                const name = typeof attrs[2] === 'string' ? attrs[2] : '';
-                parsedEntityData.set(ref.expressId, { globalId, name });
-            }
-        }
+        for (const ref of spatialRefs) extractGlobalIdName(ref);
 
-        // Parse geometry entities for GlobalIds (needed for BCF component references)
+        // Parse geometry entities for GlobalIds — yield every ~80ms within the loop
         options.onProgress?.({ phase: 'parsing geometry globalIds', percent: 12 });
-        for (const ref of geometryRefs) {
-            const entity = extractor.extractEntity(ref);
-            if (entity) {
-                const attrs = entity.attributes || [];
-                const globalId = typeof attrs[0] === 'string' ? attrs[0] : '';
-                const name = typeof attrs[2] === 'string' ? attrs[2] : '';
-                parsedEntityData.set(ref.expressId, { globalId, name });
-            }
+        for (let i = 0; i < geometryRefs.length; i++) {
+            extractGlobalIdName(geometryRefs[i]);
+            if ((i & 0x3FF) === 0) await yieldIfNeeded(); // check every 1024 entities
         }
-
-        await yieldToGeometry(); // Let geometry process after heavy geometry parsing
 
         // Parse type objects (IfcWallType, IfcDoorType, etc.) for GlobalId and Name
-        for (const ref of typeObjectRefs) {
-            const entity = extractor.extractEntity(ref);
-            if (entity) {
-                const attrs = entity.attributes || [];
-                const globalId = typeof attrs[0] === 'string' ? attrs[0] : '';
-                const name = typeof attrs[2] === 'string' ? attrs[2] : '';
-                parsedEntityData.set(ref.expressId, { globalId, name });
-            }
-        }
+        for (const ref of typeObjectRefs) extractGlobalIdName(ref);
+        await yieldIfNeeded();
 
         // Parse relationship entities (typically < 10k entities)
         // CRITICAL: relationships are needed for spatial hierarchy, parse early
@@ -425,7 +422,7 @@ export class ColumnarParser {
         // Property/association edges are added later; final graph is rebuilt at the end.
         const hierarchyRelGraph = relationshipGraphBuilder.build();
 
-        await yieldToGeometry(); // Let geometry process before hierarchy build
+        await yieldIfNeeded();
 
         // === EXTRACT LENGTH UNIT SCALE ===
         options.onProgress?.({ phase: 'extracting units', percent: 85 });
@@ -469,7 +466,7 @@ export class ColumnarParser {
         };
         options.onSpatialReady?.(earlyStore);
 
-        await yieldToGeometry(); // Let geometry process after hierarchy emission
+        await yieldIfNeeded(); // Let geometry process after hierarchy emission
 
         // === DEFERRED: Parse property and association relationships ===
         // These are NOT needed for the spatial hierarchy panel.
@@ -479,7 +476,9 @@ export class ColumnarParser {
         const onDemandPropertyMap = new Map<number, number[]>();
         const onDemandQuantityMap = new Map<number, number[]>();
 
-        for (const ref of propertyRelRefs) {
+        for (let pi = 0; pi < propertyRelRefs.length; pi++) {
+            if ((pi & 0x3FF) === 0) await yieldIfNeeded(); // yield every 1024 entities
+            const ref = propertyRelRefs[pi];
             const entity = extractor.extractEntity(ref);
             if (entity) {
                 const attrs = entity.attributes || [];
@@ -517,7 +516,7 @@ export class ColumnarParser {
             }
         }
 
-        await yieldToGeometry(); // Let geometry process after property parsing
+        await yieldIfNeeded(); // Let geometry process after property parsing
 
         // === DEFERRED: Parse association relationships ===
         options.onProgress?.({ phase: 'parsing associations', percent: 95 });
