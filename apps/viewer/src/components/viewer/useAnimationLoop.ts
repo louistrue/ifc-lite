@@ -91,6 +91,23 @@ export function useAnimationLoop(params: UseAnimationLoopParams): void {
 
     let lastRotationUpdate = 0;
     let lastScaleUpdate = 0;
+    let lastRenderTime = 0;
+
+    // Adaptive render throttle: large models get fewer FPS during interaction
+    // to prevent the main thread from being overwhelmed by render cost.
+    let interactionThrottleMs = 0; // 0 = no throttle (small models)
+
+    function updateThrottle() {
+      const n = scene.getMeshes().length;
+      if (n > 50_000) {
+        interactionThrottleMs = 33; // ~30 fps
+      } else if (n > 10_000) {
+        interactionThrottleMs = 25; // ~40 fps
+      } else {
+        interactionThrottleMs = 0;
+      }
+    }
+    updateThrottle();
 
     const animate = (currentTime: number) => {
       if (aborted) return;
@@ -105,7 +122,10 @@ export function useAnimationLoop(params: UseAnimationLoopParams): void {
         const pipeline = renderer.getPipeline();
         if (device && pipeline) {
           queueFlushed = scene.flushPending(device, pipeline);
-          if (queueFlushed) renderer.clearCaches();
+          if (queueFlushed) {
+            renderer.clearCaches();
+            updateThrottle();
+          }
         }
       }
 
@@ -114,7 +134,14 @@ export function useAnimationLoop(params: UseAnimationLoopParams): void {
 
       // 3. Render if anything changed
       const renderRequested = renderer.consumeRenderRequest();
-      if (isAnimating || renderRequested || queueFlushed) {
+
+      // Throttle render rate during interaction for large models to prevent
+      // the main thread from being blocked by expensive render passes.
+      const throttled = isInteractingRef.current &&
+        interactionThrottleMs > 0 &&
+        (currentTime - lastRenderTime) < interactionThrottleMs;
+
+      if ((isAnimating || renderRequested || queueFlushed) && !throttled) {
         renderer.render({
           hiddenIds: hiddenEntitiesRef.current,
           isolatedIds: isolatedEntitiesRef.current,
@@ -131,6 +158,7 @@ export function useAnimationLoop(params: UseAnimationLoopParams): void {
             max: sectionRangeRef.current?.max,
           } : undefined,
         });
+        lastRenderTime = currentTime;
       }
 
       // 4. Sync UI widgets
