@@ -37,6 +37,7 @@ import {
 
 // Server data model conversion
 import { convertServerDataModel, type ServerParseResult } from '../utils/serverDataModel.js';
+import { buildSpatialIndexAsync } from '@ifc-lite/spatial';
 
 /** Convert server mesh data (snake_case) to viewer format (camelCase) */
 function convertServerMesh(m: ServerMeshData): MeshData {
@@ -439,6 +440,16 @@ export function useIfcServer() {
           setIfcDataStore(dataStore);
           console.log('[useIfc] ✅ Property panel ready with server data model');
           console.log(`[useIfc] Data model loaded in ${(performance.now() - dataModelStart).toFixed(0)}ms (background)`);
+
+          // Build spatial index asynchronously (time-sliced) to avoid freezing
+          if (allMeshes.length > 0) {
+            buildSpatialIndexAsync(allMeshes).then(spatialIndex => {
+              dataStore.spatialIndex = spatialIndex;
+              setIfcDataStore({ ...dataStore });
+            }).catch(err => {
+              console.warn('[useIfc] Failed to build spatial index:', err);
+            });
+          }
         } catch (err) {
           console.warn('[useIfc] Failed to decode data model:', err);
           console.log('[useIfc] ⚡ Skipping data model (decoding failed)');

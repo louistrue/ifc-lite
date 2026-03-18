@@ -16,7 +16,7 @@ import { useViewerStore, type FederatedModel, type SchemaVersion } from '../stor
 import { IfcParser, detectFormat, parseIfcx, parseFederatedIfcx, type IfcDataStore, type FederatedIfcxParseResult } from '@ifc-lite/parser';
 import { GeometryProcessor, GeometryQuality, type MeshData, type CoordinateInfo } from '@ifc-lite/geometry';
 import { IfcQuery } from '@ifc-lite/query';
-import { buildSpatialIndex } from '@ifc-lite/spatial';
+import { buildSpatialIndexAsync } from '@ifc-lite/spatial';
 import { loadGLBToMeshData } from '@ifc-lite/cache';
 
 import { getDynamicBatchConfig } from '../utils/ifcConfig.js';
@@ -333,14 +333,13 @@ export function useIfcFederation() {
           }
         }
 
-        // Build spatial index
+        // Build spatial index asynchronously (time-sliced, non-blocking)
         if (allMeshes.length > 0) {
-          try {
-            const spatialIndex = buildSpatialIndex(allMeshes);
+          buildSpatialIndexAsync(allMeshes).then(spatialIndex => {
             parsedDataStore.spatialIndex = spatialIndex;
-          } catch (err) {
+          }).catch(err => {
             console.warn('[useIfc] Failed to build spatial index:', err);
-          }
+          });
         }
 
         parsedGeometry = {

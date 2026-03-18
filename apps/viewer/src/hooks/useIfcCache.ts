@@ -17,7 +17,7 @@ import {
   type GeometryData,
 } from '@ifc-lite/cache';
 import { SpatialHierarchyBuilder, StepTokenizer, buildCompactEntityIndex, extractLengthUnitScale, type IfcDataStore } from '@ifc-lite/parser';
-import { buildSpatialIndex } from '@ifc-lite/spatial';
+import { buildSpatialIndexAsync } from '@ifc-lite/spatial';
 import type { MeshData } from '@ifc-lite/geometry';
 
 import { useShallow } from 'zustand/react/shallow';
@@ -191,24 +191,14 @@ export function useIfcCache() {
         // Set data store
         setIfcDataStore(dataStore);
 
-        // Build spatial index in background (non-blocking)
+        // Build spatial index asynchronously (time-sliced, non-blocking)
         if (meshes.length > 0) {
-          const buildIndex = () => {
-            try {
-              const spatialIndex = buildSpatialIndex(meshes);
-              dataStore.spatialIndex = spatialIndex;
-              setIfcDataStore({ ...dataStore });
-            } catch (err) {
-              console.warn('[useIfcCache] Failed to build spatial index:', err);
-            }
-          };
-
-          if ('requestIdleCallback' in window) {
-            (window as any).requestIdleCallback(buildIndex, { timeout: 2000 });
-          } else {
-            // Fallback for browsers without requestIdleCallback
-            setTimeout(buildIndex, 100);
-          }
+          buildSpatialIndexAsync(meshes).then(spatialIndex => {
+            dataStore.spatialIndex = spatialIndex;
+            setIfcDataStore({ ...dataStore });
+          }).catch(err => {
+            console.warn('[useIfcCache] Failed to build spatial index:', err);
+          });
         }
       } else {
         setIfcDataStore(dataStore);

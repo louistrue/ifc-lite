@@ -15,7 +15,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { useViewerStore } from '../store.js';
 import { IfcParser, detectFormat, parseIfcx, type IfcDataStore } from '@ifc-lite/parser';
 import { GeometryProcessor, GeometryQuality, type MeshData, type CoordinateInfo } from '@ifc-lite/geometry';
-import { buildSpatialIndex } from '@ifc-lite/spatial';
+import { buildSpatialIndexAsync } from '@ifc-lite/spatial';
 import { type GeometryData, loadGLBToMeshData } from '@ifc-lite/cache';
 
 import { SERVER_URL, USE_SERVER, CACHE_SIZE_THRESHOLD, CACHE_MAX_SOURCE_SIZE, getDynamicBatchConfig } from '../utils/ifcConfig.js';
@@ -509,27 +509,18 @@ export function useIfcLoader() {
               dataStorePromise.then(dataStore => {
                 // Guard: skip if user loaded a new file since this load started
                 if (loadSessionRef.current !== currentSession) return;
-                // Build spatial index from meshes (in background)
+                // Build spatial index from meshes in time-sliced chunks (non-blocking).
+                // Previously this was synchronous inside requestIdleCallback, blocking
+                // the main thread for seconds on 200K+ mesh models (190M+ float reads
+                // for bounds computation alone).
                 if (allMeshes.length > 0) {
-                  const buildIndex = () => {
+                  buildSpatialIndexAsync(allMeshes).then(spatialIndex => {
                     if (loadSessionRef.current !== currentSession) return;
-                    try {
-                      const spatialIndex = buildSpatialIndex(allMeshes);
-                      dataStore.spatialIndex = spatialIndex;
-                      setIfcDataStore({ ...dataStore });
-                    } catch (err) {
-                      console.warn('[useIfc] Failed to build spatial index:', err);
-                    }
-                  };
-
-                  // Defer spatial index build so it doesn't block orbit/pan right after load.
-                  // Use requestIdleCallback without a tight timeout — let the browser decide
-                  // when the main thread is genuinely idle.
-                  if ('requestIdleCallback' in window) {
-                    (window as { requestIdleCallback: (cb: () => void, opts?: { timeout: number }) => void }).requestIdleCallback(buildIndex, { timeout: 10000 });
-                  } else {
-                    setTimeout(buildIndex, 500);
-                  }
+                    dataStore.spatialIndex = spatialIndex;
+                    setIfcDataStore({ ...dataStore });
+                  }).catch(err => {
+                    console.warn('[useIfc] Failed to build spatial index:', err);
+                  });
                 }
 
                 // Cache the result in the background (files between 10 MB and 150 MB).

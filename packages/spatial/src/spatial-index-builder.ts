@@ -26,6 +26,43 @@ export function buildSpatialIndex(meshes: MeshData[]): BVH {
 }
 
 /**
+ * Time-sliced version of buildSpatialIndex.
+ * Computes mesh bounds in chunks, yielding to the event loop between chunks
+ * so orbit/pan stays responsive during index construction.
+ *
+ * @param meshes  All mesh data
+ * @param budgetMs  Max ms per chunk (default 4 — quarter of a 60fps frame)
+ * @returns Promise that resolves to the BVH
+ */
+export async function buildSpatialIndexAsync(
+  meshes: MeshData[],
+  budgetMs: number = 4,
+): Promise<BVH> {
+  const meshesWithBounds: MeshWithBounds[] = new Array(meshes.length);
+
+  // Phase 1: compute bounds in time-sliced chunks
+  let i = 0;
+  while (i < meshes.length) {
+    const chunkStart = performance.now();
+    while (i < meshes.length) {
+      meshesWithBounds[i] = {
+        expressId: meshes[i].expressId,
+        bounds: computeMeshBounds(meshes[i]),
+      };
+      i++;
+      if (i % 500 === 0 && performance.now() - chunkStart >= budgetMs) {
+        // Yield to event loop
+        await new Promise<void>(r => setTimeout(r, 0));
+        break;
+      }
+    }
+  }
+
+  // Phase 2: BVH build (O(N log N) on pre-computed bounds — fast enough synchronously)
+  return BVH.build(meshesWithBounds);
+}
+
+/**
  * Compute AABB bounds for a mesh from its positions
  */
 function computeMeshBounds(mesh: MeshData): AABB {
