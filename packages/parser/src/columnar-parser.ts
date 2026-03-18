@@ -200,6 +200,10 @@ function isIfcTypeLikeEntity(typeUpper: string): boolean {
     return typeUpper.endsWith('TYPE') || typeUpper.endsWith('STYLE');
 }
 
+// Shared TextDecoder for fast byte-to-string conversion.
+// String.fromCharCode.apply(null, typedArray) is catastrophically slow in Firefox/SpiderMonkey.
+const sharedDecoder = new TextDecoder();
+
 /**
  * Detect the IFC schema version from the STEP FILE_SCHEMA header.
  * Scans the first 2000 bytes for FILE_SCHEMA(('IFC2X3')), FILE_SCHEMA(('IFC4')), etc.
@@ -234,7 +238,7 @@ function extractGlobalIdAndNameFast(
         const start = pos;
         while (pos < end && buffer[pos] !== 0x27 /* ' */) pos++;
         // GlobalId is ASCII-only, safe to use fromCharCode
-        globalId = String.fromCharCode.apply(null, buffer.subarray(start, pos) as unknown as number[]);
+        globalId = sharedDecoder.decode(buffer.subarray(start, pos));
         pos++; // skip closing quote
     }
 
@@ -278,7 +282,7 @@ function extractGlobalIdAndNameFast(
             pos++;
         }
         // Name may contain non-ASCII (IFC encoded), decode manually
-        name = String.fromCharCode.apply(null, buffer.subarray(start, pos) as unknown as number[]);
+        name = sharedDecoder.decode(buffer.subarray(start, pos));
     }
 
     return { globalId, name };
