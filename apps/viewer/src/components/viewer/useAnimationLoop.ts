@@ -94,6 +94,8 @@ export function useAnimationLoop(params: UseAnimationLoopParams): void {
     let lastRenderTime = 0;
     let frameLogCounter = 0;
     let interactionLogCount = 0;
+    let lastHeartbeat = 0;
+    let totalFrameCount = 0;
 
     // Adaptive render throttle: large models get fewer FPS during continuous
     // rendering (interaction + inertia) to prevent the main thread from being
@@ -125,6 +127,13 @@ export function useAnimationLoop(params: UseAnimationLoopParams): void {
 
       const deltaTime = currentTime - lastFrameTimeRef.current;
       lastFrameTimeRef.current = currentTime;
+      totalFrameCount++;
+
+      // Heartbeat: log every 2 seconds so we can tell if the loop is alive
+      if (currentTime - lastHeartbeat > 2000) {
+        lastHeartbeat = currentTime;
+        console.log(`[AnimLoop] heartbeat #${totalFrameCount} | interacting=${isInteractingRef.current} batches=${scene.getBatchedMeshes().length} throttle=${continuousThrottleMs}ms`);
+      }
 
       // 1. Drain mesh queue (streaming GPU uploads)
       let queueFlushed = false;
@@ -154,6 +163,13 @@ export function useAnimationLoop(params: UseAnimationLoopParams): void {
       const throttled = isContinuousRender &&
         continuousThrottleMs > 0 &&
         (currentTime - lastRenderTime) < continuousThrottleMs;
+
+      // Log skipped interaction frames (first 10) to debug orbit freeze
+      if (isContinuousRender && !(isAnimating || renderRequested || queueFlushed)) {
+        if (interactionLogCount < 10) {
+          console.log(`[AnimLoop] SKIP: interacting but no render reason | animating=${isAnimating} requested=${renderRequested} flushed=${queueFlushed}`);
+        }
+      }
 
       if ((isAnimating || renderRequested || queueFlushed) && !throttled) {
         const t0 = performance.now();
