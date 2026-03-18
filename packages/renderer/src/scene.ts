@@ -483,6 +483,123 @@ export class Scene {
   }
 
   /**
+   * Time-sliced version of finalizeStreaming.
+   * Re-groups mesh data and rebuilds GPU batches in small chunks,
+   * yielding to the event loop between chunks so orbit/pan stays responsive.
+   * Streaming fragments continue rendering until each new batch replaces them.
+   *
+   * @param device  GPU device
+   * @param pipeline  Render pipeline
+   * @param budgetMs  Max milliseconds per chunk (default 8 — half a 60fps frame)
+   * @returns Promise that resolves when all batches are rebuilt
+   */
+  finalizeStreamingAsync(
+    device: GPUDevice,
+    pipeline: RenderPipeline,
+    budgetMs: number = 8,
+  ): Promise<void> {
+    if (this.streamingFragments.length === 0) return Promise.resolve();
+
+    // --- Synchronous preamble (fast O(N) bookkeeping) ---
+
+    const oldFragments = this.streamingFragments;
+    const oldBatches = this.batchedMeshes;
+    const fragmentSet = new Set(oldFragments);
+    this.streamingFragments = [];
+
+    // 1. Collect ALL accumulated meshData
+    const allMeshData: MeshData[] = [];
+    for (const data of this.batchedMeshData.values()) {
+      for (const md of data) allMeshData.push(md);
+    }
+
+    // 2. Clear bucket/batch state
+    this.batchedMeshMap.clear();
+    this.batchedMeshIndex.clear();
+    this.batchedMeshData.clear();
+    this.meshDataBatchKey.clear();
+    this.meshDataBatchIdx.clear();
+    this.activeBucketKey.clear();
+    this.bucketVertexBytes.clear();
+    this.pendingBatchKeys.clear();
+    for (const batch of this.partialBatchCache.values()) {
+      batch.vertexBuffer.destroy();
+      batch.indexBuffer.destroy();
+      if (batch.uniformBuffer) batch.uniformBuffer.destroy();
+    }
+    this.partialBatchCache.clear();
+    this.partialBatchCacheKeys.clear();
+
+    // 3. Re-group meshData by current color (fast)
+    for (const meshData of allMeshData) {
+      const baseKey = this.colorKey(meshData.color);
+      const bucketKey = this.resolveActiveBucket(baseKey, meshData);
+      let bucket = this.batchedMeshData.get(bucketKey);
+      if (!bucket) {
+        bucket = [];
+        this.batchedMeshData.set(bucketKey, bucket);
+      }
+      this.meshDataBatchIdx.set(meshData, bucket.length);
+      bucket.push(meshData);
+      this.meshDataBatchKey.set(meshData, bucketKey);
+      this.pendingBatchKeys.add(bucketKey);
+    }
+
+    // Prepare new batch array — old batchedMeshes (fragments) keeps rendering
+    this.batchedMeshes = [];
+    const pendingKeys = Array.from(this.pendingBatchKeys);
+    this.pendingBatchKeys.clear();
+
+    // --- Async: rebuild batches in time-sliced chunks ---
+
+    let keyIdx = 0;
+    const scene = this;
+
+    return new Promise<void>((resolve) => {
+      function processChunk() {
+        const chunkStart = performance.now();
+        while (keyIdx < pendingKeys.length) {
+          const key = pendingKeys[keyIdx++];
+          const meshDataForKey = scene.batchedMeshData.get(key);
+          if (!meshDataForKey || meshDataForKey.length === 0) {
+            scene.batchedMeshData.delete(key);
+            continue;
+          }
+          const color = meshDataForKey[0].color;
+          const batchedMesh = scene.createBatchedMesh(meshDataForKey, color, device, pipeline, key);
+          scene.batchedMeshMap.set(key, batchedMesh);
+          const newIndex = scene.batchedMeshes.length;
+          scene.batchedMeshes.push(batchedMesh);
+          scene.batchedMeshIndex.set(key, newIndex);
+
+          // Check time budget — yield if exceeded
+          if (performance.now() - chunkStart >= budgetMs) {
+            setTimeout(processChunk, 0);
+            return;
+          }
+        }
+
+        // All batches built — destroy old fragment/batch GPU resources
+        for (const fragment of oldFragments) {
+          fragment.vertexBuffer.destroy();
+          fragment.indexBuffer.destroy();
+          if (fragment.uniformBuffer) fragment.uniformBuffer.destroy();
+        }
+        for (const batch of oldBatches) {
+          if (!fragmentSet.has(batch)) {
+            batch.vertexBuffer.destroy();
+            batch.indexBuffer.destroy();
+            if (batch.uniformBuffer) batch.uniformBuffer.destroy();
+          }
+        }
+        resolve();
+      }
+      // Start first chunk immediately (no setTimeout delay)
+      processChunk();
+    });
+  }
+
+  /**
    * Release JS-side mesh geometry data (positions, normals, indices) after
    * GPU batches have been built. This frees the ~1.9GB of typed arrays that
    * duplicate data already resident in GPU vertex/index buffers.

@@ -62,6 +62,12 @@ export function useGeometryStreaming(params: UseGeometryStreamingParams): void {
   const lastStreamRenderTimeRef = useRef<number>(0);
   const STREAM_RENDER_THROTTLE_MS = 200; // Render at most every 200ms during streaming
 
+  // Queue for deferred streaming fragment creation.
+  // Instead of blocking the main thread with mergeGeometry per streaming batch,
+  // we queue meshes and process them in the next rAF, so orbit/pan events can fire.
+  const pendingStreamMeshesRef = useRef<MeshData[]>([]);
+  const streamRafRef = useRef<number | null>(null);
+
   useEffect(() => {
     const renderer = rendererRef.current;
 
@@ -227,11 +233,34 @@ export function useGeometryStreaming(params: UseGeometryStreamingParams): void {
       // This dramatically improves performance for large models (50K+ meshes)
       const pipeline = renderer.getPipeline();
       if (pipeline) {
-        // Use batched rendering - groups meshes by color into single draw calls
-        // Pass isStreaming flag to enable throttled batch rebuilding (reduces O(N^2) cost)
-        scene.appendToBatches(newMeshes, device, pipeline, isStreaming);
-
-        // Note: addMeshData is now called inside appendToBatches, no need to duplicate
+        if (isStreaming) {
+          // STREAMING: Queue meshes and defer fragment creation to rAF.
+          // appendToBatches → createStreamingFragments → mergeGeometry is expensive
+          // (interleaves all vertices, creates GPU buffers). Deferring to rAF lets
+          // the browser process mouse events between frames so orbit stays smooth.
+          for (let i = 0; i < newMeshes.length; i++) {
+            pendingStreamMeshesRef.current.push(newMeshes[i]);
+          }
+          if (streamRafRef.current === null) {
+            const capturedDevice = device;
+            const capturedPipeline = pipeline;
+            const capturedScene = scene;
+            const capturedRenderer = renderer;
+            streamRafRef.current = requestAnimationFrame(() => {
+              streamRafRef.current = null;
+              const queued = pendingStreamMeshesRef.current;
+              if (queued.length === 0) return;
+              pendingStreamMeshesRef.current = [];
+              capturedScene.appendToBatches(queued, capturedDevice, capturedPipeline, true);
+              capturedRenderer.clearCaches();
+              capturedRenderer.render({ clearColor: clearColorRef.current });
+              lastStreamRenderTimeRef.current = Date.now();
+            });
+          }
+        } else {
+          // NON-STREAMING: Process immediately (visibility toggles, etc.)
+          scene.appendToBatches(newMeshes, device, pipeline, false);
+        }
       } else {
         // Fallback: add individual meshes if pipeline not ready
         for (const meshData of newMeshes) {
@@ -271,8 +300,11 @@ export function useGeometryStreaming(params: UseGeometryStreamingParams): void {
         }
       }
 
-      // Invalidate caches when new geometry is added
-      renderer.clearCaches();
+      // Invalidate caches when new geometry is added (not during streaming —
+      // the rAF callback handles it after fragment creation)
+      if (!isStreaming) {
+        renderer.clearCaches();
+      }
     }
 
     lastGeometryLengthRef.current = currentLength;
@@ -352,17 +384,13 @@ export function useGeometryStreaming(params: UseGeometryStreamingParams): void {
     // Instancing conversion would require preserving actual mesh transforms, which is complex
     // For now, we render regular meshes directly (fast enough for most cases)
 
-    // Render throttling: During streaming, only render every STREAM_RENDER_THROTTLE_MS
-    // This prevents rendering 28K+ meshes from blocking WASM batch processing
-    const now = Date.now();
-    const timeSinceLastRender = now - lastStreamRenderTimeRef.current;
-    const shouldRender = !isStreaming || timeSinceLastRender >= STREAM_RENDER_THROTTLE_MS;
-
-    if (shouldRender) {
+    // During streaming, rendering is handled by the rAF callback (see above).
+    // For non-streaming (visibility toggles etc.), render immediately.
+    if (!isStreaming) {
       renderer.render({
         clearColor: clearColorRef.current,
       });
-      lastStreamRenderTimeRef.current = now;
+      lastStreamRenderTimeRef.current = Date.now();
     }
   }, [geometry, geometryVersion, coordinateInfo, isInitialized, isStreaming]);
 
@@ -377,6 +405,21 @@ export function useGeometryStreaming(params: UseGeometryStreamingParams): void {
 
     // If streaming just completed (was streaming, now not)
     if (prevIsStreamingRef.current && !isStreaming) {
+      // Flush any queued stream meshes before finalizing
+      if (streamRafRef.current !== null) {
+        cancelAnimationFrame(streamRafRef.current);
+        streamRafRef.current = null;
+      }
+      const queuedMeshes = pendingStreamMeshesRef.current;
+      if (queuedMeshes.length > 0) {
+        pendingStreamMeshesRef.current = [];
+        const device = renderer.getGPUDevice();
+        const pipeline = renderer.getPipeline();
+        if (device && pipeline) {
+          renderer.getScene().appendToBatches(queuedMeshes, device, pipeline, true);
+        }
+      }
+
       // Render immediately with existing streaming fragments — user can interact NOW
       renderer.render({
         clearColor: clearColorRef.current,
@@ -393,16 +436,8 @@ export function useGeometryStreaming(params: UseGeometryStreamingParams): void {
         const r = rendererRef.current;
         if (!r) return;
 
-        const device = r.getGPUDevice();
-        const pipeline = r.getPipeline();
-        const scene = r.getScene();
-
-        // O(N) full merge: destroy streaming fragments, build proper batches
-        if (device && pipeline) {
-          scene.finalizeStreaming(device, pipeline);
-        }
-
-        // Compute exact bounds and refit camera if not already done
+        // Compute exact bounds and refit camera (~15ms, fast).
+        // Runs before async finalize so camera fits even if finalize is still in progress.
         if (cameraFittedRef.current && !finalBoundsRefittedRef.current && capturedGeometry && capturedGeometry.length > 0) {
           const MAX_VALID_COORD = 10000;
           const exactBounds = {
@@ -453,10 +488,18 @@ export function useGeometryStreaming(params: UseGeometryStreamingParams): void {
           }
         }
 
-        r.render({
-          clearColor: clearColorRef.current,
-        });
-        lastStreamRenderTimeRef.current = Date.now();
+        const device = r.getGPUDevice();
+        const pipeline = r.getPipeline();
+        const scene = r.getScene();
+
+        // Time-sliced full merge: rebuild proper batches in chunks (~8ms each),
+        // yielding to the event loop so orbit/pan stays responsive.
+        if (device && pipeline) {
+          scene.finalizeStreamingAsync(device, pipeline).then(() => {
+            r.render({ clearColor: clearColorRef.current });
+            lastStreamRenderTimeRef.current = Date.now();
+          });
+        }
       }, 0);
 
       prevIsStreamingRef.current = isStreaming;
