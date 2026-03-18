@@ -747,14 +747,6 @@ export class Renderer {
                 // PERFORMANCE FIX: Render partially visible batches as sub-batches (not individual meshes!)
                 // This is the key optimization: instead of 10,000+ individual draw calls,
                 // we create cached sub-batches with only visible elements and render them as single draw calls
-                const allMeshesFromScene = this.scene.getMeshes();
-                // Track existing mesh piece counts by (expressId:modelIndex) for multi-piece elements.
-                const existingPieceCounts = new Map<string, number>();
-                for (const mesh of allMeshesFromScene) {
-                    const key = `${mesh.expressId}:${mesh.modelIndex ?? 'any'}`;
-                    existingPieceCounts.set(key, (existingPieceCounts.get(key) ?? 0) + 1);
-                }
-
                 if (partiallyVisibleBatches.length > 0) {
                     for (const { colorKey, visibleIds, color } of partiallyVisibleBatches) {
                         // Get or create a cached sub-batch for this visibility state
@@ -803,27 +795,40 @@ export class Renderer {
                     visibleSelectedIds.add(selId);
                 }
 
-                const baselineExistingCounts = new Map(existingPieceCounts);
-                for (const selId of visibleSelectedIds) {
-                    const pieces = this.scene.getMeshDataPieces(selId, selectedModelIndex);
-                    if (!pieces || pieces.length === 0) continue;
+                // Only build per-mesh piece counts when we actually have selected
+                // elements that need individual mesh rendering. This avoids iterating
+                // 200K+ meshes every frame when nothing is selected.
+                if (visibleSelectedIds.size > 0) {
+                    const allMeshesFromScene = this.scene.getMeshes();
+                    const existingPieceCounts = new Map<string, number>();
+                    for (const mesh of allMeshesFromScene) {
+                        const key = `${mesh.expressId}:${mesh.modelIndex ?? 'any'}`;
+                        existingPieceCounts.set(key, (existingPieceCounts.get(key) ?? 0) + 1);
+                    }
 
-                    const seenOrdinalsByKey = new Map<string, number>();
-                    for (const piece of pieces) {
-                        const meshKey = `${piece.expressId}:${piece.modelIndex ?? 'any'}`;
-                        const ordinal = seenOrdinalsByKey.get(meshKey) ?? 0;
-                        seenOrdinalsByKey.set(meshKey, ordinal + 1);
-                        const baselineExisting = baselineExistingCounts.get(meshKey) ?? 0;
-                        if (ordinal < baselineExisting) continue;
-                        this.geometryManager.createMeshFromData(piece);
+                    for (const selId of visibleSelectedIds) {
+                        const pieces = this.scene.getMeshDataPieces(selId, selectedModelIndex);
+                        if (!pieces || pieces.length === 0) continue;
+
+                        const seenOrdinalsByKey = new Map<string, number>();
+                        for (const piece of pieces) {
+                            const meshKey = `${piece.expressId}:${piece.modelIndex ?? 'any'}`;
+                            const ordinal = seenOrdinalsByKey.get(meshKey) ?? 0;
+                            seenOrdinalsByKey.set(meshKey, ordinal + 1);
+                            const baselineExisting = existingPieceCounts.get(meshKey) ?? 0;
+                            if (ordinal < baselineExisting) continue;
+                            this.geometryManager.createMeshFromData(piece);
+                        }
                     }
                 }
 
-                const selectedMeshes = this.scene.getMeshes().filter(mesh => {
-                    if (!visibleSelectedIds.has(mesh.expressId)) return false;
-                    if (selectedModelIndex !== undefined && mesh.modelIndex !== selectedModelIndex) return false;
-                    return true;
-                });
+                const selectedMeshes = visibleSelectedIds.size > 0
+                    ? this.scene.getMeshes().filter(mesh => {
+                        if (!visibleSelectedIds.has(mesh.expressId)) return false;
+                        if (selectedModelIndex !== undefined && mesh.modelIndex !== selectedModelIndex) return false;
+                        return true;
+                    })
+                    : [];
 
                 // Render transparent BATCHED meshes with transparent pipeline (after opaque batches and selections)
                 if (transparentBatches.length > 0) {

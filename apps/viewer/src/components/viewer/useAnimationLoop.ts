@@ -93,18 +93,26 @@ export function useAnimationLoop(params: UseAnimationLoopParams): void {
     let lastScaleUpdate = 0;
     let lastRenderTime = 0;
 
-    // Adaptive render throttle: large models get fewer FPS during interaction
-    // to prevent the main thread from being overwhelmed by render cost.
-    let interactionThrottleMs = 0; // 0 = no throttle (small models)
+    // Adaptive render throttle: large models get fewer FPS during continuous
+    // rendering (interaction + inertia) to prevent the main thread from being
+    // overwhelmed. Model "size" is measured by total triangle count across all
+    // batched geometry — individual mesh count is near 0 for batched models.
+    let continuousThrottleMs = 0; // 0 = no throttle (small models)
 
     function updateThrottle() {
-      const n = scene.getMeshes().length;
-      if (n > 50_000) {
-        interactionThrottleMs = 33; // ~30 fps
-      } else if (n > 10_000) {
-        interactionThrottleMs = 25; // ~40 fps
+      let totalIndices = 0;
+      for (const batch of scene.getBatchedMeshes()) {
+        totalIndices += batch.indexCount;
+      }
+      // Also account for individual meshes
+      totalIndices += scene.getMeshes().reduce((s, m) => s + (m.indexCount ?? 0), 0);
+      const triangles = totalIndices / 3;
+      if (triangles > 5_000_000) {
+        continuousThrottleMs = 33; // ~30 fps — huge models (>5M triangles)
+      } else if (triangles > 1_000_000) {
+        continuousThrottleMs = 25; // ~40 fps — large models (>1M triangles)
       } else {
-        interactionThrottleMs = 0;
+        continuousThrottleMs = 0;
       }
     }
     updateThrottle();
@@ -135,11 +143,14 @@ export function useAnimationLoop(params: UseAnimationLoopParams): void {
       // 3. Render if anything changed
       const renderRequested = renderer.consumeRenderRequest();
 
-      // Throttle render rate during interaction for large models to prevent
-      // the main thread from being blocked by expensive render passes.
-      const throttled = isInteractingRef.current &&
-        interactionThrottleMs > 0 &&
-        (currentTime - lastRenderTime) < interactionThrottleMs;
+      // Throttle render rate during continuous rendering (interaction + inertia)
+      // for large models. Without this, 200K+ mesh models at 60fps overwhelm
+      // the main thread and freeze the tab. Inertia alone can run 60+ frames
+      // after mouseup, each requiring a full GPU render pass.
+      const isContinuousRender = isInteractingRef.current || isAnimating;
+      const throttled = isContinuousRender &&
+        continuousThrottleMs > 0 &&
+        (currentTime - lastRenderTime) < continuousThrottleMs;
 
       if ((isAnimating || renderRequested || queueFlushed) && !throttled) {
         renderer.render({
