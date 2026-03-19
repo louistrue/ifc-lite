@@ -3,7 +3,6 @@
   "buildCommand": "pnpm turbo build --filter=@ifc-lite/viewer...",
   "outputDirectory": "apps/viewer/dist",
   "installCommand": "pnpm install --frozen-lockfile",
-  "ignoreCommand": "npx turbo-ignore @ifc-lite/viewer",
   "framework": "vite",
   "rewrites": [
     {
