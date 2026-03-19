@@ -1,4 +1,3 @@
-<!-- turbo-ignore test: this change should skip Vercel build -->
 <table align="center">
 <tr>
 <td valign="top">
