@@ -872,16 +872,19 @@ export class ColumnarParser {
                         let list = onDemandClassificationMap.get(objId);
                         if (!list) { list = []; onDemandClassificationMap.set(objId, list); }
                         list.push(relatingRef);
+                        relationshipGraphBuilder.addEdge(relatingRef, objId, RelationshipType.AssociatesClassification, ref.expressId);
                     }
                 } else if (typeUpper === 'IFCRELASSOCIATESMATERIAL') {
                     for (const objId of relatedObjects) {
                         onDemandMaterialMap.set(objId, relatingRef);
+                        relationshipGraphBuilder.addEdge(relatingRef, objId, RelationshipType.AssociatesMaterial, ref.expressId);
                     }
                 } else if (typeUpper === 'IFCRELASSOCIATESDOCUMENT') {
                     for (const objId of relatedObjects) {
                         let list = onDemandDocumentMap.get(objId);
                         if (!list) { list = []; onDemandDocumentMap.set(objId, list); }
                         list.push(relatingRef);
+                        relationshipGraphBuilder.addEdge(relatingRef, objId, RelationshipType.AssociatesDocument, ref.expressId);
                     }
                 }
             }

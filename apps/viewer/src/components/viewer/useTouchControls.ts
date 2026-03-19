@@ -188,13 +188,17 @@ export function useTouchControls(params: UseTouchControlsParams): void {
 
     const handleTouchEnd = async (e: TouchEvent) => {
       e.preventDefault();
-      if (isInteractingRef.current) {
-        isInteractingRef.current = false;
-        renderer.requestRender();
-      }
       const previousTouchCount = touchState.touches.length;
       const wasMultiTouch = touchState.multiTouch;
       touchState.touches = Array.from(e.touches);
+
+      // Only clear interaction when all fingers are lifted (gesture truly ended).
+      // Clearing earlier would briefly drop interaction mode during 2-finger → 1-finger
+      // transitions, triggering an expensive full-quality render mid-gesture.
+      if (touchState.touches.length === 0 && isInteractingRef.current) {
+        isInteractingRef.current = false;
+        renderer.requestRender();
+      }
 
       if (touchState.touches.length === 0) {
         camera.stopInertia();

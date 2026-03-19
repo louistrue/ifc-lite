@@ -152,6 +152,12 @@ export function useAnimationLoop(params: UseAnimationLoopParams): void {
         continuousThrottleMs > 0 &&
         (currentTime - lastRenderTime) < continuousThrottleMs;
 
+      // If throttle blocked a frame that had a pending render request,
+      // re-request so the dirty flag survives to the next frame.
+      if (throttled && renderRequested) {
+        renderer.requestRender();
+      }
+
       if ((isAnimating || renderRequested || queueFlushed) && !throttled) {
         renderer.render({
           hiddenIds: hiddenEntitiesRef.current,
