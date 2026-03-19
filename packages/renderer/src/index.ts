@@ -38,7 +38,6 @@ export {
 } from './zero-copy-uploader.js';
 
 // Extracted manager classes
-export { GeometryManager } from './geometry-manager.js';
 export { PickingManager } from './picking-manager.js';
 export { RaycastEngine } from './raycast-engine.js';
 
@@ -47,12 +46,16 @@ import { RenderPipeline, InstancedRenderPipeline } from './pipeline.js';
 import { Camera } from './camera.js';
 import { Scene } from './scene.js';
 import { Picker } from './picker.js';
+import { MathUtils } from './math.js';
 import { FrustumUtils } from '@ifc-lite/spatial';
+import { deduplicateMeshes } from '@ifc-lite/geometry';
+import type { MeshData } from '@ifc-lite/geometry';
 import type {
     RenderOptions,
     PickOptions,
     PickResult,
     Mesh,
+    InstancedMesh,
     VisualEnhancementOptions,
     ContactShadingQuality,
     SeparationLinesQuality,
@@ -62,10 +65,12 @@ import { Section2DOverlayRenderer, type CutPolygon2D, type DrawingLine2D } from 
 import type { InstancedGeometry } from '@ifc-lite/wasm';
 import { Raycaster, type Intersection } from './raycaster.js';
 import { SnapDetector, type SnapTarget, type SnapOptions, type EdgeLockInput, type MagneticSnapResult } from './snap-detector.js';
-import { GeometryManager } from './geometry-manager.js';
 import { PickingManager } from './picking-manager.js';
 import { RaycastEngine } from './raycast-engine.js';
 import { PostProcessor } from './post-processor.js';
+
+const MAX_ENCODED_ENTITY_ID = 0xFFFFFF;
+let warnedEntityIdRange = false;
 
 type ResolvedVisualEnhancement = {
     enabled: boolean;
@@ -107,8 +112,10 @@ export class Renderer {
         separationLines: { enabled: true, quality: 'low', intensity: 0.5, radius: 1.0 },
     };
 
+    // Model bounds for fitToView, section planes, camera
+    private modelBounds: { min: { x: number; y: number; z: number }; max: { x: number; y: number; z: number } } | null = null;
+
     // Composition: delegate to extracted managers
-    private geometryManager: GeometryManager;
     private pickingManager: PickingManager;
     private raycastEngine: RaycastEngine;
 
@@ -133,8 +140,7 @@ export class Renderer {
         this.scene = new Scene();
 
         // Create composition managers
-        this.geometryManager = new GeometryManager(this.device, this.scene);
-        this.pickingManager = new PickingManager(this.camera, this.scene, null, this.canvas, this.geometryManager);
+        this.pickingManager = new PickingManager(this.camera, this.scene, null, this.canvas, (meshData: MeshData) => this.createMeshFromData(meshData));
         this.raycastEngine = new RaycastEngine(this.camera, this.scene, this.canvas);
     }
 
@@ -186,12 +192,28 @@ export class Renderer {
      * @param geometry - Either a GeometryResult from geometry.process() or an array of MeshData
      */
     loadGeometry(geometry: import('@ifc-lite/geometry').GeometryResult | import('@ifc-lite/geometry').MeshData[]): void {
-        if (!this.pipeline) {
+        if (!this.device.isInitialized() || !this.pipeline) {
             throw new Error('Renderer not initialized. Call init() first.');
         }
-        this.geometryManager.loadGeometry(geometry, this.pipeline);
+
+        const meshes = Array.isArray(geometry) ? geometry : geometry.meshes;
+
+        if (meshes.length === 0) {
+            console.warn('[Renderer] loadGeometry called with empty mesh array');
+            return;
+        }
+
+        // Use batched rendering for optimal performance
+        const device = this.device.getDevice();
+        this.scene.appendToBatches(meshes, device, this.pipeline, false);
+
+        // Calculate and store model bounds for fitToView
+        this.updateModelBounds(meshes);
+
+        console.log(`[Renderer] Loaded ${meshes.length} meshes`);
+
         // Update camera scene bounds for tight orthographic near/far planes
-        this.camera.setSceneBounds(this.geometryManager.getModelBounds());
+        this.camera.setSceneBounds(this.modelBounds);
     }
 
     /**
@@ -201,19 +223,54 @@ export class Renderer {
      * @param isStreaming - If true, throttles batch rebuilding for better streaming performance
      */
     addMeshes(meshes: import('@ifc-lite/geometry').MeshData[], isStreaming: boolean = false): void {
-        if (!this.pipeline) {
+        if (!this.device.isInitialized() || !this.pipeline) {
             throw new Error('Renderer not initialized. Call init() first.');
         }
-        this.geometryManager.addMeshes(meshes, this.pipeline, isStreaming);
+
+        if (meshes.length === 0) return;
+
+        const device = this.device.getDevice();
+        this.scene.appendToBatches(meshes, device, this.pipeline, isStreaming);
+
+        // Update model bounds incrementally
+        this.updateModelBounds(meshes);
+
         // Update camera scene bounds for tight orthographic near/far planes
-        this.camera.setSceneBounds(this.geometryManager.getModelBounds());
+        this.camera.setSceneBounds(this.modelBounds);
     }
 
     /**
      * Fit camera to view all loaded geometry
      */
     fitToView(): void {
-        this.geometryManager.fitToView(this.camera);
+        if (!this.modelBounds) {
+            console.warn('[Renderer] fitToView called but no geometry loaded');
+            return;
+        }
+
+        const { min, max } = this.modelBounds;
+
+        // Calculate center and size
+        const center = {
+            x: (min.x + max.x) / 2,
+            y: (min.y + max.y) / 2,
+            z: (min.z + max.z) / 2
+        };
+
+        const size = Math.max(
+            max.x - min.x,
+            max.y - min.y,
+            max.z - min.z
+        );
+
+        // Position camera to see entire model
+        const distance = size * 1.5;
+        this.camera.setPosition(
+            center.x + distance * 0.5,
+            center.y + distance * 0.5,
+            center.z + distance
+        );
+        this.camera.setTarget(center.x, center.y, center.z);
     }
 
     /**
@@ -221,7 +278,30 @@ export class Renderer {
      */
     addMesh(mesh: Mesh): void {
         if (!this.pipeline) return;
-        this.geometryManager.addMesh(mesh, this.pipeline);
+
+        // Create per-mesh uniform buffer and bind group if not already created
+        if (!mesh.uniformBuffer && this.device.isInitialized()) {
+            const device = this.device.getDevice();
+
+            // Create uniform buffer for this mesh
+            mesh.uniformBuffer = device.createBuffer({
+                size: this.pipeline.getUniformBufferSize(),
+                usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+            });
+
+            // Create bind group for this mesh
+            mesh.bindGroup = device.createBindGroup({
+                layout: this.pipeline.getBindGroupLayout(),
+                entries: [
+                    {
+                        binding: 0,
+                        resource: { buffer: mesh.uniformBuffer },
+                    },
+                ],
+            });
+        }
+
+        this.scene.addMesh(mesh);
     }
 
     /**
@@ -229,10 +309,83 @@ export class Renderer {
      * Converts InstancedGeometry from geometry package to InstancedMesh for rendering
      */
     addInstancedGeometry(geometry: InstancedGeometry): void {
-        if (!this.instancedPipeline) {
+        if (!this.instancedPipeline || !this.device.isInitialized()) {
             throw new Error('Renderer not initialized. Call init() first.');
         }
-        this.geometryManager.addInstancedGeometry(geometry, this.instancedPipeline);
+
+        const device = this.device.getDevice();
+
+        // Upload positions and normals interleaved
+        const vertexCount = geometry.positions.length / 3;
+        const vertexData = new Float32Array(vertexCount * 6);
+        for (let i = 0; i < vertexCount; i++) {
+            vertexData[i * 6 + 0] = geometry.positions[i * 3 + 0];
+            vertexData[i * 6 + 1] = geometry.positions[i * 3 + 1];
+            vertexData[i * 6 + 2] = geometry.positions[i * 3 + 2];
+            vertexData[i * 6 + 3] = geometry.normals[i * 3 + 0];
+            vertexData[i * 6 + 4] = geometry.normals[i * 3 + 1];
+            vertexData[i * 6 + 5] = geometry.normals[i * 3 + 2];
+        }
+
+        // Create vertex buffer with exact size needed (ensure it matches data size)
+        const vertexBufferSize = vertexData.byteLength;
+        const vertexBuffer = device.createBuffer({
+            size: vertexBufferSize,
+            usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+        });
+        device.queue.writeBuffer(vertexBuffer, 0, vertexData);
+
+        // Create index buffer
+        const indexBuffer = device.createBuffer({
+            size: geometry.indices.byteLength,
+            usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
+        });
+        device.queue.writeBuffer(indexBuffer, 0, geometry.indices);
+
+        // Create instance buffer: each instance is 80 bytes (20 floats: 16 for transform + 4 for color)
+        const instanceCount = geometry.instance_count;
+        const instanceData = new Float32Array(instanceCount * 20);
+        const expressIdToInstanceIndex = new Map<number, number>();
+
+        for (let i = 0; i < instanceCount; i++) {
+            const instance = geometry.get_instance(i);
+            if (!instance) continue;
+
+            const baseIdx = i * 20;
+
+            // Copy transform (16 floats)
+            instanceData.set(instance.transform, baseIdx);
+
+            // Copy color (4 floats)
+            instanceData[baseIdx + 16] = instance.color[0];
+            instanceData[baseIdx + 17] = instance.color[1];
+            instanceData[baseIdx + 18] = instance.color[2];
+            instanceData[baseIdx + 19] = instance.color[3];
+
+            expressIdToInstanceIndex.set(instance.expressId, i);
+        }
+
+        const instanceBuffer = device.createBuffer({
+            size: instanceData.byteLength,
+            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+        });
+        device.queue.writeBuffer(instanceBuffer, 0, instanceData);
+
+        // Create and cache bind group to avoid per-frame allocation
+        const bindGroup = this.instancedPipeline.createInstanceBindGroup(instanceBuffer);
+
+        const instancedMesh: InstancedMesh = {
+            geometryId: Number(geometry.geometryId),
+            vertexBuffer,
+            indexBuffer,
+            indexCount: geometry.indices.length,
+            instanceBuffer,
+            instanceCount: instanceCount,
+            expressIdToInstanceIndex,
+            bindGroup,
+        };
+
+        this.scene.addInstancedMesh(instancedMesh);
     }
 
     /**
@@ -241,19 +394,215 @@ export class Renderer {
      * Call this in background after initial streaming completes
      */
     convertToInstanced(meshDataArray: import('@ifc-lite/geometry').MeshData[]): void {
-        if (!this.instancedPipeline) {
+        if (!this.instancedPipeline || !this.device.isInitialized()) {
             console.warn('[Renderer] Cannot convert to instanced: renderer not initialized');
             return;
         }
-        this.geometryManager.convertToInstanced(meshDataArray, this.instancedPipeline);
+
+        const instancedData = deduplicateMeshes(meshDataArray);
+        const device = this.device.getDevice();
+        let totalInstances = 0;
+
+        for (const group of instancedData) {
+            const vertexCount = group.positions.length / 3;
+            const vertexData = new Float32Array(vertexCount * 6);
+            for (let i = 0; i < vertexCount; i++) {
+                vertexData[i * 6 + 0] = group.positions[i * 3 + 0];
+                vertexData[i * 6 + 1] = group.positions[i * 3 + 1];
+                vertexData[i * 6 + 2] = group.positions[i * 3 + 2];
+                vertexData[i * 6 + 3] = group.normals[i * 3 + 0];
+                vertexData[i * 6 + 4] = group.normals[i * 3 + 1];
+                vertexData[i * 6 + 5] = group.normals[i * 3 + 2];
+            }
+
+            const vertexBuffer = device.createBuffer({
+                size: vertexData.byteLength,
+                usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+            });
+            device.queue.writeBuffer(vertexBuffer, 0, vertexData);
+
+            const indexBuffer = device.createBuffer({
+                size: group.indices.byteLength,
+                usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
+            });
+            device.queue.writeBuffer(indexBuffer, 0, group.indices);
+
+            const instanceCount = group.instances.length;
+            const instanceData = new Float32Array(instanceCount * 20);
+            const expressIdToInstanceIndex = new Map<number, number>();
+            const identityTransform = new Float32Array([
+                1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1,
+            ]);
+
+            for (let i = 0; i < instanceCount; i++) {
+                const instance = group.instances[i];
+                const baseIdx = i * 20;
+                instanceData.set(identityTransform, baseIdx);
+                instanceData[baseIdx + 16] = instance.color[0];
+                instanceData[baseIdx + 17] = instance.color[1];
+                instanceData[baseIdx + 18] = instance.color[2];
+                instanceData[baseIdx + 19] = instance.color[3];
+                expressIdToInstanceIndex.set(instance.expressId, i);
+            }
+
+            const instanceBuffer = device.createBuffer({
+                size: instanceData.byteLength,
+                usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+            });
+            device.queue.writeBuffer(instanceBuffer, 0, instanceData);
+
+            const bindGroup = this.instancedPipeline.createInstanceBindGroup(instanceBuffer);
+            let geometryHash = 0;
+            for (let i = 0; i < group.geometryHash.length; i++) {
+                geometryHash = ((geometryHash << 5) - geometryHash) + group.geometryHash.charCodeAt(i);
+                geometryHash = geometryHash & geometryHash;
+            }
+
+            this.scene.addInstancedMesh({
+                geometryId: Math.abs(geometryHash),
+                vertexBuffer,
+                indexBuffer,
+                indexCount: group.indices.length,
+                instanceBuffer,
+                instanceCount,
+                expressIdToInstanceIndex,
+                bindGroup,
+            });
+            totalInstances += instanceCount;
+        }
+
+        const regularMeshCount = this.scene.getMeshes().length;
+        this.scene.clearRegularMeshes();
+
+        console.log(
+            `[Renderer] Converted ${meshDataArray.length} meshes to ${instancedData.length} instanced geometries ` +
+            `(${totalInstances} total instances, ${(totalInstances / instancedData.length).toFixed(1)}x deduplication). ` +
+            `Cleared ${regularMeshCount} regular meshes.`
+        );
     }
 
     /**
      * Ensure all meshes have GPU resources (call after adding meshes if pipeline wasn't ready)
      */
     ensureMeshResources(): void {
-        if (!this.pipeline) return;
-        this.geometryManager.ensureMeshResources(this.pipeline);
+        if (!this.pipeline || !this.device.isInitialized()) return;
+
+        const device = this.device.getDevice();
+        for (const mesh of this.scene.getMeshes()) {
+            if (!mesh.uniformBuffer) {
+                mesh.uniformBuffer = device.createBuffer({
+                    size: this.pipeline.getUniformBufferSize(),
+                    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+                });
+                mesh.bindGroup = device.createBindGroup({
+                    layout: this.pipeline.getBindGroupLayout(),
+                    entries: [{
+                        binding: 0,
+                        resource: { buffer: mesh.uniformBuffer },
+                    }],
+                });
+            }
+        }
+    }
+
+    /**
+     * Get model bounds (used for section planes, fitToView, etc.)
+     */
+    getModelBounds(): { min: { x: number; y: number; z: number }; max: { x: number; y: number; z: number } } | null {
+        return this.modelBounds;
+    }
+
+    /**
+     * Set model bounds (used when computing bounds from batches)
+     */
+    setModelBounds(bounds: { min: { x: number; y: number; z: number }; max: { x: number; y: number; z: number } }): void {
+        this.modelBounds = bounds;
+    }
+
+    /**
+     * Update model bounds from mesh data
+     */
+    private updateModelBounds(meshes: import('@ifc-lite/geometry').MeshData[]): void {
+        if (!this.modelBounds) {
+            this.modelBounds = {
+                min: { x: Infinity, y: Infinity, z: Infinity },
+                max: { x: -Infinity, y: -Infinity, z: -Infinity }
+            };
+        }
+
+        for (const mesh of meshes) {
+            const positions = mesh.positions;
+            for (let i = 0; i < positions.length; i += 3) {
+                const x = positions[i];
+                const y = positions[i + 1];
+                const z = positions[i + 2];
+                if (Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z)) {
+                    this.modelBounds.min.x = Math.min(this.modelBounds.min.x, x);
+                    this.modelBounds.min.y = Math.min(this.modelBounds.min.y, y);
+                    this.modelBounds.min.z = Math.min(this.modelBounds.min.z, z);
+                    this.modelBounds.max.x = Math.max(this.modelBounds.max.x, x);
+                    this.modelBounds.max.y = Math.max(this.modelBounds.max.y, y);
+                    this.modelBounds.max.z = Math.max(this.modelBounds.max.z, z);
+                }
+            }
+        }
+    }
+
+    /**
+     * Create a GPU Mesh from MeshData (lazy creation for selection highlighting)
+     * This is called on-demand when a mesh is selected, avoiding 2x buffer creation during streaming
+     */
+    createMeshFromData(meshData: MeshData): void {
+        if (!this.device.isInitialized()) return;
+
+        const device = this.device.getDevice();
+        const vertexCount = meshData.positions.length / 3;
+        const interleavedRaw = new ArrayBuffer(vertexCount * 7 * 4);
+        const interleaved = new Float32Array(interleavedRaw);
+        const interleavedU32 = new Uint32Array(interleavedRaw);
+
+        for (let i = 0; i < vertexCount; i++) {
+            const base = i * 7;
+            const posBase = i * 3;
+            interleaved[base] = meshData.positions[posBase];
+            interleaved[base + 1] = meshData.positions[posBase + 1];
+            interleaved[base + 2] = meshData.positions[posBase + 2];
+            interleaved[base + 3] = meshData.normals[posBase];
+            interleaved[base + 4] = meshData.normals[posBase + 1];
+            interleaved[base + 5] = meshData.normals[posBase + 2];
+            let encodedId = meshData.expressId >>> 0;
+            if (encodedId > MAX_ENCODED_ENTITY_ID) {
+                if (!warnedEntityIdRange) {
+                    warnedEntityIdRange = true;
+                    console.warn('[Renderer] expressId exceeds 24-bit seam-ID encoding range; seam lines may collide.');
+                }
+                encodedId = encodedId & MAX_ENCODED_ENTITY_ID;
+            }
+            interleavedU32[base + 6] = encodedId;
+        }
+
+        const vertexBuffer = device.createBuffer({
+            size: interleaved.byteLength,
+            usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+        });
+        device.queue.writeBuffer(vertexBuffer, 0, interleaved);
+
+        const indexBuffer = device.createBuffer({
+            size: meshData.indices.byteLength,
+            usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
+        });
+        device.queue.writeBuffer(indexBuffer, 0, meshData.indices);
+
+        // Add to scene with identity transform (positions already in world space)
+        this.scene.addMesh({
+            expressId: meshData.expressId,
+            modelIndex: meshData.modelIndex,  // Preserve modelIndex for multi-model selection
+            vertexBuffer,
+            indexBuffer,
+            indexCount: meshData.indices.length,
+            transform: MathUtils.identity(),
+            color: meshData.color,
+        });
     }
 
     private resolveVisualEnhancement(options?: VisualEnhancementOptions): ResolvedVisualEnhancement {
@@ -467,7 +816,7 @@ export class Renderer {
                 }
 
                 // Store bounds for section plane visual and camera near/far
-                this.geometryManager.setModelBounds({ min: boundsMin, max: boundsMax });
+                this.setModelBounds({ min: boundsMin, max: boundsMax });
                 this.camera.setSceneBounds({ min: boundsMin, max: boundsMax });
 
                 // Only calculate clipping data if section is enabled
@@ -822,7 +1171,7 @@ export class Renderer {
                             seenOrdinalsByKey.set(meshKey, ordinal + 1);
                             const baselineExisting = existingPieceCounts.get(meshKey) ?? 0;
                             if (ordinal < baselineExisting) continue;
-                            this.geometryManager.createMeshFromData(piece);
+                            this.createMeshFromData(piece);
                         }
                     }
                 }
@@ -989,7 +1338,7 @@ export class Renderer {
 
             // Draw section plane visual BEFORE pass.end() (within same MSAA render pass)
             // Always show plane when sectionPlane options are provided (as preview or active)
-            const modelBounds = this.geometryManager.getModelBounds();
+            const modelBounds = this.getModelBounds();
             if (options.sectionPlane && this.sectionPlaneRenderer && modelBounds) {
                 this.sectionPlaneRenderer.draw(
                     pass,
@@ -1200,7 +1549,7 @@ export class Renderer {
         // maxVal = options.sectionPlane.max ?? boundsMax[axisIdx]
         const axisIdx = axis === 'side' ? 'x' : axis === 'down' ? 'y' : 'z';
 
-        const modelBounds = this.geometryManager.getModelBounds();
+        const modelBounds = this.getModelBounds();
 
         // Allow upload if either sectionRange has both values, or modelBounds exists as fallback
         const hasFullRange = sectionRange?.min !== undefined && sectionRange?.max !== undefined;

@@ -10,7 +10,7 @@
 import { Camera } from './camera.js';
 import { Scene } from './scene.js';
 import { Picker } from './picker.js';
-import { GeometryManager } from './geometry-manager.js';
+import type { MeshData } from '@ifc-lite/geometry';
 import type { PickOptions, PickResult } from './types.js';
 
 export class PickingManager {
@@ -18,20 +18,20 @@ export class PickingManager {
     private scene: Scene;
     private picker: Picker | null;
     private canvas: HTMLCanvasElement;
-    private geometryManager: GeometryManager;
+    private createMeshFromDataFn: (meshData: MeshData) => void;
 
     constructor(
         camera: Camera,
         scene: Scene,
         picker: Picker | null,
         canvas: HTMLCanvasElement,
-        geometryManager: GeometryManager
+        createMeshFromDataFn: (meshData: MeshData) => void
     ) {
         this.camera = camera;
         this.scene = scene;
         this.picker = picker;
         this.canvas = canvas;
-        this.geometryManager = geometryManager;
+        this.createMeshFromDataFn = createMeshFromDataFn;
     }
 
     /**
@@ -153,7 +153,7 @@ export class PickingManager {
                         // Assume existing pieces correspond to the first N pieces in stable order.
                         if (ordinal < baselineExisting) continue;
 
-                        this.geometryManager.createMeshFromData(piece);
+                        this.createMeshFromDataFn(piece);
                     }
                 }
             }
