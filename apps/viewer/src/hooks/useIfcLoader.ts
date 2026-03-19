@@ -248,8 +248,6 @@ export function useIfcLoader() {
 
           setProgress({ phase: 'Complete', percent: 100 });
 
-          const totalElapsedMs = performance.now() - totalStartTime;
-          console.log(`[useIfc] GLB loaded: ${meshes.length} meshes, ${stats.totalTriangles} triangles in ${totalElapsedMs.toFixed(0)}ms`);
           setLoading(false);
           return;
         } catch (err: unknown) {
@@ -272,8 +270,7 @@ export function useIfcLoader() {
         if (cacheResult) {
           const success = await loadFromCache(cacheResult, file.name, cacheKey);
           if (success) {
-            const totalElapsedMs = performance.now() - totalStartTime;
-            console.log(`[useIfc] TOTAL LOAD TIME (from cache): ${totalElapsedMs.toFixed(0)}ms (${(totalElapsedMs / 1000).toFixed(1)}s)`);
+            console.log(`[useIfc] TOTAL LOAD TIME (from cache): ${(performance.now() - totalStartTime).toFixed(0)}ms`);
             setLoading(false);
             return;
           }
@@ -286,8 +283,7 @@ export function useIfcLoader() {
         // Pass buffer directly - server uses File object for parsing, buffer is only for size checks
         const serverSuccess = await loadFromServer(file, buffer);
         if (serverSuccess) {
-          const totalElapsedMs = performance.now() - totalStartTime;
-          console.log(`[useIfc] TOTAL LOAD TIME (server): ${totalElapsedMs.toFixed(0)}ms (${(totalElapsedMs / 1000).toFixed(1)}s)`);
+          console.log(`[useIfc] TOTAL LOAD TIME (server): ${(performance.now() - totalStartTime).toFixed(0)}ms`);
           setLoading(false);
           return;
         }
@@ -501,8 +497,6 @@ export function useIfcLoader() {
 
               setProgress({ phase: 'Complete', percent: 100 });
               console.log(`[useIfc] Geometry streaming complete: ${batchCount} batches, ${lastTotalMeshes} meshes`);
-              console.log(`Total wait (WASM): ${totalWaitTime.toFixed(0)}ms`);
-              console.log(`Total process (JS): ${totalProcessTime.toFixed(0)}ms`);
 
               // Build spatial index and cache in background (non-blocking)
               // Wait for data model to complete first
@@ -554,11 +548,13 @@ export function useIfcLoader() {
           lastBatchTime = performance.now();
         }
       } catch (err) {
+        if (loadSessionRef.current !== currentSession) return;
         console.error('[useIfc] Error in processing:', err);
         setError(err instanceof Error ? err.message : 'Unknown error during geometry processing');
       }
 
-      // Log developer-friendly summary with key metrics
+      if (loadSessionRef.current !== currentSession) return;
+
       const totalElapsedMs = performance.now() - totalStartTime;
       const totalVertices = allMeshes.reduce((sum, m) => sum + m.positions.length / 3, 0);
       console.log(
@@ -567,29 +563,9 @@ export function useIfcLoader() {
         `first: ${firstGeometryTime.toFixed(0)}ms, total: ${totalElapsedMs.toFixed(0)}ms`
       );
       console.log(`[useIfc] TOTAL LOAD TIME (local): ${totalElapsedMs.toFixed(0)}ms (${(totalElapsedMs / 1000).toFixed(1)}s)`);
-
-      console.log('[useIfc] About to setLoading(false)');
       setLoading(false);
-      console.log('[useIfc] setLoading(false) done');
-
-      // Monitor for long tasks after load completes (helps diagnose post-load freezes)
-      if (typeof PerformanceObserver !== 'undefined') {
-        try {
-          const obs = new PerformanceObserver((list) => {
-            for (const entry of list.getEntries()) {
-              if (entry.duration > 100) {
-                console.warn(`[useIfc] LONG TASK: ${entry.duration.toFixed(0)}ms at ${entry.startTime.toFixed(0)}ms`);
-              }
-            }
-          });
-          obs.observe({ type: 'longtask', buffered: false });
-          // Auto-cleanup after 30s
-          setTimeout(() => obs.disconnect(), 30000);
-        } catch {
-          // PerformanceObserver longtask not supported
-        }
-      }
     } catch (err) {
+      if (loadSessionRef.current !== currentSession) return;
       setError(err instanceof Error ? err.message : 'Unknown error');
       setLoading(false);
     }

@@ -589,8 +589,9 @@ export class Scene {
       this.pendingBatchKeys.add(bucketKey);
     }
 
-    // Prepare new batch array — old batchedMeshes (fragments) keeps rendering
-    this.batchedMeshes = [];
+    // Build new batches into a temporary array so the old batchedMeshes
+    // (streaming fragments) keep rendering until the swap is complete.
+    const newBatches: BatchedMesh[] = [];
     const pendingKeys = Array.from(this.pendingBatchKeys);
     this.pendingBatchKeys.clear();
 
@@ -612,8 +613,8 @@ export class Scene {
           const color = meshDataForKey[0].color;
           const batchedMesh = scene.createBatchedMesh(meshDataForKey, color, device, pipeline, key);
           scene.batchedMeshMap.set(key, batchedMesh);
-          const newIndex = scene.batchedMeshes.length;
-          scene.batchedMeshes.push(batchedMesh);
+          const newIndex = newBatches.length;
+          newBatches.push(batchedMesh);
           scene.batchedMeshIndex.set(key, newIndex);
 
           // Check time budget — yield if exceeded
@@ -623,7 +624,10 @@ export class Scene {
           }
         }
 
-        // All batches built — destroy old fragment/batch GPU resources
+        // All batches built — atomic swap so renderer never sees an empty array
+        scene.batchedMeshes = newBatches;
+
+        // Destroy old fragment/batch GPU resources
         for (const fragment of oldFragments) {
           fragment.vertexBuffer.destroy();
           fragment.indexBuffer.destroy();
@@ -1333,6 +1337,7 @@ export class Scene {
     this.pendingBatchKeys.clear();
     this.partialBatchCache.clear();
     this.partialBatchCacheKeys.clear();
+    this.meshQueue = [];
     this.geometryReleased = false;
   }
 

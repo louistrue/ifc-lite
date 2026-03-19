@@ -230,14 +230,27 @@ export function useTouchControls(params: UseTouchControlsParams): void {
       }
     };
 
+    // Also reset interaction on touchcancel — mobile browsers can cancel
+    // gestures (system gestures, tab switch, lost focus) without touchend.
+    const handleTouchCancel = () => {
+      if (isInteractingRef.current) {
+        isInteractingRef.current = false;
+        renderer.requestRender();
+      }
+      touchState.touches = [];
+      touchState.multiTouch = false;
+    };
+
     canvas.addEventListener('touchstart', handleTouchStart);
     canvas.addEventListener('touchmove', handleTouchMove);
     canvas.addEventListener('touchend', handleTouchEnd);
+    canvas.addEventListener('touchcancel', handleTouchCancel);
 
     return () => {
       canvas.removeEventListener('touchstart', handleTouchStart);
       canvas.removeEventListener('touchmove', handleTouchMove);
       canvas.removeEventListener('touchend', handleTouchEnd);
+      canvas.removeEventListener('touchcancel', handleTouchCancel);
     };
   }, [isInitialized]);
 }

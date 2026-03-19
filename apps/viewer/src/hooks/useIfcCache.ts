@@ -193,9 +193,13 @@ export function useIfcCache() {
 
         // Build spatial index asynchronously (time-sliced, non-blocking)
         if (meshes.length > 0) {
+          const capturedStore = dataStore;
           buildSpatialIndexAsync(meshes).then(spatialIndex => {
-            dataStore.spatialIndex = spatialIndex;
-            setIfcDataStore({ ...dataStore });
+            // Guard: skip if a newer load replaced the store
+            const { ifcDataStore: currentStore } = useViewerStore.getState();
+            if (currentStore !== capturedStore) return;
+            capturedStore.spatialIndex = spatialIndex;
+            setIfcDataStore({ ...capturedStore });
           }).catch(err => {
             console.warn('[useIfcCache] Failed to build spatial index:', err);
           });

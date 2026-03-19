@@ -183,7 +183,6 @@ export class IfcParser {
    */
   async parseColumnar(buffer: ArrayBuffer, options: ParseOptions = {}): Promise<IfcDataStore> {
     const uint8Buffer = new Uint8Array(buffer);
-    const startTime = performance.now();
     const fileSizeMB = buffer.byteLength / (1024 * 1024);
     const scanStartTime = performance.now();
 

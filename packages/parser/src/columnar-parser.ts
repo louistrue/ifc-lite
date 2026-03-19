@@ -538,7 +538,7 @@ export class ColumnarParser {
         const uint8Buffer = new Uint8Array(buffer);
         const totalEntities = entityRefs.length;
 
-        // Phase timing for performance profiling
+        // Phase timing for performance telemetry
         let phaseStart = startTime;
         const logPhase = (name: string) => {
             const now = performance.now();
@@ -675,20 +675,20 @@ export class ColumnarParser {
                 });
             }
         }
+        logPhase('spatial entities');
 
         await yieldIfNeeded();
 
         // Geometry + type object entities: batch extract GlobalId+Name with 2 TextDecoder calls
         options.onProgress?.({ phase: 'parsing geometry names', percent: 12 });
-        logPhase('spatial entities');
         const geomData = batchExtractGlobalIdAndName(uint8Buffer, geometryRefs);
         for (const [id, data] of geomData) parsedEntityData.set(id, data);
 
         await yieldIfNeeded();
 
-        logPhase('batch geom GlobalId+Name');
         const typeData = batchExtractGlobalIdAndName(uint8Buffer, typeObjectRefs);
         for (const [id, data] of typeData) parsedEntityData.set(id, data);
+        logPhase('batch geom GlobalId+Name');
 
         await yieldIfNeeded();
 
@@ -710,7 +710,7 @@ export class ColumnarParser {
                 const relType = REL_TYPE_MAP[typeUpper];
                 if (relType) {
                     for (const targetId of rel.relatedObjects) {
-                        relationshipGraphBuilder.addEdge(rel.relatingObject, targetId, relType, rel.relatingObject);
+                        relationshipGraphBuilder.addEdge(rel.relatingObject, targetId, relType, ref.expressId);
                     }
                 }
             }
@@ -745,8 +745,8 @@ export class ColumnarParser {
         addEntityBatch(typeObjectRefs, false, true);
         addEntityBatch(relationshipRefs, false, false);
         addEntityBatch(otherRelevantRefs, false, false);
-
         logPhase('add entity batches');
+
         const entityTable = entityTableBuilder.build();
         logPhase('entity table build()');
 
@@ -779,6 +779,7 @@ export class ColumnarParser {
                 entityIndex,
                 lengthUnitScale
             );
+            logPhase('spatial hierarchy');
         } catch (error) {
             console.warn('[ColumnarParser] Failed to build spatial hierarchy:', error);
         }
@@ -801,7 +802,6 @@ export class ColumnarParser {
             relationships: hierarchyRelGraph,
             spatialHierarchy,
         };
-        logPhase('spatial hierarchy');
         options.onSpatialReady?.(earlyStore);
 
         await yieldIfNeeded(); // Let geometry process after hierarchy emission
@@ -852,7 +852,6 @@ export class ColumnarParser {
             }
         }
         console.log(`[parseLite] propertyRels: ${propertyRelRefs.length} rels, ${totalPropRelObjects} total relatedObjects`);
-
         await yieldIfNeeded();
 
         // Association rels: byte-level scanning, no addEdge (same reasoning as property rels)
@@ -888,8 +887,9 @@ export class ColumnarParser {
             }
         }
 
-        // Rebuild relationship graph with ALL edges (hierarchy + property + association)
         logPhase('property+association rels');
+
+        // Rebuild relationship graph with ALL edges (hierarchy + property + association)
         const fullRelationshipGraph = relationshipGraphBuilder.build();
         logPhase('relationship graph build()');
 

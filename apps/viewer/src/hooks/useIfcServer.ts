@@ -443,9 +443,13 @@ export function useIfcServer() {
 
           // Build spatial index asynchronously (time-sliced) to avoid freezing
           if (allMeshes.length > 0) {
+            const capturedStore = dataStore;
             buildSpatialIndexAsync(allMeshes).then(spatialIndex => {
-              dataStore.spatialIndex = spatialIndex;
-              setIfcDataStore({ ...dataStore });
+              // Guard: skip if a newer load replaced the store
+              const { ifcDataStore: currentStore } = useViewerStore.getState();
+              if (currentStore !== capturedStore) return;
+              capturedStore.spatialIndex = spatialIndex;
+              setIfcDataStore({ ...capturedStore });
             }).catch(err => {
               console.warn('[useIfc] Failed to build spatial index:', err);
             });

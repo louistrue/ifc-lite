@@ -116,9 +116,6 @@ export class Renderer {
     private lastRenderErrorTime: number = 0;
     private readonly RENDER_ERROR_THROTTLE_MS = 1000;
 
-    // Diagnostic frame counter
-    private _renderFrameCount: number = 0;
-    private _interactionLogCount: number = 0;
 
     // Dirty flag: set by requestRender(), consumed by the animation loop.
     // Centralises all render scheduling — callers never call render() directly.
@@ -355,9 +352,6 @@ export class Renderer {
         // Ensure all existing meshes have GPU resources
         this.ensureMeshResources();
 
-        // Diagnostic logging (first 3 frames + slow frames)
-        const _rt0 = performance.now();
-        const _logFrame = this._renderFrameCount++ < 3;
 
         // Frustum culling (if enabled and spatial index available)
         if (options.enableFrustumCulling && options.spatialIndex) {
@@ -1051,19 +1045,6 @@ export class Renderer {
             }
 
             device.queue.submit([encoder.finish()]);
-
-            const _renderMs = performance.now() - _rt0;
-            if (_logFrame || _renderMs > 50 || (interacting && this._interactionLogCount++ < 30)) {
-                const batchCount = this.scene.getBatchedMeshes().length;
-                const meshCount = meshes.length;
-                console.log(
-                    `[Renderer] frame #${this._renderFrameCount}: ${_renderMs.toFixed(1)}ms | ` +
-                    `batches=${batchCount} meshes=${meshCount} interacting=${interacting} ` +
-                    `postProc=${contactEnabled || separationEnabled} edge=${edgeEnabled} ` +
-                    `visFilter=${hasVisibilityFiltering} hidden=${options.hiddenIds?.size ?? 0} ` +
-                    `isolated=${options.isolatedIds?.size ?? 'null'}`
-                );
-            }
         } catch (error) {
             // Handle WebGPU errors (e.g., device lost, invalid state)
             // Mark context as invalid so it gets reconfigured next frame

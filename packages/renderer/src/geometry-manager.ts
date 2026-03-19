@@ -444,13 +444,6 @@ export class GeometryManager {
             }
         }
 
-        if (created > 0) {
-            const totalMeshCount = this.scene.getMeshes().length;
-            // Only log every 250 meshes or when creating many at once to reduce noise
-            if (totalMeshCount % 250 === 0 || created > 100) {
-                console.log(`[Renderer] Created GPU resources for ${created} new meshes (${totalMeshCount} total)`);
-            }
-        }
     }
 
     /**
