@@ -447,7 +447,6 @@ export function useIfcServer() {
           console.log(`[useIfc] Data model loaded in ${(performance.now() - dataModelStart).toFixed(0)}ms (background)`);
 
           buildSpatialIndexGuarded(allMeshes, dataStore, setIfcDataStore);
-          }
         } catch (err) {
           console.warn('[useIfc] Failed to decode data model:', err);
           console.log('[useIfc] ⚡ Skipping data model (decoding failed)');
