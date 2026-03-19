@@ -14,7 +14,7 @@
     "dev:api": "zsh -lc 'set -a; source \"apps/api/.env.local\"; set +a; PORT=3001 tsx scripts/dev-chat-api.ts'",
     "dev:embed": "pnpm build && pnpm --filter @ifc-lite/viewer-embed dev",
     "dev:desktop": "pnpm --filter @ifc-lite/desktop dev",
-    "build": "pnpm -r build",
+    "build": "turbo build",
     "build:embed": "pnpm --filter @ifc-lite/viewer-embed build",
     "build:desktop": "pnpm --filter @ifc-lite/desktop build",
     "build:desktop:windows": "pnpm --filter @ifc-lite/desktop build:windows",
@@ -47,6 +47,7 @@
     "@changesets/cli": "^2.29.8",
     "@playwright/test": "^1.40.0",
     "@types/node": "^20.0.0",
+    "turbo": "^2.5.0",
     "tsx": "^4.21.0",
     "typescript": "^5.3.0"
   },
