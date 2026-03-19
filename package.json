@@ -23,6 +23,7 @@
     "test": "pnpm -r test",
     "test:api": "tsx --test \"tests/api/**/*.test.ts\"",
     "test:regression": "node scripts/test-geometry-regression.mjs",
+    "typecheck": "turbo typecheck",
     "lint": "pnpm -r lint",
     "docs:serve": "python3 -m mkdocs serve",
     "docs:build": "python3 -m mkdocs build",

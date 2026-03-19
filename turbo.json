@@ -5,6 +5,7 @@
       "dependsOn": ["^build"],
       "outputs": ["dist/**", "pkg/**"],
       "inputs": [
+        "$TURBO_DEFAULT$",
         "src/**",
         "scripts/**",
         "package.json",
@@ -13,6 +14,10 @@
         "vite.config.ts",
         "index.html"
       ]
+    },
+    "typecheck": {
+      "dependsOn": ["^build"],
+      "outputs": []
     },
     "dev": {
       "cache": false,
