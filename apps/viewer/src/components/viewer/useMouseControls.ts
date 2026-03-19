@@ -310,8 +310,12 @@ export function useMouseControls(params: UseMouseControlsParams): void {
     }
 
     // Mouse controls - respect active tool
-    const handleMouseDown = async (e: MouseEvent) => {
+    // Uses pointer events + setPointerCapture so pointerup always fires,
+    // even when the pointer leaves the canvas (e.g. dragging across panels).
+    const handleMouseDown = async (e: PointerEvent) => {
       e.preventDefault();
+      // Capture the pointer so move/up events fire even outside the canvas
+      canvas.setPointerCapture(e.pointerId);
       mouseState.isDragging = true;
       mouseState.button = e.button;
       mouseState.lastX = e.clientX;
@@ -761,7 +765,10 @@ export function useMouseControls(params: UseMouseControlsParams): void {
       }
     };
 
-    const handleMouseUp = (e: MouseEvent) => {
+    const handleMouseUp = (e: PointerEvent) => {
+      // Release pointer capture (safe to call even if not captured)
+      canvas.releasePointerCapture(e.pointerId);
+
       // Clear interaction flag so the animation loop restores post-processing
       if (isInteractingRef.current) {
         isInteractingRef.current = false;
@@ -980,18 +987,18 @@ export function useMouseControls(params: UseMouseControlsParams): void {
       }
     };
 
-    canvas.addEventListener('mousedown', handleMouseDown);
-    canvas.addEventListener('mousemove', handleMouseMove);
-    canvas.addEventListener('mouseup', handleMouseUp);
+    canvas.addEventListener('pointerdown', handleMouseDown);
+    canvas.addEventListener('pointermove', handleMouseMove);
+    canvas.addEventListener('pointerup', handleMouseUp);
     canvas.addEventListener('mouseleave', handleMouseLeave);
     canvas.addEventListener('contextmenu', handleContextMenu);
     canvas.addEventListener('wheel', handleWheel, { passive: false });
     canvas.addEventListener('click', handleClick);
 
     return () => {
-      canvas.removeEventListener('mousedown', handleMouseDown);
-      canvas.removeEventListener('mousemove', handleMouseMove);
-      canvas.removeEventListener('mouseup', handleMouseUp);
+      canvas.removeEventListener('pointerdown', handleMouseDown);
+      canvas.removeEventListener('pointermove', handleMouseMove);
+      canvas.removeEventListener('pointerup', handleMouseUp);
       canvas.removeEventListener('mouseleave', handleMouseLeave);
       canvas.removeEventListener('contextmenu', handleContextMenu);
       canvas.removeEventListener('wheel', handleWheel);

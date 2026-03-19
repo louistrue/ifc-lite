@@ -15,7 +15,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { useViewerStore } from '../store.js';
 import { IfcParser, detectFormat, parseIfcx, type IfcDataStore } from '@ifc-lite/parser';
 import { GeometryProcessor, GeometryQuality, type MeshData, type CoordinateInfo } from '@ifc-lite/geometry';
-import { buildSpatialIndexAsync } from '@ifc-lite/spatial';
+import { buildSpatialIndexGuarded } from '../utils/loadingUtils.js';
 import { type GeometryData, loadGLBToMeshData } from '@ifc-lite/cache';
 
 import { SERVER_URL, USE_SERVER, CACHE_SIZE_THRESHOLD, CACHE_MAX_SOURCE_SIZE, getDynamicBatchConfig } from '../utils/ifcConfig.js';
@@ -281,7 +281,7 @@ export function useIfcLoader() {
       // Only for IFC4 STEP files (server doesn't support IFCX)
       if (format === 'ifc' && USE_SERVER && SERVER_URL && SERVER_URL !== '') {
         // Pass buffer directly - server uses File object for parsing, buffer is only for size checks
-        const serverSuccess = await loadFromServer(file, buffer);
+        const serverSuccess = await loadFromServer(file, buffer, () => loadSessionRef.current !== currentSession);
         if (serverSuccess) {
           console.log(`[useIfc] TOTAL LOAD TIME (server): ${(performance.now() - totalStartTime).toFixed(0)}ms`);
           setLoading(false);
@@ -316,7 +316,6 @@ export function useIfcLoader() {
         const parser = new IfcParser();
         // wasmApi as fallback if Web Worker unavailable
         const wasmApi = geometryProcessor.getApi();
-        let spatialEmitted = false;
         parser.parseColumnar(buffer, {
           wasmApi,
           // Emit spatial hierarchy EARLY — lets the panel render while
@@ -330,7 +329,6 @@ export function useIfcLoader() {
               }
             }
             setIfcDataStore(partialStore);
-            spatialEmitted = true;
           },
         }).then(dataStore => {
           if (loadSessionRef.current !== currentSession) return;
@@ -370,11 +368,7 @@ export function useIfcLoader() {
       setGeometryResult(null);
 
       // Timing instrumentation
-      const processingStart = performance.now();
       let batchCount = 0;
-      let lastBatchTime = processingStart;
-      let totalWaitTime = 0; // Time waiting for WASM to yield batches
-      let totalProcessTime = 0; // Time processing batches in JS
       let firstGeometryTime = 0; // Time to first rendered geometry
       let modelOpenMs = 0;
       let lastTotalMeshes = 0;
@@ -395,7 +389,6 @@ export function useIfcLoader() {
           batchSize: dynamicBatchConfig, // Dynamic batches: small first, then large
         })) {
           const eventReceived = performance.now();
-          const waitTime = eventReceived - lastBatchTime;
 
           switch (event.type) {
             case 'start':
@@ -428,7 +421,6 @@ export function useIfcLoader() {
             }
             case 'batch': {
               batchCount++;
-              totalWaitTime += waitTime;
 
               // Track time to first geometry
               if (batchCount === 1) {
@@ -436,7 +428,6 @@ export function useIfcLoader() {
                 console.log(`[useIfc] Batch #1: ${event.meshes.length} meshes, wait: ${firstGeometryTime.toFixed(0)}ms`);
               }
 
-              const processStart = performance.now();
 
               // Collect meshes for BVH building (use loop to avoid stack overflow with large batches)
               for (let i = 0; i < event.meshes.length; i++) allMeshes.push(event.meshes[i]);
@@ -465,8 +456,6 @@ export function useIfcLoader() {
                 });
               }
 
-              const processTime = performance.now() - processStart;
-              totalProcessTime += processTime;
               break;
             }
             case 'complete':
@@ -507,15 +496,7 @@ export function useIfcLoader() {
                 // Previously this was synchronous inside requestIdleCallback, blocking
                 // the main thread for seconds on 200K+ mesh models (190M+ float reads
                 // for bounds computation alone).
-                if (allMeshes.length > 0) {
-                  buildSpatialIndexAsync(allMeshes).then(spatialIndex => {
-                    if (loadSessionRef.current !== currentSession) return;
-                    dataStore.spatialIndex = spatialIndex;
-                    setIfcDataStore({ ...dataStore });
-                  }).catch(err => {
-                    console.warn('[useIfc] Failed to build spatial index:', err);
-                  });
-                }
+                buildSpatialIndexGuarded(allMeshes, dataStore, setIfcDataStore);
 
                 // Cache the result in the background (files between 10 MB and 150 MB).
                 // Files above CACHE_MAX_SOURCE_SIZE are not cached because the
@@ -545,7 +526,6 @@ export function useIfcLoader() {
               break;
           }
 
-          lastBatchTime = performance.now();
         }
       } catch (err) {
         if (loadSessionRef.current !== currentSession) return;

@@ -141,7 +141,9 @@ export function useAnimationLoop(params: UseAnimationLoopParams): void {
       const isAnimating = camera.update(deltaTime);
 
       // 3. Render if anything changed
-      const renderRequested = renderer.consumeRenderRequest();
+      // Peek first — only consume the flag when we actually commit to rendering.
+      // This prevents a throttled frame from eating the dirty flag.
+      const renderRequested = renderer.peekRenderRequest();
 
       // Throttle render rate during continuous rendering (interaction + inertia)
       // for large models. Without this, 200K+ mesh models at 60fps overwhelm
@@ -152,13 +154,8 @@ export function useAnimationLoop(params: UseAnimationLoopParams): void {
         continuousThrottleMs > 0 &&
         (currentTime - lastRenderTime) < continuousThrottleMs;
 
-      // If throttle blocked a frame that had a pending render request,
-      // re-request so the dirty flag survives to the next frame.
-      if (throttled && renderRequested) {
-        renderer.requestRender();
-      }
-
       if ((isAnimating || renderRequested || queueFlushed) && !throttled) {
+        renderer.consumeRenderRequest();
         renderer.render({
           hiddenIds: hiddenEntitiesRef.current,
           isolatedIds: isolatedEntitiesRef.current,

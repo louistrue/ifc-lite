@@ -1144,6 +1144,15 @@ export class Renderer {
     }
 
     /**
+     * Check whether a render has been requested without clearing the flag.
+     * Used by the animation loop to test the dirty flag before committing
+     * to render (e.g. when throttling may skip the frame).
+     */
+    peekRenderRequest(): boolean {
+        return this._renderRequested;
+    }
+
+    /**
      * Consume the render request flag.  Returns true (and resets the flag)
      * if a render was requested since the last call.  Used by the animation
      * loop to decide whether to render.

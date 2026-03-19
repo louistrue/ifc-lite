@@ -391,13 +391,12 @@ export class Scene {
    *
    * @returns true if any meshes were processed (caller should render)
    */
-  flushPending(device: GPUDevice, pipeline: RenderPipeline, budgetMs: number = 8): boolean {
+  flushPending(device: GPUDevice, pipeline: RenderPipeline): boolean {
     if (this.meshQueue.length === 0) return false;
 
     // Drain the entire queue in one appendToBatches call.
     // The queue coalesces multiple React batches into a single GPU upload,
     // which is already bounded by the WASM→JS batch interval (~50-200ms).
-    // If individual uploads become too large, time-slice here.
     const meshes = this.meshQueue;
     this.meshQueue = [];
     this.appendToBatches(meshes, device, pipeline, true);

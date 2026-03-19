@@ -17,7 +17,7 @@ import {
   type GeometryData,
 } from '@ifc-lite/cache';
 import { SpatialHierarchyBuilder, StepTokenizer, buildCompactEntityIndex, extractLengthUnitScale, type IfcDataStore } from '@ifc-lite/parser';
-import { buildSpatialIndexAsync } from '@ifc-lite/spatial';
+import { buildSpatialIndexGuarded } from '../utils/loadingUtils.js';
 import type { MeshData } from '@ifc-lite/geometry';
 
 import { useShallow } from 'zustand/react/shallow';
@@ -191,19 +191,7 @@ export function useIfcCache() {
         // Set data store
         setIfcDataStore(dataStore);
 
-        // Build spatial index asynchronously (time-sliced, non-blocking)
-        if (meshes.length > 0) {
-          const capturedStore = dataStore;
-          buildSpatialIndexAsync(meshes).then(spatialIndex => {
-            // Guard: skip if a newer load replaced the store
-            const { ifcDataStore: currentStore } = useViewerStore.getState();
-            if (currentStore !== capturedStore) return;
-            capturedStore.spatialIndex = spatialIndex;
-            setIfcDataStore({ ...capturedStore });
-          }).catch(err => {
-            console.warn('[useIfcCache] Failed to build spatial index:', err);
-          });
-        }
+        buildSpatialIndexGuarded(meshes, dataStore, setIfcDataStore);
       } else {
         setIfcDataStore(dataStore);
       }

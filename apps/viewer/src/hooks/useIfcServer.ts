@@ -37,7 +37,7 @@ import {
 
 // Server data model conversion
 import { convertServerDataModel, type ServerParseResult } from '../utils/serverDataModel.js';
-import { buildSpatialIndexAsync } from '@ifc-lite/spatial';
+import { buildSpatialIndexGuarded } from '../utils/loadingUtils.js';
 
 /** Convert server mesh data (snake_case) to viewer format (camelCase) */
 function convertServerMesh(m: ServerMeshData): MeshData {
@@ -126,7 +126,9 @@ export function useIfcServer() {
    */
   const loadFromServer = useCallback(async (
     file: File,
-    buffer: ArrayBuffer
+    buffer: ArrayBuffer,
+    /** Optional staleness check — returns true if this load has been superseded. */
+    isStale?: () => boolean,
   ): Promise<boolean> => {
     const { setProgress, setIfcDataStore, setGeometryResult } = useViewerStore.getState();
     try {
@@ -141,6 +143,7 @@ export function useIfcServer() {
         return false; // Silently fall back - caller handles logging
       }
 
+      if (isStale?.()) return false;
       setProgress({ phase: 'Processing on server (parallel)', percent: 15 });
 
       // Check if Parquet is supported (requires parquet-wasm)
@@ -398,6 +401,7 @@ export function useIfcServer() {
 
       // Start data model fetch in background - don't block rendering
       (async () => {
+        if (isStale?.()) return;
         setProgress({ phase: 'Fetching data model', percent: 85 });
         const dataModelStart = performance.now();
 
@@ -437,22 +441,12 @@ export function useIfcServer() {
             allMeshes
           );
 
+          if (isStale?.()) return;
           setIfcDataStore(dataStore);
           console.log('[useIfc] ✅ Property panel ready with server data model');
           console.log(`[useIfc] Data model loaded in ${(performance.now() - dataModelStart).toFixed(0)}ms (background)`);
 
-          // Build spatial index asynchronously (time-sliced) to avoid freezing
-          if (allMeshes.length > 0) {
-            const capturedStore = dataStore;
-            buildSpatialIndexAsync(allMeshes).then(spatialIndex => {
-              // Guard: skip if a newer load replaced the store
-              const { ifcDataStore: currentStore } = useViewerStore.getState();
-              if (currentStore !== capturedStore) return;
-              capturedStore.spatialIndex = spatialIndex;
-              setIfcDataStore({ ...capturedStore });
-            }).catch(err => {
-              console.warn('[useIfc] Failed to build spatial index:', err);
-            });
+          buildSpatialIndexGuarded(allMeshes, dataStore, setIfcDataStore);
           }
         } catch (err) {
           console.warn('[useIfc] Failed to decode data model:', err);
