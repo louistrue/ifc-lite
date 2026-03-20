@@ -610,6 +610,21 @@ fn resolve_material_ids(
     material_select_id: u32,
     decoder: &mut ifc_lite_core::EntityDecoder,
 ) -> Vec<u32> {
+    resolve_material_ids_inner(material_select_id, decoder, 0)
+}
+
+/// Maximum recursion depth for material resolution (guards against cycles in malformed IFC).
+const MAX_MATERIAL_RESOLVE_DEPTH: u8 = 4;
+
+fn resolve_material_ids_inner(
+    material_select_id: u32,
+    decoder: &mut ifc_lite_core::EntityDecoder,
+    depth: u8,
+) -> Vec<u32> {
+    if depth >= MAX_MATERIAL_RESOLVE_DEPTH {
+        return vec![];
+    }
+
     use ifc_lite_core::IfcType;
 
     let entity = match decoder.decode_by_id(material_select_id) {
@@ -628,57 +643,30 @@ fn resolve_material_ids(
         IfcType::IfcMaterialLayerSetUsage => {
             // Attr 0: ForLayerSet (ref to IfcMaterialLayerSet)
             if let Some(layer_set_id) = entity.get_ref(0) {
-                resolve_material_ids(layer_set_id, decoder)
+                resolve_material_ids_inner(layer_set_id, decoder, depth + 1)
             } else {
                 vec![]
             }
         }
         IfcType::IfcMaterialLayerSet => {
             // Attr 0: MaterialLayers (list of IfcMaterialLayer refs)
-            let layer_ids = extract_refs_from_list(&entity, 0);
-            let mut materials = Vec::new();
-            for layer_id in layer_ids {
-                // IfcMaterialLayer: Attr 0: Material (ref to IfcMaterial)
-                if let Ok(layer) = decoder.decode_by_id(layer_id) {
-                    if let Some(mat_id) = layer.get_ref(0) {
-                        materials.push(mat_id);
-                    }
-                }
-            }
-            materials
+            // IfcMaterialLayer: Attr 0: Material (ref to IfcMaterial)
+            extract_nested_material_ids(&entity, 0, 0, decoder)
         }
         IfcType::IfcMaterialConstituentSet => {
             // Attr 2: MaterialConstituents (list of IfcMaterialConstituent refs)
-            let constituent_ids = extract_refs_from_list(&entity, 2);
-            let mut materials = Vec::new();
-            for constituent_id in constituent_ids {
-                // IfcMaterialConstituent: Attr 2: Material (ref to IfcMaterial)
-                if let Ok(constituent) = decoder.decode_by_id(constituent_id) {
-                    if let Some(mat_id) = constituent.get_ref(2) {
-                        materials.push(mat_id);
-                    }
-                }
-            }
-            materials
+            // IfcMaterialConstituent: Attr 2: Material (ref to IfcMaterial)
+            extract_nested_material_ids(&entity, 2, 2, decoder)
         }
         IfcType::IfcMaterialProfileSet => {
             // Attr 2: MaterialProfiles (list of IfcMaterialProfile refs)
-            let profile_ids = extract_refs_from_list(&entity, 2);
-            let mut materials = Vec::new();
-            for profile_id in profile_ids {
-                // IfcMaterialProfile: Attr 2: Material (ref to IfcMaterial)
-                if let Ok(profile) = decoder.decode_by_id(profile_id) {
-                    if let Some(mat_id) = profile.get_ref(2) {
-                        materials.push(mat_id);
-                    }
-                }
-            }
-            materials
+            // IfcMaterialProfile: Attr 2: Material (ref to IfcMaterial)
+            extract_nested_material_ids(&entity, 2, 2, decoder)
         }
         IfcType::IfcMaterialProfileSetUsage => {
             // Attr 0: ForProfileSet (ref to IfcMaterialProfileSet)
             if let Some(profile_set_id) = entity.get_ref(0) {
-                resolve_material_ids(profile_set_id, decoder)
+                resolve_material_ids_inner(profile_set_id, decoder, depth + 1)
             } else {
                 vec![]
             }
@@ -688,6 +676,27 @@ fn resolve_material_ids(
             vec![]
         }
     }
+}
+
+/// Extract material IDs from a list of container entities (layers, constituents, profiles).
+/// `container_list_attr_idx` is the attribute index of the list on the parent entity.
+/// `material_attr_idx` is the attribute index of the Material ref on each child entity.
+fn extract_nested_material_ids(
+    entity: &ifc_lite_core::DecodedEntity,
+    container_list_attr_idx: usize,
+    material_attr_idx: usize,
+    decoder: &mut ifc_lite_core::EntityDecoder,
+) -> Vec<u32> {
+    let container_ids = extract_refs_from_list(entity, container_list_attr_idx);
+    let mut materials = Vec::new();
+    for container_id in container_ids {
+        if let Ok(container) = decoder.decode_by_id(container_id) {
+            if let Some(mat_id) = container.get_ref(material_attr_idx) {
+                materials.push(mat_id);
+            }
+        }
+    }
+    materials
 }
 
 /// Helper: extract entity references from a list attribute.
@@ -815,6 +824,41 @@ fn collect_material_entity(
     }
 }
 
+/// Resolve color for a sub-mesh using the fallback chain:
+/// direct geometry style -> material-based style -> element style -> default.
+///
+/// `mat_color_idx` is the current index for material color alternation (transparent/opaque).
+/// It is incremented when a material fallback is used (caller should track this).
+pub(crate) fn resolve_submesh_color(
+    geometry_id: u32,
+    geometry_styles: &rustc_hash::FxHashMap<u32, [f32; 4]>,
+    decoder: &mut ifc_lite_core::EntityDecoder,
+    material_colors: Option<&Vec<[f32; 4]>>,
+    mat_color_idx: &mut usize,
+    element_color: Option<[f32; 4]>,
+    default_color: [f32; 4],
+) -> [f32; 4] {
+    // 1. Direct geometry style (IfcStyledItem -> geometry item)
+    if let Some(color) = find_color_for_geometry(geometry_id, geometry_styles, decoder) {
+        return color;
+    }
+
+    // 2. Material-based fallback (alternating transparent/opaque)
+    if let Some(colors) = material_colors {
+        let prefer_transparent = *mat_color_idx % 2 == 0;
+        *mat_color_idx += 1;
+        if let Some(color) = pick_material_style_for_submesh(colors, prefer_transparent) {
+            return color;
+        }
+    }
+
+    // 3. Element-level style or default
+    element_color.unwrap_or(default_color)
+}
+
+/// Alpha threshold for distinguishing transparent (glass) from opaque materials.
+const TRANSPARENCY_ALPHA_THRESHOLD: f32 = 0.95;
+
 /// Pick the best material style for a sub-mesh.
 /// Prefers transparent colors (glass) for sub-meshes without a direct style,
 /// since glass sub-elements are the most common case where material-based
@@ -828,13 +872,13 @@ pub(crate) fn pick_material_style_for_submesh(
     }
 
     if prefer_transparent {
-        // Prefer transparent (glass) — alpha < 0.95
-        if let Some(color) = material_colors.iter().find(|c| c[3] < 0.95) {
+        // Prefer transparent (glass) — alpha < threshold
+        if let Some(color) = material_colors.iter().find(|c| c[3] < TRANSPARENCY_ALPHA_THRESHOLD) {
             return Some(*color);
         }
     } else {
-        // Prefer opaque (frame) — alpha >= 0.95
-        if let Some(color) = material_colors.iter().find(|c| c[3] >= 0.95) {
+        // Prefer opaque (frame) — alpha >= threshold
+        if let Some(color) = material_colors.iter().find(|c| c[3] >= TRANSPARENCY_ALPHA_THRESHOLD) {
             return Some(*color);
         }
     }

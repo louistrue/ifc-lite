@@ -428,7 +428,7 @@ mod wall_profile_research {
 
         // Test optimized approach (new)
         let router = GeometryRouter::new();
-        let opt_result = router.cut_rectangular_opening(&wall_mesh, open_min, open_max, wall_min, wall_max);
+        let opt_result = router.cut_rectangular_opening(&wall_mesh, open_min, open_max);
         let opt_verts = opt_result.vertex_count();
         let opt_tris = opt_result.triangle_count();
 

@@ -11,6 +11,55 @@ use ifc_lite_core::{DecodedEntity, EntityDecoder, IfcType};
 use nalgebra::Matrix4;
 use rustc_hash::FxHashMap;
 
+/// Epsilon for normalizing direction vectors (guards against zero-length).
+const NORMALIZE_EPSILON: f64 = 1e-12;
+/// Minimum opening volume (m³) below which CSG is skipped to avoid BSP instability.
+/// 0.001 m³ ≈ 1 litre — connection points and modelling artefacts are smaller.
+const MIN_OPENING_VOLUME: f64 = 0.001;
+/// Fraction of pre-CSG triangles the result must retain. CSG outputs with fewer
+/// triangles than `pre_count / CSG_TRIANGLE_RETENTION_DIVISOR` are rejected as
+/// BSP blowups.
+const CSG_TRIANGLE_RETENTION_DIVISOR: usize = 4;
+/// Minimum triangle count for a valid CSG result.
+const MIN_VALID_TRIANGLES: usize = 4;
+
+/// Extract rotation columns from a 4x4 transform matrix.
+fn extract_rotation_columns(m: &Matrix4<f64>) -> (Vector3<f64>, Vector3<f64>, Vector3<f64>) {
+    (
+        Vector3::new(m[(0, 0)], m[(1, 0)], m[(2, 0)]),
+        Vector3::new(m[(0, 1)], m[(1, 1)], m[(2, 1)]),
+        Vector3::new(m[(0, 2)], m[(1, 2)], m[(2, 2)]),
+    )
+}
+
+/// Apply rotation from columns to a direction and normalize.
+fn rotate_and_normalize(
+    rot: &(Vector3<f64>, Vector3<f64>, Vector3<f64>),
+    dir: &Vector3<f64>,
+) -> Result<Vector3<f64>> {
+    (rot.0 * dir.x + rot.1 * dir.y + rot.2 * dir.z)
+        .try_normalize(NORMALIZE_EPSILON)
+        .ok_or_else(|| Error::geometry("Zero-length direction vector".to_string()))
+}
+
+/// Whether the representation type is geometry we can process.
+fn is_body_representation(rep_type: &str) -> bool {
+    matches!(rep_type, "Body" | "SweptSolid" | "Brep" | "CSG" | "Clipping" | "Tessellation")
+}
+
+/// Classification of an opening for void subtraction.
+enum OpeningType {
+    /// Rectangular opening with AABB clipping
+    /// Fields: (min_bounds, max_bounds, extrusion_direction)
+    Rectangular(Point3<f64>, Point3<f64>, Option<Vector3<f64>>),
+    /// Diagonal rectangular opening with mesh geometry for batched rotation clipping
+    /// Fields: (opening_mesh, extrusion_direction)
+    DiagonalRectangular(Mesh, Vector3<f64>),
+    /// Non-rectangular opening (circular, arched, or floor openings with rotated footprint)
+    /// Uses full CSG subtraction with actual mesh geometry
+    NonRectangular(Mesh),
+}
+
 /// Reusable buffers for triangle clipping operations
 ///
 /// This struct eliminates per-triangle allocations in clip_triangle_against_box
@@ -179,7 +228,7 @@ impl GeometryRouter {
             }
             if let Some(rep_type_attr) = shape_rep.get(2) {
                 if let Some(rep_type) = rep_type_attr.as_string() {
-                    if !matches!(rep_type, "Body" | "SweptSolid" | "Brep" | "CSG" | "Clipping" | "Tessellation") {
+                    if !is_body_representation(rep_type) {
                         continue;
                     }
                 }
@@ -252,7 +301,7 @@ impl GeometryRouter {
             // Check representation type
             if let Some(rep_type_attr) = shape_rep.get(2) {
                 if let Some(rep_type) = rep_type_attr.as_string() {
-                    if !matches!(rep_type, "Body" | "SweptSolid" | "Brep" | "CSG" | "Clipping" | "Tessellation") {
+                    if !is_body_representation(rep_type) {
                         continue;
                     }
                 }
@@ -277,79 +326,16 @@ impl GeometryRouter {
                 {
                     // Transform extrusion direction from local to world coordinates
                     if let Some(pos_transform) = position_transform {
-                        // Extract rotation matrix (3x3 upper-left of 4x4 transform)
-                        let rot_x = Vector3::new(
-                            pos_transform[(0, 0)],
-                            pos_transform[(1, 0)],
-                            pos_transform[(2, 0)],
-                        );
-                        let rot_y = Vector3::new(
-                            pos_transform[(0, 1)],
-                            pos_transform[(1, 1)],
-                            pos_transform[(2, 1)],
-                        );
-                        let rot_z = Vector3::new(
-                            pos_transform[(0, 2)],
-                            pos_transform[(1, 2)],
-                            pos_transform[(2, 2)],
-                        );
+                        let pos_rot = extract_rotation_columns(&pos_transform);
+                        let world_dir = rotate_and_normalize(&pos_rot, &local_dir)?;
 
-                        // Transform local direction to world space
-                        // Use try_normalize to guard against zero-length vectors
-                        let world_dir = (rot_x * local_dir.x
-                            + rot_y * local_dir.y
-                            + rot_z * local_dir.z)
-                            .try_normalize(1e-12)
-                            .ok_or_else(|| Error::geometry("Zero-length direction vector".to_string()))?;
-
-                        // Apply element placement transform
-                        let element_rot_x = Vector3::new(
-                            placement_transform[(0, 0)],
-                            placement_transform[(1, 0)],
-                            placement_transform[(2, 0)],
-                        );
-                        let element_rot_y = Vector3::new(
-                            placement_transform[(0, 1)],
-                            placement_transform[(1, 1)],
-                            placement_transform[(2, 1)],
-                        );
-                        let element_rot_z = Vector3::new(
-                            placement_transform[(0, 2)],
-                            placement_transform[(1, 2)],
-                            placement_transform[(2, 2)],
-                        );
-
-                        let final_dir = (element_rot_x * world_dir.x
-                            + element_rot_y * world_dir.y
-                            + element_rot_z * world_dir.z)
-                            .try_normalize(1e-12)
-                            .ok_or_else(|| Error::geometry("Zero-length direction vector".to_string()))?;
+                        let element_rot = extract_rotation_columns(&placement_transform);
+                        let final_dir = rotate_and_normalize(&element_rot, &world_dir)?;
 
                         Some(final_dir)
                     } else {
-                        // No position transform, use local direction directly
-                        // Still need to apply element placement
-                        let element_rot_x = Vector3::new(
-                            placement_transform[(0, 0)],
-                            placement_transform[(1, 0)],
-                            placement_transform[(2, 0)],
-                        );
-                        let element_rot_y = Vector3::new(
-                            placement_transform[(0, 1)],
-                            placement_transform[(1, 1)],
-                            placement_transform[(2, 1)],
-                        );
-                        let element_rot_z = Vector3::new(
-                            placement_transform[(0, 2)],
-                            placement_transform[(1, 2)],
-                            placement_transform[(2, 2)],
-                        );
-
-                        let final_dir = (element_rot_x * local_dir.x
-                            + element_rot_y * local_dir.y
-                            + element_rot_z * local_dir.z)
-                            .try_normalize(1e-12)
-                            .ok_or_else(|| Error::geometry("Zero-length direction vector".to_string()))?;
+                        let element_rot = extract_rotation_columns(&placement_transform);
+                        let final_dir = rotate_and_normalize(&element_rot, &local_dir)?;
 
                         Some(final_dir)
                     }
@@ -503,104 +489,7 @@ impl GeometryRouter {
                 Vec::new()
             };
 
-        // STEP 5: Collect opening info (bounds for rectangular, full mesh for non-rectangular)
-        // For rectangular openings, get individual bounds per representation item to handle
-        // disconnected geometry (e.g., two separate window openings in one IfcOpeningElement)
-        enum OpeningType {
-            /// Rectangular opening with AABB clipping
-            /// Fields: (min_bounds, max_bounds, extrusion_direction)
-            Rectangular(Point3<f64>, Point3<f64>, Option<Vector3<f64>>),
-            /// Diagonal rectangular opening with mesh geometry for batched rotation clipping
-            /// Fields: (opening_mesh, extrusion_direction)
-            DiagonalRectangular(Mesh, Vector3<f64>),
-            /// Non-rectangular opening (circular, arched, or floor openings with rotated footprint)
-            /// Uses full CSG subtraction with actual mesh geometry
-            NonRectangular(Mesh),
-        }
-
-        let mut openings: Vec<OpeningType> = Vec::new();
-        for &opening_id in opening_ids.iter() {
-            let opening_entity = match decoder.decode_by_id(opening_id) {
-                Ok(e) => e,
-                Err(_) => continue,
-            };
-
-            let opening_mesh = match self.process_element(&opening_entity, decoder) {
-                Ok(m) if !m.is_empty() => m,
-                _ => continue,
-            };
-
-            let vertex_count = opening_mesh.positions.len() / 3;
-
-            if vertex_count > 100 {
-                // Non-rectangular (circular, arched, etc.) - use full CSG
-                openings.push(OpeningType::NonRectangular(opening_mesh));
-            } else {
-                // Rectangular - get individual bounds with extrusion direction for each representation item
-                // This handles disconnected geometry (multiple boxes with gaps between them)
-                let item_bounds_with_dir = self.get_opening_item_bounds_with_direction(&opening_entity, decoder)
-                    .unwrap_or_default();
-
-                if !item_bounds_with_dir.is_empty() {
-                    // Check if this is a floor/slab opening (vertical Z-extrusion)
-                    // Floor openings may have rotated XY footprints that AABB clipping can't handle correctly.
-                    // Example: A rectangular opening in a diagonal slab - the opening's rectangle in XY
-                    // is rotated relative to the world axes, so AABB clipping creates a diamond-shaped cutout.
-                    let is_floor_opening = item_bounds_with_dir.iter().any(|(_, _, dir)| {
-                        dir.map(|d| d.z.abs() > 0.95).unwrap_or(false)
-                    });
-
-                    // For floor openings, use CSG with actual mesh geometry to handle rotated footprints
-                    if is_floor_opening && vertex_count > 0 {
-                        openings.push(OpeningType::NonRectangular(opening_mesh.clone()));
-                    } else {
-                        // Use AABB clipping for wall openings (X/Y extrusion)
-                        // Check if any item has a diagonal extrusion direction
-                        let any_diagonal = item_bounds_with_dir.iter().any(|(_, _, dir)| {
-                            dir.map(|d| {
-                                const AXIS_THRESHOLD: f64 = 0.95;
-                                let abs_x = d.x.abs();
-                                let abs_y = d.y.abs();
-                                let abs_z = d.z.abs();
-                                !(abs_x > AXIS_THRESHOLD || abs_y > AXIS_THRESHOLD || abs_z > AXIS_THRESHOLD)
-                            }).unwrap_or(false)
-                        });
-
-                        if any_diagonal {
-                            // For diagonal walls, process each representation item separately.
-                            // Using the combined mesh creates oversized AABB that doesn't match
-                            // individual window/door cutouts.
-                            let dir = item_bounds_with_dir.iter()
-                                .find_map(|(_, _, d)| *d)
-                                .unwrap_or(Vector3::new(1.0, 0.0, 0.0));
-
-                            let item_meshes = self.get_opening_item_meshes_world(&opening_entity, decoder)
-                                .unwrap_or_default();
-                            if item_meshes.is_empty() {
-                                // Fallback: use full opening mesh
-                                openings.push(OpeningType::DiagonalRectangular(opening_mesh.clone(), dir));
-                            } else {
-                                for item_mesh in item_meshes {
-                                    openings.push(OpeningType::DiagonalRectangular(item_mesh, dir));
-                                }
-                            }
-                        } else {
-                            // Use AABB clipping for axis-aligned wall openings (X/Y extrusion)
-                            for (min_pt, max_pt, extrusion_dir) in item_bounds_with_dir {
-                                openings.push(OpeningType::Rectangular(min_pt, max_pt, extrusion_dir));
-                            }
-                        }
-                    }
-                } else {
-                    // Fallback to combined mesh bounds when individual bounds unavailable
-                    let (open_min, open_max) = opening_mesh.bounds();
-                    let min_f64 = Point3::new(open_min.x as f64, open_min.y as f64, open_min.z as f64);
-                    let max_f64 = Point3::new(open_max.x as f64, open_max.y as f64, open_max.z as f64);
-
-                    openings.push(OpeningType::Rectangular(min_f64, max_f64, None));
-                }
-            }
-        }
+        let openings = self.classify_openings(opening_ids, decoder);
 
         if openings.is_empty() {
             return self.process_element(element, decoder);
@@ -639,85 +528,7 @@ impl GeometryRouter {
         let mut csg_operation_count = 0;
         const MAX_CSG_OPERATIONS: usize = 10; // Limit to prevent runaway CSG
 
-        // BATCH diagonal openings: rotate wall mesh once, clip all, rotate back once.
-        // This avoids accumulated f32→f64→f32 precision loss from per-opening rotations.
-        {
-            use nalgebra::Rotation3;
-
-            // Collect all diagonal openings grouped by direction
-            let diagonal_openings: Vec<(&Mesh, &Vector3<f64>)> = openings.iter()
-                .filter_map(|o| match o {
-                    OpeningType::DiagonalRectangular(mesh, dir) => Some((mesh, dir)),
-                    _ => None,
-                })
-                .collect();
-
-            if !diagonal_openings.is_empty() {
-                // All diagonal openings on a wall share the same extrusion direction
-                let extrusion_dir = *diagonal_openings[0].1;
-                let target = Vector3::new(1.0, 0.0, 0.0);
-                let rotation = Rotation3::rotation_between(&extrusion_dir, &target)
-                    .unwrap_or(Rotation3::identity());
-                let inv_rotation = rotation.inverse();
-
-                // Rotate wall mesh into aligned space ONCE
-                for chunk in result.positions.chunks_exact_mut(3) {
-                    let p = rotation * Point3::new(chunk[0] as f64, chunk[1] as f64, chunk[2] as f64);
-                    chunk[0] = p.x as f32;
-                    chunk[1] = p.y as f32;
-                    chunk[2] = p.z as f32;
-                }
-
-                // Compute wall bounds in rotated space for extension
-                let wall_corners_rot = [
-                    Point3::new(wall_min.x, wall_min.y, wall_min.z),
-                    Point3::new(wall_max.x, wall_min.y, wall_min.z),
-                    Point3::new(wall_min.x, wall_max.y, wall_min.z),
-                    Point3::new(wall_max.x, wall_max.y, wall_min.z),
-                    Point3::new(wall_min.x, wall_min.y, wall_max.z),
-                    Point3::new(wall_max.x, wall_min.y, wall_max.z),
-                    Point3::new(wall_min.x, wall_max.y, wall_max.z),
-                    Point3::new(wall_max.x, wall_max.y, wall_max.z),
-                ];
-                let mut wall_x_min = f64::INFINITY;
-                let mut wall_x_max = f64::NEG_INFINITY;
-                for wc in &wall_corners_rot {
-                    let rwc = rotation * wc;
-                    wall_x_min = wall_x_min.min(rwc.x);
-                    wall_x_max = wall_x_max.max(rwc.x);
-                }
-
-                // Clip each diagonal opening in rotated space (no rotation per opening)
-                for (opening_mesh, _dir) in &diagonal_openings {
-                    // Compute tight AABB from opening mesh vertices in rotated space
-                    let mut rot_min = Point3::new(f64::INFINITY, f64::INFINITY, f64::INFINITY);
-                    let mut rot_max = Point3::new(f64::NEG_INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY);
-                    for chunk in opening_mesh.positions.chunks_exact(3) {
-                        let p = rotation * Point3::new(chunk[0] as f64, chunk[1] as f64, chunk[2] as f64);
-                        rot_min.x = rot_min.x.min(p.x);
-                        rot_min.y = rot_min.y.min(p.y);
-                        rot_min.z = rot_min.z.min(p.z);
-                        rot_max.x = rot_max.x.max(p.x);
-                        rot_max.y = rot_max.y.max(p.y);
-                        rot_max.z = rot_max.z.max(p.z);
-                    }
-                    // Extend through wall thickness (X axis in rotated space)
-                    rot_min.x = rot_min.x.min(wall_x_min);
-                    rot_max.x = rot_max.x.max(wall_x_max);
-
-                    // AABB clip directly (mesh is already in rotated space)
-                    result = self.cut_rectangular_opening_no_faces(&result, rot_min, rot_max);
-                }
-
-                // Rotate wall mesh back to world space ONCE
-                for chunk in result.positions.chunks_exact_mut(3) {
-                    let p = inv_rotation * Point3::new(chunk[0] as f64, chunk[1] as f64, chunk[2] as f64);
-                    chunk[0] = p.x as f32;
-                    chunk[1] = p.y as f32;
-                    chunk[2] = p.z as f32;
-                }
-            }
-        }
+        self.apply_diagonal_openings(&mut result, &openings, &wall_min, &wall_max);
 
         for opening in openings.iter() {
             match opening {
@@ -730,7 +541,7 @@ impl GeometryRouter {
                         // Fallback: use opening bounds as-is (no direction available)
                         (*open_min, *open_max)
                     };
-                    result = self.cut_rectangular_opening(&result, final_min, final_max, wall_min, wall_max);
+                    result = self.cut_rectangular_opening(&result, final_min, final_max);
                 }
                 OpeningType::DiagonalRectangular(_opening_mesh, _extrusion_dir) => {
                     // Already handled in the batched block above
@@ -778,7 +589,7 @@ impl GeometryRouter {
                     let open_vol = (open_max_f32.x - open_min_f32.x)
                         * (open_max_f32.y - open_min_f32.y)
                         * (open_max_f32.z - open_min_f32.z);
-                    if open_vol < 0.001 { // < 1 litre
+                    if open_vol < MIN_OPENING_VOLUME as f32 {
                         continue;
                     }
 
@@ -789,7 +600,7 @@ impl GeometryRouter {
                         Ok(csg_result) => {
                             // Validate result is not degenerate — must retain a reasonable
                             // fraction of the pre-CSG triangles to catch BSP blowups
-                            let min_tris = (tri_before / 4).max(4);
+                            let min_tris = (tri_before / CSG_TRIANGLE_RETENTION_DIVISOR).max(MIN_VALID_TRIANGLES);
                             if !csg_result.is_empty() && csg_result.triangle_count() >= min_tris {
                                 result = csg_result;
                             }
@@ -826,6 +637,158 @@ impl GeometryRouter {
         }
 
         Ok(result)
+    }
+
+    fn classify_openings(
+        &self,
+        opening_ids: &[u32],
+        decoder: &mut EntityDecoder,
+    ) -> Vec<OpeningType> {
+        let mut openings: Vec<OpeningType> = Vec::new();
+        for &opening_id in opening_ids.iter() {
+            let opening_entity = match decoder.decode_by_id(opening_id) {
+                Ok(e) => e,
+                Err(_) => continue,
+            };
+
+            let opening_mesh = match self.process_element(&opening_entity, decoder) {
+                Ok(m) if !m.is_empty() => m,
+                _ => continue,
+            };
+
+            let vertex_count = opening_mesh.positions.len() / 3;
+
+            if vertex_count > 100 {
+                openings.push(OpeningType::NonRectangular(opening_mesh));
+            } else {
+                let item_bounds_with_dir = self.get_opening_item_bounds_with_direction(&opening_entity, decoder)
+                    .unwrap_or_default();
+
+                if !item_bounds_with_dir.is_empty() {
+                    let is_floor_opening = item_bounds_with_dir.iter().any(|(_, _, dir)| {
+                        dir.map(|d| d.z.abs() > 0.95).unwrap_or(false)
+                    });
+
+                    if is_floor_opening && vertex_count > 0 {
+                        openings.push(OpeningType::NonRectangular(opening_mesh.clone()));
+                    } else {
+                        let any_diagonal = item_bounds_with_dir.iter().any(|(_, _, dir)| {
+                            dir.map(|d| {
+                                const AXIS_THRESHOLD: f64 = 0.95;
+                                let abs_x = d.x.abs();
+                                let abs_y = d.y.abs();
+                                let abs_z = d.z.abs();
+                                !(abs_x > AXIS_THRESHOLD || abs_y > AXIS_THRESHOLD || abs_z > AXIS_THRESHOLD)
+                            }).unwrap_or(false)
+                        });
+
+                        if any_diagonal {
+                            let dir = item_bounds_with_dir.iter()
+                                .find_map(|(_, _, d)| *d)
+                                .unwrap_or(Vector3::new(1.0, 0.0, 0.0));
+
+                            let item_meshes = self.get_opening_item_meshes_world(&opening_entity, decoder)
+                                .unwrap_or_default();
+                            if item_meshes.is_empty() {
+                                openings.push(OpeningType::DiagonalRectangular(opening_mesh.clone(), dir));
+                            } else {
+                                for item_mesh in item_meshes {
+                                    openings.push(OpeningType::DiagonalRectangular(item_mesh, dir));
+                                }
+                            }
+                        } else {
+                            for (min_pt, max_pt, extrusion_dir) in item_bounds_with_dir {
+                                openings.push(OpeningType::Rectangular(min_pt, max_pt, extrusion_dir));
+                            }
+                        }
+                    }
+                } else {
+                    let (open_min, open_max) = opening_mesh.bounds();
+                    let min_f64 = Point3::new(open_min.x as f64, open_min.y as f64, open_min.z as f64);
+                    let max_f64 = Point3::new(open_max.x as f64, open_max.y as f64, open_max.z as f64);
+
+                    openings.push(OpeningType::Rectangular(min_f64, max_f64, None));
+                }
+            }
+        }
+        openings
+    }
+
+    fn apply_diagonal_openings(
+        &self,
+        result: &mut Mesh,
+        openings: &[OpeningType],
+        wall_min: &Point3<f64>,
+        wall_max: &Point3<f64>,
+    ) {
+        use nalgebra::Rotation3;
+
+        let diagonal_openings: Vec<(&Mesh, &Vector3<f64>)> = openings.iter()
+            .filter_map(|o| match o {
+                OpeningType::DiagonalRectangular(mesh, dir) => Some((mesh, dir)),
+                _ => None,
+            })
+            .collect();
+
+        if diagonal_openings.is_empty() {
+            return;
+        }
+
+        let extrusion_dir = *diagonal_openings[0].1;
+        let target = Vector3::new(1.0, 0.0, 0.0);
+        let rotation = Rotation3::rotation_between(&extrusion_dir, &target)
+            .unwrap_or(Rotation3::identity());
+        let inv_rotation = rotation.inverse();
+
+        for chunk in result.positions.chunks_exact_mut(3) {
+            let p = rotation * Point3::new(chunk[0] as f64, chunk[1] as f64, chunk[2] as f64);
+            chunk[0] = p.x as f32;
+            chunk[1] = p.y as f32;
+            chunk[2] = p.z as f32;
+        }
+
+        let wall_corners_rot = [
+            Point3::new(wall_min.x, wall_min.y, wall_min.z),
+            Point3::new(wall_max.x, wall_min.y, wall_min.z),
+            Point3::new(wall_min.x, wall_max.y, wall_min.z),
+            Point3::new(wall_max.x, wall_max.y, wall_min.z),
+            Point3::new(wall_min.x, wall_min.y, wall_max.z),
+            Point3::new(wall_max.x, wall_min.y, wall_max.z),
+            Point3::new(wall_min.x, wall_max.y, wall_max.z),
+            Point3::new(wall_max.x, wall_max.y, wall_max.z),
+        ];
+        let mut wall_x_min = f64::INFINITY;
+        let mut wall_x_max = f64::NEG_INFINITY;
+        for wc in &wall_corners_rot {
+            let rwc = rotation * wc;
+            wall_x_min = wall_x_min.min(rwc.x);
+            wall_x_max = wall_x_max.max(rwc.x);
+        }
+
+        for (opening_mesh, _dir) in &diagonal_openings {
+            let mut rot_min = Point3::new(f64::INFINITY, f64::INFINITY, f64::INFINITY);
+            let mut rot_max = Point3::new(f64::NEG_INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY);
+            for chunk in opening_mesh.positions.chunks_exact(3) {
+                let p = rotation * Point3::new(chunk[0] as f64, chunk[1] as f64, chunk[2] as f64);
+                rot_min.x = rot_min.x.min(p.x);
+                rot_min.y = rot_min.y.min(p.y);
+                rot_min.z = rot_min.z.min(p.z);
+                rot_max.x = rot_max.x.max(p.x);
+                rot_max.y = rot_max.y.max(p.y);
+                rot_max.z = rot_max.z.max(p.z);
+            }
+            rot_min.x = rot_min.x.min(wall_x_min);
+            rot_max.x = rot_max.x.max(wall_x_max);
+
+            *result = self.cut_rectangular_opening_no_faces(result, rot_min, rot_max);
+        }
+
+        for chunk in result.positions.chunks_exact_mut(3) {
+            let p = inv_rotation * Point3::new(chunk[0] as f64, chunk[1] as f64, chunk[2] as f64);
+            chunk[0] = p.x as f32;
+            chunk[1] = p.y as f32;
+            chunk[2] = p.z as f32;
+        }
     }
 
     /// Cut a rectangular opening from a mesh using optimized plane clipping
@@ -937,11 +900,7 @@ impl GeometryRouter {
         mesh: &Mesh,
         open_min: Point3<f64>,
         open_max: Point3<f64>,
-        _wall_min: Point3<f64>,
-        _wall_max: Point3<f64>,
     ) -> Mesh {
-        // Use the same implementation as cut_rectangular_opening_no_faces
-        // Internal faces are disabled for all openings to avoid artifacts
         self.cut_rectangular_opening_no_faces(mesh, open_min, open_max)
     }
 
@@ -1176,12 +1135,6 @@ impl GeometryRouter {
     /// This added the **entire original triangle** to the result as an "outside" piece while
     /// the clipped front parts also continued processing, duplicating geometry.
     ///
-    /// Symptom: stray triangles spanning the full wall face (16 m+), triangle count
-    /// explosion (12 → 662), visually resembling a Picasso painting of a building.
-    ///
-    /// Fix: compute back (outside) parts directly from the split — using the same
-    /// intersection points as the front parts — so no second clip is needed and epsilon
-    /// inconsistencies are eliminated.
     fn clip_triangle_against_box(
         &self,
         result: &mut Mesh,
