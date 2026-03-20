@@ -5,7 +5,7 @@
 //! Void (opening) subtraction: 3D CSG, AABB clipping, and triangle-box intersection.
 
 use super::GeometryRouter;
-use crate::csg::{ClippingProcessor, Plane, Triangle, TriangleVec};
+use crate::csg::{ClipResult, ClippingProcessor, Plane, Triangle, TriangleVec};
 use crate::{Error, Mesh, Point3, Result, Vector3};
 use ifc_lite_core::{DecodedEntity, EntityDecoder, IfcType};
 use nalgebra::Matrix4;
@@ -144,75 +144,11 @@ impl GeometryRouter {
         }
     }
 
-    /// Get per-item meshes for an opening element, transformed to world coordinates.
-    /// Uses the same `transform_mesh` path as `process_element` to ensure identical
-    /// coordinate handling (ObjectPlacement, unit scaling, conditional RTC offset).
-    pub fn get_opening_item_meshes_world(
-        &self,
-        element: &DecodedEntity,
-        decoder: &mut EntityDecoder,
-    ) -> Result<Vec<Mesh>> {
-        let representation_attr = element.get(6).ok_or_else(|| {
-            Error::geometry("Element has no representation attribute".to_string())
-        })?;
-        if representation_attr.is_null() {
-            return Ok(vec![]);
-        }
-
-        let representation = decoder.resolve_ref(representation_attr)?
-            .ok_or_else(|| Error::geometry("Failed to resolve representation".to_string()))?;
-        let representations_attr = representation.get(2).ok_or_else(|| {
-            Error::geometry("ProductDefinitionShape missing Representations".to_string())
-        })?;
-        let representations = decoder.resolve_ref_list(representations_attr)?;
-
-        // Get the same placement transform that apply_placement uses
-        let mut placement_transform = self.get_placement_transform_from_element(element, decoder)
-            .unwrap_or_else(|_| Matrix4::identity());
-        self.scale_transform(&mut placement_transform);
-
-        let mut item_meshes = Vec::new();
-
-        for shape_rep in representations {
-            if shape_rep.ifc_type != IfcType::IfcShapeRepresentation {
-                continue;
-            }
-            if let Some(rep_type_attr) = shape_rep.get(2) {
-                if let Some(rep_type) = rep_type_attr.as_string() {
-                    if !matches!(rep_type, "Body" | "SweptSolid" | "Brep" | "CSG" | "Clipping" | "Tessellation") {
-                        continue;
-                    }
-                }
-            }
-            let items_attr = match shape_rep.get(3) {
-                Some(attr) => attr,
-                None => continue,
-            };
-            let items = match decoder.resolve_ref_list(items_attr) {
-                Ok(items) => items,
-                Err(_) => continue,
-            };
-
-            for item in items {
-                let mut mesh = match self.process_representation_item(&item, decoder) {
-                    Ok(m) if !m.is_empty() => m,
-                    _ => continue,
-                };
-
-                // Use the same transform_mesh as process_element → apply_placement
-                // This handles ObjectPlacement, unit scaling, and conditional RTC
-                self.transform_mesh(&mut mesh, &placement_transform);
-
-                item_meshes.push(mesh);
-            }
-        }
-
-        Ok(item_meshes)
-    }
-
+    /// Get opening item bounds with extrusion direction for each representation item
+    /// Returns Vec of (min, max, extrusion_direction) tuples
     /// Extrusion direction is in world coordinates, normalized
     /// Returns None for extrusion direction if it cannot be extracted (fallback to bounds-only)
-    pub fn get_opening_item_bounds_with_direction(
+    fn get_opening_item_bounds_with_direction(
         &self,
         element: &DecodedEntity,
         decoder: &mut EntityDecoder,
@@ -508,11 +444,8 @@ impl GeometryRouter {
         // disconnected geometry (e.g., two separate window openings in one IfcOpeningElement)
         enum OpeningType {
             /// Rectangular opening with AABB clipping
-            /// Fields: (min_bounds, max_bounds, extrusion_direction)
-            Rectangular(Point3<f64>, Point3<f64>, Option<Vector3<f64>>),
-            /// Diagonal rectangular opening with mesh geometry for batched rotation clipping
-            /// Fields: (opening_mesh, extrusion_direction)
-            DiagonalRectangular(Mesh, Vector3<f64>),
+            /// Fields: (min_bounds, max_bounds, extrusion_direction, is_diagonal)
+            Rectangular(Point3<f64>, Point3<f64>, Option<Vector3<f64>>, bool),
             /// Non-rectangular opening (circular, arched, or floor openings with rotated footprint)
             /// Uses full CSG subtraction with actual mesh geometry
             NonRectangular(Mesh),
@@ -555,40 +488,19 @@ impl GeometryRouter {
                         openings.push(OpeningType::NonRectangular(opening_mesh.clone()));
                     } else {
                         // Use AABB clipping for wall openings (X/Y extrusion)
-                        // Check if any item has a diagonal extrusion direction
-                        let any_diagonal = item_bounds_with_dir.iter().any(|(_, _, dir)| {
-                            dir.map(|d| {
+                        // Mark diagonal ones so we skip internal face generation (which causes artifacts)
+                        for (min_pt, max_pt, extrusion_dir) in item_bounds_with_dir {
+                            // Check if extrusion direction is diagonal (not axis-aligned)
+                            let is_diagonal = extrusion_dir.map(|dir| {
                                 const AXIS_THRESHOLD: f64 = 0.95;
-                                let abs_x = d.x.abs();
-                                let abs_y = d.y.abs();
-                                let abs_z = d.z.abs();
+                                let abs_x = dir.x.abs();
+                                let abs_y = dir.y.abs();
+                                let abs_z = dir.z.abs();
+                                // Diagonal if no single component dominates (>95% of magnitude)
                                 !(abs_x > AXIS_THRESHOLD || abs_y > AXIS_THRESHOLD || abs_z > AXIS_THRESHOLD)
-                            }).unwrap_or(false)
-                        });
+                            }).unwrap_or(false);
 
-                        if any_diagonal {
-                            // For diagonal walls, process each representation item separately.
-                            // Using the combined mesh creates oversized AABB that doesn't match
-                            // individual window/door cutouts.
-                            let dir = item_bounds_with_dir.iter()
-                                .find_map(|(_, _, d)| *d)
-                                .unwrap_or(Vector3::new(1.0, 0.0, 0.0));
-
-                            let item_meshes = self.get_opening_item_meshes_world(&opening_entity, decoder)
-                                .unwrap_or_default();
-                            if item_meshes.is_empty() {
-                                // Fallback: use full opening mesh
-                                openings.push(OpeningType::DiagonalRectangular(opening_mesh.clone(), dir));
-                            } else {
-                                for item_mesh in item_meshes {
-                                    openings.push(OpeningType::DiagonalRectangular(item_mesh, dir));
-                                }
-                            }
-                        } else {
-                            // Use AABB clipping for axis-aligned wall openings (X/Y extrusion)
-                            for (min_pt, max_pt, extrusion_dir) in item_bounds_with_dir {
-                                openings.push(OpeningType::Rectangular(min_pt, max_pt, extrusion_dir));
-                            }
+                            openings.push(OpeningType::Rectangular(min_pt, max_pt, extrusion_dir, is_diagonal));
                         }
                     }
                 } else {
@@ -597,7 +509,7 @@ impl GeometryRouter {
                     let min_f64 = Point3::new(open_min.x as f64, open_min.y as f64, open_min.z as f64);
                     let max_f64 = Point3::new(open_max.x as f64, open_max.y as f64, open_max.z as f64);
 
-                    openings.push(OpeningType::Rectangular(min_f64, max_f64, None));
+                    openings.push(OpeningType::Rectangular(min_f64, max_f64, None, false));
                 }
             }
         }
@@ -639,90 +551,10 @@ impl GeometryRouter {
         let mut csg_operation_count = 0;
         const MAX_CSG_OPERATIONS: usize = 10; // Limit to prevent runaway CSG
 
-        // BATCH diagonal openings: rotate wall mesh once, clip all, rotate back once.
-        // This avoids accumulated f32→f64→f32 precision loss from per-opening rotations.
-        {
-            use nalgebra::Rotation3;
-
-            // Collect all diagonal openings grouped by direction
-            let diagonal_openings: Vec<(&Mesh, &Vector3<f64>)> = openings.iter()
-                .filter_map(|o| match o {
-                    OpeningType::DiagonalRectangular(mesh, dir) => Some((mesh, dir)),
-                    _ => None,
-                })
-                .collect();
-
-            if !diagonal_openings.is_empty() {
-                // All diagonal openings on a wall share the same extrusion direction
-                let extrusion_dir = *diagonal_openings[0].1;
-                let target = Vector3::new(1.0, 0.0, 0.0);
-                let rotation = Rotation3::rotation_between(&extrusion_dir, &target)
-                    .unwrap_or(Rotation3::identity());
-                let inv_rotation = rotation.inverse();
-
-                // Rotate wall mesh into aligned space ONCE
-                for chunk in result.positions.chunks_exact_mut(3) {
-                    let p = rotation * Point3::new(chunk[0] as f64, chunk[1] as f64, chunk[2] as f64);
-                    chunk[0] = p.x as f32;
-                    chunk[1] = p.y as f32;
-                    chunk[2] = p.z as f32;
-                }
-
-                // Compute wall bounds in rotated space for extension
-                let wall_corners_rot = [
-                    Point3::new(wall_min.x, wall_min.y, wall_min.z),
-                    Point3::new(wall_max.x, wall_min.y, wall_min.z),
-                    Point3::new(wall_min.x, wall_max.y, wall_min.z),
-                    Point3::new(wall_max.x, wall_max.y, wall_min.z),
-                    Point3::new(wall_min.x, wall_min.y, wall_max.z),
-                    Point3::new(wall_max.x, wall_min.y, wall_max.z),
-                    Point3::new(wall_min.x, wall_max.y, wall_max.z),
-                    Point3::new(wall_max.x, wall_max.y, wall_max.z),
-                ];
-                let mut wall_x_min = f64::INFINITY;
-                let mut wall_x_max = f64::NEG_INFINITY;
-                for wc in &wall_corners_rot {
-                    let rwc = rotation * wc;
-                    wall_x_min = wall_x_min.min(rwc.x);
-                    wall_x_max = wall_x_max.max(rwc.x);
-                }
-
-                // Clip each diagonal opening in rotated space (no rotation per opening)
-                for (opening_mesh, _dir) in &diagonal_openings {
-                    // Compute tight AABB from opening mesh vertices in rotated space
-                    let mut rot_min = Point3::new(f64::INFINITY, f64::INFINITY, f64::INFINITY);
-                    let mut rot_max = Point3::new(f64::NEG_INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY);
-                    for chunk in opening_mesh.positions.chunks_exact(3) {
-                        let p = rotation * Point3::new(chunk[0] as f64, chunk[1] as f64, chunk[2] as f64);
-                        rot_min.x = rot_min.x.min(p.x);
-                        rot_min.y = rot_min.y.min(p.y);
-                        rot_min.z = rot_min.z.min(p.z);
-                        rot_max.x = rot_max.x.max(p.x);
-                        rot_max.y = rot_max.y.max(p.y);
-                        rot_max.z = rot_max.z.max(p.z);
-                    }
-                    // Extend through wall thickness (X axis in rotated space)
-                    rot_min.x = rot_min.x.min(wall_x_min);
-                    rot_max.x = rot_max.x.max(wall_x_max);
-
-                    // AABB clip directly (mesh is already in rotated space)
-                    result = self.cut_rectangular_opening_no_faces(&result, rot_min, rot_max);
-                }
-
-                // Rotate wall mesh back to world space ONCE
-                for chunk in result.positions.chunks_exact_mut(3) {
-                    let p = inv_rotation * Point3::new(chunk[0] as f64, chunk[1] as f64, chunk[2] as f64);
-                    chunk[0] = p.x as f32;
-                    chunk[1] = p.y as f32;
-                    chunk[2] = p.z as f32;
-                }
-            }
-        }
-
         for opening in openings.iter() {
             match opening {
-                OpeningType::Rectangular(open_min, open_max, extrusion_dir) => {
-                    // Use AABB clipping for axis-aligned rectangular openings
+                OpeningType::Rectangular(open_min, open_max, extrusion_dir, is_diagonal) => {
+                    // Use AABB clipping for all rectangular openings
                     let (final_min, final_max) = if let Some(dir) = extrusion_dir {
                         // Extend along the actual extrusion direction to penetrate multi-layer walls
                         self.extend_opening_along_direction(*open_min, *open_max, wall_min, wall_max, *dir)
@@ -730,10 +562,18 @@ impl GeometryRouter {
                         // Fallback: use opening bounds as-is (no direction available)
                         (*open_min, *open_max)
                     };
-                    result = self.cut_rectangular_opening(&result, final_min, final_max, wall_min, wall_max);
-                }
-                OpeningType::DiagonalRectangular(_opening_mesh, _extrusion_dir) => {
-                    // Already handled in the batched block above
+
+                    if *is_diagonal {
+                        // For diagonal openings, use AABB clipping WITHOUT internal faces
+                        // Internal faces for diagonal openings cause rotation artifacts
+                        result = self.cut_rectangular_opening_no_faces(&result, final_min, final_max);
+                    } else {
+                        // For axis-aligned openings, use AABB clipping (no internal faces)
+                        // Internal face generation is disabled for all openings because it causes
+                        // visual artifacts (rotated faces, thin lines). The opening cutout is still
+                        // geometrically correct - only the internal "reveal" faces are omitted.
+                        result = self.cut_rectangular_opening(&result, final_min, final_max, wall_min, wall_max);
+                    }
                 }
                 OpeningType::NonRectangular(opening_mesh) => {
                     // Safety: limit total CSG operations to prevent crashes on complex geometry
@@ -752,45 +592,12 @@ impl GeometryRouter {
                         continue;
                     }
 
-                    // Guard CSG against tiny / non-intersecting openings.
-                    //
-                    // Some IfcOpeningElements have vertical (0,0,1) extrusion even in walls
-                    // (e.g. 17 mm connection points). The `is_floor_opening` heuristic
-                    // misclassifies these, forcing them into the CSG path.
-                    // The csgrs BSP tree then destroys the wall mesh because tiny operands
-                    // trigger numerical instability in the BSP split/merge.
-                    //
-                    // Three guards:
-                    // 1. Bounds overlap — skip if opening AABB doesn't touch wall AABB
-                    // 2. Volume threshold — skip openings < 1 litre (modelling artefacts)
-                    // 3. Result validation — reject CSG output that loses > 75 % of triangles
-                    let (result_min, result_max) = result.bounds();
-                    let (open_min_f32, open_max_f32) = opening_mesh.bounds();
-                    let no_overlap =
-                        open_max_f32.x < result_min.x || open_min_f32.x > result_max.x ||
-                        open_max_f32.y < result_min.y || open_min_f32.y > result_max.y ||
-                        open_max_f32.z < result_min.z || open_min_f32.z > result_max.z;
-                    if no_overlap {
-                        continue;
-                    }
-
-                    // Guard against CSG on very small openings that can destabilize BSP trees.
-                    let open_vol = (open_max_f32.x - open_min_f32.x)
-                        * (open_max_f32.y - open_min_f32.y)
-                        * (open_max_f32.z - open_min_f32.z);
-                    if open_vol < 0.001 { // < 1 litre
-                        continue;
-                    }
-
                     // Use full CSG subtraction for non-rectangular shapes
                     // Note: mesh_to_csgrs validates and filters invalid triangles internally
-                    let tri_before = result.triangle_count();
                     match clipper.subtract_mesh(&result, opening_mesh) {
                         Ok(csg_result) => {
-                            // Validate result is not degenerate — must retain a reasonable
-                            // fraction of the pre-CSG triangles to catch BSP blowups
-                            let min_tris = (tri_before / 4).max(4);
-                            if !csg_result.is_empty() && csg_result.triangle_count() >= min_tris {
+                            // Validate result is not degenerate
+                            if !csg_result.is_empty() && csg_result.triangle_count() >= 4 {
                                 result = csg_result;
                             }
                             // If result is degenerate, keep previous result
@@ -1160,28 +967,12 @@ impl GeometryRouter {
         true
     }
 
-    /// Clip a triangle against an opening box using clip-and-collect algorithm.
-    /// Removes the part of the triangle that's inside the box.
-    /// Collects "outside" parts directly to result, continues processing "inside" parts.
+    /// Clip a triangle against an opening box using clip-and-collect algorithm
+    /// Removes the part of the triangle that's inside the box
+    /// Collects "outside" parts directly to result, continues processing "inside" parts
     ///
     /// Uses reusable ClipBuffers to avoid per-triangle allocations (6+ Vec allocations
     /// per intersecting triangle without buffers).
-    ///
-    /// ## FIX (2026-03-18): Direct back-part computation
-    ///
-    /// The previous implementation clipped the original triangle against a **flipped plane**
-    /// to obtain "outside" parts. When triangle vertices were within epsilon (1e-6) of the
-    /// clipping plane, `clip_triangle` classified them as "front" for **both** the original
-    /// and flipped planes — returning `Split` on the original but `AllFront` on the flipped.
-    /// This added the **entire original triangle** to the result as an "outside" piece while
-    /// the clipped front parts also continued processing, duplicating geometry.
-    ///
-    /// Symptom: stray triangles spanning the full wall face (16 m+), triangle count
-    /// explosion (12 → 662), visually resembling a Picasso painting of a building.
-    ///
-    /// Fix: compute back (outside) parts directly from the split — using the same
-    /// intersection points as the front parts — so no second clip is needed and epsilon
-    /// inconsistencies are eliminated.
     fn clip_triangle_against_box(
         &self,
         result: &mut Mesh,
@@ -1194,7 +985,6 @@ impl GeometryRouter {
         open_max: &Point3<f64>,
     ) {
         let clipper = ClippingProcessor::new();
-        let epsilon = clipper.epsilon;
 
         // Clear buffers for reuse (retains capacity)
         buffers.clear();
@@ -1222,75 +1012,38 @@ impl GeometryRouter {
         // Clip-and-collect: collect "outside" parts, continue processing "inside" parts
         for plane in &planes {
             buffers.next_remaining.clear();
+            let flipped_plane = Plane::new(plane.point, -plane.normal);
 
             for tri in &buffers.remaining {
-                // Compute signed distances
-                let d0 = plane.signed_distance(&tri.v0);
-                let d1 = plane.signed_distance(&tri.v1);
-                let d2 = plane.signed_distance(&tri.v2);
-
-                let f0 = d0 >= -epsilon;
-                let f1 = d1 >= -epsilon;
-                let f2 = d2 >= -epsilon;
-                let front_count = f0 as u8 + f1 as u8 + f2 as u8;
-
-                match front_count {
-                    3 => {
-                        // All front (inside this plane boundary) - continue
+                match clipper.clip_triangle(tri, plane) {
+                    ClipResult::AllFront(_) => {
+                        // Triangle is completely inside this plane - continue checking
                         buffers.next_remaining.push(tri.clone());
                     }
-                    0 => {
-                        // All behind (outside this plane boundary) - keep
+                    ClipResult::AllBehind => {
+                        // Triangle is completely outside this plane - it's outside the box
                         buffers.result.push(tri.clone());
                     }
-                    1 => {
-                        // One vertex in front - front part is 1 triangle, back part is a quad (2 tris)
-                        let (front, back1, back2, d_f, d_b1, d_b2) = if f0 {
-                            (tri.v0, tri.v1, tri.v2, d0, d1, d2)
-                        } else if f1 {
-                            (tri.v1, tri.v2, tri.v0, d1, d2, d0)
-                        } else {
-                            (tri.v2, tri.v0, tri.v1, d2, d0, d1)
-                        };
+                    ClipResult::Split(inside_tris) => {
+                        // Triangle was split - inside parts continue, get outside parts
+                        buffers.next_remaining.extend(inside_tris);
 
-                        // Clamp t to [0,1] — epsilon classification can make d_f slightly
-                        // negative, producing t < 0 and intersection points outside the edge.
-                        let t1 = (d_f / (d_f - d_b1)).clamp(0.0, 1.0);
-                        let t2 = (d_f / (d_f - d_b2)).clamp(0.0, 1.0);
-                        let p1 = front + (back1 - front) * t1;
-                        let p2 = front + (back2 - front) * t2;
-
-                        // Front (inside): Triangle(front, p1, p2) - continues
-                        buffers.next_remaining.push(Triangle::new(front, p1, p2));
-
-                        // Back (outside): quad (p1, back1, back2, p2) as 2 triangles - result
-                        buffers.result.push(Triangle::new(p1, back1, back2));
-                        buffers.result.push(Triangle::new(p1, back2, p2));
+                        // Get the outside parts using flipped plane (behind inward = front of outward)
+                        match clipper.clip_triangle(tri, &flipped_plane) {
+                            ClipResult::AllFront(outside_tri) => {
+                                // All outside - add to result
+                                buffers.result.push(outside_tri);
+                            }
+                            ClipResult::Split(outside_tris) => {
+                                // Split - these are the outside parts
+                                buffers.result.extend(outside_tris);
+                            }
+                            ClipResult::AllBehind => {
+                                // This shouldn't happen if original was split
+                                // But handle gracefully - if it happens, inside_tris are all we have
+                            }
+                        }
                     }
-                    2 => {
-                        // Two vertices in front - front part is quad (2 tris), back part is 1 triangle
-                        let (front1, front2, back, d_f1, d_f2, d_b) = if !f0 {
-                            (tri.v1, tri.v2, tri.v0, d1, d2, d0)
-                        } else if !f1 {
-                            (tri.v2, tri.v0, tri.v1, d2, d0, d1)
-                        } else {
-                            (tri.v0, tri.v1, tri.v2, d0, d1, d2)
-                        };
-
-                        // Clamp t to [0,1] — see front_count==1 comment above
-                        let t1 = (d_f1 / (d_f1 - d_b)).clamp(0.0, 1.0);
-                        let t2 = (d_f2 / (d_f2 - d_b)).clamp(0.0, 1.0);
-                        let p1 = front1 + (back - front1) * t1;
-                        let p2 = front2 + (back - front2) * t2;
-
-                        // Front (inside): quad (front1, front2, p2, p1) as 2 tris - continues
-                        buffers.next_remaining.push(Triangle::new(front1, front2, p1));
-                        buffers.next_remaining.push(Triangle::new(front2, p2, p1));
-
-                        // Back (outside): Triangle(p1, p2, back) - result
-                        buffers.result.push(Triangle::new(p1, p2, back));
-                    }
-                    _ => unreachable!(),
                 }
             }
 
