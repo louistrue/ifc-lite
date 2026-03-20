@@ -218,15 +218,15 @@ fn test_764_column_file() {
 
 #[test]
 fn test_half_space_clip_single_plane() {
-    // Non-gable wall: rectangular extrusion (5.4m tall) clipped at Z=2.7.
-    // Normal points DOWN (toward kept material), AgreementFlag=.T.
-    // The code keeps the positive side of plane_normal = below Z=2.7.
+    // Non-gable wall: 5.4m tall extrusion, horizontal clip at Z=2.7.
+    // Normal points UP (outward from roof surface), AgreementFlag=.T.
+    // With inverted clip: keeps the side opposite to normal = below Z=2.7.
     let content = r#"
 #1=IFCRECTANGLEPROFILEDEF(.AREA.,$,$,10.0,0.3);
 #2=IFCDIRECTION((0.0,0.0,1.0));
 #3=IFCEXTRUDEDAREASOLID(#1,$,#2,5.4);
 #10=IFCCARTESIANPOINT((0.0,0.0,2.7));
-#11=IFCDIRECTION((0.0,0.0,-1.0));
+#11=IFCDIRECTION((0.0,0.0,1.0));
 #12=IFCAXIS2PLACEMENT3D(#10,#11,$);
 #13=IFCPLANE(#12);
 #14=IFCHALFSPACESOLID(#13,.T.);
@@ -248,23 +248,22 @@ fn test_half_space_clip_single_plane() {
 
 #[test]
 fn test_half_space_clip_gable_wall() {
-    // Gable wall: rectangular extrusion (5.4m tall) clipped by two angled
-    // roof planes meeting at the ridge (0, 0, 5.4).
-    // Normals point INTO the slope (toward kept material).
-    // AgreementFlag=.T. — the code keeps positive side = below each slope.
+    // Gable wall: 5.4m tall extrusion clipped by two angled roof planes.
+    // Normals point OUTWARD from each slope (toward sky), AgreementFlag=.T.
+    // This matches ArchiCAD FZK-Haus convention.
     // Result should be the full pentagonal gable shape.
     let content = r#"
 #1=IFCRECTANGLEPROFILEDEF(.AREA.,$,$,10.0,0.3);
 #2=IFCDIRECTION((0.0,0.0,1.0));
 #3=IFCEXTRUDEDAREASOLID(#1,$,#2,5.4);
 #10=IFCCARTESIANPOINT((0.0,0.0,5.4));
-#11=IFCDIRECTION((0.4756,0.0,-0.8797));
+#11=IFCDIRECTION((-0.4756,0.0,0.8797));
 #12=IFCAXIS2PLACEMENT3D(#10,#11,$);
 #13=IFCPLANE(#12);
 #14=IFCHALFSPACESOLID(#13,.T.);
 #15=IFCBOOLEANCLIPPINGRESULT(.DIFFERENCE.,#3,#14);
 #20=IFCCARTESIANPOINT((0.0,0.0,5.4));
-#21=IFCDIRECTION((-0.4756,0.0,-0.8797));
+#21=IFCDIRECTION((0.4756,0.0,0.8797));
 #22=IFCAXIS2PLACEMENT3D(#20,#21,$);
 #23=IFCPLANE(#22);
 #24=IFCHALFSPACESOLID(#23,.T.);

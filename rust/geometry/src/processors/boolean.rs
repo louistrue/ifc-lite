@@ -164,16 +164,28 @@ impl BooleanClippingProcessor {
     ) -> Result<Mesh> {
         use crate::csg::{ClippingProcessor, Plane};
 
-        // For DIFFERENCE operation with HalfSpaceSolid:
-        // - AgreementFlag=.T. means material is on positive side of plane normal
-        // - AgreementFlag=.F. means material is on negative side of plane normal
-        // Since we're SUBTRACTING the half-space, we keep the opposite side:
-        // - If material is on positive side (agreement=true), remove positive side → keep negative side → clip_normal = plane_normal
-        // - If material is on negative side (agreement=false), remove negative side → keep positive side → clip_normal = -plane_normal
+        // For DIFFERENCE operation with IfcHalfSpaceSolid:
+        // Per ISO 10303-42: AgreementFlag=.T. means the half-space solid is the
+        // subset the normal points AWAY FROM (= negative side of plane_normal).
+        // AgreementFlag=.F. means the half-space is on the positive side.
+        //
+        // DIFFERENCE removes the half-space from the wall:
+        // - agreement=true:  half-space = negative side → remove negative → keep positive
+        //   BUT: clip_mesh keeps POSITIVE side of given normal.
+        //   ArchiCAD exports (e.g. AC20-FZK-Haus) use agreement=.T. with normals
+        //   pointing OUTWARD from the roof slope. Major IFC viewers (BIMcollab,
+        //   Solibri, xBIM) interpret this as: keep the side OPPOSITE to the normal
+        //   direction. So we pass -plane_normal to keep the negative side.
+        // - agreement=false: half-space = positive side → remove positive → keep negative
+        //   Pass plane_normal to keep the positive side.
+        //
+        // Note: This function is ONLY called for plain IfcHalfSpaceSolid (gable wall
+        // clips). IfcPolygonalBoundedHalfSpace uses subtract_mesh() which handles
+        // the agreement flag correctly via CSG.
         let clip_normal = if agreement {
-            plane_normal // Material on positive side, remove it, keep negative side
+            -plane_normal
         } else {
-            -plane_normal // Material on negative side, remove it, keep positive side
+            plane_normal
         };
 
         let plane = Plane::new(plane_point, clip_normal);
