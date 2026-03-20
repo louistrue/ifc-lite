@@ -14,8 +14,8 @@ use rustc_hash::FxHashMap;
 /// Epsilon for normalizing direction vectors (guards against zero-length).
 const NORMALIZE_EPSILON: f64 = 1e-12;
 /// Minimum opening volume (m³) below which CSG is skipped to avoid BSP instability.
-/// 0.001 m³ ≈ 1 litre — connection points and modelling artefacts are smaller.
-const MIN_OPENING_VOLUME: f64 = 0.001;
+/// 0.0001 m³ ≈ 0.1 litre — filters artefacts while allowing small real openings (e.g. sleeves).
+const MIN_OPENING_VOLUME: f64 = 0.0001;
 /// Fraction of pre-CSG triangles the result must retain. CSG outputs with fewer
 /// triangles than `pre_count / CSG_TRIANGLE_RETENTION_DIVISOR` are rejected as
 /// BSP blowups.
@@ -573,7 +573,7 @@ impl GeometryRouter {
                     //
                     // Three guards:
                     // 1. Bounds overlap — skip if opening AABB doesn't touch wall AABB
-                    // 2. Volume threshold — skip openings < 1 litre (modelling artefacts)
+                    // 2. Volume threshold — skip openings < 0.1 litre (modelling artefacts)
                     // 3. Result validation — reject CSG output that loses > 75 % of triangles
                     let (result_min, result_max) = result.bounds();
                     let (open_min_f32, open_max_f32) = opening_mesh.bounds();

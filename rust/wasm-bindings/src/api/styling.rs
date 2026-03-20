@@ -663,8 +663,10 @@ fn resolve_material_ids_inner(
             // IfcMaterialProfile: Attr 2: Material (ref to IfcMaterial)
             extract_nested_material_ids(&entity, 2, 2, decoder)
         }
-        IfcType::IfcMaterialProfileSetUsage => {
+        IfcType::IfcMaterialProfileSetUsage
+        | IfcType::IfcMaterialProfileSetUsageTapering => {
             // Attr 0: ForProfileSet (ref to IfcMaterialProfileSet)
+            // IfcMaterialProfileSetUsageTapering is a subtype with the same attr layout
             if let Some(profile_set_id) = entity.get_ref(0) {
                 resolve_material_ids_inner(profile_set_id, decoder, depth + 1)
             } else {
