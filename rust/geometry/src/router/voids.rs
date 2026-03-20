@@ -1253,8 +1253,10 @@ impl GeometryRouter {
                             (tri.v2, tri.v0, tri.v1, d2, d0, d1)
                         };
 
-                        let t1 = d_f / (d_f - d_b1);
-                        let t2 = d_f / (d_f - d_b2);
+                        // Clamp t to [0,1] — epsilon classification can make d_f slightly
+                        // negative, producing t < 0 and intersection points outside the edge.
+                        let t1 = (d_f / (d_f - d_b1)).clamp(0.0, 1.0);
+                        let t2 = (d_f / (d_f - d_b2)).clamp(0.0, 1.0);
                         let p1 = front + (back1 - front) * t1;
                         let p2 = front + (back2 - front) * t2;
 
@@ -1275,8 +1277,9 @@ impl GeometryRouter {
                             (tri.v0, tri.v1, tri.v2, d0, d1, d2)
                         };
 
-                        let t1 = d_f1 / (d_f1 - d_b);
-                        let t2 = d_f2 / (d_f2 - d_b);
+                        // Clamp t to [0,1] — see front_count==1 comment above
+                        let t1 = (d_f1 / (d_f1 - d_b)).clamp(0.0, 1.0);
+                        let t2 = (d_f2 / (d_f2 - d_b)).clamp(0.0, 1.0);
                         let p1 = front1 + (back - front1) * t1;
                         let p2 = front2 + (back - front2) * t2;
 
