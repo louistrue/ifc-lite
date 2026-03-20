@@ -164,24 +164,18 @@ impl BooleanClippingProcessor {
     ) -> Result<Mesh> {
         use crate::csg::{ClippingProcessor, Plane};
 
-        // For DIFFERENCE operation with IfcHalfSpaceSolid:
-        // Per ISO 10303-42: AgreementFlag=.T. means the half-space solid is the
-        // subset the normal points AWAY FROM (= negative side of plane_normal).
-        // AgreementFlag=.F. means the half-space is on the positive side.
+        // For DIFFERENCE with IfcHalfSpaceSolid:
+        // clip_mesh() keeps the POSITIVE side of the given normal.
+        // With agreement=.T., the half-space normal points outward from the
+        // clipping surface (e.g. away from the roof slope toward the sky).
+        // We want to keep the material BELOW/BEHIND the clip plane, which is
+        // the NEGATIVE side of the outward normal → pass -plane_normal.
+        // With agreement=.F., the convention is reversed → pass plane_normal.
         //
-        // DIFFERENCE removes the half-space from the wall:
-        // - agreement=true:  half-space = negative side → remove negative → keep positive
-        //   BUT: clip_mesh keeps POSITIVE side of given normal.
-        //   ArchiCAD exports (e.g. AC20-FZK-Haus) use agreement=.T. with normals
-        //   pointing OUTWARD from the roof slope. Major IFC viewers (BIMcollab,
-        //   Solibri, xBIM) interpret this as: keep the side OPPOSITE to the normal
-        //   direction. So we pass -plane_normal to keep the negative side.
-        // - agreement=false: half-space = positive side → remove positive → keep negative
-        //   Pass plane_normal to keep the positive side.
-        //
-        // Note: This function is ONLY called for plain IfcHalfSpaceSolid (gable wall
-        // clips). IfcPolygonalBoundedHalfSpace uses subtract_mesh() which handles
-        // the agreement flag correctly via CSG.
+        // Note: IfcPolygonalBoundedHalfSpace uses subtract_mesh() (CSG) which
+        // handles the agreement flag internally. This function is only called
+        // for plain IfcHalfSpaceSolid (gable wall roof clips) and as a
+        // fallback for PolygonalBoundedHalfSpace when CSG fails.
         let clip_normal = if agreement {
             -plane_normal
         } else {

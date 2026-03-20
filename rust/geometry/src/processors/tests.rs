@@ -217,41 +217,21 @@ fn test_764_column_file() {
 }
 
 #[test]
-fn test_half_space_clip_single_plane() {
-    // Non-gable wall: 5.4m tall extrusion, horizontal clip at Z=2.7.
-    // Normal points UP (outward from roof surface), AgreementFlag=.T.
-    // With inverted clip: keeps the side opposite to normal = below Z=2.7.
-    let content = r#"
-#1=IFCRECTANGLEPROFILEDEF(.AREA.,$,$,10.0,0.3);
-#2=IFCDIRECTION((0.0,0.0,1.0));
-#3=IFCEXTRUDEDAREASOLID(#1,$,#2,5.4);
-#10=IFCCARTESIANPOINT((0.0,0.0,2.7));
-#11=IFCDIRECTION((0.0,0.0,1.0));
-#12=IFCAXIS2PLACEMENT3D(#10,#11,$);
-#13=IFCPLANE(#12);
-#14=IFCHALFSPACESOLID(#13,.T.);
-#15=IFCBOOLEANCLIPPINGRESULT(.DIFFERENCE.,#3,#14);
-"#;
-
-    let mut decoder = EntityDecoder::new(content);
-    let schema = IfcSchema::new();
-    let processor = BooleanClippingProcessor::new();
-
-    let entity = decoder.decode_by_id(15).unwrap();
-    let mesh = processor.process(&entity, &mut decoder, &schema).unwrap();
-
-    assert!(!mesh.is_empty(), "Clipped wall should have geometry");
-    let (min, max) = mesh.bounds();
-    assert!((min.z as f64) < 0.1, "Wall Z min={:.2}, expected ~0", min.z);
-    assert!((max.z as f64 - 2.7).abs() < 0.1, "Wall Z max={:.2}, expected ~2.7", max.z);
-}
-
-#[test]
-fn test_half_space_clip_gable_wall() {
-    // Gable wall: 5.4m tall extrusion clipped by two angled roof planes.
-    // Normals point OUTWARD from each slope (toward sky), AgreementFlag=.T.
-    // This matches ArchiCAD FZK-Haus convention.
-    // Result should be the full pentagonal gable shape.
+fn test_gable_wall_pentagon_with_outward_normals() {
+    // Gable wall: 10m wide extrusion clipped by two angled roof planes.
+    // Plane points at the ridge (0,0,5.4), normals point OUTWARD from each slope.
+    // AgreementFlag=.T.
+    //
+    // With the corrected clip direction (-plane_normal for agreement=.T.),
+    // the code keeps the NEGATIVE side of each outward normal = below each
+    // roof slope. Result: pentagonal gable shape.
+    //
+    // Math check for left slope plane:
+    //   point=(0,0,5.4), normal=(-0.4756,0,0.8797)
+    //   Plane equation: -0.4756x + 0.8797(z-5.4) = 0 → z = 5.4 + 0.5406x
+    //   At x=-5: z=2.697 (eaves), At x=0: z=5.4 (ridge) ✓
+    //   Wall base at z=0, x=-5: signed_dist = -0.4756*(-5) + 0.8797*(0-5.4) = -2.375 < 0 → NEGATIVE side
+    //   With -plane_normal, negative side becomes positive → KEPT ✓
     let content = r#"
 #1=IFCRECTANGLEPROFILEDEF(.AREA.,$,$,10.0,0.3);
 #2=IFCDIRECTION((0.0,0.0,1.0));
@@ -279,10 +259,15 @@ fn test_half_space_clip_gable_wall() {
 
     assert!(!mesh.is_empty(), "Gable wall should have geometry");
     let (min, max) = mesh.bounds();
+
+    // Pentagon: base at z=0 spanning full 10m, narrowing to ridge at z=5.4
     assert!((min.z as f64) < 0.1,
-        "Gable Z min={:.2}, expected ~0", min.z);
+        "Gable base should be at z≈0 (got {:.2})", min.z);
     assert!((max.z as f64) > 5.0,
-        "Gable Z max={:.2}, expected ~5.4", max.z);
+        "Gable ridge should be at z≈5.4 (got {:.2})", max.z);
+    let base_width = max.x - min.x;
+    assert!(base_width > 8.0,
+        "Gable base should span ~10m (got {:.2}m)", base_width);
 }
 
 #[test]

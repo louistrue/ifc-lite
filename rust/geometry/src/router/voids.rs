@@ -407,10 +407,11 @@ impl GeometryRouter {
             }
         };
 
-        // Note: Roof clipping planes are handled by the BooleanClippingProcessor
-        // during process_element(). They are NOT re-applied here to avoid double-clipping
-        // which corrupts gable wall geometry (two angled clips in different coordinate
-        // spaces produce wrong intersections).
+        // Note: Roof clipping planes (IfcHalfSpaceSolid / IfcPolygonalBoundedHalfSpace)
+        // are already applied by the BooleanClippingProcessor during process_element().
+        // Re-extracting and re-applying them here caused double-clipping artifacts
+        // because the two paths used different coordinate spaces (representation-space
+        // vs world-space) and different clip direction conventions.
 
         // STEP 5: Collect opening info (bounds for rectangular, full mesh for non-rectangular)
         // For rectangular openings, get individual bounds per representation item to handle
@@ -584,12 +585,10 @@ impl GeometryRouter {
             }
         }
 
-        // Note: Roof clipping planes are already applied by the BooleanClippingProcessor
-        // during process_element(). Re-applying them here would double-clip the geometry,
-        // which can corrupt gable walls (two angled clips) due to coordinate space
-        // differences between representation-space (boolean processor) and world-space
-        // (ObjectPlacement transform). The world_clipping_planes are still extracted above
-        // for potential future use but are not re-applied to the result.
+        // Note: Step 7 (re-apply roof clips) was removed. The BooleanClippingProcessor
+        // handles all IfcHalfSpaceSolid and IfcPolygonalBoundedHalfSpace clips during
+        // process_element(). Opening subtraction does not extend geometry beyond clip
+        // boundaries, so re-clipping is unnecessary.
 
         Ok(result)
     }
