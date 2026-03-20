@@ -384,6 +384,9 @@ pub(crate) struct PrePassData {
     pub simple_jobs: Vec<(u32, usize, usize, ifc_lite_core::IfcType)>,
     /// Complex geometry jobs (windows, doors, furniture …)
     pub complex_jobs: Vec<(u32, usize, usize, ifc_lite_core::IfcType)>,
+    /// Element ID → list of material-based colors (from IfcRelAssociatesMaterial chain).
+    /// Used as fallback when a sub-mesh has no direct IfcStyledItem style.
+    pub element_material_styles: rustc_hash::FxHashMap<u32, Vec<[f32; 4]>>,
 }
 
 /// Single EntityScanner pass that collects everything needed before geometry
@@ -409,20 +412,76 @@ pub(crate) fn combined_pre_pass(
     let mut simple_jobs = Vec::with_capacity(estimated_elements / 2);
     let mut complex_jobs = Vec::with_capacity(estimated_elements / 2);
 
+    // Material chain collection: orphan styled items, material def reprs, rel associates
+    // Orphan IfcStyledItem (null Item): styled_item_id → color
+    let mut orphan_styled_items: FxHashMap<u32, [f32; 4]> = FxHashMap::default();
+    // IfcMaterialDefinitionRepresentation: material_id → [styled_repr_id, ...]
+    let mut material_def_reprs: FxHashMap<u32, Vec<u32>> = FxHashMap::default();
+    // IfcRelAssociatesMaterial: element_id → material_select_id
+    let mut element_to_material: FxHashMap<u32, u32> = FxHashMap::default();
+
     let mut scanner = EntityScanner::new(content);
 
     while let Some((id, type_name, start, end)) = scanner.next_entity() {
         match type_name {
             "IFCSTYLEDITEM" => {
-                // Build geometry_styles inline (same logic as build_geometry_style_index)
                 if let Ok(styled_item) = decoder.decode_at_with_id(id, start, end) {
                     if let Some(geometry_id) = styled_item.get_ref(0) {
+                        // Normal IfcStyledItem with Item reference → geometry_styles
                         if !geometry_styles.contains_key(&geometry_id) {
                             if let Some(styles_attr) = styled_item.get(1) {
                                 if let Some(color) =
                                     extract_color_from_styles(styles_attr, decoder)
                                 {
                                     geometry_styles.insert(geometry_id, color);
+                                }
+                            }
+                        }
+                    } else {
+                        // Orphan IfcStyledItem (null Item) — material-based color
+                        if let Some(styles_attr) = styled_item.get(1) {
+                            if let Some(color) =
+                                extract_color_from_styles(styles_attr, decoder)
+                            {
+                                orphan_styled_items.insert(id, color);
+                            }
+                        }
+                    }
+                }
+            }
+            "IFCMATERIALDEFINITIONREPRESENTATION" => {
+                // Attr 2: Representations (list of styled repr refs)
+                // Attr 3: RepresentedMaterial (ref to IfcMaterial)
+                // (inherits from IfcProductRepresentation: Name(0), Description(1), Representations(2))
+                if let Ok(entity) = decoder.decode_at_with_id(id, start, end) {
+                    if let Some(material_id) = entity.get_ref(3) {
+                        if let Some(reprs_attr) = entity.get(2) {
+                            if let Some(list) = reprs_attr.as_list() {
+                                for item in list {
+                                    if let Some(repr_id) = item.as_entity_ref() {
+                                        material_def_reprs
+                                            .entry(material_id)
+                                            .or_default()
+                                            .push(repr_id);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            "IFCRELASSOCIATESMATERIAL" => {
+                // IfcRelAssociates: GlobalId(0), OwnerHistory(1), Name(2), Description(3),
+                //                   RelatedObjects(4), RelatingMaterial(5)
+                if let Ok(entity) = decoder.decode_at_with_id(id, start, end) {
+                    if let Some(material_select_id) = entity.get_ref(5) {
+                        if let Some(related_attr) = entity.get(4) {
+                            if let Some(list) = related_attr.as_list() {
+                                for item in list {
+                                    if let Some(element_id) = item.as_entity_ref() {
+                                        element_to_material
+                                            .insert(element_id, material_select_id);
+                                    }
                                 }
                             }
                         }
@@ -450,8 +509,6 @@ pub(crate) fn combined_pre_pass(
                 if site_position.is_none() {
                     site_position = Some((id, start, end));
                 }
-                // IfcSite can also have geometry (terrain mesh) — must be
-                // added to complex_jobs so it gets processed for rendering.
                 let ifc_type = ifc_lite_core::IfcType::from_str(type_name);
                 complex_jobs.push((id, start, end, ifc_type));
             }
@@ -468,6 +525,21 @@ pub(crate) fn combined_pre_pass(
         }
     }
 
+    // Build material style index: material_id → [color, ...]
+    // Chain: material → IfcMaterialDefinitionRepresentation → IfcStyledRepresentation → orphan IfcStyledItem
+    let material_styles = build_material_style_index(
+        &material_def_reprs,
+        &orphan_styled_items,
+        decoder,
+    );
+
+    // Build element → material colors map
+    let element_material_styles = build_element_material_styles(
+        &element_to_material,
+        &material_styles,
+        decoder,
+    );
+
     PrePassData {
         geometry_styles,
         void_index,
@@ -476,7 +548,285 @@ pub(crate) fn combined_pre_pass(
         site_position,
         simple_jobs,
         complex_jobs,
+        element_material_styles,
     }
+}
+
+/// Build material style index: maps material IDs to their colors.
+/// Follows: material → IfcMaterialDefinitionRepresentation → IfcStyledRepresentation → orphan IfcStyledItem
+fn build_material_style_index(
+    material_def_reprs: &rustc_hash::FxHashMap<u32, Vec<u32>>,
+    orphan_styled_items: &rustc_hash::FxHashMap<u32, [f32; 4]>,
+    decoder: &mut ifc_lite_core::EntityDecoder,
+) -> rustc_hash::FxHashMap<u32, Vec<[f32; 4]>> {
+    use rustc_hash::FxHashMap;
+
+    let mut material_styles: FxHashMap<u32, Vec<[f32; 4]>> = FxHashMap::default();
+
+    for (&material_id, styled_repr_ids) in material_def_reprs {
+        for &styled_repr_id in styled_repr_ids {
+            // Decode the IfcStyledRepresentation
+            // Inherits from IfcRepresentation: ContextOfItems(0), RepresentationIdentifier(1),
+            //   RepresentationType(2), Items(3)
+            let styled_repr = match decoder.decode_by_id(styled_repr_id) {
+                Ok(entity) => entity,
+                Err(_) => continue,
+            };
+
+            let items_attr = match styled_repr.get(3) {
+                Some(attr) => attr,
+                None => continue,
+            };
+
+            let items_list = match items_attr.as_list() {
+                Some(list) => list,
+                None => continue,
+            };
+
+            // Each item should be an orphan IfcStyledItem (already collected)
+            for item in items_list {
+                if let Some(styled_item_id) = item.as_entity_ref() {
+                    if let Some(&color) = orphan_styled_items.get(&styled_item_id) {
+                        material_styles
+                            .entry(material_id)
+                            .or_default()
+                            .push(color);
+                    }
+                }
+            }
+        }
+    }
+
+    material_styles
+}
+
+/// Build element → material colors map.
+/// Resolves the full chain from element → IfcRelAssociatesMaterial → material select →
+/// individual materials → colors.
+/// Handles: IfcMaterial, IfcMaterialList, IfcMaterialLayerSet, IfcMaterialLayerSetUsage,
+///          IfcMaterialConstituentSet (IFC4), IfcMaterialProfileSet (IFC4)
+fn build_element_material_styles(
+    element_to_material: &rustc_hash::FxHashMap<u32, u32>,
+    material_styles: &rustc_hash::FxHashMap<u32, Vec<[f32; 4]>>,
+    decoder: &mut ifc_lite_core::EntityDecoder,
+) -> rustc_hash::FxHashMap<u32, Vec<[f32; 4]>> {
+    use rustc_hash::FxHashMap;
+
+    let mut result: FxHashMap<u32, Vec<[f32; 4]>> = FxHashMap::default();
+
+    for (&element_id, &material_select_id) in element_to_material {
+        let mut colors: Vec<[f32; 4]> = Vec::new();
+
+        // Collect all individual material IDs from the material select
+        let material_ids = resolve_material_ids(material_select_id, decoder);
+
+        for material_id in material_ids {
+            if let Some(mat_colors) = material_styles.get(&material_id) {
+                colors.extend(mat_colors);
+            }
+        }
+
+        if !colors.is_empty() {
+            result.insert(element_id, colors);
+        }
+    }
+
+    result
+}
+
+/// Resolve a material select (which could be IfcMaterial, IfcMaterialList,
+/// IfcMaterialLayerSet, IfcMaterialLayerSetUsage, IfcMaterialConstituentSet,
+/// IfcMaterialProfileSet) into a list of individual IfcMaterial IDs.
+fn resolve_material_ids(
+    material_select_id: u32,
+    decoder: &mut ifc_lite_core::EntityDecoder,
+) -> Vec<u32> {
+    use ifc_lite_core::IfcType;
+
+    let entity = match decoder.decode_by_id(material_select_id) {
+        Ok(e) => e,
+        Err(_) => return vec![material_select_id], // Assume it's a direct material
+    };
+
+    match entity.ifc_type {
+        IfcType::IfcMaterial => {
+            vec![material_select_id]
+        }
+        IfcType::IfcMaterialList => {
+            // Attr 0: Materials (list of IfcMaterial refs)
+            extract_refs_from_list(&entity, 0)
+        }
+        IfcType::IfcMaterialLayerSetUsage => {
+            // Attr 0: ForLayerSet (ref to IfcMaterialLayerSet)
+            if let Some(layer_set_id) = entity.get_ref(0) {
+                resolve_material_ids(layer_set_id, decoder)
+            } else {
+                vec![]
+            }
+        }
+        IfcType::IfcMaterialLayerSet => {
+            // Attr 0: MaterialLayers (list of IfcMaterialLayer refs)
+            let layer_ids = extract_refs_from_list(&entity, 0);
+            let mut materials = Vec::new();
+            for layer_id in layer_ids {
+                // IfcMaterialLayer: Attr 0: Material (ref to IfcMaterial)
+                if let Ok(layer) = decoder.decode_by_id(layer_id) {
+                    if let Some(mat_id) = layer.get_ref(0) {
+                        materials.push(mat_id);
+                    }
+                }
+            }
+            materials
+        }
+        IfcType::IfcMaterialConstituentSet => {
+            // Attr 2: MaterialConstituents (list of IfcMaterialConstituent refs)
+            let constituent_ids = extract_refs_from_list(&entity, 2);
+            let mut materials = Vec::new();
+            for constituent_id in constituent_ids {
+                // IfcMaterialConstituent: Attr 2: Material (ref to IfcMaterial)
+                if let Ok(constituent) = decoder.decode_by_id(constituent_id) {
+                    if let Some(mat_id) = constituent.get_ref(2) {
+                        materials.push(mat_id);
+                    }
+                }
+            }
+            materials
+        }
+        IfcType::IfcMaterialProfileSet => {
+            // Attr 2: MaterialProfiles (list of IfcMaterialProfile refs)
+            let profile_ids = extract_refs_from_list(&entity, 2);
+            let mut materials = Vec::new();
+            for profile_id in profile_ids {
+                // IfcMaterialProfile: Attr 2: Material (ref to IfcMaterial)
+                if let Ok(profile) = decoder.decode_by_id(profile_id) {
+                    if let Some(mat_id) = profile.get_ref(2) {
+                        materials.push(mat_id);
+                    }
+                }
+            }
+            materials
+        }
+        IfcType::IfcMaterialProfileSetUsage => {
+            // Attr 0: ForProfileSet (ref to IfcMaterialProfileSet)
+            if let Some(profile_set_id) = entity.get_ref(0) {
+                resolve_material_ids(profile_set_id, decoder)
+            } else {
+                vec![]
+            }
+        }
+        _ => {
+            // Unknown material type — try treating it as a direct material
+            vec![material_select_id]
+        }
+    }
+}
+
+/// Helper: extract entity references from a list attribute.
+fn extract_refs_from_list(entity: &ifc_lite_core::DecodedEntity, index: usize) -> Vec<u32> {
+    entity
+        .get(index)
+        .and_then(|attr| attr.as_list())
+        .map(|list| list.iter().filter_map(|v| v.as_entity_ref()).collect())
+        .unwrap_or_default()
+}
+
+/// Build element material styles by scanning the content for material-related entities.
+/// Standalone version for use in synchronous parse_meshes path.
+pub(crate) fn build_element_material_styles_from_content(
+    content: &str,
+    decoder: &mut ifc_lite_core::EntityDecoder,
+) -> rustc_hash::FxHashMap<u32, Vec<[f32; 4]>> {
+    use ifc_lite_core::EntityScanner;
+    use rustc_hash::FxHashMap;
+
+    let mut orphan_styled_items: FxHashMap<u32, [f32; 4]> = FxHashMap::default();
+    let mut material_def_reprs: FxHashMap<u32, Vec<u32>> = FxHashMap::default();
+    let mut element_to_material: FxHashMap<u32, u32> = FxHashMap::default();
+
+    let mut scanner = EntityScanner::new(content);
+
+    while let Some((id, type_name, start, end)) = scanner.next_entity() {
+        match type_name {
+            "IFCSTYLEDITEM" => {
+                if let Ok(styled_item) = decoder.decode_at_with_id(id, start, end) {
+                    // Only collect orphan styled items (null Item attribute)
+                    if styled_item.get_ref(0).is_none() {
+                        if let Some(styles_attr) = styled_item.get(1) {
+                            if let Some(color) = extract_color_from_styles(styles_attr, decoder) {
+                                orphan_styled_items.insert(id, color);
+                            }
+                        }
+                    }
+                }
+            }
+            "IFCMATERIALDEFINITIONREPRESENTATION" => {
+                if let Ok(entity) = decoder.decode_at_with_id(id, start, end) {
+                    if let Some(material_id) = entity.get_ref(3) {
+                        if let Some(reprs_attr) = entity.get(2) {
+                            if let Some(list) = reprs_attr.as_list() {
+                                for item in list {
+                                    if let Some(repr_id) = item.as_entity_ref() {
+                                        material_def_reprs
+                                            .entry(material_id)
+                                            .or_default()
+                                            .push(repr_id);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            "IFCRELASSOCIATESMATERIAL" => {
+                if let Ok(entity) = decoder.decode_at_with_id(id, start, end) {
+                    if let Some(material_select_id) = entity.get_ref(5) {
+                        if let Some(related_attr) = entity.get(4) {
+                            if let Some(list) = related_attr.as_list() {
+                                for item in list {
+                                    if let Some(element_id) = item.as_entity_ref() {
+                                        element_to_material.insert(element_id, material_select_id);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let material_styles =
+        build_material_style_index(&material_def_reprs, &orphan_styled_items, decoder);
+    build_element_material_styles(&element_to_material, &material_styles, decoder)
+}
+
+/// Pick the best material style for a sub-mesh.
+/// Prefers transparent colors (glass) for sub-meshes without a direct style,
+/// since glass sub-elements are the most common case where material-based
+/// styling is the only source of appearance data.
+pub(crate) fn pick_material_style_for_submesh(
+    material_colors: &[[f32; 4]],
+    prefer_transparent: bool,
+) -> Option<[f32; 4]> {
+    if material_colors.is_empty() {
+        return None;
+    }
+
+    if prefer_transparent {
+        // Prefer transparent (glass) — alpha < 0.95
+        if let Some(color) = material_colors.iter().find(|c| c[3] < 0.95) {
+            return Some(*color);
+        }
+    } else {
+        // Prefer opaque (frame) — alpha >= 0.95
+        if let Some(color) = material_colors.iter().find(|c| c[3] >= 0.95) {
+            return Some(*color);
+        }
+    }
+
+    // Fallback: first available color
+    Some(material_colors[0])
 }
 
 /// Check if a type name is "simple" geometry (processed first for fast first frame).
