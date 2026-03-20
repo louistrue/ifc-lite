@@ -144,8 +144,6 @@ impl GeometryRouter {
         }
     }
 
-    /// Get opening item bounds with extrusion direction for each representation item
-    /// Returns Vec of (min, max, extrusion_direction) tuples
     /// Get per-item meshes for an opening element, transformed to world coordinates.
     /// Uses the same `transform_mesh` path as `process_element` to ensure identical
     /// coordinate handling (ObjectPlacement, unit scaling, conditional RTC offset).
@@ -510,8 +508,8 @@ impl GeometryRouter {
         // disconnected geometry (e.g., two separate window openings in one IfcOpeningElement)
         enum OpeningType {
             /// Rectangular opening with AABB clipping
-            /// Fields: (min_bounds, max_bounds, extrusion_direction, is_diagonal)
-            Rectangular(Point3<f64>, Point3<f64>, Option<Vector3<f64>>, bool),
+            /// Fields: (min_bounds, max_bounds, extrusion_direction)
+            Rectangular(Point3<f64>, Point3<f64>, Option<Vector3<f64>>),
             /// Diagonal rectangular opening with mesh geometry for batched rotation clipping
             /// Fields: (opening_mesh, extrusion_direction)
             DiagonalRectangular(Mesh, Vector3<f64>),
@@ -589,7 +587,7 @@ impl GeometryRouter {
                         } else {
                             // Use AABB clipping for axis-aligned wall openings (X/Y extrusion)
                             for (min_pt, max_pt, extrusion_dir) in item_bounds_with_dir {
-                                openings.push(OpeningType::Rectangular(min_pt, max_pt, extrusion_dir, false));
+                                openings.push(OpeningType::Rectangular(min_pt, max_pt, extrusion_dir));
                             }
                         }
                     }
@@ -599,7 +597,7 @@ impl GeometryRouter {
                     let min_f64 = Point3::new(open_min.x as f64, open_min.y as f64, open_min.z as f64);
                     let max_f64 = Point3::new(open_max.x as f64, open_max.y as f64, open_max.z as f64);
 
-                    openings.push(OpeningType::Rectangular(min_f64, max_f64, None, false));
+                    openings.push(OpeningType::Rectangular(min_f64, max_f64, None));
                 }
             }
         }
@@ -723,7 +721,7 @@ impl GeometryRouter {
 
         for opening in openings.iter() {
             match opening {
-                OpeningType::Rectangular(open_min, open_max, extrusion_dir, _is_diagonal) => {
+                OpeningType::Rectangular(open_min, open_max, extrusion_dir) => {
                     // Use AABB clipping for axis-aligned rectangular openings
                     let (final_min, final_max) = if let Some(dir) = extrusion_dir {
                         // Extend along the actual extrusion direction to penetrate multi-layer walls
