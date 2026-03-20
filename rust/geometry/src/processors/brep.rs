@@ -254,7 +254,6 @@ impl FacetedBrepProcessor {
         brep_ids: &[u32],
         decoder: &mut EntityDecoder,
     ) -> Vec<(usize, Mesh)> {
-        #[cfg(not(target_arch = "wasm32"))]
         use rayon::prelude::*;
 
         // PHASE 1: Sequential - Extract all face data from all BREPs
@@ -327,18 +326,10 @@ impl FacetedBrepProcessor {
             }
         }
 
-        // PHASE 2: Triangulate ALL faces from ALL BREPs in one batch
-        // On native: use parallel iteration for multi-core speedup
-        // On WASM: use sequential iteration (no threads available, par_iter adds overhead)
-        #[cfg(not(target_arch = "wasm32"))]
+        // PHASE 2: Triangulate ALL faces from ALL BREPs in one parallel batch
+        // Uses rayon thread pool on both native and WASM (via wasm-bindgen-rayon)
         let face_results: Vec<(usize, FaceResult)> = all_faces
             .par_iter()
-            .map(|(brep_idx, face)| (*brep_idx, Self::triangulate_face(face)))
-            .collect();
-
-        #[cfg(target_arch = "wasm32")]
-        let face_results: Vec<(usize, FaceResult)> = all_faces
-            .iter()
             .map(|(brep_idx, face)| (*brep_idx, Self::triangulate_face(face)))
             .collect();
 
@@ -396,7 +387,6 @@ impl GeometryProcessor for FacetedBrepProcessor {
         decoder: &mut EntityDecoder,
         _schema: &IfcSchema,
     ) -> Result<Mesh> {
-        #[cfg(not(target_arch = "wasm32"))]
         use rayon::prelude::*;
 
         // IfcFacetedBrep attributes:
@@ -469,18 +459,9 @@ impl GeometryProcessor for FacetedBrepProcessor {
             }
         }
 
-        // PHASE 2: Triangulate all faces
-        // On native: use parallel iteration for multi-core speedup
-        // On WASM: use sequential iteration (no threads available)
-        #[cfg(not(target_arch = "wasm32"))]
+        // PHASE 2: Triangulate all faces in parallel (via rayon on both native and WASM)
         let face_results: Vec<FaceResult> = face_data_list
             .par_iter()
-            .map(Self::triangulate_face)
-            .collect();
-
-        #[cfg(target_arch = "wasm32")]
-        let face_results: Vec<FaceResult> = face_data_list
-            .iter()
             .map(Self::triangulate_face)
             .collect();
 

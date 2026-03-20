@@ -244,12 +244,20 @@ export function buildCompactEntityIndex(
   entityRefs: EntityRef[],
   lruMaxSize?: number
 ): CompactEntityIndex {
-  // Copy to avoid mutating the caller's array
-  const sorted = entityRefs.slice();
-  const count = sorted.length;
+  const count = entityRefs.length;
 
-  // Sort by expressId for binary search
-  sorted.sort((a, b) => a.expressId - b.expressId);
+  // Check if already sorted by expressId (true for 99%+ of IFC files since
+  // entities appear sequentially as #1, #2, #3...). This avoids a ~3-5s
+  // .slice() + .sort() on 14M objects.
+  let isSorted = true;
+  for (let i = 1; i < count; i++) {
+    if (entityRefs[i].expressId < entityRefs[i - 1].expressId) {
+      isSorted = false;
+      break;
+    }
+  }
+
+  const sorted = isSorted ? entityRefs : entityRefs.slice().sort((a, b) => a.expressId - b.expressId);
 
   // Deduplicate type strings
   const typeStringMap = new Map<string, number>();

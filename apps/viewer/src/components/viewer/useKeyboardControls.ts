@@ -76,18 +76,7 @@ export function useKeyboardControls(params: UseKeyboardControlsParams): void {
     let moveFrameId: number | null = null;
 
     const renderScene = () => {
-      renderer.render({
-        hiddenIds: hiddenEntitiesRef.current,
-        isolatedIds: isolatedEntitiesRef.current,
-        selectedId: selectedEntityIdRef.current,
-        selectedModelIndex: selectedModelIndexRef.current,
-        clearColor: clearColorRef.current,
-        sectionPlane: activeToolRef.current === 'section' ? {
-          ...sectionPlaneRef.current,
-          min: sectionRangeRef.current?.min,
-          max: sectionRangeRef.current?.max,
-        } : undefined,
-      });
+      renderer.requestRender();
     };
 
     const handleKeyDown = (e: KeyboardEvent) => {

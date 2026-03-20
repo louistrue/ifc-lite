@@ -37,6 +37,7 @@ export interface UseTouchControlsParams {
   sectionPlaneRef: MutableRefObject<SectionPlane>;
   sectionRangeRef: MutableRefObject<{ min: number; max: number } | null>;
   geometryRef: MutableRefObject<MeshData[] | null>;
+  isInteractingRef: MutableRefObject<boolean>;
   handlePickForSelection: (pickResult: PickResult | null) => void;
   getPickOptions: () => { isStreaming: boolean; hiddenIds: Set<number>; isolatedIds: Set<number> | null };
 }
@@ -56,6 +57,7 @@ export function useTouchControls(params: UseTouchControlsParams): void {
     sectionPlaneRef,
     sectionRangeRef,
     geometryRef,
+    isInteractingRef,
     handlePickForSelection,
     getPickOptions,
   } = params;
@@ -160,19 +162,8 @@ export function useTouchControls(params: UseTouchControlsParams): void {
           x: touchState.touches[0].clientX,
           y: touchState.touches[0].clientY,
         };
-        renderer.render({
-          hiddenIds: hiddenEntitiesRef.current,
-          isolatedIds: isolatedEntitiesRef.current,
-          selectedId: selectedEntityIdRef.current,
-          selectedModelIndex: selectedModelIndexRef.current,
-          clearColor: clearColorRef.current,
-          isInteracting: true,
-          sectionPlane: activeToolRef.current === 'section' ? {
-            ...sectionPlaneRef.current,
-            min: sectionRangeRef.current?.min,
-            max: sectionRangeRef.current?.max,
-          } : undefined,
-        });
+        isInteractingRef.current = true;
+        renderer.requestRender();
       } else if (touchState.touches.length === 2) {
         const dx1 = touchState.touches[1].clientX - touchState.touches[0].clientX;
         const dy1 = touchState.touches[1].clientY - touchState.touches[0].clientY;
@@ -190,19 +181,8 @@ export function useTouchControls(params: UseTouchControlsParams): void {
 
         touchState.lastDistance = distance;
         touchState.lastCenter = { x: centerX, y: centerY };
-        renderer.render({
-          hiddenIds: hiddenEntitiesRef.current,
-          isolatedIds: isolatedEntitiesRef.current,
-          selectedId: selectedEntityIdRef.current,
-          selectedModelIndex: selectedModelIndexRef.current,
-          clearColor: clearColorRef.current,
-          isInteracting: true,
-          sectionPlane: activeToolRef.current === 'section' ? {
-            ...sectionPlaneRef.current,
-            min: sectionRangeRef.current?.min,
-            max: sectionRangeRef.current?.max,
-          } : undefined,
-        });
+        isInteractingRef.current = true;
+        renderer.requestRender();
       }
     };
 
@@ -211,6 +191,14 @@ export function useTouchControls(params: UseTouchControlsParams): void {
       const previousTouchCount = touchState.touches.length;
       const wasMultiTouch = touchState.multiTouch;
       touchState.touches = Array.from(e.touches);
+
+      // Only clear interaction when all fingers are lifted (gesture truly ended).
+      // Clearing earlier would briefly drop interaction mode during 2-finger → 1-finger
+      // transitions, triggering an expensive full-quality render mid-gesture.
+      if (touchState.touches.length === 0 && isInteractingRef.current) {
+        isInteractingRef.current = false;
+        renderer.requestRender();
+      }
 
       if (touchState.touches.length === 0) {
         camera.stopInertia();
@@ -246,14 +234,27 @@ export function useTouchControls(params: UseTouchControlsParams): void {
       }
     };
 
+    // Also reset interaction on touchcancel — mobile browsers can cancel
+    // gestures (system gestures, tab switch, lost focus) without touchend.
+    const handleTouchCancel = () => {
+      if (isInteractingRef.current) {
+        isInteractingRef.current = false;
+        renderer.requestRender();
+      }
+      touchState.touches = [];
+      touchState.multiTouch = false;
+    };
+
     canvas.addEventListener('touchstart', handleTouchStart);
     canvas.addEventListener('touchmove', handleTouchMove);
     canvas.addEventListener('touchend', handleTouchEnd);
+    canvas.addEventListener('touchcancel', handleTouchCancel);
 
     return () => {
       canvas.removeEventListener('touchstart', handleTouchStart);
       canvas.removeEventListener('touchmove', handleTouchMove);
       canvas.removeEventListener('touchend', handleTouchEnd);
+      canvas.removeEventListener('touchcancel', handleTouchCancel);
     };
   }, [isInitialized]);
 }

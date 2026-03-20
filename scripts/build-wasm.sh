@@ -39,12 +39,13 @@ if [ "${DEBUG_GEOMETRY:-}" = "1" ]; then
   echo "🔍 Building with debug_geometry feature enabled"
 fi
 
-"$WASM_PACK" build rust/wasm-bindings \
+rustup run nightly-2025-11-15 "$WASM_PACK" build rust/wasm-bindings \
   --target web \
   --out-dir ../../packages/wasm/pkg \
   --out-name ifc-lite \
   --release \
-  $FEATURES
+  $FEATURES \
+  -- -Z build-std=panic_abort,std
 
 # Optimize with wasm-opt
 echo "⚡ Optimizing with wasm-opt..."
@@ -54,6 +55,8 @@ if command -v wasm-opt &> /dev/null; then
     --enable-mutable-globals \
     --enable-nontrapping-float-to-int \
     --enable-sign-ext \
+    --enable-threads \
+    --enable-atomics \
     packages/wasm/pkg/ifc-lite_bg.wasm \
     -o packages/wasm/pkg/ifc-lite_bg.wasm
   echo "✅ Optimized with wasm-opt"

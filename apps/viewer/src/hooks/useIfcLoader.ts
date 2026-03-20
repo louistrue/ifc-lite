@@ -10,12 +10,12 @@
  * Extracted from useIfc.ts for better separation of concerns
  */
 
-import { useCallback } from 'react';
+import { useCallback, useRef } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useViewerStore } from '../store.js';
 import { IfcParser, detectFormat, parseIfcx, type IfcDataStore } from '@ifc-lite/parser';
 import { GeometryProcessor, GeometryQuality, type MeshData, type CoordinateInfo } from '@ifc-lite/geometry';
-import { buildSpatialIndex } from '@ifc-lite/spatial';
+import { buildSpatialIndexGuarded } from '../utils/loadingUtils.js';
 import { type GeometryData, loadGLBToMeshData } from '@ifc-lite/cache';
 
 import { SERVER_URL, USE_SERVER, CACHE_SIZE_THRESHOLD, CACHE_MAX_SOURCE_SIZE, getDynamicBatchConfig } from '../utils/ifcConfig.js';
@@ -69,6 +69,10 @@ function computeFastFingerprint(buffer: ArrayBuffer): string {
  * Includes binary cache support for fast subsequent loads
  */
 export function useIfcLoader() {
+  // Guard against stale async writes when user loads a new file before previous completes.
+  // Incremented on each loadFile call; deferred callbacks check their captured session.
+  const loadSessionRef = useRef(0);
+
   const {
     setLoading,
     setError,
@@ -97,6 +101,7 @@ export function useIfcLoader() {
 
   const loadFile = useCallback(async (file: File) => {
     const { resetViewerState, clearAllModels } = useViewerStore.getState();
+    const currentSession = ++loadSessionRef.current;
 
     // Track total elapsed time for complete user experience
     const totalStartTime = performance.now();
@@ -243,8 +248,6 @@ export function useIfcLoader() {
 
           setProgress({ phase: 'Complete', percent: 100 });
 
-          const totalElapsedMs = performance.now() - totalStartTime;
-          console.log(`[useIfc] GLB loaded: ${meshes.length} meshes, ${stats.totalTriangles} triangles in ${totalElapsedMs.toFixed(0)}ms`);
           setLoading(false);
           return;
         } catch (err: unknown) {
@@ -267,8 +270,7 @@ export function useIfcLoader() {
         if (cacheResult) {
           const success = await loadFromCache(cacheResult, file.name, cacheKey);
           if (success) {
-            const totalElapsedMs = performance.now() - totalStartTime;
-            console.log(`[useIfc] TOTAL LOAD TIME (from cache): ${totalElapsedMs.toFixed(0)}ms (${(totalElapsedMs / 1000).toFixed(1)}s)`);
+            console.log(`[useIfc] TOTAL LOAD TIME (from cache): ${(performance.now() - totalStartTime).toFixed(0)}ms`);
             setLoading(false);
             return;
           }
@@ -279,10 +281,9 @@ export function useIfcLoader() {
       // Only for IFC4 STEP files (server doesn't support IFCX)
       if (format === 'ifc' && USE_SERVER && SERVER_URL && SERVER_URL !== '') {
         // Pass buffer directly - server uses File object for parsing, buffer is only for size checks
-        const serverSuccess = await loadFromServer(file, buffer);
+        const serverSuccess = await loadFromServer(file, buffer, () => loadSessionRef.current !== currentSession);
         if (serverSuccess) {
-          const totalElapsedMs = performance.now() - totalStartTime;
-          console.log(`[useIfc] TOTAL LOAD TIME (server): ${totalElapsedMs.toFixed(0)}ms (${(totalElapsedMs / 1000).toFixed(1)}s)`);
+          console.log(`[useIfc] TOTAL LOAD TIME (server): ${(performance.now() - totalStartTime).toFixed(0)}ms`);
           setLoading(false);
           return;
         }
@@ -300,9 +301,10 @@ export function useIfcLoader() {
       });
       await geometryProcessor.init();
 
-      // DEFER data model parsing - start it AFTER geometry streaming begins
-      // This ensures geometry gets first crack at the CPU for fast first frame
-      // Data model parsing is lower priority - UI can work without it initially
+      // Data model parsing runs IN PARALLEL with geometry streaming.
+      // Entity scanning uses a Web Worker (non-blocking, ~1.2s).
+      // Columnar parse uses time-sliced yielding (~2.3s, 60fps maintained).
+      // Neither depends on geometry output — both just need the raw buffer.
       let resolveDataStore: (dataStore: IfcDataStore) => void;
       let rejectDataStore: (err: unknown) => void;
       const dataStorePromise = new Promise<IfcDataStore>((resolve, reject) => {
@@ -311,13 +313,25 @@ export function useIfcLoader() {
       });
 
       const startDataModelParsing = () => {
-        // Use main thread - worker parsing disabled (IfcDataStore has closures that can't be serialized)
         const parser = new IfcParser();
+        // wasmApi as fallback if Web Worker unavailable
         const wasmApi = geometryProcessor.getApi();
         parser.parseColumnar(buffer, {
-          wasmApi, // Pass WASM API for 5-10x faster entity scanning
+          wasmApi,
+          // Emit spatial hierarchy EARLY — lets the panel render while
+          // property/association parsing continues (~0.5-1s earlier).
+          onSpatialReady: (partialStore) => {
+            if (loadSessionRef.current !== currentSession) return;
+            if (partialStore.spatialHierarchy && partialStore.spatialHierarchy.storeyHeights.size === 0 && partialStore.spatialHierarchy.storeyElevations.size > 1) {
+              const calculatedHeights = calculateStoreyHeights(partialStore.spatialHierarchy.storeyElevations);
+              for (const [storeyId, height] of calculatedHeights) {
+                partialStore.spatialHierarchy.storeyHeights.set(storeyId, height);
+              }
+            }
+            setIfcDataStore(partialStore);
+          },
         }).then(dataStore => {
-
+          if (loadSessionRef.current !== currentSession) return;
           // Calculate storey heights from elevation differences if not already populated
           if (dataStore.spatialHierarchy && dataStore.spatialHierarchy.storeyHeights.size === 0 && dataStore.spatialHierarchy.storeyElevations.size > 1) {
             const calculatedHeights = calculateStoreyHeights(dataStore.spatialHierarchy.storeyElevations);
@@ -326,6 +340,7 @@ export function useIfcLoader() {
             }
           }
 
+          // Update with full data (includes property/association maps)
           setIfcDataStore(dataStore);
           resolveDataStore(dataStore);
         }).catch(err => {
@@ -334,9 +349,10 @@ export function useIfcLoader() {
         });
       };
 
-      // Data model parsing is deferred to the 'complete' event (see below).
-      // Running it concurrently with geometry streaming steals main-thread cycles
-      // from the WASM↔JS bridge, adding ~1-2s to geometry completion time.
+      // Start data model parsing IMMEDIATELY — runs in parallel with geometry.
+      // Entity scan uses Web Worker (off main thread), columnar parse yields
+      // every ~4ms to maintain 60fps navigation during geometry streaming.
+      setTimeout(startDataModelParsing, 0);
 
       // Use adaptive processing: sync for small files, streaming for large files
       let estimatedTotal = 0;
@@ -352,11 +368,7 @@ export function useIfcLoader() {
       setGeometryResult(null);
 
       // Timing instrumentation
-      const processingStart = performance.now();
       let batchCount = 0;
-      let lastBatchTime = processingStart;
-      let totalWaitTime = 0; // Time waiting for WASM to yield batches
-      let totalProcessTime = 0; // Time processing batches in JS
       let firstGeometryTime = 0; // Time to first rendered geometry
       let modelOpenMs = 0;
       let lastTotalMeshes = 0;
@@ -377,7 +389,6 @@ export function useIfcLoader() {
           batchSize: dynamicBatchConfig, // Dynamic batches: small first, then large
         })) {
           const eventReceived = performance.now();
-          const waitTime = eventReceived - lastBatchTime;
 
           switch (event.type) {
             case 'start':
@@ -410,7 +421,6 @@ export function useIfcLoader() {
             }
             case 'batch': {
               batchCount++;
-              totalWaitTime += waitTime;
 
               // Track time to first geometry
               if (batchCount === 1) {
@@ -418,7 +428,6 @@ export function useIfcLoader() {
                 console.log(`[useIfc] Batch #1: ${event.meshes.length} meshes, wait: ${firstGeometryTime.toFixed(0)}ms`);
               }
 
-              const processStart = performance.now();
 
               // Collect meshes for BVH building (use loop to avoid stack overflow with large batches)
               for (let i = 0; i < event.meshes.length; i++) allMeshes.push(event.meshes[i]);
@@ -447,8 +456,6 @@ export function useIfcLoader() {
                 });
               }
 
-              const processTime = performance.now() - processStart;
-              totalProcessTime += processTime;
               break;
             }
             case 'complete':
@@ -460,11 +467,8 @@ export function useIfcLoader() {
 
               finalCoordinateInfo = event.coordinateInfo ?? null;
 
-              // PERF: Defer data model parsing to next macrotask so the browser
-              // can paint the streaming-complete state first. parseColumnar()
-              // synchronously calls scanEntitiesFast() which blocks the main
-              // thread for ~7s on large files (487MB → 8.4M entities).
-              setTimeout(startDataModelParsing, 0);
+              // Data model parsing already started in parallel (see above).
+              // No need to start it here — it runs concurrently with geometry.
 
               // Apply all accumulated color updates in a single store update
               // instead of one updateMeshColors() call per colorUpdate event.
@@ -482,31 +486,17 @@ export function useIfcLoader() {
 
               setProgress({ phase: 'Complete', percent: 100 });
               console.log(`[useIfc] Geometry streaming complete: ${batchCount} batches, ${lastTotalMeshes} meshes`);
-              console.log(`Total wait (WASM): ${totalWaitTime.toFixed(0)}ms`);
-              console.log(`Total process (JS): ${totalProcessTime.toFixed(0)}ms`);
 
               // Build spatial index and cache in background (non-blocking)
               // Wait for data model to complete first
               dataStorePromise.then(dataStore => {
-                // Build spatial index from meshes (in background)
-                if (allMeshes.length > 0) {
-                  const buildIndex = () => {
-                    try {
-                      const spatialIndex = buildSpatialIndex(allMeshes);
-                      dataStore.spatialIndex = spatialIndex;
-                      setIfcDataStore({ ...dataStore });
-                    } catch (err) {
-                      console.warn('[useIfc] Failed to build spatial index:', err);
-                    }
-                  };
-
-                  // Use requestIdleCallback if available (type assertion for optional browser API)
-                  if ('requestIdleCallback' in window) {
-                    (window as { requestIdleCallback: (cb: () => void, opts?: { timeout: number }) => void }).requestIdleCallback(buildIndex, { timeout: 2000 });
-                  } else {
-                    setTimeout(buildIndex, 100);
-                  }
-                }
+                // Guard: skip if user loaded a new file since this load started
+                if (loadSessionRef.current !== currentSession) return;
+                // Build spatial index from meshes in time-sliced chunks (non-blocking).
+                // Previously this was synchronous inside requestIdleCallback, blocking
+                // the main thread for seconds on 200K+ mesh models (190M+ float reads
+                // for bounds computation alone).
+                buildSpatialIndexGuarded(allMeshes, dataStore, setIfcDataStore);
 
                 // Cache the result in the background (files between 10 MB and 150 MB).
                 // Files above CACHE_MAX_SOURCE_SIZE are not cached because the
@@ -536,14 +526,15 @@ export function useIfcLoader() {
               break;
           }
 
-          lastBatchTime = performance.now();
         }
       } catch (err) {
+        if (loadSessionRef.current !== currentSession) return;
         console.error('[useIfc] Error in processing:', err);
         setError(err instanceof Error ? err.message : 'Unknown error during geometry processing');
       }
 
-      // Log developer-friendly summary with key metrics
+      if (loadSessionRef.current !== currentSession) return;
+
       const totalElapsedMs = performance.now() - totalStartTime;
       const totalVertices = allMeshes.reduce((sum, m) => sum + m.positions.length / 3, 0);
       console.log(
@@ -552,9 +543,9 @@ export function useIfcLoader() {
         `first: ${firstGeometryTime.toFixed(0)}ms, total: ${totalElapsedMs.toFixed(0)}ms`
       );
       console.log(`[useIfc] TOTAL LOAD TIME (local): ${totalElapsedMs.toFixed(0)}ms (${(totalElapsedMs / 1000).toFixed(1)}s)`);
-
       setLoading(false);
     } catch (err) {
+      if (loadSessionRef.current !== currentSession) return;
       setError(err instanceof Error ? err.message : 'Unknown error');
       setLoading(false);
     }

@@ -32,7 +32,7 @@ import {
   type QuantitySet,
 } from '@ifc-lite/data';
 import { StringTable } from '@ifc-lite/data';
-import { buildSpatialIndex, type SpatialIndex } from '@ifc-lite/spatial';
+import type { SpatialIndex } from '@ifc-lite/spatial';
 
 // ============================================================================
 // Types
@@ -713,8 +713,9 @@ export function convertServerDataModel(
     },
   };
 
-  // Build spatial index
-  const spatialIndex = allMeshes.length > 0 ? buildSpatialIndex(allMeshes) : undefined;
+  // Spatial index is built asynchronously by the caller after this returns
+  // to avoid blocking the main thread for seconds on large models.
+  const spatialIndex: SpatialIndex | undefined = undefined;
 
   // Validate schemaVersion against allowed values
   const VALID_SCHEMA_VERSIONS = ['IFC2X3', 'IFC4', 'IFC4X3', 'IFC5'] as const;

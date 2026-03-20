@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "NODE_OPTIONS='--max-old-space-size=4096' bash -c '(tsc || true) && vite build'",
+    "build": "vite build",
+    "typecheck": "tsc --noEmit",
     "preview": "vite preview",
     "test": "tsx --test --test-concurrency=1 $(find src -type f \\( -name '*.test.ts' -o -name '*.test.tsx' \\) | sort)",
     "check:templates": "tsc -p src/lib/scripts/templates/tsconfig.json --noEmit"

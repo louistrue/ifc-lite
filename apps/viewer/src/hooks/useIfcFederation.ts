@@ -16,7 +16,7 @@ import { useViewerStore, type FederatedModel, type SchemaVersion } from '../stor
 import { IfcParser, detectFormat, parseIfcx, parseFederatedIfcx, type IfcDataStore, type FederatedIfcxParseResult } from '@ifc-lite/parser';
 import { GeometryProcessor, GeometryQuality, type MeshData, type CoordinateInfo } from '@ifc-lite/geometry';
 import { IfcQuery } from '@ifc-lite/query';
-import { buildSpatialIndex } from '@ifc-lite/spatial';
+import { buildSpatialIndexGuarded } from '../utils/loadingUtils.js';
 import { loadGLBToMeshData } from '@ifc-lite/cache';
 
 import { getDynamicBatchConfig } from '../utils/ifcConfig.js';
@@ -333,16 +333,6 @@ export function useIfcFederation() {
           }
         }
 
-        // Build spatial index
-        if (allMeshes.length > 0) {
-          try {
-            const spatialIndex = buildSpatialIndex(allMeshes);
-            parsedDataStore.spatialIndex = spatialIndex;
-          } catch (err) {
-            console.warn('[useIfc] Failed to build spatial index:', err);
-          }
-        }
-
         parsedGeometry = {
           meshes: allMeshes,
           totalVertices: allMeshes.reduce((sum, m) => sum + m.positions.length / 3, 0),
@@ -462,6 +452,10 @@ export function useIfcFederation() {
           console.warn(`[useIfc] Cannot align "${file.name}" - missing RTC offset. Clear cache and reload.`);
         }
       }
+
+      // Build spatial index AFTER ID offset + RTC alignment so it stores
+      // correct globalIds and final world-space positions.
+      buildSpatialIndexGuarded(parsedGeometry.meshes, parsedDataStore, setIfcDataStore);
 
       // Create the federated model with offset info
       const federatedModel: FederatedModel = {

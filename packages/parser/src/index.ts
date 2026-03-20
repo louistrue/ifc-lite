@@ -86,10 +86,14 @@ import { EntityExtractor } from './entity-extractor.js';
 import { PropertyExtractor } from './property-extractor.js';
 import { RelationshipExtractor } from './relationship-extractor.js';
 import { ColumnarParser, type IfcDataStore } from './columnar-parser.js';
+import { scanEntitiesInWorker } from './scan-worker-inline.js';
 
 export interface ParseOptions {
   onProgress?: (progress: { phase: string; percent: number }) => void;
   wasmApi?: any; // Optional IfcAPI instance for WASM-accelerated entity scanning
+  /** Called when spatial hierarchy is ready, BEFORE property/association parsing completes.
+   *  Use this to show the hierarchy panel early while the full parse finishes. */
+  onSpatialReady?: (partialStore: import('./columnar-parser.js').IfcDataStore) => void;
 }
 
 /**
@@ -179,21 +183,30 @@ export class IfcParser {
    */
   async parseColumnar(buffer: ArrayBuffer, options: ParseOptions = {}): Promise<IfcDataStore> {
     const uint8Buffer = new Uint8Array(buffer);
-    const startTime = performance.now();
     const fileSizeMB = buffer.byteLength / (1024 * 1024);
     const scanStartTime = performance.now();
 
-    // Fast scan: try WASM scanner first (5-10x faster), fallback to TypeScript
+    // Fast scan: prefer Web Worker (non-blocking), fall back to main-thread scanners
     options.onProgress?.({ phase: 'scanning', percent: 0 });
-    
+
     let entityRefs: EntityRef[] = [];
     let processed = 0;
-    
-    // Try WASM scanner if available
-    if (options.wasmApi && typeof options.wasmApi.scanEntitiesFast === 'function') {
+
+    // Try Web Worker scanner first (keeps main thread free for UI + geometry)
+    if (typeof Worker !== 'undefined') {
       try {
-        // Prefer scanEntitiesFastBytes (accepts Uint8Array directly, avoids
-        // TextDecoder.decode which creates a ~500MB JS string for large files).
+        entityRefs = await scanEntitiesInWorker(buffer);
+        processed = entityRefs.length;
+      } catch (error) {
+        console.warn('[IfcParser] Worker scan failed, falling back to main thread:', error);
+        entityRefs.length = 0;
+        processed = 0;
+      }
+    }
+
+    // Fallback: WASM scanner (synchronous, blocks main thread)
+    if (entityRefs.length === 0 && options.wasmApi && typeof options.wasmApi.scanEntitiesFast === 'function') {
+      try {
         const scanFn = typeof options.wasmApi.scanEntitiesFastBytes === 'function'
           ? () => options.wasmApi!.scanEntitiesFastBytes(uint8Buffer)
           : () => {
@@ -208,8 +221,7 @@ export class IfcParser {
           byte_length: number;
           line_number: number;
         }>;
-        
-        // Direct mapping - optimized by JS engine, no intermediate loop/push
+
         entityRefs = wasmRefs.map((ref) => ({
           expressId: ref.express_id,
           type: ref.entity_type,
@@ -217,23 +229,19 @@ export class IfcParser {
           byteLength: ref.byte_length,
           lineNumber: ref.line_number,
         }));
-        
+
         processed = entityRefs.length;
       } catch (error) {
         console.warn('[IfcParser] WASM scan failed, falling back to TypeScript:', error);
-        // Fall through to TypeScript scanner
         entityRefs.length = 0;
         processed = 0;
       }
     }
-    
-    // Fallback to TypeScript scanner if WASM not available or failed
+
+    // Last resort: TypeScript scanner (yields to avoid blocking)
     if (entityRefs.length === 0) {
       const tokenizer = new StepTokenizer(uint8Buffer);
-      // Yield frequently to avoid blocking geometry streaming
-      // Reduced from 50000 to 5000 for better interleaving with geometry processor
       const YIELD_INTERVAL = 5000;
-      // Estimate total entities based on file size (~13,500 entities per MB typical for IFC)
       const estimatedTotalEntities = Math.max(fileSizeMB * 13500, 10000);
 
       for (const ref of tokenizer.scanEntitiesFast()) {
@@ -247,7 +255,6 @@ export class IfcParser {
 
         processed++;
         if (processed % YIELD_INTERVAL === 0) {
-          // Progress capped at 95% (scanning phase), 100% reported after loop completes
           const scanPercent = Math.min(95, (processed / estimatedTotalEntities) * 95);
           options.onProgress?.({ phase: 'scanning', percent: scanPercent });
           await new Promise(resolve => setTimeout(resolve, 0));

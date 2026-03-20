@@ -1,8 +1,8 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "buildCommand": "pnpm --filter @ifc-lite/data build && pnpm --filter @ifc-lite/mutations build && pnpm -r build",
+  "buildCommand": "npx turbo build --filter=@ifc-lite/viewer...",
   "outputDirectory": "apps/viewer/dist",
-  "installCommand": "pnpm install",
+  "installCommand": "pnpm install --frozen-lockfile",
   "framework": "vite",
   "rewrites": [
     {

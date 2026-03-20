@@ -1,0 +1,81 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "globalPassThroughEnv": [
+    "OPENROUTER_API_KEY",
+    "LLM_API_KEY",
+    "LLM_API_BASE",
+    "LLM_FREE_DAILY_LIMIT",
+    "LLM_PRO_MONTHLY_CREDITS",
+    "LLM_COST_TO_CREDITS",
+    "APP_URL",
+    "POSTGRES_URL",
+    "DATABASE_URL",
+    "POSTGRES_DATABASE",
+    "NEON_PROJECT_ID",
+    "PGDATABASE",
+    "POSTGRES_PASSWORD",
+    "POSTGRES_URL_NO_SSL",
+    "PGHOST",
+    "POSTGRES_PRISMA_URL",
+    "PGPASSWORD",
+    "POSTGRES_USER",
+    "POSTGRES_HOST",
+    "DATABASE_URL_UNPOOLED",
+    "PGUSER",
+    "POSTGRES_URL_NON_POOLING",
+    "PGHOST_UNPOOLED",
+    "LLM_FREE_MODELS",
+    "LLM_PRO_MODELS_LOW",
+    "LLM_PRO_MODELS_MEDIUM",
+    "LLM_PRO_MODELS_HIGH",
+    "LLM_PRO_MODELS",
+    "LLM_IMAGE_MODELS",
+    "LLM_FILE_ATTACHMENT_MODELS",
+    "CLERK_SECRET_KEY",
+    "CLERK_JWT_KEY"
+  ],
+  "tasks": {
+    "build": {
+      "dependsOn": ["^build"],
+      "outputs": ["dist/**", "pkg/**"],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "src/**",
+        "scripts/**",
+        "package.json",
+        "tsconfig.json",
+        "tsconfig.*.json",
+        "vite.config.ts",
+        "index.html"
+      ],
+      "env": [
+        "VITE_SERVER_URL",
+        "VITE_IFC_SERVER_URL",
+        "VITE_USE_SERVER",
+        "VITE_CLERK_PUBLISHABLE_KEY",
+        "VITE_LLM_FREE_MODELS",
+        "VITE_LLM_PRO_MODELS_LOW",
+        "VITE_LLM_PRO_MODELS_MEDIUM",
+        "VITE_LLM_PRO_MODELS_HIGH",
+        "VITE_LLM_IMAGE_MODELS",
+        "VITE_LLM_FILE_ATTACHMENT_MODELS"
+      ]
+    },
+    "typecheck": {
+      "dependsOn": ["^build"],
+      "outputs": []
+    },
+    "dev": {
+      "cache": false,
+      "persistent": true
+    },
+    "test": {
+      "dependsOn": ["build"],
+      "cache": false
+    },
+    "lint": {
+      "dependsOn": ["build"],
+      "cache": false
+    }
+  }
+}

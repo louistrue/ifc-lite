@@ -8,7 +8,7 @@
  */
 
 import { createLogger } from '@ifc-lite/data';
-import init, { IfcAPI, MeshCollection, MeshDataJs, InstancedMeshCollection, InstancedGeometry, InstanceData, SymbolicRepresentationCollection, SymbolicPolyline, SymbolicCircle } from '@ifc-lite/wasm';
+import init, { IfcAPI, initThreadPool, MeshCollection, MeshDataJs, InstancedMeshCollection, InstancedGeometry, InstanceData, SymbolicRepresentationCollection, SymbolicPolyline, SymbolicCircle } from '@ifc-lite/wasm';
 export type { MeshCollection, MeshDataJs, InstancedMeshCollection, InstancedGeometry, InstanceData, SymbolicRepresentationCollection, SymbolicPolyline, SymbolicCircle };
 
 const log = createLogger('Geometry');
@@ -74,6 +74,21 @@ export class IfcLiteBridge {
       // Initialize WASM module - wasm-bindgen automatically resolves the WASM URL
       // from import.meta.url, no need to manually construct paths
       await init();
+
+      // Initialize rayon thread pool for parallel geometry processing in WASM.
+      // Requires SharedArrayBuffer (COOP/COEP headers). Falls back to single-threaded
+      // if unavailable — rayon's par_iter() still works, just sequentially.
+      if (typeof SharedArrayBuffer !== 'undefined') {
+        try {
+          const threads = navigator.hardwareConcurrency || 4;
+          await initThreadPool(threads);
+          log.info(`Thread pool initialized with ${threads} threads`);
+        } catch (e) {
+          log.warn('Thread pool init failed, falling back to single-threaded geometry processing', { data: e });
+        }
+      } else {
+        log.warn('SharedArrayBuffer unavailable (missing COOP/COEP headers?) — geometry processing will be single-threaded');
+      }
 
       this.ifcApi = new IfcAPI();
       this.initialized = true;

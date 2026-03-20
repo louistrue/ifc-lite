@@ -23,6 +23,7 @@ import {
   useIfcDataState,
 } from '../../hooks/useViewerSelectors.js';
 import { useModelSelection } from '../../hooks/useModelSelection.js';
+import { useLatestRef } from '../../hooks/useLatestRef.js';
 import {
   getEntityBounds,
   getThemeClearColor,
@@ -290,8 +291,6 @@ export function Viewport({ geometry, geometryVersion, coordinateInfo, computedIs
     separationLinesIntensity,
     separationLinesRadius,
   ]);
-  const visualEnhancementRef = useRef<VisualEnhancementOptions>(visualEnhancement);
-
   // Animation frame ref
   const animationFrameRef = useRef<number | null>(null);
   const lastFrameTimeRef = useRef<number>(0);
@@ -340,29 +339,29 @@ export function Viewport({ geometry, geometryVersion, coordinateInfo, computedIs
     max: { x: 100, y: 100, z: 100 },
   });
 
-  // Coordinate info ref for camera callbacks (to access latest buildingRotation)
-  const coordinateInfoRef = useRef<CoordinateInfo | undefined>(coordinateInfo);
-
-  // Visibility state refs for animation loop
-  const hiddenEntitiesRef = useRef<Set<number>>(hiddenEntities);
-  const isolatedEntitiesRef = useRef<Set<number> | null>(isolatedEntities);
-  const selectedEntityIdRef = useRef<number | null>(selectedEntityId);
-  const selectedEntityIdsRef = useRef<Set<number> | undefined>(selectedEntityIds);
-  const selectedModelIndexRef = useRef<number | undefined>(selectedModelIndex);
+  // Refs that stay in sync with props/state automatically (no useEffect needed).
+  // Event handlers and the animation loop read .current to get the latest value.
+  const coordinateInfoRef = useLatestRef(coordinateInfo);
+  const hiddenEntitiesRef = useLatestRef(hiddenEntities);
+  const isolatedEntitiesRef = useLatestRef(isolatedEntities);
+  const selectedEntityIdRef = useLatestRef(selectedEntityId);
+  const selectedEntityIdsRef = useLatestRef(selectedEntityIds);
+  const selectedModelIndexRef = useLatestRef(selectedModelIndex);
   const activeToolRef = useRef<string>(activeTool);
-  const pendingMeasurePointRef = useRef<MeasurePoint | null>(pendingMeasurePoint);
-  const activeMeasurementRef = useRef(activeMeasurement);
-  const snapEnabledRef = useRef(snapEnabled);
-  const edgeLockStateRef = useRef(edgeLockState);
-  const measurementConstraintEdgeRef = useRef(measurementConstraintEdge);
-  const sectionPlaneRef = useRef(sectionPlane);
-  const sectionRangeRef = useRef<{ min: number; max: number } | null>(null);
-  const geometryRef = useRef<MeshData[] | null>(geometry);
+  const pendingMeasurePointRef = useLatestRef(pendingMeasurePoint);
+  const activeMeasurementRef = useLatestRef(activeMeasurement);
+  const snapEnabledRef = useLatestRef(snapEnabled);
+  const edgeLockStateRef = useLatestRef(edgeLockState);
+  const measurementConstraintEdgeRef = useLatestRef(measurementConstraintEdge);
+  const sectionPlaneRef = useLatestRef(sectionPlane);
+  const sectionRangeRef = useLatestRef(sectionRange);
+  const visualEnhancementRef = useLatestRef(visualEnhancement);
+  const geometryRef = useLatestRef(geometry);
 
   // Hover throttling
   const lastHoverCheckRef = useRef<number>(0);
   const hoverThrottleMs = 50; // Check hover every 50ms
-  const hoverTooltipsEnabledRef = useRef(hoverTooltipsEnabled);
+  const hoverTooltipsEnabledRef = useLatestRef(hoverTooltipsEnabled);
 
   // Measure tool throttling (adaptive based on raycast performance)
   const measureRaycastPendingRef = useRef(false);
@@ -391,16 +390,9 @@ export function Viewport({ geometry, geometryVersion, coordinateInfo, computedIs
     canvasHeight: number;
   } | null>(null);
 
-  // Keep refs in sync
-  useEffect(() => { coordinateInfoRef.current = coordinateInfo; }, [coordinateInfo]);
-  useEffect(() => { hiddenEntitiesRef.current = hiddenEntities; }, [hiddenEntities]);
-  useEffect(() => { isolatedEntitiesRef.current = isolatedEntities; }, [isolatedEntities]);
-  useEffect(() => { selectedEntityIdRef.current = selectedEntityId; }, [selectedEntityId]);
-  useEffect(() => { selectedEntityIdsRef.current = selectedEntityIds; }, [selectedEntityIds]);
-  useEffect(() => { selectedModelIndexRef.current = selectedModelIndex; }, [selectedModelIndex]);
+  // activeTool has a side effect (first-person mode), so keep as useEffect
   useEffect(() => {
     activeToolRef.current = activeTool;
-    // Sync first-person/walk mode with tool selection
     const renderer = rendererRef.current;
     if (renderer) {
       const isWalk = activeTool === 'walk';
@@ -408,21 +400,8 @@ export function Viewport({ geometry, geometryVersion, coordinateInfo, computedIs
       renderer.getCamera().enableFirstPersonMode(isWalk);
     }
   }, [activeTool]);
-  useEffect(() => { pendingMeasurePointRef.current = pendingMeasurePoint; }, [pendingMeasurePoint]);
-  useEffect(() => { activeMeasurementRef.current = activeMeasurement; }, [activeMeasurement]);
-  useEffect(() => { snapEnabledRef.current = snapEnabled; }, [snapEnabled]);
-  useEffect(() => { edgeLockStateRef.current = edgeLockState; }, [edgeLockState]);
-  useEffect(() => { measurementConstraintEdgeRef.current = measurementConstraintEdge; }, [measurementConstraintEdge]);
-  useEffect(() => { sectionPlaneRef.current = sectionPlane; }, [sectionPlane]);
-  useEffect(() => { sectionRangeRef.current = sectionRange; }, [sectionRange]);
-  useEffect(() => { visualEnhancementRef.current = visualEnhancement; }, [visualEnhancement]);
   useEffect(() => {
-    geometryRef.current = geometry;
-  }, [geometry]);
-  useEffect(() => {
-    hoverTooltipsEnabledRef.current = hoverTooltipsEnabled;
     if (!hoverTooltipsEnabled) {
-      // Clear hover state when disabled
       clearHover();
     }
   }, [hoverTooltipsEnabled, clearHover]);
@@ -530,19 +509,7 @@ export function Viewport({ geometry, geometryVersion, coordinateInfo, computedIs
 
       const camera = renderer.getCamera();
       const renderCurrent = () => {
-        renderer.render({
-          hiddenIds: hiddenEntitiesRef.current,
-          isolatedIds: isolatedEntitiesRef.current,
-          selectedId: selectedEntityIdRef.current,
-          selectedModelIndex: selectedModelIndexRef.current,
-          clearColor: clearColorRef.current,
-          visualEnhancement: visualEnhancementRef.current,
-          sectionPlane: activeToolRef.current === 'section' ? {
-            ...sectionPlaneRef.current,
-            min: sectionRangeRef.current?.min,
-            max: sectionRangeRef.current?.max,
-          } : undefined,
-        });
+        renderer.requestRender();
       };
 
       // Register camera callbacks for ViewCube and other controls
@@ -699,6 +666,10 @@ export function Viewport({ geometry, geometryVersion, coordinateInfo, computedIs
   // Sync on every render since mouseState is mutated directly by event handlers
   mouseIsDraggingRef.current = mouseStateRef.current.isDragging;
 
+  // isInteracting: set by mouse/touch controls during drag, cleared on mouseup/touchend.
+  // The animation loop reads this to skip post-processing during rapid camera movement.
+  const isInteractingRef = useRef(false);
+
   // ===== Extracted hooks =====
   useMouseControls({
     canvasRef,
@@ -726,6 +697,7 @@ export function Viewport({ geometry, geometryVersion, coordinateInfo, computedIs
     hoverTooltipsEnabledRef,
     lastRenderTimeRef,
     renderPendingRef,
+    isInteractingRef,
     lastClickTimeRef,
     lastClickPosRef,
     lastCameraStateRef,
@@ -772,6 +744,7 @@ export function Viewport({ geometry, geometryVersion, coordinateInfo, computedIs
     sectionPlaneRef,
     sectionRangeRef,
     geometryRef,
+    isInteractingRef,
     handlePickForSelection: (pickResult) => handlePickForSelectionRef.current(pickResult),
     getPickOptions,
   });
@@ -812,6 +785,9 @@ export function Viewport({ geometry, geometryVersion, coordinateInfo, computedIs
     sectionPlaneRef,
     sectionRangeRef,
     visualEnhancementRef,
+    selectedEntityIdsRef,
+    coordinateInfoRef,
+    isInteractingRef,
     lastCameraStateRef,
     updateCameraRotationRealtime,
     calculateScale,
