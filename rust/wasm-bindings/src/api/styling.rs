@@ -830,7 +830,7 @@ fn collect_material_entity(
 /// direct geometry style -> material-based style -> element style -> default.
 ///
 /// `mat_color_idx` is the current index for material color alternation (transparent/opaque).
-/// It is incremented when a material fallback is used (caller should track this).
+/// It is incremented when a material fallback is attempted (caller should track this).
 pub(crate) fn resolve_submesh_color(
     geometry_id: u32,
     geometry_styles: &rustc_hash::FxHashMap<u32, [f32; 4]>,

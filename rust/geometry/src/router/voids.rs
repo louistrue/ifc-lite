@@ -44,7 +44,12 @@ fn rotate_and_normalize(
 
 /// Whether the representation type is geometry we can process.
 fn is_body_representation(rep_type: &str) -> bool {
-    matches!(rep_type, "Body" | "SweptSolid" | "Brep" | "CSG" | "Clipping" | "Tessellation")
+    matches!(
+        rep_type,
+        "Body" | "SweptSolid" | "Brep" | "CSG" | "Clipping" | "Tessellation"
+            | "MappedRepresentation" | "SolidModel" | "SurfaceModel"
+            | "AdvancedSweptSolid" | "AdvancedBrep"
+    )
 }
 
 /// Classification of an opening for void subtraction.
@@ -683,18 +688,21 @@ impl GeometryRouter {
                         });
 
                         if any_diagonal {
-                            let dir = item_bounds_with_dir.iter()
-                                .find_map(|(_, _, d)| *d)
-                                .unwrap_or(Vector3::new(1.0, 0.0, 0.0));
-
-                            let item_meshes = self.get_opening_item_meshes_world(&opening_entity, decoder)
-                                .unwrap_or_default();
-                            if item_meshes.is_empty() {
-                                openings.push(OpeningType::DiagonalRectangular(opening_mesh.clone(), dir));
-                            } else {
-                                for item_mesh in item_meshes {
-                                    openings.push(OpeningType::DiagonalRectangular(item_mesh, dir));
+                            // Only use the diagonal path if we have an actual extrusion direction;
+                            // without one the rotation would be arbitrary and produce wrong cuts.
+                            if let Some(dir) = item_bounds_with_dir.iter().find_map(|(_, _, d)| *d) {
+                                let item_meshes = self.get_opening_item_meshes_world(&opening_entity, decoder)
+                                    .unwrap_or_default();
+                                if item_meshes.is_empty() {
+                                    openings.push(OpeningType::DiagonalRectangular(opening_mesh.clone(), dir));
+                                } else {
+                                    for item_mesh in item_meshes {
+                                        openings.push(OpeningType::DiagonalRectangular(item_mesh, dir));
+                                    }
                                 }
+                            } else {
+                                // No direction available — fall back to CSG
+                                openings.push(OpeningType::NonRectangular(opening_mesh.clone()));
                             }
                         } else {
                             for (min_pt, max_pt, extrusion_dir) in item_bounds_with_dir {
@@ -734,20 +742,21 @@ impl GeometryRouter {
             return;
         }
 
-        let extrusion_dir = *diagonal_openings[0].1;
-        let target = Vector3::new(1.0, 0.0, 0.0);
-        let rotation = Rotation3::rotation_between(&extrusion_dir, &target)
-            .unwrap_or(Rotation3::identity());
-        let inv_rotation = rotation.inverse();
-
-        for chunk in result.positions.chunks_exact_mut(3) {
-            let p = rotation * Point3::new(chunk[0] as f64, chunk[1] as f64, chunk[2] as f64);
-            chunk[0] = p.x as f32;
-            chunk[1] = p.y as f32;
-            chunk[2] = p.z as f32;
+        // Group openings by extrusion direction so each group gets its own
+        // rotate-clip-unrotate pass (directions considered equal within a
+        // small angular tolerance).
+        const DIR_DOT_THRESHOLD: f64 = 0.9998; // ~1° tolerance
+        let mut groups: Vec<(Vector3<f64>, Vec<&Mesh>)> = Vec::new();
+        for (mesh, dir) in &diagonal_openings {
+            let d = *dir;
+            if let Some(group) = groups.iter_mut().find(|(g, _)| d.dot(g).abs() > DIR_DOT_THRESHOLD) {
+                group.1.push(mesh);
+            } else {
+                groups.push((*d, vec![mesh]));
+            }
         }
 
-        let wall_corners_rot = [
+        let wall_corners = [
             Point3::new(wall_min.x, wall_min.y, wall_min.z),
             Point3::new(wall_max.x, wall_min.y, wall_min.z),
             Point3::new(wall_min.x, wall_max.y, wall_min.z),
@@ -757,37 +766,66 @@ impl GeometryRouter {
             Point3::new(wall_min.x, wall_max.y, wall_max.z),
             Point3::new(wall_max.x, wall_max.y, wall_max.z),
         ];
-        let mut wall_x_min = f64::INFINITY;
-        let mut wall_x_max = f64::NEG_INFINITY;
-        for wc in &wall_corners_rot {
-            let rwc = rotation * wc;
-            wall_x_min = wall_x_min.min(rwc.x);
-            wall_x_max = wall_x_max.max(rwc.x);
-        }
 
-        for (opening_mesh, _dir) in &diagonal_openings {
-            let mut rot_min = Point3::new(f64::INFINITY, f64::INFINITY, f64::INFINITY);
-            let mut rot_max = Point3::new(f64::NEG_INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY);
-            for chunk in opening_mesh.positions.chunks_exact(3) {
+        for (extrusion_dir, group_meshes) in &groups {
+            let target = Vector3::new(1.0, 0.0, 0.0);
+            let rotation = Rotation3::rotation_between(extrusion_dir, &target)
+                .unwrap_or(Rotation3::identity());
+            let inv_rotation = rotation.inverse();
+
+            // Rotate positions and normals into the aligned frame
+            for chunk in result.positions.chunks_exact_mut(3) {
                 let p = rotation * Point3::new(chunk[0] as f64, chunk[1] as f64, chunk[2] as f64);
-                rot_min.x = rot_min.x.min(p.x);
-                rot_min.y = rot_min.y.min(p.y);
-                rot_min.z = rot_min.z.min(p.z);
-                rot_max.x = rot_max.x.max(p.x);
-                rot_max.y = rot_max.y.max(p.y);
-                rot_max.z = rot_max.z.max(p.z);
+                chunk[0] = p.x as f32;
+                chunk[1] = p.y as f32;
+                chunk[2] = p.z as f32;
             }
-            rot_min.x = rot_min.x.min(wall_x_min);
-            rot_max.x = rot_max.x.max(wall_x_max);
+            for chunk in result.normals.chunks_exact_mut(3) {
+                let n = rotation * Vector3::new(chunk[0] as f64, chunk[1] as f64, chunk[2] as f64);
+                chunk[0] = n.x as f32;
+                chunk[1] = n.y as f32;
+                chunk[2] = n.z as f32;
+            }
 
-            *result = self.cut_rectangular_opening_no_faces(result, rot_min, rot_max);
-        }
+            let mut wall_x_min = f64::INFINITY;
+            let mut wall_x_max = f64::NEG_INFINITY;
+            for wc in &wall_corners {
+                let rwc = rotation * wc;
+                wall_x_min = wall_x_min.min(rwc.x);
+                wall_x_max = wall_x_max.max(rwc.x);
+            }
 
-        for chunk in result.positions.chunks_exact_mut(3) {
-            let p = inv_rotation * Point3::new(chunk[0] as f64, chunk[1] as f64, chunk[2] as f64);
-            chunk[0] = p.x as f32;
-            chunk[1] = p.y as f32;
-            chunk[2] = p.z as f32;
+            for opening_mesh in group_meshes {
+                let mut rot_min = Point3::new(f64::INFINITY, f64::INFINITY, f64::INFINITY);
+                let mut rot_max = Point3::new(f64::NEG_INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY);
+                for chunk in opening_mesh.positions.chunks_exact(3) {
+                    let p = rotation * Point3::new(chunk[0] as f64, chunk[1] as f64, chunk[2] as f64);
+                    rot_min.x = rot_min.x.min(p.x);
+                    rot_min.y = rot_min.y.min(p.y);
+                    rot_min.z = rot_min.z.min(p.z);
+                    rot_max.x = rot_max.x.max(p.x);
+                    rot_max.y = rot_max.y.max(p.y);
+                    rot_max.z = rot_max.z.max(p.z);
+                }
+                rot_min.x = rot_min.x.min(wall_x_min);
+                rot_max.x = rot_max.x.max(wall_x_max);
+
+                *result = self.cut_rectangular_opening_no_faces(result, rot_min, rot_max);
+            }
+
+            // Rotate positions and normals back to world frame
+            for chunk in result.positions.chunks_exact_mut(3) {
+                let p = inv_rotation * Point3::new(chunk[0] as f64, chunk[1] as f64, chunk[2] as f64);
+                chunk[0] = p.x as f32;
+                chunk[1] = p.y as f32;
+                chunk[2] = p.z as f32;
+            }
+            for chunk in result.normals.chunks_exact_mut(3) {
+                let n = inv_rotation * Vector3::new(chunk[0] as f64, chunk[1] as f64, chunk[2] as f64);
+                chunk[0] = n.x as f32;
+                chunk[1] = n.y as f32;
+                chunk[2] = n.z as f32;
+            }
         }
     }
 
@@ -1206,8 +1244,15 @@ impl GeometryRouter {
                             (tri.v2, tri.v0, tri.v1, d2, d0, d1)
                         };
 
-                        let t1 = d_f / (d_f - d_b1);
-                        let t2 = d_f / (d_f - d_b2);
+                        let denom1 = d_f - d_b1;
+                        let denom2 = d_f - d_b2;
+                        if denom1.abs() < 1e-12 || denom2.abs() < 1e-12 {
+                            // Near-degenerate split — keep triangle as-is
+                            buffers.next_remaining.push(tri.clone());
+                            continue;
+                        }
+                        let t1 = (d_f / denom1).clamp(0.0, 1.0);
+                        let t2 = (d_f / denom2).clamp(0.0, 1.0);
                         let p1 = front + (back1 - front) * t1;
                         let p2 = front + (back2 - front) * t2;
 
@@ -1228,8 +1273,15 @@ impl GeometryRouter {
                             (tri.v0, tri.v1, tri.v2, d0, d1, d2)
                         };
 
-                        let t1 = d_f1 / (d_f1 - d_b);
-                        let t2 = d_f2 / (d_f2 - d_b);
+                        let denom1 = d_f1 - d_b;
+                        let denom2 = d_f2 - d_b;
+                        if denom1.abs() < 1e-12 || denom2.abs() < 1e-12 {
+                            // Near-degenerate split — keep triangle as-is
+                            buffers.next_remaining.push(tri.clone());
+                            continue;
+                        }
+                        let t1 = (d_f1 / denom1).clamp(0.0, 1.0);
+                        let t2 = (d_f2 / denom2).clamp(0.0, 1.0);
                         let p1 = front1 + (back - front1) * t1;
                         let p2 = front2 + (back - front2) * t2;
 
