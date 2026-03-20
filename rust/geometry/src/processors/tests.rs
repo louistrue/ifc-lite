@@ -217,6 +217,79 @@ fn test_764_column_file() {
 }
 
 #[test]
+fn test_gable_wall_nested_boolean_clips() {
+    // Simulate a gable wall: tall rectangular extrusion clipped by two angled roof planes.
+    // The wall is 10m wide, 5.4m tall (from ground to ridge).
+    //
+    // Wall: 10m (X) x 0.3m (Y) x 5.4m (Z) - profile is in XY, extruded along Z
+    //
+    // Left roof slope goes from (-5000, 0, 2700) to (0, 0, 5400).
+    // The slope direction is (5000, 0, 2700). Normal perpendicular pointing OUTWARD
+    // (away from kept material, toward space above roof):
+    //   left_normal = (-2700, 0, 5000) normalized = (-0.4756, 0, 0.8797)
+    //   Agreement=.T. → half-space material on positive side (above slope) → DIFFERENCE removes it
+    //
+    // Right roof slope goes from (5000, 0, 2700) to (0, 0, 5400).
+    // Slope direction is (-5000, 0, 2700). Normal perpendicular pointing OUTWARD:
+    //   right_normal = (2700, 0, 5000) normalized = (0.4756, 0, 0.8797)
+    //   Agreement=.T. → same logic
+    //
+    // Plane point on each slope: (0, 0, 5400) = ridge point (on both planes)
+    let content = r#"
+#1=IFCRECTANGLEPROFILEDEF(.AREA.,$,$,10000.0,300.0);
+#2=IFCDIRECTION((0.0,0.0,1.0));
+#3=IFCEXTRUDEDAREASOLID(#1,$,#2,5400.0);
+#10=IFCCARTESIANPOINT((0.0,0.0,5400.0));
+#11=IFCDIRECTION((-0.4756,0.0,0.8797));
+#12=IFCAXIS2PLACEMENT3D(#10,#11,$);
+#13=IFCPLANE(#12);
+#14=IFCHALFSPACESOLID(#13,.T.);
+#15=IFCBOOLEANCLIPPINGRESULT(.DIFFERENCE.,#3,#14);
+#20=IFCCARTESIANPOINT((0.0,0.0,5400.0));
+#21=IFCDIRECTION((0.4756,0.0,0.8797));
+#22=IFCAXIS2PLACEMENT3D(#20,#21,$);
+#23=IFCPLANE(#22);
+#24=IFCHALFSPACESOLID(#23,.T.);
+#25=IFCBOOLEANCLIPPINGRESULT(.DIFFERENCE.,#15,#24);
+"#;
+
+    let mut decoder = EntityDecoder::new(content);
+    let schema = IfcSchema::new();
+    let processor = BooleanClippingProcessor::new();
+
+    let entity = decoder.decode_by_id(25).unwrap();
+    let mesh = processor.process(&entity, &mut decoder, &schema).unwrap();
+
+    assert!(!mesh.is_empty(), "Gable wall should produce geometry");
+
+    // Check bounds
+    let (min, max) = mesh.bounds();
+    println!("Gable wall bounds: min=({:.0},{:.0},{:.0}), max=({:.0},{:.0},{:.0})",
+             min.x, min.y, min.z, max.x, max.y, max.z);
+
+    // The gable should span:
+    // X: -5000 to 5000 (10m centered)
+    // Y: -150 to 150 (0.3m centered)
+    // Z: 0 to 5400 (full height to ridge)
+    // After clipping by two roof planes meeting at Z=5400, X=0:
+    // The base (Z=0) should still be the full 10m width
+    // The top (Z=5400) narrows to a point at X=0
+
+    // Most importantly: the Z min should be at 0 (ground level), NOT at 2700 (half height)
+    // If Z min is at ~2700, only the triangle above the roof base is remaining
+    assert!(
+        (min.z as f64) < 100.0,
+        "Gable wall should extend to ground level (Z min = {:.0}, expected ~0)",
+        min.z
+    );
+    assert!(
+        (max.z as f64) > 5000.0,
+        "Gable wall should extend to ridge (Z max = {:.0}, expected ~5400)",
+        max.z
+    );
+}
+
+#[test]
 fn test_wall_with_opening_file() {
     use crate::router::GeometryRouter;
 

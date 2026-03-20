@@ -617,10 +617,13 @@ impl GeometryRouter {
             let clipper = ClippingProcessor::new();
 
             for (_clip_idx, (plane_point, plane_normal, agreement)) in world_clipping_planes.iter().enumerate() {
+                // clip_mesh keeps the POSITIVE side of the given normal.
+                // For DIFFERENCE with agreement=true: half-space material is on positive side
+                // of plane_normal → subtract it → keep negative side → flip normal.
                 let clip_normal = if *agreement {
-                    *plane_normal
-                } else {
                     -*plane_normal
+                } else {
+                    *plane_normal
                 };
 
                 let plane = Plane::new(*plane_point, clip_normal);
