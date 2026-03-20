@@ -431,10 +431,14 @@ impl GeometryRouter {
                 for nested_item in items {
                     // Recursively collect sub-meshes (skip unsupported geometry types)
                     let count_before = sub_meshes.len();
-                    if self
+                    if let Err(_e) = self
                         .collect_submeshes_from_item(&nested_item, decoder, sub_meshes)
-                        .is_err()
                     {
+                        #[cfg(debug_assertions)]
+                        eprintln!(
+                            "[ifc-lite] Skipping unsupported nested geometry #{} ({:?}): {}",
+                            nested_item.id, nested_item.ifc_type, _e
+                        );
                         continue;
                     }
 
@@ -456,7 +460,13 @@ impl GeometryRouter {
                         sub_meshes.add(item.id, mesh);
                     }
                 }
-                Err(_) => {} // Skip unsupported geometry types gracefully
+                Err(_e) => {
+                    #[cfg(debug_assertions)]
+                    eprintln!(
+                        "[ifc-lite] Skipping unsupported geometry #{} ({:?}): {}",
+                        item.id, item.ifc_type, _e
+                    );
+                }
             }
         }
 

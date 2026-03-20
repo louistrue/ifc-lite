@@ -449,44 +449,13 @@ pub(crate) fn combined_pre_pass(
                     }
                 }
             }
-            "IFCMATERIALDEFINITIONREPRESENTATION" => {
-                // Attr 2: Representations (list of styled repr refs)
-                // Attr 3: RepresentedMaterial (ref to IfcMaterial)
-                // (inherits from IfcProductRepresentation: Name(0), Description(1), Representations(2))
-                if let Ok(entity) = decoder.decode_at_with_id(id, start, end) {
-                    if let Some(material_id) = entity.get_ref(3) {
-                        if let Some(reprs_attr) = entity.get(2) {
-                            if let Some(list) = reprs_attr.as_list() {
-                                for item in list {
-                                    if let Some(repr_id) = item.as_entity_ref() {
-                                        material_def_reprs
-                                            .entry(material_id)
-                                            .or_default()
-                                            .push(repr_id);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            "IFCRELASSOCIATESMATERIAL" => {
-                // IfcRelAssociates: GlobalId(0), OwnerHistory(1), Name(2), Description(3),
-                //                   RelatedObjects(4), RelatingMaterial(5)
-                if let Ok(entity) = decoder.decode_at_with_id(id, start, end) {
-                    if let Some(material_select_id) = entity.get_ref(5) {
-                        if let Some(related_attr) = entity.get(4) {
-                            if let Some(list) = related_attr.as_list() {
-                                for item in list {
-                                    if let Some(element_id) = item.as_entity_ref() {
-                                        element_to_material
-                                            .insert(element_id, material_select_id);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
+            "IFCMATERIALDEFINITIONREPRESENTATION" | "IFCRELASSOCIATESMATERIAL" => {
+                collect_material_entity(
+                    id, type_name, start, end, decoder,
+                    &mut orphan_styled_items,
+                    &mut material_def_reprs,
+                    &mut element_to_material,
+                );
             }
             "IFCRELVOIDSELEMENT" => {
                 if let Ok(entity) = decoder.decode_at_with_id(id, start, end) {
@@ -645,7 +614,7 @@ fn resolve_material_ids(
 
     let entity = match decoder.decode_by_id(material_select_id) {
         Ok(e) => e,
-        Err(_) => return vec![material_select_id], // Assume it's a direct material
+        Err(_) => return vec![],
     };
 
     match entity.ifc_type {
@@ -715,8 +684,8 @@ fn resolve_material_ids(
             }
         }
         _ => {
-            // Unknown material type — try treating it as a direct material
-            vec![material_select_id]
+            // Unknown material type — no colors to extract
+            vec![]
         }
     }
 }
@@ -731,11 +700,33 @@ fn extract_refs_from_list(entity: &ifc_lite_core::DecodedEntity, index: usize) -
 }
 
 /// Build element material styles by scanning the content for material-related entities.
-/// Standalone version for use in synchronous parse_meshes path.
+/// Standalone version for use in synchronous parse_meshes path (which doesn't use combined_pre_pass).
 pub(crate) fn build_element_material_styles_from_content(
     content: &str,
     decoder: &mut ifc_lite_core::EntityDecoder,
 ) -> rustc_hash::FxHashMap<u32, Vec<[f32; 4]>> {
+    let (orphan_styled_items, material_def_reprs, element_to_material) =
+        collect_material_data(content, decoder);
+
+    let material_styles =
+        build_material_style_index(&material_def_reprs, &orphan_styled_items, decoder);
+    build_element_material_styles(&element_to_material, &material_styles, decoder)
+}
+
+/// Collect material-related data from an IFC content scan.
+/// Returns: (orphan_styled_items, material_def_reprs, element_to_material)
+///
+/// Shared between `combined_pre_pass` (which integrates collection into its
+/// single-pass loop) and `build_element_material_styles_from_content` (which
+/// needs a standalone scan for the synchronous parse_meshes path).
+fn collect_material_data(
+    content: &str,
+    decoder: &mut ifc_lite_core::EntityDecoder,
+) -> (
+    rustc_hash::FxHashMap<u32, [f32; 4]>,
+    rustc_hash::FxHashMap<u32, Vec<u32>>,
+    rustc_hash::FxHashMap<u32, u32>,
+) {
     use ifc_lite_core::EntityScanner;
     use rustc_hash::FxHashMap;
 
@@ -746,59 +737,82 @@ pub(crate) fn build_element_material_styles_from_content(
     let mut scanner = EntityScanner::new(content);
 
     while let Some((id, type_name, start, end)) = scanner.next_entity() {
-        match type_name {
-            "IFCSTYLEDITEM" => {
-                if let Ok(styled_item) = decoder.decode_at_with_id(id, start, end) {
-                    // Only collect orphan styled items (null Item attribute)
-                    if styled_item.get_ref(0).is_none() {
-                        if let Some(styles_attr) = styled_item.get(1) {
-                            if let Some(color) = extract_color_from_styles(styles_attr, decoder) {
-                                orphan_styled_items.insert(id, color);
-                            }
-                        }
-                    }
-                }
-            }
-            "IFCMATERIALDEFINITIONREPRESENTATION" => {
-                if let Ok(entity) = decoder.decode_at_with_id(id, start, end) {
-                    if let Some(material_id) = entity.get_ref(3) {
-                        if let Some(reprs_attr) = entity.get(2) {
-                            if let Some(list) = reprs_attr.as_list() {
-                                for item in list {
-                                    if let Some(repr_id) = item.as_entity_ref() {
-                                        material_def_reprs
-                                            .entry(material_id)
-                                            .or_default()
-                                            .push(repr_id);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            "IFCRELASSOCIATESMATERIAL" => {
-                if let Ok(entity) = decoder.decode_at_with_id(id, start, end) {
-                    if let Some(material_select_id) = entity.get_ref(5) {
-                        if let Some(related_attr) = entity.get(4) {
-                            if let Some(list) = related_attr.as_list() {
-                                for item in list {
-                                    if let Some(element_id) = item.as_entity_ref() {
-                                        element_to_material.insert(element_id, material_select_id);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            _ => {}
-        }
+        collect_material_entity(
+            id,
+            type_name,
+            start,
+            end,
+            decoder,
+            &mut orphan_styled_items,
+            &mut material_def_reprs,
+            &mut element_to_material,
+        );
     }
 
-    let material_styles =
-        build_material_style_index(&material_def_reprs, &orphan_styled_items, decoder);
-    build_element_material_styles(&element_to_material, &material_styles, decoder)
+    (orphan_styled_items, material_def_reprs, element_to_material)
+}
+
+/// Process a single entity for material-related data collection.
+/// Called from both `combined_pre_pass` (inline in the scan loop) and
+/// `collect_material_data` (standalone scan).
+fn collect_material_entity(
+    id: u32,
+    type_name: &str,
+    start: usize,
+    end: usize,
+    decoder: &mut ifc_lite_core::EntityDecoder,
+    orphan_styled_items: &mut rustc_hash::FxHashMap<u32, [f32; 4]>,
+    material_def_reprs: &mut rustc_hash::FxHashMap<u32, Vec<u32>>,
+    element_to_material: &mut rustc_hash::FxHashMap<u32, u32>,
+) {
+    match type_name {
+        "IFCSTYLEDITEM" => {
+            if let Ok(styled_item) = decoder.decode_at_with_id(id, start, end) {
+                // Only collect orphan styled items (null Item attribute)
+                if styled_item.get_ref(0).is_none() {
+                    if let Some(styles_attr) = styled_item.get(1) {
+                        if let Some(color) = extract_color_from_styles(styles_attr, decoder) {
+                            orphan_styled_items.insert(id, color);
+                        }
+                    }
+                }
+            }
+        }
+        "IFCMATERIALDEFINITIONREPRESENTATION" => {
+            if let Ok(entity) = decoder.decode_at_with_id(id, start, end) {
+                if let Some(material_id) = entity.get_ref(3) {
+                    if let Some(reprs_attr) = entity.get(2) {
+                        if let Some(list) = reprs_attr.as_list() {
+                            for item in list {
+                                if let Some(repr_id) = item.as_entity_ref() {
+                                    material_def_reprs
+                                        .entry(material_id)
+                                        .or_default()
+                                        .push(repr_id);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        "IFCRELASSOCIATESMATERIAL" => {
+            if let Ok(entity) = decoder.decode_at_with_id(id, start, end) {
+                if let Some(material_select_id) = entity.get_ref(5) {
+                    if let Some(related_attr) = entity.get(4) {
+                        if let Some(list) = related_attr.as_list() {
+                            for item in list {
+                                if let Some(element_id) = item.as_entity_ref() {
+                                    element_to_material.insert(element_id, material_select_id);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        _ => {}
+    }
 }
 
 /// Pick the best material style for a sub-mesh.

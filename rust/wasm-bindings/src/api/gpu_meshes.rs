@@ -374,9 +374,6 @@ impl IfcAPI {
         // Build style index: first map geometry IDs to colors, then map element IDs to colors
         let geometry_styles = build_geometry_style_index(&content, &mut decoder);
         let style_index = build_element_style_index(&content, &geometry_styles, &mut decoder);
-        // Build material-based styles for sub-element color fallback (windows, doors)
-        let _element_material_styles =
-            build_element_material_styles_from_content(&content, &mut decoder);
 
         // OPTIMIZATION: Collect all FacetedBrep IDs for batch processing
         let mut scanner = EntityScanner::new(&content);
