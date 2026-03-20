@@ -407,37 +407,10 @@ impl GeometryRouter {
             }
         };
 
-        // OPTIMIZATION: Only extract clipping planes if element actually has them
-        // This skips expensive profile extraction for ~95% of elements
-        use nalgebra::Vector3;
-        let world_clipping_planes: Vec<(Point3<f64>, Vector3<f64>, bool)> =
-            if self.has_clipping_planes(element, decoder) {
-                // Get element's ObjectPlacement transform (for clipping planes)
-                let mut object_placement_transform = match self.get_placement_transform_from_element(element, decoder) {
-                    Ok(t) => t,
-                    Err(_) => Matrix4::identity(),
-                };
-                self.scale_transform(&mut object_placement_transform);
-
-                // Extract clipping planes (for roof clips)
-                let clipping_planes = match self.extract_base_profile_and_clips(element, decoder) {
-                    Ok((_profile, _depth, _axis, _origin, _transform, clips)) => clips,
-                    Err(_) => Vec::new(),
-                };
-
-                // Transform clipping planes to world coordinates
-                clipping_planes
-                    .iter()
-                    .map(|(point, normal, agreement)| {
-                        let world_point = object_placement_transform.transform_point(point);
-                        let rotation = object_placement_transform.fixed_view::<3, 3>(0, 0);
-                        let world_normal = (rotation * normal).normalize();
-                        (world_point, world_normal, *agreement)
-                    })
-                    .collect()
-            } else {
-                Vec::new()
-            };
+        // Note: Roof clipping planes are handled by the BooleanClippingProcessor
+        // during process_element(). They are NOT re-applied here to avoid double-clipping
+        // which corrupts gable wall geometry (two angled clips in different coordinate
+        // spaces produce wrong intersections).
 
         // STEP 5: Collect opening info (bounds for rectangular, full mesh for non-rectangular)
         // For rectangular openings, get individual bounds per representation item to handle
@@ -611,29 +584,12 @@ impl GeometryRouter {
             }
         }
 
-        // STEP 7: Apply clipping planes (roof clips) if any
-        if !world_clipping_planes.is_empty() {
-            use crate::csg::{ClippingProcessor, Plane};
-            let clipper = ClippingProcessor::new();
-
-            for (_clip_idx, (plane_point, plane_normal, agreement)) in world_clipping_planes.iter().enumerate() {
-                // clip_mesh keeps the POSITIVE side of the given normal.
-                // For DIFFERENCE with agreement=true: half-space material is on positive side
-                // of plane_normal → subtract it → keep negative side → flip normal.
-                let clip_normal = if *agreement {
-                    -*plane_normal
-                } else {
-                    *plane_normal
-                };
-
-                let plane = Plane::new(*plane_point, clip_normal);
-                if let Ok(clipped) = clipper.clip_mesh(&result, &plane) {
-                    if !clipped.is_empty() {
-                        result = clipped;
-                    }
-                }
-            }
-        }
+        // Note: Roof clipping planes are already applied by the BooleanClippingProcessor
+        // during process_element(). Re-applying them here would double-clip the geometry,
+        // which can corrupt gable walls (two angled clips) due to coordinate space
+        // differences between representation-space (boolean processor) and world-space
+        // (ObjectPlacement transform). The world_clipping_planes are still extracted above
+        // for potential future use but are not re-applied to the result.
 
         Ok(result)
     }

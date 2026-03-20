@@ -14,6 +14,7 @@ impl GeometryRouter {
     /// This is much faster than extract_base_profile_and_clips and allows skipping expensive
     /// extraction for the ~95% of elements that don't have clipping.
     #[inline]
+    #[allow(dead_code)] // Retained for potential future use
     pub(super) fn has_clipping_planes(
         &self,
         element: &DecodedEntity,
@@ -72,6 +73,7 @@ impl GeometryRouter {
     /// Drills through IfcBooleanClippingResult to find the base extruded solid,
     /// extracts its actual 2D profile (preserving chamfered corners), and collects clipping planes.
     /// Returns: (profile, depth, thickness_axis, wall_origin, position_transform, clipping_planes)
+    #[allow(dead_code)] // Retained for potential future use
     pub(super) fn extract_base_profile_and_clips(
         &self,
         element: &DecodedEntity,
@@ -143,6 +145,7 @@ impl GeometryRouter {
     }
 
     /// Extract profile from IfcBooleanClippingResult recursively
+    #[allow(dead_code)]
     fn extract_profile_from_boolean_result(
         &self,
         boolean_result: &DecodedEntity,
@@ -198,6 +201,7 @@ impl GeometryRouter {
     }
 
     /// Extract profile, depth, axis, origin, and Position transform from IfcExtrudedAreaSolid
+    #[allow(dead_code)]
     fn extract_profile_from_extruded_solid(
         &self,
         extruded_solid: &DecodedEntity,
