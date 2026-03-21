@@ -445,15 +445,11 @@ impl GeometryRouter {
             }
         };
 
-        // Allow up to 50 openings per element. Rectangular and diagonal openings use
-        // fast AABB clipping (not CSG), so they are cheap even in large numbers.
-        // CSG operations are independently capped by MAX_CSG_OPERATIONS below.
-        // Only truly excessive counts (e.g. curtain walls with hundreds of panels)
-        // are skipped entirely.
-        const MAX_OPENINGS: usize = 50;
-        if opening_ids.len() > MAX_OPENINGS {
-            return self.process_element(element, decoder);
-        }
+        // No blanket opening-count gate here. Rectangular and diagonal openings use
+        // fast AABB clipping with no per-element limit. NonRectangular (CSG) openings
+        // are independently capped by MAX_CSG_OPERATIONS below, so elements with many
+        // complex openings degrade gracefully rather than skipping void subtraction
+        // entirely.
 
         // STEP 1: Get chamfered wall mesh (preserves chamfered corners at intersections)
         let wall_mesh = match self.process_element(element, decoder) {
