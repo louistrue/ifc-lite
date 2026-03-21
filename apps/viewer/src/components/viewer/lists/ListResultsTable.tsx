@@ -33,7 +33,7 @@ export function ListResultsTable({ result }: ListResultsTableProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [sortCol, setSortCol] = useState<number | null>(null);
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
-  const [filterByVisibility, setFilterByVisibility] = useState(true);
+  const [filterByVisibility, setFilterByVisibility] = useState(false);
 
   const setSelectedEntityId = useViewerStore((s) => s.setSelectedEntityId);
   const setSelectedEntity = useViewerStore((s) => s.setSelectedEntity);
@@ -52,6 +52,8 @@ export function ListResultsTable({ result }: ListResultsTableProps) {
   const hiddenEntitiesByModel = useViewerStore((s) => s.hiddenEntitiesByModel);
   const isolatedEntitiesByModel = useViewerStore((s) => s.isolatedEntitiesByModel);
   const models = useViewerStore((s) => s.models);
+  const activeBasketViewId = useViewerStore((s) => s.activeBasketViewId);
+  const geometryResult = useViewerStore((s) => s.geometryResult);
 
   // Filter rows by 3D visibility
   const visibilityFilteredRows = useMemo(() => {
@@ -72,7 +74,7 @@ export function ListResultsTable({ result }: ListResultsTableProps) {
     result.rows, filterByVisibility,
     hiddenEntities, isolatedEntities, classFilter, lensHiddenIds,
     selectedStoreys, typeVisibility, hiddenEntitiesByModel,
-    isolatedEntitiesByModel, models,
+    isolatedEntitiesByModel, models, activeBasketViewId, geometryResult,
   ]);
 
   // Filter rows by search query

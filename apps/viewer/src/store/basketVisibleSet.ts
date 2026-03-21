@@ -54,6 +54,15 @@ function digestModelEntityMap(map: Map<string, Set<number>>): string {
 
 function visibilityFingerprint(state: ViewerStateSnapshot): string {
   const tv = state.typeVisibility;
+
+  // Include per-model visible flag and geometry mesh count so the cache
+  // invalidates when model visibility is toggled or geometry finishes loading.
+  const modelParts: string[] = [];
+  for (const [modelId, model] of state.models) {
+    modelParts.push(`${modelId}:${model.visible ? 1 : 0}:${model.geometryResult?.meshes?.length ?? 0}`);
+  }
+  modelParts.sort();
+
   return [
     digestNumberSet(state.hiddenEntities),
     state.isolatedEntities ? digestNumberSet(state.isolatedEntities) : 'none',
@@ -66,6 +75,8 @@ function visibilityFingerprint(state: ViewerStateSnapshot): string {
     tv.openings ? 1 : 0,
     tv.site ? 1 : 0,
     state.models.size,
+    modelParts.join(';'),
+    state.geometryResult?.meshes?.length ?? 0,
     state.activeBasketViewId ?? 'none',
   ].join(':');
 }
