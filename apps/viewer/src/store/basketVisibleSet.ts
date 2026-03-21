@@ -61,6 +61,7 @@ function visibilityFingerprint(state: ViewerStateSnapshot): string {
     digestNumberSet(state.lensHiddenIds),
     digestModelEntityMap(state.hiddenEntitiesByModel),
     digestModelEntityMap(state.isolatedEntitiesByModel),
+    digestNumberSet(state.selectedStoreys),
     tv.spaces ? 1 : 0,
     tv.openings ? 1 : 0,
     tv.site ? 1 : 0,
