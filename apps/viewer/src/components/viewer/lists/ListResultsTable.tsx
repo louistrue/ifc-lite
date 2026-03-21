@@ -12,13 +12,14 @@
 
 import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { ArrowUp, ArrowDown, Search, Palette, Eye, EyeOff } from 'lucide-react';
+import { ArrowUp, ArrowDown, Search, Palette, Eye, EyeOff, Download } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useViewerStore } from '@/store';
 import { getVisibleBasketEntityRefsFromStore } from '@/store/basketVisibleSet';
 import type { ListResult, ListRow, CellValue, ColumnDefinition } from '@ifc-lite/lists';
+import { listResultToCSV } from '@ifc-lite/lists';
 import { cn } from '@/lib/utils';
 import { columnToAutoColor } from '@/lib/lists/columnToAutoColor';
 import { AUTO_COLOR_FROM_LIST_ID } from '@/store/slices/lensSlice';
@@ -111,6 +112,23 @@ export function ListResultsTable({ result }: ListResultsTableProps) {
     setColorByColIdx(colIdx);
   }, [activateAutoColorFromColumn]);
 
+  const handleExportCSV = useCallback(() => {
+    const exportResult: ListResult = {
+      columns: result.columns,
+      rows: sortedRows,
+      totalCount: sortedRows.length,
+      executionTime: result.executionTime,
+    };
+    const csv = listResultToCSV(exportResult);
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'list-export.csv';
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }, [result.columns, result.executionTime, sortedRows]);
+
   const handleRowClick = useCallback((row: ListRow) => {
     setSelectedEntity({ modelId: row.modelId, expressId: row.entityId });
     // For single-model, selectedEntityId is the expressId
@@ -167,6 +185,19 @@ export function ListResultsTable({ result }: ListResultsTableProps) {
           <TooltipContent>
             {filterByVisibility ? 'Showing visible objects only' : 'Showing all objects'}
           </TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className="h-6 w-6 shrink-0"
+              onClick={handleExportCSV}
+            >
+              <Download className="h-3.5 w-3.5" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Export CSV</TooltipContent>
         </Tooltip>
       </div>
 

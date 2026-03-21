@@ -34,7 +34,6 @@ import { useViewerStore } from '@/store';
 import { useIfc } from '@/hooks/useIfc';
 import {
   executeList,
-  listResultToCSV,
   LIST_PRESETS,
   importListDefinition,
   exportListDefinition,
@@ -172,18 +171,6 @@ export function ListPanel({ onClose }: ListPanelProps) {
     }
   }, [editingList]);
 
-  const handleExportCSV = useCallback(() => {
-    if (!listResult) return;
-    const csv = listResultToCSV(listResult);
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'list-export.csv';
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-  }, [listResult]);
-
   const handleImport = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -227,14 +214,6 @@ export function ListPanel({ onClose }: ListPanelProps) {
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent>Edit Configuration</TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button variant="ghost" size="icon-sm" onClick={handleExportCSV}>
-                    <Download className="h-3.5 w-3.5" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>Export CSV</TooltipContent>
               </Tooltip>
               <Tooltip>
                 <TooltipTrigger asChild>
