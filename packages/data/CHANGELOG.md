@@ -1,5 +1,11 @@
 # @ifc-lite/data
 
+## 1.14.5
+
+### Patch Changes
+
+- [#411](https://github.com/louistrue/ifc-lite/pull/411) [`af1ef14`](https://github.com/louistrue/ifc-lite/commit/af1ef1422d41fb4f7bb7f63720cca96ef7fe5515) Thanks [@louistrue](https://github.com/louistrue)! - Fix large model loading with streaming columnar parser, inline scan worker, and improved geometry bridge. Refactor relationship graph for better memory efficiency and add spatial index builder utilities.
+
 ## 1.14.4
 
 ### Patch Changes
