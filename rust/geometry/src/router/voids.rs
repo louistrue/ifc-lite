@@ -445,12 +445,13 @@ impl GeometryRouter {
             }
         };
 
-        // SAFETY: Skip void subtraction for elements with too many openings
-        // This prevents CSG operations from causing panics or excessive processing time
-        // Elements with many openings (like curtain walls) are better handled without CSG
-        const MAX_OPENINGS: usize = 15;
+        // Allow up to 50 openings per element. Rectangular and diagonal openings use
+        // fast AABB clipping (not CSG), so they are cheap even in large numbers.
+        // CSG operations are independently capped by MAX_CSG_OPERATIONS below.
+        // Only truly excessive counts (e.g. curtain walls with hundreds of panels)
+        // are skipped entirely.
+        const MAX_OPENINGS: usize = 50;
         if opening_ids.len() > MAX_OPENINGS {
-            // Just return the base mesh without void subtraction
             return self.process_element(element, decoder);
         }
 
