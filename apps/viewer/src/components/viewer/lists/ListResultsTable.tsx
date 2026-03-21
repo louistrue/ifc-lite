@@ -12,9 +12,12 @@
 
 import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { ArrowUp, ArrowDown, Search, Palette } from 'lucide-react';
+import { ArrowUp, ArrowDown, Search, Palette, Eye, EyeOff } from 'lucide-react';
 import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useViewerStore } from '@/store';
+import { getVisibleBasketEntityRefsFromStore } from '@/store/basketVisibleSet';
 import type { ListResult, ListRow, CellValue, ColumnDefinition } from '@ifc-lite/lists';
 import { cn } from '@/lib/utils';
 import { columnToAutoColor } from '@/lib/lists/columnToAutoColor';
@@ -29,6 +32,7 @@ export function ListResultsTable({ result }: ListResultsTableProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [sortCol, setSortCol] = useState<number | null>(null);
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
+  const [filterByVisibility, setFilterByVisibility] = useState(true);
 
   const setSelectedEntityId = useViewerStore((s) => s.setSelectedEntityId);
   const setSelectedEntity = useViewerStore((s) => s.setSelectedEntity);
@@ -37,14 +41,47 @@ export function ListResultsTable({ result }: ListResultsTableProps) {
   const activeLensId = useViewerStore((s) => s.activeLensId);
   const [colorByColIdx, setColorByColIdx] = useState<number | null>(null);
 
+  // Subscribe to visibility state so we re-filter when 3D visibility changes
+  const hiddenEntities = useViewerStore((s) => s.hiddenEntities);
+  const isolatedEntities = useViewerStore((s) => s.isolatedEntities);
+  const classFilter = useViewerStore((s) => s.classFilter);
+  const lensHiddenIds = useViewerStore((s) => s.lensHiddenIds);
+  const selectedStoreys = useViewerStore((s) => s.selectedStoreys);
+  const typeVisibility = useViewerStore((s) => s.typeVisibility);
+  const hiddenEntitiesByModel = useViewerStore((s) => s.hiddenEntitiesByModel);
+  const isolatedEntitiesByModel = useViewerStore((s) => s.isolatedEntitiesByModel);
+  const models = useViewerStore((s) => s.models);
+
+  // Filter rows by 3D visibility
+  const visibilityFilteredRows = useMemo(() => {
+    if (!filterByVisibility) return result.rows;
+
+    const visibleRefs = getVisibleBasketEntityRefsFromStore();
+    const visibleSet = new Set<string>();
+    for (const ref of visibleRefs) {
+      visibleSet.add(`${ref.modelId}:${ref.expressId}`);
+    }
+
+    return result.rows.filter(row => {
+      // List uses 'default' for single-model, visibility uses 'legacy'
+      const modelId = row.modelId === 'default' ? 'legacy' : row.modelId;
+      return visibleSet.has(`${modelId}:${row.entityId}`);
+    });
+  }, [
+    result.rows, filterByVisibility,
+    hiddenEntities, isolatedEntities, classFilter, lensHiddenIds,
+    selectedStoreys, typeVisibility, hiddenEntitiesByModel,
+    isolatedEntitiesByModel, models,
+  ]);
+
   // Filter rows by search query
   const filteredRows = useMemo(() => {
-    if (!searchQuery) return result.rows;
+    if (!searchQuery) return visibilityFilteredRows;
     const q = searchQuery.toLowerCase();
-    return result.rows.filter(row =>
+    return visibilityFilteredRows.filter(row =>
       row.values.some(v => v !== null && String(v).toLowerCase().includes(q))
     );
-  }, [result.rows, searchQuery]);
+  }, [visibilityFilteredRows, searchQuery]);
 
   // Sort rows
   const sortedRows = useMemo(() => {
@@ -111,8 +148,26 @@ export function ListResultsTable({ result }: ListResultsTableProps) {
           className="h-7 text-xs border-0 shadow-none focus-visible:ring-0 px-0"
         />
         <span className="text-xs text-muted-foreground whitespace-nowrap">
-          {sortedRows.length}{searchQuery ? ` / ${result.rows.length}` : ''} rows
+          {sortedRows.length}{(searchQuery || filterByVisibility) ? ` / ${result.rows.length}` : ''} rows
         </span>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className={cn(
+                'h-6 w-6 shrink-0',
+                filterByVisibility && 'text-primary',
+              )}
+              onClick={() => setFilterByVisibility(prev => !prev)}
+            >
+              {filterByVisibility ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>
+            {filterByVisibility ? 'Showing visible objects only' : 'Showing all objects'}
+          </TooltipContent>
+        </Tooltip>
       </div>
 
       {/* Table */}
