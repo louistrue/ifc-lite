@@ -40,8 +40,18 @@ export interface OverlayBBox {
 export interface BCFMarker3D {
   /** Topic GUID — unique identifier */
   topicGuid: string;
-  /** World-space position (Y-up) where the marker should appear */
+  /**
+   * World-space anchor position (Y-up) — the logical center of the marker.
+   * Used for connector line endpoint and fallback projection.
+   */
   position: OverlayPoint3D;
+  /**
+   * Full bounding box of the referenced component (if available).
+   * The overlay renderer projects all 8 corners and places the marker
+   * above the topmost screen point — so it's always visually above
+   * the element regardless of camera angle.
+   */
+  anchorBBox?: OverlayBBox;
   /** Topic title */
   title: string;
   /** Topic status (e.g. 'Open', 'In Progress', 'Resolved', 'Closed') */
@@ -162,11 +172,17 @@ function cameraTargetFromViewpoint(
 /**
  * Derive a 3D marker position from a single BCF viewpoint.
  */
+interface PositionResult {
+  position: OverlayPoint3D;
+  source: BCFMarker3D['positionSource'];
+  bbox?: OverlayBBox;
+}
+
 function positionFromViewpoint(
   viewpoint: BCFViewpoint,
   boundsLookup: EntityBoundsLookup,
   targetDistance: number,
-): { position: OverlayPoint3D; source: BCFMarker3D['positionSource'] } | null {
+): PositionResult | null {
   // Strategy 1: Selected component bounding-box center
   const selected = viewpoint.components?.selection;
   if (selected && selected.length > 0) {
@@ -177,9 +193,10 @@ function positionFromViewpoint(
         return {
           position: {
             x: (bbox.min.x + bbox.max.x) / 2,
-            y: bbox.max.y + (bbox.max.y - bbox.min.y) * 0.15,
+            y: (bbox.min.y + bbox.max.y) / 2,
             z: (bbox.min.z + bbox.max.z) / 2,
           },
+          bbox,
           source: 'component',
         };
       }
@@ -196,9 +213,10 @@ function positionFromViewpoint(
         return {
           position: {
             x: (bbox.min.x + bbox.max.x) / 2,
-            y: bbox.max.y + (bbox.max.y - bbox.min.y) * 0.15,
+            y: (bbox.min.y + bbox.max.y) / 2,
             z: (bbox.min.z + bbox.max.z) / 2,
           },
+          bbox,
           source: 'component',
         };
       }
@@ -206,8 +224,6 @@ function positionFromViewpoint(
   }
 
   // Strategy 2: Camera target point (orbit center)
-  // Uses the actual camera-to-target distance so the marker sits exactly
-  // where the user was looking, not at an arbitrary distance from the camera.
   const target = cameraTargetFromViewpoint(viewpoint, targetDistance);
   if (target) {
     return { position: target, source: 'camera-target' };
@@ -270,7 +286,7 @@ export function computeMarkerPositions(
     }
 
     // Try each viewpoint to derive a position (first valid wins)
-    let result: { position: OverlayPoint3D; source: BCFMarker3D['positionSource'] } | null = null;
+    let result: PositionResult | null = null;
     for (const vp of topic.viewpoints) {
       result = positionFromViewpoint(vp, boundsLookup, targetDistance);
       if (result) break;
@@ -283,6 +299,7 @@ export function computeMarkerPositions(
     markers.push({
       topicGuid: topic.guid,
       position: result.position,
+      anchorBBox: result.bbox,
       title: topic.title,
       status: topic.topicStatus ?? 'Open',
       priority: topic.priority ?? 'Normal',
