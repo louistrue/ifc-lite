@@ -8,6 +8,7 @@ import { ViewportOverlays } from './ViewportOverlays';
 import { ToolOverlays } from './ToolOverlays';
 import { Section2DPanel } from './Section2DPanel';
 import { BasketPresentationDock } from './BasketPresentationDock';
+import { BCFOverlay } from './bcf/BCFOverlay';
 import { useViewerStore } from '@/store';
 import { collectIfcBuildingStoreyElementsWithIfcSpace } from '@/store/basketVisibleSet';
 import { useIfc } from '@/hooks/useIfc';
@@ -611,6 +612,7 @@ export function ViewportContainer() {
         computedIsolatedIds={computedIsolatedIds}
         modelIdToIndex={modelIdToIndex}
       />
+      <BCFOverlay />
       <ViewportOverlays />
       <ToolOverlays />
       <BasketPresentationDock />
