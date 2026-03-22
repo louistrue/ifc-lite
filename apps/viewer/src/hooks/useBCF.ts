@@ -226,13 +226,15 @@ export function useBCF(options: UseBCFOptions = {}): UseBCFResult {
    */
   const expressIdToGlobalId = useCallback(
     (expressId: number): string | null => {
-      for (const model of models.values()) {
+      for (const [modelId, model] of models.entries()) {
         const offset = model.idOffset ?? 0;
         const localExpressId = expressId - offset;
 
         // Check if this expressId belongs to this model's range
+        console.log(`[useBCF] expressIdToGlobalId(${expressId}): model=${modelId}, offset=${offset}, localId=${localExpressId}, maxId=${model.maxExpressId}, hasEntities=${!!model.ifcDataStore?.entities}`);
         if (localExpressId > 0 && localExpressId <= (model.maxExpressId ?? Infinity)) {
           const globalIdString = model.ifcDataStore?.entities?.getGlobalId(localExpressId);
+          console.log(`[useBCF] getGlobalId(${localExpressId}) = ${globalIdString}`);
           if (globalIdString) {
             return globalIdString;
           }
