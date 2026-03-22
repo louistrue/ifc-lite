@@ -131,10 +131,12 @@ export function BCFOverlay() {
   const setBcfPanelVisible = useViewerStore((s) => s.setBcfPanelVisible);
   const models = useViewerStore((s) => s.models);
   const loading = useViewerStore((s) => s.loading);
+  const ifcDataStore = useViewerStore((s) => s.ifcDataStore);
 
   // GlobalId → expressId lookup
   const globalIdToExpressId = useCallback(
     (globalIdString: string): { expressId: number; modelId: string } | null => {
+      // Multi-model path
       for (const [modelId, model] of models.entries()) {
         const localExpressId = model.ifcDataStore?.entities?.getExpressIdByGlobalId(globalIdString);
         if (localExpressId !== undefined && localExpressId > 0) {
@@ -142,9 +144,16 @@ export function BCFOverlay() {
           return { expressId: localExpressId + offset, modelId };
         }
       }
+      // Single-model fallback
+      if (models.size === 0 && ifcDataStore?.entities) {
+        const localExpressId = ifcDataStore.entities.getExpressIdByGlobalId(globalIdString);
+        if (localExpressId !== undefined && localExpressId > 0) {
+          return { expressId: localExpressId, modelId: 'legacy' };
+        }
+      }
       return null;
     },
-    [models],
+    [models, ifcDataStore],
   );
 
   // Bounds lookup — queries the renderer Scene directly
