@@ -305,6 +305,7 @@ export function useBCF(options: UseBCFOptions = {}): UseBCFResult {
       const bounds = getBounds() ?? undefined;
 
       // Get selected GUIDs - convert expressIds to IFC GlobalId strings
+      console.log('[useBCF] createViewpoint: selectedEntityId=', selectedEntityId, 'selectedEntityIds=', [...selectedEntityIds]);
       const selectedGuids: string[] | undefined = includeSelection
         ? (() => {
             const guids: string[] = [];
