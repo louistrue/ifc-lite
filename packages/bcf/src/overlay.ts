@@ -41,17 +41,17 @@ export interface BCFMarker3D {
   /** Topic GUID — unique identifier */
   topicGuid: string;
   /**
-   * World-space anchor position (Y-up) — the logical center of the marker.
-   * Used for connector line endpoint and fallback projection.
+   * World-space position (Y-up) where the marker pin-tip sits.
+   * For component-based markers this is well above the bbox top
+   * so the marker floats above geometry from any camera angle.
    */
   position: OverlayPoint3D;
   /**
-   * Full bounding box of the referenced component (if available).
-   * The overlay renderer projects all 8 corners and places the marker
-   * above the topmost screen point — so it's always visually above
-   * the element regardless of camera angle.
+   * World-space anchor point where the connector line ends.
+   * Typically the bbox top-center of the referenced component.
+   * If absent, the connector ends at `position`.
    */
-  anchorBBox?: OverlayBBox;
+  connectorAnchor?: OverlayPoint3D;
   /** Topic title */
   title: string;
   /** Topic status (e.g. 'Open', 'In Progress', 'Resolved', 'Closed') */
@@ -174,8 +174,29 @@ function cameraTargetFromViewpoint(
  */
 interface PositionResult {
   position: OverlayPoint3D;
+  connectorAnchor?: OverlayPoint3D;
   source: BCFMarker3D['positionSource'];
-  bbox?: OverlayBBox;
+}
+
+/**
+ * Build marker + anchor from a component bounding box.
+ *
+ * - `position` is placed well above the bbox top so the marker
+ *   floats above the element from any camera angle.
+ * - `connectorAnchor` is the bbox top-center where the dotted
+ *   connector line terminates.
+ */
+function markerFromBBox(bbox: OverlayBBox): { position: OverlayPoint3D; connectorAnchor: OverlayPoint3D } {
+  const cx = (bbox.min.x + bbox.max.x) / 2;
+  const cz = (bbox.min.z + bbox.max.z) / 2;
+  const topY = bbox.max.y;
+  const height = bbox.max.y - bbox.min.y;
+  // Float the marker 30% of height above the top, minimum 0.5 m
+  const lift = Math.max(height * 0.3, 0.5);
+  return {
+    position: { x: cx, y: topY + lift, z: cz },
+    connectorAnchor: { x: cx, y: topY, z: cz },
+  };
 }
 
 function positionFromViewpoint(
@@ -183,22 +204,15 @@ function positionFromViewpoint(
   boundsLookup: EntityBoundsLookup,
   targetDistance: number,
 ): PositionResult | null {
-  // Strategy 1: Selected component bounding-box center
+  // Strategy 1: Selected component bounding-box
   const selected = viewpoint.components?.selection;
   if (selected && selected.length > 0) {
     for (const comp of selected) {
       if (!comp.ifcGuid) continue;
       const bbox = boundsLookup(comp.ifcGuid);
       if (bbox) {
-        return {
-          position: {
-            x: (bbox.min.x + bbox.max.x) / 2,
-            y: (bbox.min.y + bbox.max.y) / 2,
-            z: (bbox.min.z + bbox.max.z) / 2,
-          },
-          bbox,
-          source: 'component',
-        };
+        const m = markerFromBBox(bbox);
+        return { ...m, source: 'component' };
       }
     }
   }
@@ -210,15 +224,8 @@ function positionFromViewpoint(
       if (!comp.ifcGuid) continue;
       const bbox = boundsLookup(comp.ifcGuid);
       if (bbox) {
-        return {
-          position: {
-            x: (bbox.min.x + bbox.max.x) / 2,
-            y: (bbox.min.y + bbox.max.y) / 2,
-            z: (bbox.min.z + bbox.max.z) / 2,
-          },
-          bbox,
-          source: 'component',
-        };
+        const m = markerFromBBox(bbox);
+        return { ...m, source: 'component' };
       }
     }
   }
@@ -299,7 +306,7 @@ export function computeMarkerPositions(
     markers.push({
       topicGuid: topic.guid,
       position: result.position,
-      anchorBBox: result.bbox,
+      connectorAnchor: result.connectorAnchor,
       title: topic.title,
       status: topic.topicStatus ?? 'Open',
       priority: topic.priority ?? 'Normal',

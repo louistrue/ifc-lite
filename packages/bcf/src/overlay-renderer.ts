@@ -180,12 +180,8 @@ export class BCFOverlayRenderer {
 
   /**
    * Re-project all markers from world space to screen space.
-   *
-   * When a marker has an `anchorBBox`, all 8 corners are projected and
-   * the marker is placed above the **topmost screen point** — so it's
-   * always visually above the element regardless of camera angle.
-   *
-   * Called directly from the camera-change polling RAF for zero-lag tracking.
+   * Called directly from the camera-change polling RAF — no extra
+   * scheduling, so markers track the camera with zero frame delay.
    */
   updatePositions(): void {
     if (!this._visible) return;
@@ -198,75 +194,13 @@ export class BCFOverlayRenderer {
       const el = this.markerElements.get(marker.topicGuid);
       if (!el) continue;
 
-      // ----- Determine screen position -----
-      let anchorScreenX: number;
-      let anchorScreenY: number;
-      let topScreenX: number;
-      let topScreenY: number;
+      // Project the marker's world-space position to screen
+      const markerScreen = this.projection.projectToScreen(marker.position);
 
-      if (marker.anchorBBox) {
-        // Project all 8 bbox corners → find the topmost screen point
-        const b = marker.anchorBBox;
-        const corners = [
-          { x: b.min.x, y: b.min.y, z: b.min.z },
-          { x: b.max.x, y: b.min.y, z: b.min.z },
-          { x: b.min.x, y: b.max.y, z: b.min.z },
-          { x: b.max.x, y: b.max.y, z: b.min.z },
-          { x: b.min.x, y: b.min.y, z: b.max.z },
-          { x: b.max.x, y: b.min.y, z: b.max.z },
-          { x: b.min.x, y: b.max.y, z: b.max.z },
-          { x: b.max.x, y: b.max.y, z: b.max.z },
-        ];
-
-        let minScreenY = Infinity;
-        let bestX = 0;
-        let sumX = 0;
-        let sumY = 0;
-        let visible = 0;
-
-        for (const c of corners) {
-          const s = this.projection.projectToScreen(c);
-          if (!s) continue;
-          visible++;
-          sumX += s.x;
-          sumY += s.y;
-          if (s.y < minScreenY) {
-            minScreenY = s.y;
-            bestX = s.x;
-          }
-        }
-
-        if (visible === 0) {
-          el.style.display = 'none';
-          const conn = this.connectorElements.get(marker.topicGuid);
-          if (conn) conn.style.display = 'none';
-          continue;
-        }
-
-        // Anchor = center of projected bbox, marker = above topmost corner
-        anchorScreenX = sumX / visible;
-        anchorScreenY = sumY / visible;
-        topScreenX = bestX;
-        topScreenY = minScreenY;
-      } else {
-        // No bbox — project the single anchor point
-        const s = this.projection.projectToScreen(marker.position);
-        if (!s) {
-          el.style.display = 'none';
-          const conn = this.connectorElements.get(marker.topicGuid);
-          if (conn) conn.style.display = 'none';
-          continue;
-        }
-        anchorScreenX = s.x;
-        anchorScreenY = s.y;
-        topScreenX = s.x;
-        topScreenY = s.y;
-      }
-
-      // Off-screen check
       if (
-        topScreenX < -80 || topScreenY < -80 ||
-        topScreenX > width + 80 || topScreenY > height + 80
+        !markerScreen ||
+        markerScreen.x < -80 || markerScreen.y < -80 ||
+        markerScreen.x > width + 80 || markerScreen.y > height + 80
       ) {
         el.style.display = 'none';
         const conn = this.connectorElements.get(marker.topicGuid);
@@ -276,7 +210,7 @@ export class BCFOverlayRenderer {
 
       el.style.display = '';
 
-      // Depth-based scaling
+      // Depth-based scaling: farther markers appear smaller
       let scale = 1.0;
       if (camPos) {
         const dx = marker.position.x - camPos.x;
@@ -287,28 +221,28 @@ export class BCFOverlayRenderer {
         scale = this.opts.maxScale + t * (this.opts.minScale - this.opts.maxScale);
       }
 
-      // Place marker above the topmost projected corner
-      const offset = this.opts.verticalOffset * scale;
-      const markerX = topScreenX;
-      const markerY = topScreenY - offset;
+      // Position the marker pin at the projected point
+      const markerX = markerScreen.x;
+      const markerY = markerScreen.y;
 
       el.style.transform =
         `translate(${markerX}px, ${markerY}px) translate(-50%, -100%) scale(${scale.toFixed(3)})`;
 
-      // Depth-based opacity
-      let opacity = 1.0;
-      if (camPos) {
-        const dist = Math.sqrt(
-          (marker.position.x - camPos.x) ** 2 +
-          (marker.position.y - camPos.y) ** 2 +
-          (marker.position.z - camPos.z) ** 2
-        );
-        opacity = 0.6 + (1 - Math.max(0, Math.min(1, (dist - 20) / 250))) * 0.4;
-      }
+      // Depth-based opacity: far markers slightly translucent
+      const opacity = camPos
+        ? 0.6 + (1 - Math.max(0, Math.min(1, (Math.sqrt(
+            (marker.position.x - camPos.x) ** 2 +
+            (marker.position.y - camPos.y) ** 2 +
+            (marker.position.z - camPos.z) ** 2
+          ) - 20) / 250))) * 0.4
+        : 1;
       el.style.opacity = opacity.toFixed(2);
 
-      // Connector from marker to bbox center projection
+      // Connector line from marker to the anchor point (bbox top-center)
       if (this.opts.showConnectors) {
+        const anchor = marker.connectorAnchor ?? marker.position;
+        const anchorScreen = this.projection.projectToScreen(anchor);
+
         let conn = this.connectorElements.get(marker.topicGuid);
         if (!conn) {
           conn = document.createElementNS('http://www.w3.org/2000/svg', 'line');
@@ -316,13 +250,18 @@ export class BCFOverlayRenderer {
           this.svgLayer.appendChild(conn);
           this.connectorElements.set(marker.topicGuid, conn);
         }
-        conn.style.display = '';
 
+        if (!anchorScreen) {
+          conn.style.display = 'none';
+          continue;
+        }
+
+        conn.style.display = '';
         const color = this.getPriorityColor(marker.priority);
         conn.setAttribute('x1', String(markerX));
         conn.setAttribute('y1', String(markerY));
-        conn.setAttribute('x2', String(anchorScreenX));
-        conn.setAttribute('y2', String(anchorScreenY));
+        conn.setAttribute('x2', String(anchorScreen.x));
+        conn.setAttribute('y2', String(anchorScreen.y));
         conn.setAttribute('stroke', color);
         conn.setAttribute('stroke-width', '1.5');
         conn.setAttribute('stroke-dasharray', '3 2');
