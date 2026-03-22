@@ -210,6 +210,7 @@ function positionFromViewpoint(
     for (const comp of selected) {
       if (!comp.ifcGuid) continue;
       const bbox = boundsLookup(comp.ifcGuid);
+      console.log(`[BCF Overlay] Strategy 1: ifcGuid=${comp.ifcGuid}, bbox=${bbox ? `y:${bbox.min.y.toFixed(2)}..${bbox.max.y.toFixed(2)}` : 'null'}`);
       if (bbox) {
         const m = markerFromBBox(bbox);
         return { ...m, source: 'component' };
@@ -300,6 +301,8 @@ export function computeMarkerPositions(
     }
 
     if (!result) continue;
+
+    console.log(`[BCF Overlay] Topic "${topic.title}" marker: source=${result.source}, pos=(${result.position.x.toFixed(2)}, ${result.position.y.toFixed(2)}, ${result.position.z.toFixed(2)})`);
 
     const firstVp = topic.viewpoints[0];
 
