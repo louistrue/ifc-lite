@@ -226,6 +226,7 @@ export function useBCF(options: UseBCFOptions = {}): UseBCFResult {
    */
   const expressIdToGlobalId = useCallback(
     (expressId: number): string | null => {
+      console.log(`[useBCF] expressIdToGlobalId(${expressId}): models.size=${models.size}`, [...models.keys()]);
       for (const [modelId, model] of models.entries()) {
         const offset = model.idOffset ?? 0;
         const localExpressId = expressId - offset;
