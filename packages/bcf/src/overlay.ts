@@ -10,7 +10,7 @@
  *
  * Position derivation strategy (in priority order):
  *   1. Selected component bounding-box center (most accurate)
- *   2. Camera direction ray → target point (fallback when no components)
+ *   2. Camera target point — the orbit center from the viewpoint (robust fallback)
  *   3. Camera viewpoint position itself (last resort)
  */
 
@@ -116,31 +116,56 @@ export interface BCFOverlayProjection {
 export type EntityBoundsLookup = (ifcGuid: string) => OverlayBBox | null;
 
 // ============================================================================
-// Position computation
+// Position computation — internal helpers
 // ============================================================================
 
 /**
  * Convert a BCF Z-up point to the viewer's Y-up coordinate system.
  *
- * BCF (Z-up):  +X=right, +Y=forward,  +Z=up
- * Viewer (Y-up): +X=right, +Y=up,      +Z=towards viewer
+ * BCF (Z-up):    +X=right, +Y=forward,  +Z=up
+ * Viewer (Y-up): +X=right, +Y=up,       +Z=towards viewer
  */
 function bcfPointToYUp(p: BCFPoint): OverlayPoint3D {
   return { x: p.x, y: p.z, z: -p.y };
 }
 
 /**
- * Derive a 3D marker position from a single BCF viewpoint.
+ * Compute the camera's TARGET point (orbit center) from BCF viewpoint data.
  *
- * @param viewpoint   BCF viewpoint with camera / component data
- * @param boundsLookup Callback to resolve ifcGuid → bounding box
- * @param defaultDistance Distance along camera ray when no hit (default 10)
- * @returns Position and source, or null if nothing useful in the viewpoint
+ * BCF only stores viewPoint + direction (no target distance), so we need
+ * the distance from the caller. This target is the point the user was
+ * looking at — a reliable anchor for the marker.
+ */
+function cameraTargetFromViewpoint(
+  viewpoint: BCFViewpoint,
+  targetDistance: number,
+): OverlayPoint3D | null {
+  const cam = viewpoint.perspectiveCamera ?? viewpoint.orthogonalCamera;
+  if (!cam) return null;
+
+  const origin = bcfPointToYUp(cam.cameraViewPoint);
+  const dir = bcfPointToYUp(cam.cameraDirection);
+  const len = Math.sqrt(dir.x * dir.x + dir.y * dir.y + dir.z * dir.z);
+  if (len < 1e-6) return null;
+
+  const nx = dir.x / len;
+  const ny = dir.y / len;
+  const nz = dir.z / len;
+
+  return {
+    x: origin.x + nx * targetDistance,
+    y: origin.y + ny * targetDistance,
+    z: origin.z + nz * targetDistance,
+  };
+}
+
+/**
+ * Derive a 3D marker position from a single BCF viewpoint.
  */
 function positionFromViewpoint(
   viewpoint: BCFViewpoint,
   boundsLookup: EntityBoundsLookup,
-  defaultDistance = 10,
+  targetDistance: number,
 ): { position: OverlayPoint3D; source: BCFMarker3D['positionSource'] } | null {
   // Strategy 1: Selected component bounding-box center
   const selected = viewpoint.components?.selection;
@@ -152,7 +177,7 @@ function positionFromViewpoint(
         return {
           position: {
             x: (bbox.min.x + bbox.max.x) / 2,
-            y: bbox.max.y + (bbox.max.y - bbox.min.y) * 0.15, // slightly above top
+            y: bbox.max.y + (bbox.max.y - bbox.min.y) * 0.15,
             z: (bbox.min.z + bbox.max.z) / 2,
           },
           source: 'component',
@@ -161,7 +186,7 @@ function positionFromViewpoint(
     }
   }
 
-  // Strategy 1b: Visible-exception components (isolation mode, defaultVisibility=false)
+  // Strategy 1b: Visible-exception components (isolation mode)
   const visibility = viewpoint.components?.visibility;
   if (visibility && !visibility.defaultVisibility && visibility.exceptions && visibility.exceptions.length > 0) {
     for (const comp of visibility.exceptions) {
@@ -180,28 +205,16 @@ function positionFromViewpoint(
     }
   }
 
-  // Strategy 2: Camera direction ray → target point
-  const cam = viewpoint.perspectiveCamera ?? viewpoint.orthogonalCamera;
-  if (cam) {
-    const origin = bcfPointToYUp(cam.cameraViewPoint);
-    const dir = bcfPointToYUp(cam.cameraDirection);
-    const len = Math.sqrt(dir.x * dir.x + dir.y * dir.y + dir.z * dir.z);
-    if (len > 0) {
-      const nx = dir.x / len;
-      const ny = dir.y / len;
-      const nz = dir.z / len;
-      return {
-        position: {
-          x: origin.x + nx * defaultDistance,
-          y: origin.y + ny * defaultDistance,
-          z: origin.z + nz * defaultDistance,
-        },
-        source: 'camera-target',
-      };
-    }
+  // Strategy 2: Camera target point (orbit center)
+  // Uses the actual camera-to-target distance so the marker sits exactly
+  // where the user was looking, not at an arbitrary distance from the camera.
+  const target = cameraTargetFromViewpoint(viewpoint, targetDistance);
+  if (target) {
+    return { position: target, source: 'camera-target' };
   }
 
-  // Strategy 3: Camera viewpoint position itself
+  // Strategy 3: Camera viewpoint position (last resort)
+  const cam = viewpoint.perspectiveCamera ?? viewpoint.orthogonalCamera;
   if (cam) {
     return {
       position: bcfPointToYUp(cam.cameraViewPoint),
@@ -217,8 +230,13 @@ function positionFromViewpoint(
 // ============================================================================
 
 export interface ComputeMarkersOptions {
-  /** Default distance along camera ray when no component bounds available (default 10) */
-  defaultDistance?: number;
+  /**
+   * Camera-to-target distance in world units. Used when a viewpoint has
+   * camera data but no resolvable component selection. Should match the
+   * viewer's camera distance (e.g. `camera.getDistance()`).
+   * Default 50.
+   */
+  targetDistance?: number;
   /** Only include topics with these statuses (default: all) */
   statusFilter?: string[];
 }
@@ -233,36 +251,13 @@ export interface ComputeMarkersOptions {
  * @param boundsLookup Callback to resolve IFC GlobalId → bounding box (Y-up)
  * @param options      Optional configuration
  * @returns Array of positioned markers (topics without derivable positions are skipped)
- *
- * @example
- * ```ts
- * // WebGPU renderer adapter
- * const lookup = (guid: string) => {
- *   const result = globalIdToExpressId(guid);
- *   if (!result) return null;
- *   return scene.getEntityBoundingBox(result.expressId);
- * };
- * const markers = computeMarkerPositions(topics, lookup);
- * ```
- *
- * @example
- * ```ts
- * // Three.js adapter
- * const lookup = (guid: string) => {
- *   const mesh = ifcModel.getElementByGlobalId(guid);
- *   if (!mesh) return null;
- *   const box = new THREE.Box3().setFromObject(mesh);
- *   return { min: box.min, max: box.max };
- * };
- * const markers = computeMarkerPositions(topics, lookup);
- * ```
  */
 export function computeMarkerPositions(
   topics: BCFTopic[],
   boundsLookup: EntityBoundsLookup,
   options?: ComputeMarkersOptions,
 ): BCFMarker3D[] {
-  const { defaultDistance = 10, statusFilter } = options ?? {};
+  const { targetDistance = 50, statusFilter } = options ?? {};
   const markers: BCFMarker3D[] = [];
 
   for (let i = 0; i < topics.length; i++) {
@@ -277,11 +272,10 @@ export function computeMarkerPositions(
     // Try each viewpoint to derive a position (first valid wins)
     let result: { position: OverlayPoint3D; source: BCFMarker3D['positionSource'] } | null = null;
     for (const vp of topic.viewpoints) {
-      result = positionFromViewpoint(vp, boundsLookup, defaultDistance);
+      result = positionFromViewpoint(vp, boundsLookup, targetDistance);
       if (result) break;
     }
 
-    // Skip topics with no derivable position
     if (!result) continue;
 
     const firstVp = topic.viewpoints[0];

@@ -11,9 +11,12 @@
  *   - BCFOverlayRenderer (pure DOM marker rendering)
  *   - BCF panel (click marker → open topic, bidirectional sync)
  *
- * KEY FIX: Bounds lookup queries the renderer Scene directly (not via a
- * ref that's null during first render). Marker computation is deferred
- * until the overlay renderer is initialised and bounds are available.
+ * KEY DESIGN: Bounds lookup queries the renderer Scene directly via a
+ * mutable ref (not React state). Marker computation is triggered by an
+ * `overlayReady` counter that bumps once the renderer is available AND
+ * when loading completes (ensuring bounding boxes are cached).
+ * The camera's current distance is passed as `targetDistance` so fallback
+ * markers land at the orbit center — not at hardcoded 10 units.
  */
 
 import { useEffect, useRef, useCallback, useState } from 'react';
@@ -33,13 +36,6 @@ import type { Renderer } from '@ifc-lite/renderer';
 // WebGPU projection adapter
 // ============================================================================
 
-/**
- * Create a BCFOverlayProjection adapter for the built-in WebGPU renderer.
- *
- * The polling RAF detects camera/viewport changes and fires listeners
- * **synchronously in the same frame** so the overlay re-projects with
- * zero lag during orbit, pan and zoom.
- */
 function createWebGPUProjection(
   renderer: Renderer,
   canvas: HTMLCanvasElement,
@@ -73,8 +69,6 @@ function createWebGPUProjection(
       prevPosX = pos.x; prevPosY = pos.y; prevPosZ = pos.z;
       prevTgtX = tgt.x; prevTgtY = tgt.y; prevTgtZ = tgt.z;
       prevWidth = w; prevHeight = h;
-
-      // Fire synchronously — overlay re-projects in this same frame
       for (const cb of listeners) cb();
     }
   }
@@ -103,9 +97,7 @@ function createWebGPUProjection(
     onCameraChange(callback: () => void) {
       listeners.add(callback);
       listenerCount++;
-      if (listenerCount === 1) {
-        rafId = requestAnimationFrame(poll);
-      }
+      if (listenerCount === 1) rafId = requestAnimationFrame(poll);
       return () => {
         listeners.delete(callback);
         listenerCount--;
@@ -125,12 +117,10 @@ function createWebGPUProjection(
 export function BCFOverlay() {
   const containerRef = useRef<HTMLDivElement>(null);
   const overlayRef = useRef<BCFOverlayRenderer | null>(null);
-
-  // Renderer ref stored outside React state so the bounds lookup can read
-  // it without triggering re-renders or being stale.
   const rendererRef = useRef<Renderer | null>(null);
 
-  // Bumped when the overlay is ready so we recompute markers with real bounds.
+  // Bumped when overlay/renderer is ready or geometry finishes loading,
+  // triggering marker recomputation with real bounding boxes.
   const [overlayReady, setOverlayReady] = useState(0);
 
   // Store selectors
@@ -140,8 +130,9 @@ export function BCFOverlay() {
   const setActiveTopic = useViewerStore((s) => s.setActiveTopic);
   const setBcfPanelVisible = useViewerStore((s) => s.setBcfPanelVisible);
   const models = useViewerStore((s) => s.models);
+  const loading = useViewerStore((s) => s.loading);
 
-  // ---- GlobalId → expressId lookup (stable across renders) ----
+  // GlobalId → expressId lookup
   const globalIdToExpressId = useCallback(
     (globalIdString: string): { expressId: number; modelId: string } | null => {
       for (const [modelId, model] of models.entries()) {
@@ -156,49 +147,49 @@ export function BCFOverlay() {
     [models],
   );
 
-  // ---- Bounds lookup queries the renderer Scene directly ----
-  // Uses rendererRef (mutable ref) so it always has the latest renderer
-  // even during the first useMemo pass after the overlay is created.
+  // Bounds lookup — queries the renderer Scene directly
   const boundsLookup: EntityBoundsLookup = useCallback(
     (ifcGuid: string): OverlayBBox | null => {
       const r = rendererRef.current;
       if (!r) return null;
-
       const result = globalIdToExpressId(ifcGuid);
       if (!result) return null;
-
       return r.getScene().getEntityBoundingBox(result.expressId);
     },
     [globalIdToExpressId],
   );
 
-  // ---- Topics list ----
+  // Get current camera distance (for proper fallback marker placement)
+  const getCameraDistance = useCallback((): number => {
+    const r = rendererRef.current;
+    if (!r) return 50; // safe default
+    return r.getCamera().getDistance();
+  }, []);
+
+  // Topics list
   const topics = (() => {
     if (!bcfProject) return [];
     return Array.from(bcfProject.topics.values());
   })();
 
-  // ---- Compute markers (recomputes when topics, models, or overlay readiness changes) ----
-  // `overlayReady` ensures we recompute once the renderer is available so
-  // boundsLookup actually resolves entity bounding boxes.
+  // Compute markers — recomputes when topics, bounds, loading, or readiness changes
   const markersRef = useRef<ReturnType<typeof computeMarkerPositions>>([]);
-  const prevTopicsRef = useRef(topics);
-  const prevBoundsRef = useRef(boundsLookup);
-  const prevReadyRef = useRef(overlayReady);
+  const prevDepsRef = useRef({ topics, boundsLookup, overlayReady, loading });
 
   if (
-    topics !== prevTopicsRef.current ||
-    boundsLookup !== prevBoundsRef.current ||
-    overlayReady !== prevReadyRef.current
+    topics !== prevDepsRef.current.topics ||
+    boundsLookup !== prevDepsRef.current.boundsLookup ||
+    overlayReady !== prevDepsRef.current.overlayReady ||
+    loading !== prevDepsRef.current.loading
   ) {
-    prevTopicsRef.current = topics;
-    prevBoundsRef.current = boundsLookup;
-    prevReadyRef.current = overlayReady;
-    markersRef.current = computeMarkerPositions(topics, boundsLookup);
+    prevDepsRef.current = { topics, boundsLookup, overlayReady, loading };
+    markersRef.current = computeMarkerPositions(topics, boundsLookup, {
+      targetDistance: getCameraDistance(),
+    });
   }
   const markers = markersRef.current;
 
-  // ---- Initialize overlay renderer ----
+  // Initialize overlay renderer
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
@@ -209,11 +200,9 @@ export function BCFOverlay() {
     const canvas = container.closest('[data-viewport]')?.querySelector('canvas') as HTMLCanvasElement | null;
     if (!canvas) return;
 
-    // Store renderer in mutable ref so boundsLookup can read it immediately
     rendererRef.current = renderer;
 
     const projection = createWebGPUProjection(renderer, canvas);
-
     const overlay = new BCFOverlayRenderer(container, projection, {
       showConnectors: true,
       showTooltips: true,
@@ -221,8 +210,7 @@ export function BCFOverlay() {
     });
     overlayRef.current = overlay;
 
-    // Signal that the overlay is ready — triggers marker recomputation
-    // with real bounding boxes (not camera-direction fallbacks).
+    // Trigger marker recomputation now that renderer is available
     setOverlayReady((n) => n + 1);
 
     return () => {
@@ -232,27 +220,33 @@ export function BCFOverlay() {
     };
   }, [models]);
 
-  // ---- Push markers to overlay renderer ----
+  // Recompute markers when loading finishes (bounding boxes get cached)
+  useEffect(() => {
+    if (!loading && rendererRef.current) {
+      setOverlayReady((n) => n + 1);
+    }
+  }, [loading]);
+
+  // Push markers to overlay renderer
   useEffect(() => {
     overlayRef.current?.setMarkers(markers);
   }, [markers, overlayReady]);
 
-  // ---- Sync active marker ----
+  // Sync active marker
   useEffect(() => {
     overlayRef.current?.setActiveMarker(activeTopicId);
   }, [activeTopicId, overlayReady]);
 
-  // ---- Visibility ----
+  // Visibility
   useEffect(() => {
     const hasTopics = bcfProject !== null && bcfProject.topics.size > 0;
     overlayRef.current?.setVisible(hasTopics);
   }, [bcfProject, overlayReady]);
 
-  // ---- Click handler: click marker → open BCF panel + select topic ----
+  // Click handler
   useEffect(() => {
     const overlay = overlayRef.current;
     if (!overlay) return;
-
     return overlay.onMarkerClick((topicGuid) => {
       setActiveTopic(topicGuid);
       if (!bcfPanelVisible) setBcfPanelVisible(true);
