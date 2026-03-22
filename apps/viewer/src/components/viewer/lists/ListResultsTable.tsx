@@ -33,7 +33,7 @@ export function ListResultsTable({ result }: ListResultsTableProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [sortCol, setSortCol] = useState<number | null>(null);
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
-  const [filterByVisibility, setFilterByVisibility] = useState(false);
+  const [filterByVisibility, setFilterByVisibility] = useState(true);
 
   const setSelectedEntityId = useViewerStore((s) => s.setSelectedEntityId);
   const setSelectedEntity = useViewerStore((s) => s.setSelectedEntity);
