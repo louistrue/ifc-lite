@@ -88,8 +88,17 @@ export interface BCFOverlayProjection {
   getCanvasSize(): { width: number; height: number };
 
   /**
+   * Get the current camera position in world space (Y-up).
+   * Used for depth-based scaling. Optional — markers render at
+   * uniform size if not provided.
+   */
+  getCameraPosition?(): OverlayPoint3D;
+
+  /**
    * Subscribe to camera/render changes.
-   * The callback is invoked whenever markers need re-projection (camera move, resize, etc.).
+   * The callback is invoked **synchronously inside the polling RAF**
+   * so the overlay can re-project in the same animation frame
+   * for zero-lag tracking during orbit/pan/zoom.
    * Returns an unsubscribe function.
    */
   onCameraChange(callback: () => void): () => void;

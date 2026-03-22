@@ -10,9 +10,13 @@
  *   - Renderer (camera projection, entity bounds)
  *   - BCFOverlayRenderer (pure DOM marker rendering)
  *   - BCF panel (click marker → open topic, bidirectional sync)
+ *
+ * KEY FIX: Bounds lookup queries the renderer Scene directly (not via a
+ * ref that's null during first render). Marker computation is deferred
+ * until the overlay renderer is initialised and bounds are available.
  */
 
-import { useEffect, useRef, useCallback, useMemo } from 'react';
+import { useEffect, useRef, useCallback, useState } from 'react';
 import { useViewerStore } from '@/store';
 import { getGlobalRenderer } from '@/hooks/useBCF';
 import {
@@ -21,17 +25,25 @@ import {
   type BCFOverlayProjection,
   type OverlayBBox,
   type OverlayPoint3D,
+  type EntityBoundsLookup,
 } from '@ifc-lite/bcf';
 import type { Renderer } from '@ifc-lite/renderer';
 
+// ============================================================================
+// WebGPU projection adapter
+// ============================================================================
+
 /**
  * Create a BCFOverlayProjection adapter for the built-in WebGPU renderer.
+ *
+ * The polling RAF detects camera/viewport changes and fires listeners
+ * **synchronously in the same frame** so the overlay re-projects with
+ * zero lag during orbit, pan and zoom.
  */
 function createWebGPUProjection(
   renderer: Renderer,
   canvas: HTMLCanvasElement,
 ): BCFOverlayProjection {
-  // Track camera state for change detection
   let prevPosX = NaN;
   let prevPosY = NaN;
   let prevPosZ = NaN;
@@ -43,14 +55,15 @@ function createWebGPUProjection(
 
   const listeners = new Set<() => void>();
   let rafId: number | null = null;
+  let listenerCount = 0;
 
   function poll() {
     rafId = requestAnimationFrame(poll);
     const cam = renderer.getCamera();
     const pos = cam.getPosition();
     const tgt = cam.getTarget();
-    const w = canvas.width;
-    const h = canvas.height;
+    const w = canvas.clientWidth;
+    const h = canvas.clientHeight;
 
     if (
       pos.x !== prevPosX || pos.y !== prevPosY || pos.z !== prevPosZ ||
@@ -60,31 +73,34 @@ function createWebGPUProjection(
       prevPosX = pos.x; prevPosY = pos.y; prevPosZ = pos.z;
       prevTgtX = tgt.x; prevTgtY = tgt.y; prevTgtZ = tgt.z;
       prevWidth = w; prevHeight = h;
+
+      // Fire synchronously — overlay re-projects in this same frame
       for (const cb of listeners) cb();
     }
   }
 
-  // Start polling when first listener subscribes
-  let listenerCount = 0;
-
   return {
-    projectToScreen(worldPos: OverlayPoint3D): { x: number; y: number } | null {
-      const cam = renderer.getCamera();
-      return cam.projectToScreen(worldPos, canvas.clientWidth, canvas.clientHeight);
+    projectToScreen(worldPos: OverlayPoint3D) {
+      return renderer.getCamera().projectToScreen(
+        worldPos,
+        canvas.clientWidth,
+        canvas.clientHeight,
+      );
     },
 
     getEntityBounds(expressId: number): OverlayBBox | null {
-      const scene = renderer.getScene();
-      const bbox = scene.getEntityBoundingBox(expressId);
-      if (!bbox) return null;
-      return bbox;
+      return renderer.getScene().getEntityBoundingBox(expressId);
     },
 
-    getCanvasSize(): { width: number; height: number } {
+    getCanvasSize() {
       return { width: canvas.clientWidth, height: canvas.clientHeight };
     },
 
-    onCameraChange(callback: () => void): () => void {
+    getCameraPosition(): OverlayPoint3D {
+      return renderer.getCamera().getPosition();
+    },
+
+    onCameraChange(callback: () => void) {
       listeners.add(callback);
       listenerCount++;
       if (listenerCount === 1) {
@@ -102,16 +118,20 @@ function createWebGPUProjection(
   };
 }
 
-/**
- * BCFOverlay component — mounts the overlay renderer over the 3D viewport.
- *
- * Place this as a sibling/child within the viewport container so it
- * overlays the canvas.
- */
+// ============================================================================
+// React Component
+// ============================================================================
+
 export function BCFOverlay() {
   const containerRef = useRef<HTMLDivElement>(null);
   const overlayRef = useRef<BCFOverlayRenderer | null>(null);
-  const projectionRef = useRef<BCFOverlayProjection | null>(null);
+
+  // Renderer ref stored outside React state so the bounds lookup can read
+  // it without triggering re-renders or being stale.
+  const rendererRef = useRef<Renderer | null>(null);
+
+  // Bumped when the overlay is ready so we recompute markers with real bounds.
+  const [overlayReady, setOverlayReady] = useState(0);
 
   // Store selectors
   const bcfProject = useViewerStore((s) => s.bcfProject);
@@ -121,7 +141,7 @@ export function BCFOverlay() {
   const setBcfPanelVisible = useViewerStore((s) => s.setBcfPanelVisible);
   const models = useViewerStore((s) => s.models);
 
-  // Build a globalId → expressId lookup from all loaded models
+  // ---- GlobalId → expressId lookup (stable across renders) ----
   const globalIdToExpressId = useCallback(
     (globalIdString: string): { expressId: number; modelId: string } | null => {
       for (const [modelId, model] of models.entries()) {
@@ -136,32 +156,49 @@ export function BCFOverlay() {
     [models],
   );
 
-  // Bounds lookup that resolves IFC GlobalId → bounding box via the renderer
-  const boundsLookup = useCallback(
+  // ---- Bounds lookup queries the renderer Scene directly ----
+  // Uses rendererRef (mutable ref) so it always has the latest renderer
+  // even during the first useMemo pass after the overlay is created.
+  const boundsLookup: EntityBoundsLookup = useCallback(
     (ifcGuid: string): OverlayBBox | null => {
+      const r = rendererRef.current;
+      if (!r) return null;
+
       const result = globalIdToExpressId(ifcGuid);
       if (!result) return null;
 
-      const projection = projectionRef.current;
-      if (!projection) return null;
-
-      return projection.getEntityBounds(result.expressId);
+      return r.getScene().getEntityBoundingBox(result.expressId);
     },
     [globalIdToExpressId],
   );
 
-  // Compute markers from topics
-  const topics = useMemo(() => {
+  // ---- Topics list ----
+  const topics = (() => {
     if (!bcfProject) return [];
     return Array.from(bcfProject.topics.values());
-  }, [bcfProject]);
+  })();
 
-  const markers = useMemo(
-    () => computeMarkerPositions(topics, boundsLookup),
-    [topics, boundsLookup],
-  );
+  // ---- Compute markers (recomputes when topics, models, or overlay readiness changes) ----
+  // `overlayReady` ensures we recompute once the renderer is available so
+  // boundsLookup actually resolves entity bounding boxes.
+  const markersRef = useRef<ReturnType<typeof computeMarkerPositions>>([]);
+  const prevTopicsRef = useRef(topics);
+  const prevBoundsRef = useRef(boundsLookup);
+  const prevReadyRef = useRef(overlayReady);
 
-  // Initialize overlay renderer when container mounts
+  if (
+    topics !== prevTopicsRef.current ||
+    boundsLookup !== prevBoundsRef.current ||
+    overlayReady !== prevReadyRef.current
+  ) {
+    prevTopicsRef.current = topics;
+    prevBoundsRef.current = boundsLookup;
+    prevReadyRef.current = overlayReady;
+    markersRef.current = computeMarkerPositions(topics, boundsLookup);
+  }
+  const markers = markersRef.current;
+
+  // ---- Initialize overlay renderer ----
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
@@ -169,65 +206,59 @@ export function BCFOverlay() {
     const renderer = getGlobalRenderer();
     if (!renderer) return;
 
-    // Find the canvas in the viewport
     const canvas = container.closest('[data-viewport]')?.querySelector('canvas') as HTMLCanvasElement | null;
     if (!canvas) return;
 
+    // Store renderer in mutable ref so boundsLookup can read it immediately
+    rendererRef.current = renderer;
+
     const projection = createWebGPUProjection(renderer, canvas);
-    projectionRef.current = projection;
 
     const overlay = new BCFOverlayRenderer(container, projection, {
       showConnectors: true,
       showTooltips: true,
-      verticalOffset: 40,
+      verticalOffset: 36,
     });
     overlayRef.current = overlay;
+
+    // Signal that the overlay is ready — triggers marker recomputation
+    // with real bounding boxes (not camera-direction fallbacks).
+    setOverlayReady((n) => n + 1);
 
     return () => {
       overlay.dispose();
       overlayRef.current = null;
-      projectionRef.current = null;
+      rendererRef.current = null;
     };
-  }, [models]); // Re-create when models change (renderer might be new)
+  }, [models]);
 
-  // Update markers when topics change
+  // ---- Push markers to overlay renderer ----
   useEffect(() => {
-    const overlay = overlayRef.current;
-    if (!overlay) return;
-    overlay.setMarkers(markers);
-  }, [markers]);
+    overlayRef.current?.setMarkers(markers);
+  }, [markers, overlayReady]);
 
-  // Sync active marker with store
+  // ---- Sync active marker ----
   useEffect(() => {
-    const overlay = overlayRef.current;
-    if (!overlay) return;
-    overlay.setActiveMarker(activeTopicId);
-  }, [activeTopicId]);
+    overlayRef.current?.setActiveMarker(activeTopicId);
+  }, [activeTopicId, overlayReady]);
 
-  // Show/hide overlay based on whether BCF project exists
+  // ---- Visibility ----
   useEffect(() => {
-    const overlay = overlayRef.current;
-    if (!overlay) return;
     const hasTopics = bcfProject !== null && bcfProject.topics.size > 0;
-    overlay.setVisible(hasTopics);
-  }, [bcfProject]);
+    overlayRef.current?.setVisible(hasTopics);
+  }, [bcfProject, overlayReady]);
 
-  // Register click handler: click marker → open BCF panel + select topic
+  // ---- Click handler: click marker → open BCF panel + select topic ----
   useEffect(() => {
     const overlay = overlayRef.current;
     if (!overlay) return;
 
-    const unsub = overlay.onMarkerClick((topicGuid) => {
+    return overlay.onMarkerClick((topicGuid) => {
       setActiveTopic(topicGuid);
-      if (!bcfPanelVisible) {
-        setBcfPanelVisible(true);
-      }
+      if (!bcfPanelVisible) setBcfPanelVisible(true);
     });
+  }, [overlayReady, bcfPanelVisible, setActiveTopic, setBcfPanelVisible]);
 
-    return unsub;
-  }, [bcfPanelVisible, setActiveTopic, setBcfPanelVisible]);
-
-  // Invisible mount point — the BCFOverlayRenderer creates its own DOM
   return (
     <div
       ref={containerRef}

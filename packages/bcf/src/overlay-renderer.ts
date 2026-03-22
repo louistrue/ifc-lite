@@ -9,15 +9,15 @@
  * canvas. Works with any renderer that implements BCFOverlayProjection.
  *
  * Features:
- *   - Markers float above referenced 3D objects
+ *   - Markers anchored to 3D objects — track correctly during orbit/pan/zoom
  *   - Color-coded by priority / status
  *   - Click, hover callbacks
- *   - Automatic re-projection on camera change
- *   - Connector lines from marker to anchor point
+ *   - Continuous re-projection every frame via onCameraChange
+ *   - Connector lines from marker to projected anchor point
  *   - Depth-based scaling (farther markers appear smaller)
  */
 
-import type { BCFMarker3D, BCFOverlayProjection, OverlayPoint3D } from './overlay.js';
+import type { BCFMarker3D, BCFOverlayProjection } from './overlay.js';
 
 // ============================================================================
 // Constants
@@ -52,11 +52,11 @@ export interface BCFOverlayRendererOptions {
   showConnectors?: boolean;
   /** Show tooltip on hover (default true) */
   showTooltips?: boolean;
-  /** Minimum marker scale at far distance (default 0.6) */
+  /** Minimum marker scale at far distance (default 0.65) */
   minScale?: number;
-  /** Maximum marker scale at near distance (default 1.2) */
+  /** Maximum marker scale at near distance (default 1.0) */
   maxScale?: number;
-  /** Offset in pixels above the projected point (default 40) */
+  /** Offset in pixels above the projected point (default 36) */
   verticalOffset?: number;
 }
 
@@ -69,7 +69,6 @@ export class BCFOverlayRenderer {
   private activeMarkerId: string | null = null;
   private projection: BCFOverlayProjection;
   private unsubCamera: (() => void) | null = null;
-  private rafId: number | null = null;
   private clickCallbacks: Array<(topicGuid: string) => void> = [];
   private hoverCallbacks: Array<(topicGuid: string | null) => void> = [];
   private opts: Required<BCFOverlayRendererOptions>;
@@ -84,9 +83,9 @@ export class BCFOverlayRenderer {
     this.opts = {
       showConnectors: options?.showConnectors ?? true,
       showTooltips: options?.showTooltips ?? true,
-      minScale: options?.minScale ?? 0.6,
-      maxScale: options?.maxScale ?? 1.2,
-      verticalOffset: options?.verticalOffset ?? 40,
+      minScale: options?.minScale ?? 0.65,
+      maxScale: options?.maxScale ?? 1.0,
+      verticalOffset: options?.verticalOffset ?? 36,
     };
 
     // Create overlay container (positioned over the canvas)
@@ -104,8 +103,9 @@ export class BCFOverlayRenderer {
     // Inject shared styles once
     this.injectStyles();
 
-    // Subscribe to camera changes
-    this.unsubCamera = projection.onCameraChange(() => this.scheduleUpdate());
+    // Subscribe to camera changes — callback fires synchronously in the
+    // polling RAF so we project in the same frame, zero lag.
+    this.unsubCamera = projection.onCameraChange(() => this.updatePositions());
   }
 
   // --------------------------------------------------------------------------
@@ -145,15 +145,11 @@ export class BCFOverlayRenderer {
 
   /** Highlight a specific marker as active */
   setActiveMarker(topicGuid: string | null): void {
-    // Remove previous active
     if (this.activeMarkerId) {
       const prev = this.markerElements.get(this.activeMarkerId);
       if (prev) prev.classList.remove(ACTIVE_CLASS);
     }
-
     this.activeMarkerId = topicGuid;
-
-    // Add new active
     if (topicGuid) {
       const el = this.markerElements.get(topicGuid);
       if (el) el.classList.add(ACTIVE_CLASS);
@@ -182,19 +178,31 @@ export class BCFOverlayRenderer {
     };
   }
 
-  /** Force re-projection of all markers */
+  /**
+   * Re-project all markers from world space to screen space.
+   * Called directly from the camera-change polling RAF — no extra
+   * scheduling, so markers track the camera with zero frame delay.
+   */
   updatePositions(): void {
     if (!this._visible) return;
     const { width, height } = this.projection.getCanvasSize();
+    if (width === 0 || height === 0) return;
+
+    // Get camera position for depth-based scaling
+    const camPos = this.projection.getCameraPosition?.();
 
     for (const marker of this.markers) {
       const el = this.markerElements.get(marker.topicGuid);
       if (!el) continue;
 
-      const screen = this.projection.projectToScreen(marker.position);
+      // Project the world-space anchor to screen coordinates
+      const anchorScreen = this.projection.projectToScreen(marker.position);
 
-      if (!screen || screen.x < -50 || screen.y < -50 || screen.x > width + 50 || screen.y > height + 50) {
-        // Off-screen or behind camera
+      if (
+        !anchorScreen ||
+        anchorScreen.x < -80 || anchorScreen.y < -80 ||
+        anchorScreen.x > width + 80 || anchorScreen.y > height + 80
+      ) {
         el.style.display = 'none';
         const conn = this.connectorElements.get(marker.topicGuid);
         if (conn) conn.style.display = 'none';
@@ -203,12 +211,35 @@ export class BCFOverlayRenderer {
 
       el.style.display = '';
 
-      // Position the marker (centered horizontally, offset above)
-      const markerX = screen.x;
-      const markerY = screen.y - this.opts.verticalOffset;
-      el.style.transform = `translate(${markerX}px, ${markerY}px) translate(-50%, -100%)`;
+      // Depth-based scaling: farther markers appear smaller
+      let scale = 1.0;
+      if (camPos) {
+        const dx = marker.position.x - camPos.x;
+        const dy = marker.position.y - camPos.y;
+        const dz = marker.position.z - camPos.z;
+        const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        // Map distance to scale: close (< 20) → maxScale, far (> 200) → minScale
+        const t = Math.max(0, Math.min(1, (dist - 20) / 180));
+        scale = this.opts.maxScale + t * (this.opts.minScale - this.opts.maxScale);
+      }
 
-      // Connector line from marker bottom to 3D point
+      // Offset the marker upward from the anchor point (scaled offset)
+      const offset = this.opts.verticalOffset * scale;
+      const markerX = anchorScreen.x;
+      const markerY = anchorScreen.y - offset;
+
+      el.style.transform =
+        `translate(${markerX}px, ${markerY}px) translate(-50%, -100%) scale(${scale.toFixed(3)})`;
+
+      // Depth-based opacity: far markers slightly translucent
+      const opacity = 0.6 + (1 - Math.max(0, Math.min(1, ((camPos ? Math.sqrt(
+        (marker.position.x - camPos.x) ** 2 +
+        (marker.position.y - camPos.y) ** 2 +
+        (marker.position.z - camPos.z) ** 2
+      ) : 0) - 20) / 250))) * 0.4;
+      el.style.opacity = camPos ? opacity.toFixed(2) : '1';
+
+      // Connector line from marker bottom to 3D anchor point
       if (this.opts.showConnectors) {
         let conn = this.connectorElements.get(marker.topicGuid);
         if (!conn) {
@@ -218,16 +249,16 @@ export class BCFOverlayRenderer {
           this.connectorElements.set(marker.topicGuid, conn);
         }
         conn.style.display = '';
-        conn.setAttribute('x1', String(markerX));
-        conn.setAttribute('y1', String(markerY));
-        conn.setAttribute('x2', String(screen.x));
-        conn.setAttribute('y2', String(screen.y));
 
         const color = this.getPriorityColor(marker.priority);
+        conn.setAttribute('x1', String(markerX));
+        conn.setAttribute('y1', String(markerY));
+        conn.setAttribute('x2', String(anchorScreen.x));
+        conn.setAttribute('y2', String(anchorScreen.y));
         conn.setAttribute('stroke', color);
         conn.setAttribute('stroke-width', '1.5');
-        conn.setAttribute('stroke-dasharray', '4 3');
-        conn.setAttribute('stroke-opacity', '0.5');
+        conn.setAttribute('stroke-dasharray', '3 2');
+        conn.setAttribute('stroke-opacity', String((opacity * 0.5).toFixed(2)));
       }
     }
   }
@@ -235,7 +266,6 @@ export class BCFOverlayRenderer {
   /** Clean up all DOM elements and listeners */
   dispose(): void {
     if (this.unsubCamera) this.unsubCamera();
-    if (this.rafId !== null) cancelAnimationFrame(this.rafId);
     this.container.remove();
     this.markerElements.clear();
     this.connectorElements.clear();
@@ -247,23 +277,10 @@ export class BCFOverlayRenderer {
   // Internal
   // --------------------------------------------------------------------------
 
-  private scheduleUpdate(): void {
-    if (this.rafId !== null) return;
-    this.rafId = requestAnimationFrame(() => {
-      this.rafId = null;
-      this.updatePositions();
-    });
-  }
-
   private createMarkerElement(marker: BCFMarker3D): void {
     const el = document.createElement('div');
     el.className = MARKER_CLASS;
-    el.style.position = 'absolute';
-    el.style.left = '0';
-    el.style.top = '0';
-    el.style.pointerEvents = 'auto';
-    el.style.cursor = 'pointer';
-    el.style.willChange = 'transform';
+    el.dataset.topicGuid = marker.topicGuid;
 
     this.updateMarkerInnerHTML(el, marker);
 
@@ -349,9 +366,15 @@ export class BCFOverlayRenderer {
       /* BCF 3D Overlay Markers */
 
       .${MARKER_CLASS} {
+        position: absolute;
+        left: 0;
+        top: 0;
+        pointer-events: auto;
+        cursor: pointer;
+        will-change: transform, opacity;
         z-index: 21;
-        transition: opacity 0.15s ease;
-        filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3));
+        filter: drop-shadow(0 2px 6px rgba(0,0,0,0.35));
+        transform-origin: center bottom;
       }
 
       .bcf-marker-pin {
@@ -364,19 +387,19 @@ export class BCFOverlayRenderer {
         align-items: center;
         justify-content: center;
         border: 2px solid rgba(255,255,255,0.9);
-        box-shadow: 0 2px 8px rgba(0,0,0,0.3);
-        transition: transform 0.2s ease, box-shadow 0.2s ease;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+        transition: transform 0.15s ease, box-shadow 0.15s ease;
       }
 
       .${MARKER_CLASS}:hover .bcf-marker-pin {
-        transform: rotate(-45deg) scale(1.15);
-        box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+        transform: rotate(-45deg) scale(1.2);
+        box-shadow: 0 4px 16px rgba(0,0,0,0.4);
       }
 
       .${ACTIVE_CLASS} .bcf-marker-pin {
-        transform: rotate(-45deg) scale(1.2);
-        box-shadow: 0 0 0 4px rgba(122,162,247,0.3), 0 4px 12px rgba(0,0,0,0.4);
-        animation: bcf-pulse 2s ease-in-out infinite;
+        transform: rotate(-45deg) scale(1.25);
+        box-shadow: 0 0 0 4px rgba(122,162,247,0.35), 0 4px 16px rgba(0,0,0,0.4);
+        animation: bcf-pulse 1.8s ease-in-out infinite;
       }
 
       .bcf-marker-index {
@@ -392,23 +415,22 @@ export class BCFOverlayRenderer {
       /* Tooltip */
       .${TOOLTIP_CLASS} {
         position: absolute;
-        bottom: 100%;
+        bottom: calc(100% + 6px);
         left: 50%;
         transform: translateX(-50%);
-        margin-bottom: 8px;
         background: #1a1b26;
         color: #a9b1d6;
         border: 1px solid #3b4261;
         padding: 8px 12px;
-        min-width: 180px;
-        max-width: 280px;
+        min-width: 160px;
+        max-width: 260px;
         font-family: ui-monospace, monospace;
-        font-size: 12px;
+        font-size: 11px;
         line-height: 1.4;
         white-space: nowrap;
         z-index: 100;
         pointer-events: none;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+        box-shadow: 0 4px 16px rgba(0,0,0,0.5);
       }
 
       .${TOOLTIP_CLASS}::after {
@@ -440,7 +462,7 @@ export class BCFOverlayRenderer {
       }
 
       .bcf-tooltip-meta {
-        margin-top: 4px;
+        margin-top: 3px;
         font-size: 10px;
         color: #565f89;
         text-transform: uppercase;
@@ -454,8 +476,8 @@ export class BCFOverlayRenderer {
 
       /* Pulse animation for active marker */
       @keyframes bcf-pulse {
-        0%, 100% { box-shadow: 0 0 0 4px rgba(122,162,247,0.3), 0 4px 12px rgba(0,0,0,0.4); }
-        50% { box-shadow: 0 0 0 8px rgba(122,162,247,0.1), 0 4px 12px rgba(0,0,0,0.4); }
+        0%, 100% { box-shadow: 0 0 0 4px rgba(122,162,247,0.35), 0 4px 16px rgba(0,0,0,0.4); }
+        50% { box-shadow: 0 0 0 8px rgba(122,162,247,0.1), 0 4px 16px rgba(0,0,0,0.4); }
       }
     `;
     document.head.appendChild(style);
