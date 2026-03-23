@@ -22,6 +22,10 @@ import {
   type ViewerBounds,
 } from '@ifc-lite/bcf';
 import type { Renderer } from '@ifc-lite/renderer';
+import {
+  globalIdToExpressId as globalIdToExpressIdLookup,
+  expressIdToGlobalId as expressIdToGlobalIdLookup,
+} from './bcfIdLookup';
 
 // ============================================================================
 // Types
@@ -227,30 +231,8 @@ export function useBCF(options: UseBCFOptions = {}): UseBCFResult {
    * Handles multi-model federation by finding the correct model and subtracting offset
    */
   const expressIdToGlobalId = useCallback(
-    (expressId: number): string | null => {
-      // Multi-model path: search federated models
-      for (const model of models.values()) {
-        const offset = model.idOffset ?? 0;
-        const localExpressId = expressId - offset;
-
-        if (localExpressId > 0 && localExpressId <= (model.maxExpressId ?? Infinity)) {
-          const globalIdString = model.ifcDataStore?.entities?.getGlobalId(localExpressId);
-          if (globalIdString) {
-            return globalIdString;
-          }
-        }
-      }
-
-      // Single-model fallback: use legacy ifcDataStore directly
-      if (models.size === 0 && ifcDataStore?.entities) {
-        const globalIdString = ifcDataStore.entities.getGlobalId(expressId);
-        if (globalIdString) {
-          return globalIdString;
-        }
-      }
-
-      return null;
-    },
+    (expressId: number): string | null =>
+      expressIdToGlobalIdLookup(expressId, models, ifcDataStore),
     [models, ifcDataStore]
   );
 
@@ -259,32 +241,8 @@ export function useBCF(options: UseBCFOptions = {}): UseBCFResult {
    * Returns { expressId, modelId } or null if not found
    */
   const globalIdToExpressId = useCallback(
-    (globalIdString: string): { expressId: number; modelId: string } | null => {
-      // Multi-model path
-      for (const [modelId, model] of models.entries()) {
-        const localExpressId = model.ifcDataStore?.entities?.getExpressIdByGlobalId(globalIdString);
-        if (localExpressId !== undefined && localExpressId > 0) {
-          const offset = model.idOffset ?? 0;
-          return {
-            expressId: localExpressId + offset,
-            modelId,
-          };
-        }
-      }
-
-      // Single-model fallback
-      if (models.size === 0 && ifcDataStore?.entities) {
-        const localExpressId = ifcDataStore.entities.getExpressIdByGlobalId(globalIdString);
-        if (localExpressId !== undefined && localExpressId > 0) {
-          return {
-            expressId: localExpressId,
-            modelId: 'legacy',
-          };
-        }
-      }
-
-      return null;
-    },
+    (globalIdString: string): { expressId: number; modelId: string } | null =>
+      globalIdToExpressIdLookup(globalIdString, models, ifcDataStore),
     [models, ifcDataStore]
   );
 

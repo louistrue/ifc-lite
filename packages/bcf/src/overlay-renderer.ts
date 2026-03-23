@@ -73,6 +73,7 @@ export class BCFOverlayRenderer {
   private hoverCallbacks: Array<(topicGuid: string | null) => void> = [];
   private opts: Required<BCFOverlayRendererOptions>;
   private _visible = true;
+  private _disposed = false;
 
   constructor(
     parentElement: HTMLElement,
@@ -184,7 +185,7 @@ export class BCFOverlayRenderer {
    * scheduling, so markers track the camera with zero frame delay.
    */
   updatePositions(): void {
-    if (!this._visible) return;
+    if (this._disposed || !this._visible) return;
     const { width, height } = this.projection.getCanvasSize();
     if (width === 0 || height === 0) return;
 
@@ -272,6 +273,7 @@ export class BCFOverlayRenderer {
 
   /** Clean up all DOM elements and listeners */
   dispose(): void {
+    this._disposed = true;
     if (this.unsubCamera) this.unsubCamera();
     this.container.remove();
     this.markerElements.clear();
@@ -342,7 +344,7 @@ export class BCFOverlayRenderer {
           <span class="bcf-tooltip-title">${this.escapeHtml(marker.title)}</span>
         </div>
         <div class="bcf-tooltip-meta">
-          ${marker.status}${marker.commentCount > 0 ? ` · ${marker.commentCount} comment${marker.commentCount !== 1 ? 's' : ''}` : ''}
+          ${this.escapeHtml(marker.status)}${marker.commentCount > 0 ? ` · ${marker.commentCount} comment${marker.commentCount !== 1 ? 's' : ''}` : ''}
         </div>
       </div>
     `;

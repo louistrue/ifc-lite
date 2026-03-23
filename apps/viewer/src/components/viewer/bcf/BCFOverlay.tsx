@@ -19,9 +19,10 @@
  * markers land at the orbit center — not at hardcoded 10 units.
  */
 
-import { useEffect, useRef, useCallback, useState } from 'react';
+import { useEffect, useRef, useCallback, useMemo, useState } from 'react';
 import { useViewerStore } from '@/store';
 import { getGlobalRenderer } from '@/hooks/useBCF';
+import { globalIdToExpressId as globalIdToExpressIdLookup } from '@/hooks/bcfIdLookup';
 import {
   computeMarkerPositions,
   BCFOverlayRenderer,
@@ -126,33 +127,16 @@ export function BCFOverlay() {
   // Store selectors
   const bcfProject = useViewerStore((s) => s.bcfProject);
   const activeTopicId = useViewerStore((s) => s.activeTopicId);
-  const bcfPanelVisible = useViewerStore((s) => s.bcfPanelVisible);
   const setActiveTopic = useViewerStore((s) => s.setActiveTopic);
   const setBcfPanelVisible = useViewerStore((s) => s.setBcfPanelVisible);
   const models = useViewerStore((s) => s.models);
   const loading = useViewerStore((s) => s.loading);
   const ifcDataStore = useViewerStore((s) => s.ifcDataStore);
 
-  // GlobalId → expressId lookup
+  // GlobalId → expressId lookup (delegates to shared utility)
   const globalIdToExpressId = useCallback(
-    (globalIdString: string): { expressId: number; modelId: string } | null => {
-      // Multi-model path
-      for (const [modelId, model] of models.entries()) {
-        const localExpressId = model.ifcDataStore?.entities?.getExpressIdByGlobalId(globalIdString);
-        if (localExpressId !== undefined && localExpressId > 0) {
-          const offset = model.idOffset ?? 0;
-          return { expressId: localExpressId + offset, modelId };
-        }
-      }
-      // Single-model fallback
-      if (models.size === 0 && ifcDataStore?.entities) {
-        const localExpressId = ifcDataStore.entities.getExpressIdByGlobalId(globalIdString);
-        if (localExpressId !== undefined && localExpressId > 0) {
-          return { expressId: localExpressId, modelId: 'legacy' };
-        }
-      }
-      return null;
-    },
+    (globalIdString: string) =>
+      globalIdToExpressIdLookup(globalIdString, models, ifcDataStore),
     [models, ifcDataStore],
   );
 
@@ -182,21 +166,13 @@ export function BCFOverlay() {
   })();
 
   // Compute markers — recomputes when topics, bounds, loading, or readiness changes
-  const markersRef = useRef<ReturnType<typeof computeMarkerPositions>>([]);
-  const prevDepsRef = useRef({ topics, boundsLookup, overlayReady, loading });
-
-  if (
-    topics !== prevDepsRef.current.topics ||
-    boundsLookup !== prevDepsRef.current.boundsLookup ||
-    overlayReady !== prevDepsRef.current.overlayReady ||
-    loading !== prevDepsRef.current.loading
-  ) {
-    prevDepsRef.current = { topics, boundsLookup, overlayReady, loading };
-    markersRef.current = computeMarkerPositions(topics, boundsLookup, {
+  const markers = useMemo(
+    () => computeMarkerPositions(topics, boundsLookup, {
       targetDistance: getCameraDistance(),
-    });
-  }
-  const markers = markersRef.current;
+    }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [topics, boundsLookup, overlayReady, loading],
+  );
 
   // Initialize overlay renderer
   useEffect(() => {
@@ -246,21 +222,27 @@ export function BCFOverlay() {
     overlayRef.current?.setActiveMarker(activeTopicId);
   }, [activeTopicId, overlayReady]);
 
-  // Visibility
+  // Visibility — reproject markers when becoming visible so they don't
+  // sit at stale positions until the next camera move.
   useEffect(() => {
+    const overlay = overlayRef.current;
+    if (!overlay) return;
     const hasTopics = bcfProject !== null && bcfProject.topics.size > 0;
-    overlayRef.current?.setVisible(hasTopics);
+    overlay.setVisible(hasTopics);
+    if (hasTopics) overlay.updatePositions();
   }, [bcfProject, overlayReady]);
 
-  // Click handler
+  // Click handler — read bcfPanelVisible from store inside callback to
+  // avoid re-registering the handler on every panel toggle.
   useEffect(() => {
     const overlay = overlayRef.current;
     if (!overlay) return;
     return overlay.onMarkerClick((topicGuid) => {
       setActiveTopic(topicGuid);
-      if (!bcfPanelVisible) setBcfPanelVisible(true);
+      const panelVisible = useViewerStore.getState().bcfPanelVisible;
+      if (!panelVisible) setBcfPanelVisible(true);
     });
-  }, [overlayReady, bcfPanelVisible, setActiveTopic, setBcfPanelVisible]);
+  }, [overlayReady, setActiveTopic, setBcfPanelVisible]);
 
   return (
     <div
