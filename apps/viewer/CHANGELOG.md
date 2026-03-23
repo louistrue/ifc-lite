@@ -1,5 +1,11 @@
 # @ifc-lite/viewer
 
+## 1.16.1
+
+### Patch Changes
+
+- [#419](https://github.com/louistrue/ifc-lite/pull/419) [`87ce884`](https://github.com/louistrue/ifc-lite/commit/87ce8841175e64394445833e66bd77a8a68668e9) Thanks [@louistrue](https://github.com/louistrue)! - Enable visibility filter by default in list results table so rows are filtered by 3D visibility state out of the box
+
 ## 1.16.0
 
 ### Minor Changes
