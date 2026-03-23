@@ -20,6 +20,7 @@ import {
   Upload,
   Download,
   User,
+  MapPin,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -63,6 +64,8 @@ export function BCFPanel({ onClose }: BCFPanelProps) {
   const bcfAuthor = useViewerStore((s) => s.bcfAuthor);
   const setBcfAuthor = useViewerStore((s) => s.setBcfAuthor);
   const setBcfLoading = useViewerStore((s) => s.setBcfLoading);
+  const bcfOverlayVisible = useViewerStore((s) => s.bcfOverlayVisible);
+  const toggleBcfOverlay = useViewerStore((s) => s.toggleBcfOverlay);
 
   // Viewer state for capture feedback
   const selectedEntityId = useViewerStore((s) => s.selectedEntityId);
@@ -301,6 +304,15 @@ export function BCFPanel({ onClose }: BCFPanelProps) {
             title="Export BCF"
           >
             <Download className="h-4 w-4" />
+          </Button>
+          <Button
+            variant={bcfOverlayVisible ? 'secondary' : 'ghost'}
+            size="icon"
+            className="h-7 w-7"
+            onClick={toggleBcfOverlay}
+            title={bcfOverlayVisible ? 'Hide 3D markers' : 'Show 3D markers'}
+          >
+            <MapPin className="h-4 w-4" />
           </Button>
           <Button
             variant="ghost"

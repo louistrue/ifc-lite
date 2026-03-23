@@ -33,6 +33,7 @@ export function ViewportContainer() {
   // Multi-model support: get all loaded models from store (for merged geometry)
   const storeModels = useViewerStore((s) => s.models);
   const resetViewerState = useViewerStore((s) => s.resetViewerState);
+  const bcfOverlayVisible = useViewerStore((s) => s.bcfOverlayVisible);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [showTroubleshooting, setShowTroubleshooting] = useState(false);
@@ -612,7 +613,7 @@ export function ViewportContainer() {
         computedIsolatedIds={computedIsolatedIds}
         modelIdToIndex={modelIdToIndex}
       />
-      <BCFOverlay />
+      {bcfOverlayVisible && <BCFOverlay />}
       <ViewportOverlays />
       <ToolOverlays />
       <BasketPresentationDock />
