@@ -14,6 +14,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { createReadStream } from 'node:fs';
 import { readFile, stat } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { getViewerHtml } from './viewer-html.js';
 
 /** Valid command actions that the viewer understands */
@@ -75,16 +76,19 @@ export interface ViewerServer {
 }
 
 /** Resolve the path to @ifc-lite/wasm package */
+export function resolvePackageDirFromModuleUrl(moduleUrl: string): string {
+  return resolve(dirname(fileURLToPath(moduleUrl)), '..');
+}
+
 async function resolveWasmDir(): Promise<string> {
   try {
     // Use import.meta.resolve which understands ESM "exports" maps
     const entryUrl = import.meta.resolve('@ifc-lite/wasm');
     // entryUrl = file:///…/packages/wasm/pkg/ifc-lite.js → we need …/packages/wasm
-    const entryPath = entryUrl.replace(/^file:\/\//, '');
-    return resolve(dirname(entryPath), '..');
+    return resolvePackageDirFromModuleUrl(entryUrl);
   } catch {
-    // Fallback: resolve from monorepo root
-    return resolve(dirname(import.meta.url.replace('file://', '')), '..', '..', '..', 'wasm');
+    // Fallback: resolve from the sibling @ifc-lite/wasm package directory.
+    return resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', 'wasm');
   }
 }
 
