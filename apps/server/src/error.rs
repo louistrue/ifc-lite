@@ -15,6 +15,9 @@ use thiserror::Error;
 /// API error types.
 #[derive(Debug, Error)]
 pub enum ApiError {
+    #[error("Bad request: {0}")]
+    BadRequest(String),
+
     #[error("Missing file in request")]
     MissingFile,
 
@@ -56,6 +59,7 @@ pub struct ErrorResponse {
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         let (status, code) = match &self {
+            ApiError::BadRequest(_) => (StatusCode::BAD_REQUEST, "BAD_REQUEST"),
             ApiError::MissingFile => (StatusCode::BAD_REQUEST, "MISSING_FILE"),
             ApiError::FileTooLarge { .. } => (StatusCode::PAYLOAD_TOO_LARGE, "FILE_TOO_LARGE"),
             ApiError::InvalidUtf8(_) => (StatusCode::BAD_REQUEST, "INVALID_UTF8"),

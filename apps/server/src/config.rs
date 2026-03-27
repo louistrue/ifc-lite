@@ -7,8 +7,6 @@
 /// Server configuration.
 #[derive(Debug, Clone)]
 pub struct Config {
-    /// Host/IP to bind to (default: loopback — no firewall popup on Windows).
-    pub host: [u8; 4],
     /// Port to listen on.
     pub port: u16,
     /// Directory for cache storage.
@@ -35,30 +33,6 @@ impl Config {
     /// Load configuration from environment variables.
     pub fn from_env() -> Self {
         Self {
-            host: std::env::var("HOST")
-                .ok()
-                .and_then(|s| {
-                    let parts: Vec<u8> = s.split('.').filter_map(|p| p.parse().ok()).collect();
-                    if parts.len() == 4 {
-                        Some([parts[0], parts[1], parts[2], parts[3]])
-                    } else {
-                        None
-                    }
-                })
-                .unwrap_or_else(|| {
-                    // In containerised deployments (Docker, Railway, etc.) bind to
-                    // all interfaces so the service is reachable; on local dev use
-                    // loopback to avoid firewall popups on Windows/macOS.
-                    if std::path::Path::new("/.dockerenv").exists()
-                        || std::env::var("RAILWAY_ENVIRONMENT").is_ok()
-                        || std::env::var("FLY_APP_NAME").is_ok()
-                        || std::env::var("RENDER_SERVICE_ID").is_ok()
-                    {
-                        [0, 0, 0, 0]
-                    } else {
-                        [127, 0, 0, 1]
-                    }
-                }),
             port: std::env::var("PORT")
                 .unwrap_or_else(|_| "8080".into())
                 .parse()

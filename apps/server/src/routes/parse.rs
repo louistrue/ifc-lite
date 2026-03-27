@@ -34,6 +34,16 @@ pub struct ParseQuery {
     pub opening_filter: OpeningFilterMode,
 }
 
+fn reject_unsupported_streaming_opening_filter(query: &ParseQuery) -> Result<(), ApiError> {
+    if query.opening_filter == OpeningFilterMode::Default {
+        return Ok(());
+    }
+
+    Err(ApiError::BadRequest(
+        "opening_filter is not yet supported for streaming endpoints; use /api/v1/parse or /api/v1/parse/parquet instead".into(),
+    ))
+}
+
 /// Extract file data from multipart request.
 /// Automatically decompresses gzip-compressed files.
 async fn extract_file(multipart: &mut Multipart) -> Result<Vec<u8>, ApiError> {
@@ -135,6 +145,8 @@ pub async fn parse_stream(
     Query(query): Query<ParseQuery>,
     mut multipart: Multipart,
 ) -> Result<Sse<impl futures::Stream<Item = Result<Event, Infallible>>>, ApiError> {
+    reject_unsupported_streaming_opening_filter(&query)?;
+
     // Extract file
     let data = extract_file(&mut multipart).await?;
 
@@ -143,13 +155,6 @@ pub async fn parse_stream(
         return Err(ApiError::FileTooLarge {
             max_mb: state.config.max_file_size_mb,
         });
-    }
-
-    if query.opening_filter != OpeningFilterMode::Default {
-        tracing::warn!(
-            opening_filter = ?query.opening_filter,
-            "opening_filter is not yet supported for streaming endpoint; using default mode"
-        );
     }
 
     let content = String::from_utf8(data)?;
@@ -227,6 +232,8 @@ pub async fn parse_parquet_stream(
     use std::sync::{Arc, Mutex};
     use crate::types::MeshData;
     use futures::StreamExt;
+
+    reject_unsupported_streaming_opening_filter(&query)?;
 
     // Extract file
     let data = extract_file(&mut multipart).await?;

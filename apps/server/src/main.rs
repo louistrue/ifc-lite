@@ -142,7 +142,7 @@ async fn main() {
         .layer(build_cors_layer(&config))
         .with_state(state);
 
-    let addr = SocketAddr::from((config.host, config.port));
+    let addr = SocketAddr::from(([0, 0, 0, 0], config.port));
     tracing::info!("Listening on http://{}", addr);
 
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();

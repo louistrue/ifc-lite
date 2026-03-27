@@ -108,7 +108,9 @@ export class IfcLiteBridge {
           await initThreadPool(threads);
           log.info(`Thread pool initialized with ${threads} threads`);
         } catch (e) {
-          log.warn('Thread pool init failed, falling back to single-threaded geometry processing', { data: e });
+          log.warn('Thread pool init failed, falling back to single-threaded geometry processing', {
+            data: { error: e instanceof Error ? e.message : String(e) },
+          });
         }
       } else {
         log.warn('SharedArrayBuffer unavailable (missing COOP/COEP headers?) — geometry processing will be single-threaded');
