@@ -1060,11 +1060,11 @@ export interface InitOutput {
   readonly wbg_rayon_poolbuilder_numThreads: (a: number) => number;
   readonly wbg_rayon_poolbuilder_receiver: (a: number) => number;
   readonly wbg_rayon_start_worker: (a: number) => void;
-  readonly __wasm_bindgen_func_elem_959: (a: number, b: number, c: number) => void;
-  readonly __wasm_bindgen_func_elem_958: (a: number, b: number) => void;
   readonly __wasm_bindgen_func_elem_498: (a: number, b: number) => void;
   readonly __wasm_bindgen_func_elem_497: (a: number, b: number) => void;
-  readonly __wasm_bindgen_func_elem_1230: (a: number, b: number, c: number, d: number) => void;
+  readonly __wasm_bindgen_func_elem_962: (a: number, b: number, c: number) => void;
+  readonly __wasm_bindgen_func_elem_961: (a: number, b: number) => void;
+  readonly __wasm_bindgen_func_elem_1233: (a: number, b: number, c: number, d: number) => void;
   readonly memory: WebAssembly.Memory;
   readonly __wbindgen_export: (a: number) => void;
   readonly __wbindgen_export2: (a: number, b: number, c: number) => void;
