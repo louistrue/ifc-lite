@@ -48,7 +48,7 @@ impl IfcAPI {
         let entity_index = build_entity_index(&content);
 
         // Create decoder with pre-built index
-        let mut decoder = EntityDecoder::with_index(&content, entity_index.clone());
+        let mut decoder = EntityDecoder::with_index(&content, entity_index);
 
         // Build style index: first map geometry IDs to colors, then map element IDs to colors
         let geometry_styles = build_geometry_style_index(&content, &mut decoder);
@@ -361,7 +361,7 @@ impl IfcAPI {
         let entity_index = build_entity_index(&content);
 
         // Create decoder with pre-built index
-        let mut decoder = EntityDecoder::with_index(&content, entity_index.clone());
+        let mut decoder = EntityDecoder::with_index(&content, entity_index);
 
         // Build style index: first map geometry IDs to colors, then map element IDs to colors
         let geometry_styles = build_geometry_style_index(&content, &mut decoder);
@@ -529,7 +529,7 @@ impl IfcAPI {
 
                 // Build entity index once upfront for O(1) lookups
                 let entity_index = build_entity_index(&content);
-                let mut decoder = EntityDecoder::with_index(&content, entity_index.clone());
+                let mut decoder = EntityDecoder::with_index(&content, entity_index);
 
                 // Build style index
                 let geometry_styles = build_geometry_style_index(&content, &mut decoder);
@@ -986,7 +986,7 @@ impl IfcAPI {
 
                 // ── Phase 1: Build entity index (fast memchr scan, ~200 ms) ──
                 let entity_index = ifc_lite_core::build_entity_index(&content);
-                let mut decoder = EntityDecoder::with_index(&content, entity_index.clone());
+                let mut decoder = EntityDecoder::with_index(&content, entity_index);
 
                 // ── Phase 2: Single combined pre-pass (~600 ms, was ~3 s for 4 scans) ──
                 // Collects geometry styles, void relationships, brep IDs, project ID,
@@ -1411,7 +1411,7 @@ impl IfcAPI {
 
         // Build entity index once upfront for O(1) lookups
         let entity_index = build_entity_index(&content);
-        let mut decoder = EntityDecoder::with_index(&content, entity_index.clone());
+        let mut decoder = EntityDecoder::with_index(&content, entity_index);
 
         // Build style index for colors
         let geometry_styles = build_geometry_style_index(&content, &mut decoder);
@@ -1575,7 +1575,7 @@ impl IfcAPI {
 
                 // Build entity index
                 let entity_index = build_entity_index(&content);
-                let mut decoder = EntityDecoder::with_index(&content, entity_index.clone());
+                let mut decoder = EntityDecoder::with_index(&content, entity_index);
 
                 // Build style index
                 let geometry_styles = build_geometry_style_index(&content, &mut decoder);
@@ -1839,7 +1839,7 @@ impl IfcAPI {
 
         // Build entity index
         let entity_index = build_entity_index(&content);
-        let mut decoder = EntityDecoder::with_index(&content, entity_index.clone());
+        let mut decoder = EntityDecoder::with_index(&content, entity_index);
 
         // Build style index
         let geometry_styles = build_geometry_style_index(&content, &mut decoder);
