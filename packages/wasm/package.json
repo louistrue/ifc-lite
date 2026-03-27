@@ -7,7 +7,7 @@
   "description": "WebAssembly bindings for IFC-Lite",
   "version": "1.14.5",
   "scripts": {
-    "test": "node --test test/**/*.test.mjs"
+    "test": "node --test test/*.test.mjs"
   },
   "license": "MPL-2.0",
   "repository": {
