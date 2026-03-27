@@ -7,40 +7,18 @@
  */
 
 import type { EntityTable, StringTable, RelationshipGraph, SpatialHierarchy, SpatialNode } from '@ifc-lite/data';
-import { IfcTypeEnum, RelationshipType, createLogger } from '@ifc-lite/data';
+import {
+  IfcTypeEnum,
+  RelationshipType,
+  createLogger,
+  isBuildingLikeSpatialType,
+  isSpatialStructureType,
+  isStoreyLikeSpatialType,
+} from '@ifc-lite/data';
 import type { EntityRef } from './types.js';
 import { EntityExtractor } from './entity-extractor.js';
 
 const log = createLogger('SpatialHierarchy');
-
-function isSpatialContainerType(typeEnum: IfcTypeEnum): boolean {
-  return (
-    typeEnum === IfcTypeEnum.IfcSite ||
-    typeEnum === IfcTypeEnum.IfcBuilding ||
-    typeEnum === IfcTypeEnum.IfcBuildingStorey ||
-    typeEnum === IfcTypeEnum.IfcSpace ||
-    typeEnum === IfcTypeEnum.IfcFacility ||
-    typeEnum === IfcTypeEnum.IfcFacilityPart ||
-    typeEnum === IfcTypeEnum.IfcBridge ||
-    typeEnum === IfcTypeEnum.IfcBridgePart ||
-    typeEnum === IfcTypeEnum.IfcRoad ||
-    typeEnum === IfcTypeEnum.IfcRoadPart ||
-    typeEnum === IfcTypeEnum.IfcRailway ||
-    typeEnum === IfcTypeEnum.IfcRailwayPart ||
-    typeEnum === IfcTypeEnum.IfcMarineFacility
-  );
-}
-
-function isBuildingLikeSpatialType(typeEnum: IfcTypeEnum): boolean {
-  return (
-    typeEnum === IfcTypeEnum.IfcBuilding ||
-    typeEnum === IfcTypeEnum.IfcFacility ||
-    typeEnum === IfcTypeEnum.IfcBridge ||
-    typeEnum === IfcTypeEnum.IfcRoad ||
-    typeEnum === IfcTypeEnum.IfcRailway ||
-    typeEnum === IfcTypeEnum.IfcMarineFacility
-  );
-}
 
 export class SpatialHierarchyBuilder {
   /**
@@ -149,11 +127,7 @@ export class SpatialHierarchyBuilder {
       
       getPath(elementId: number): SpatialNode[] {
         const path: SpatialNode[] = [];
-        
-        // Find which storey contains this element
-        const storeyId = elementToStorey.get(elementId);
-        if (!storeyId) return path;
-        
+
         // Build path from project to element
         const findPath = (node: SpatialNode, targetId: number): boolean => {
           path.push(node);
@@ -214,11 +188,15 @@ export class SpatialHierarchyBuilder {
     }
 
     // Get direct contained elements via IfcRelContainedInSpatialStructure
-    const containedElements = relationships.getRelated(
+    const rawContainedElements = relationships.getRelated(
       expressId,
       RelationshipType.ContainsElements,
       'forward'
     );
+    const containedElements = rawContainedElements.filter((id) => {
+      const childType = entityTypeMap.get(id);
+      return childType !== undefined && !isSpatialStructureType(childType);
+    });
 
     // Get child spatial elements via IfcRelAggregates (inverse - who aggregates this?)
     // Actually, we want forward - what does this element aggregate?
@@ -232,7 +210,7 @@ export class SpatialHierarchyBuilder {
     const childNodes: SpatialNode[] = [];
     for (const childId of aggregatedChildren) {
       const childType = entityTypeMap.get(childId) ?? IfcTypeEnum.Unknown;
-      if (isSpatialContainerType(childType)) {
+      if (isSpatialStructureType(childType) && childType !== IfcTypeEnum.IfcProject) {
         const childNode = this.buildNode(
           childId,
           entities,
@@ -254,7 +232,7 @@ export class SpatialHierarchyBuilder {
     }
 
     // Add elements to appropriate maps
-    if (typeEnum === IfcTypeEnum.IfcBuildingStorey) {
+    if (isStoreyLikeSpatialType(typeEnum)) {
       byStorey.set(expressId, containedElements);
     } else if (isBuildingLikeSpatialType(typeEnum)) {
       byBuilding.set(expressId, containedElements);
@@ -264,8 +242,10 @@ export class SpatialHierarchyBuilder {
       bySpace.set(expressId, containedElements);
     }
 
-    for (const elementId of containedElements) {
-      elementToStorey.set(elementId, expressId);
+    if (isStoreyLikeSpatialType(typeEnum)) {
+      for (const elementId of containedElements) {
+        elementToStorey.set(elementId, expressId);
+      }
     }
 
     return {

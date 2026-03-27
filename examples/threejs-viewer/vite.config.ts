@@ -3,8 +3,17 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 import { defineConfig } from 'vite';
+import { resolve } from 'node:path';
 
 export default defineConfig({
+  build: {
+    rollupOptions: {
+      input: {
+        main: resolve(__dirname, 'index.html'),
+        compare: resolve(__dirname, 'compare.html'),
+      },
+    },
+  },
   optimizeDeps: {
     exclude: ['@ifc-lite/wasm'],
   },

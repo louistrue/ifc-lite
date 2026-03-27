@@ -13,7 +13,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { createReadStream } from 'node:fs';
 import { readFile, stat } from 'node:fs/promises';
-import { dirname, resolve } from 'node:path';
+import { dirname, extname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { getViewerHtml } from './viewer-html.js';
 
@@ -78,6 +78,26 @@ export interface ViewerServer {
 /** Resolve the path to @ifc-lite/wasm package */
 export function resolvePackageDirFromModuleUrl(moduleUrl: string): string {
   return resolve(dirname(fileURLToPath(moduleUrl)), '..');
+}
+
+export function resolveWasmAssetPath(wasmDir: string, requestPath: string): string | null {
+  if (!requestPath.startsWith('/wasm/')) {
+    return null;
+  }
+
+  const relativePath = requestPath.slice('/wasm/'.length);
+  if (!relativePath) {
+    return null;
+  }
+
+  const pkgDir = resolve(wasmDir, 'pkg');
+  const assetPath = resolve(pkgDir, relativePath);
+  const rel = relative(pkgDir, assetPath);
+  if (rel.startsWith('..') || rel === '') {
+    return null;
+  }
+
+  return assetPath;
 }
 
 async function resolveWasmDir(): Promise<string> {
@@ -188,6 +208,27 @@ export async function startViewerServer(opts: ViewerServerOptions): Promise<View
         'Content-Length': wasmBinary.byteLength.toString(),
       });
       res.end(wasmBinary);
+      return;
+    }
+
+    if (path.startsWith('/wasm/snippets/') && req.method === 'GET') {
+      const assetPath = resolveWasmAssetPath(wasmDir, path);
+      if (!assetPath) {
+        res.writeHead(404, { 'Content-Type': 'text/plain' });
+        res.end('Not Found');
+        return;
+      }
+      try {
+        const asset = await readFile(assetPath);
+        res.writeHead(200, {
+          'Content-Type': MIME[extname(assetPath)] ?? 'application/octet-stream',
+          'Content-Length': asset.byteLength.toString(),
+        });
+        res.end(asset);
+      } catch {
+        res.writeHead(404, { 'Content-Type': 'text/plain' });
+        res.end('Not Found');
+      }
       return;
     }
 

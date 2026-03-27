@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>IFC Version Compare POC</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+
+    :root {
+      --bg: #09131d;
+      --panel: rgba(10, 22, 34, 0.92);
+      --panel-2: rgba(17, 33, 49, 0.96);
+      --line: rgba(154, 179, 202, 0.18);
+      --text: #e7edf3;
+      --muted: #95a6b8;
+      --added: #37c871;
+      --changed: #ff9a2f;
+      --deleted: #ff4d4d;
+      --unchanged: #6d8195;
+      --accent: #7fb6ff;
+    }
+
+    html, body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background:
+        radial-gradient(circle at top left, rgba(52, 103, 167, 0.25), transparent 28%),
+        radial-gradient(circle at bottom right, rgba(35, 75, 53, 0.22), transparent 24%),
+        var(--bg);
+      color: var(--text);
+      font: 13px/1.4 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    #app {
+      display: grid;
+      grid-template-columns: 340px minmax(0, 1fr) 320px;
+      width: 100%;
+      height: 100%;
+    }
+
+    aside, #selection {
+      background: var(--panel);
+      backdrop-filter: blur(18px);
+      border-right: 1px solid var(--line);
+    }
+
+    #selection {
+      border-right: 0;
+      border-left: 1px solid var(--line);
+      overflow: auto;
+    }
+
+    .panel {
+      padding: 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      height: 100%;
+    }
+
+    h1, h2, h3, p { margin: 0; }
+    h1 { font-size: 18px; }
+    h2 { font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
+    h3 { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
+
+    .card {
+      background: var(--panel-2);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .file-field {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .file-field label {
+      font-size: 11px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    input[type="file"] {
+      width: 100%;
+      color: var(--text);
+    }
+
+    .row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    button {
+      width: 100%;
+      appearance: none;
+      border: 0;
+      border-radius: 12px;
+      padding: 11px 14px;
+      background: linear-gradient(135deg, #5f95db, #7bd389);
+      color: #041018;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    button:disabled {
+      cursor: wait;
+      opacity: 0.65;
+    }
+
+    .toggle {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--muted);
+    }
+
+    .legend-item,
+    .stat-row,
+    .detail-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .swatch {
+      width: 12px;
+      height: 12px;
+      border-radius: 999px;
+      flex-shrink: 0;
+    }
+
+    .legend-label {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--text);
+    }
+
+    .muted {
+      color: var(--muted);
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      padding: 4px 9px;
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    .badge.added { background: rgba(55, 200, 113, 0.18); color: var(--added); }
+    .badge.changed { background: rgba(255, 154, 47, 0.16); color: var(--changed); }
+    .badge.deleted { background: rgba(255, 77, 77, 0.18); color: var(--deleted); }
+    .badge.unchanged { background: rgba(109, 129, 149, 0.2); color: #b7c4d1; }
+
+    #viewport {
+      position: relative;
+      min-width: 0;
+    }
+
+    #viewer {
+      width: 100%;
+      height: 100%;
+      display: block;
+      cursor: grab;
+    }
+
+    #viewer.dragging { cursor: grabbing; }
+
+    #viewport-overlay {
+      position: absolute;
+      top: 16px;
+      left: 16px;
+      right: 16px;
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      pointer-events: none;
+    }
+
+    .overlay-card {
+      pointer-events: auto;
+      background: rgba(8, 18, 29, 0.84);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 10px 12px;
+      max-width: 420px;
+    }
+
+    #status {
+      color: var(--text);
+      font-weight: 600;
+    }
+
+    #selection-empty {
+      color: var(--muted);
+    }
+
+    .mono {
+      font-family: ui-monospace, SFMono-Regular, SFMono-Regular, Menlo, Consolas, monospace;
+      word-break: break-word;
+    }
+
+    .detail-grid {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .detail-row {
+      padding-bottom: 10px;
+      border-bottom: 1px solid var(--line);
+      align-items: flex-start;
+    }
+
+    .detail-row:last-child {
+      padding-bottom: 0;
+      border-bottom: 0;
+    }
+
+    .detail-label {
+      color: var(--muted);
+      min-width: 96px;
+    }
+
+    @media (max-width: 1180px) {
+      #app {
+        grid-template-columns: 300px minmax(0, 1fr);
+        grid-template-rows: minmax(0, 1fr) 280px;
+      }
+
+      #selection {
+        grid-column: 1 / span 2;
+        grid-row: 2;
+        border-left: 0;
+        border-top: 1px solid var(--line);
+      }
+    }
+
+    @media (max-width: 860px) {
+      #app {
+        grid-template-columns: 1fr;
+        grid-template-rows: auto minmax(0, 1fr) 240px;
+      }
+
+      aside {
+        border-right: 0;
+        border-bottom: 1px solid var(--line);
+      }
+
+      #selection {
+        grid-column: 1;
+        border-top: 1px solid var(--line);
+      }
+    }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <aside>
+      <div class="panel">
+        <div>
+          <h1>IFC Version Compare</h1>
+          <p class="muted">Standalone browser POC: upload two IFC revisions, federate them in-memory, and color the change set.</p>
+        </div>
+
+        <div class="card">
+          <div class="file-field">
+            <label for="base-file">Base Version</label>
+            <input id="base-file" type="file" accept=".ifc" />
+          </div>
+          <div class="file-field">
+            <label for="next-file">Revised Version</label>
+            <input id="next-file" type="file" accept=".ifc" />
+          </div>
+          <button id="compare-button" type="button">Compare Versions</button>
+          <label class="toggle">
+            <input id="show-unchanged" type="checkbox" checked />
+            <span>Show unchanged context</span>
+          </label>
+        </div>
+
+        <div class="card">
+          <h2>Legend</h2>
+          <div class="legend-item">
+            <div class="legend-label"><span class="swatch" style="background: var(--added)"></span><span>New objects</span></div>
+            <strong id="count-added">0</strong>
+          </div>
+          <div class="legend-item">
+            <div class="legend-label"><span class="swatch" style="background: var(--changed)"></span><span>Changed objects</span></div>
+            <strong id="count-changed">0</strong>
+          </div>
+          <div class="legend-item">
+            <div class="legend-label"><span class="swatch" style="background: var(--deleted)"></span><span>Deleted objects</span></div>
+            <strong id="count-deleted">0</strong>
+          </div>
+          <div class="legend-item">
+            <div class="legend-label"><span class="swatch" style="background: var(--unchanged)"></span><span>Unchanged context</span></div>
+            <strong id="count-unchanged">0</strong>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>Notes</h2>
+          <div class="stat-row"><span class="muted">Match key</span><strong>GlobalId</strong></div>
+          <div class="stat-row"><span class="muted">Changed means</span><strong>Geometry or data</strong></div>
+          <div class="stat-row"><span class="muted">Rendered source</span><strong>Base for deleted, revised for all others</strong></div>
+        </div>
+      </div>
+    </aside>
+
+    <main id="viewport">
+      <canvas id="viewer"></canvas>
+      <div id="viewport-overlay">
+        <div class="overlay-card">
+          <div id="status">Pick two IFC files to start.</div>
+        </div>
+        <div class="overlay-card">
+          <div class="muted">Tip</div>
+          <div>Orbit to inspect. Click any colored object to inspect its revision metadata.</div>
+        </div>
+      </div>
+    </main>
+
+    <section id="selection">
+      <div class="panel">
+        <div>
+          <h2>Selection</h2>
+          <p id="selection-empty">Nothing selected.</p>
+        </div>
+        <div id="selection-content"></div>
+      </div>
+    </section>
+  </div>
+
+  <script type="module" src="/src/compare.ts"></script>
+</body>
+</html>

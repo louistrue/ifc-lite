@@ -2,6 +2,49 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
+import assert from 'node:assert/strict';
+import { describe, it } from 'node:test';
+import { IfcTypeEnum, type SpatialHierarchy, type SpatialNode } from '@ifc-lite/data';
+import { collectSpatialSubtreeElementsWithIfcSpace } from './basketVisibleSet';
+
+function createNode(expressId: number, type: IfcTypeEnum, children: SpatialNode[] = [], elements: number[] = []): SpatialNode {
+  return {
+    expressId,
+    type,
+    name: `Node ${expressId}`,
+    children,
+    elements,
+  };
+}
+
+describe('collectSpatialSubtreeElementsWithIfcSpace', () => {
+  it('collects direct and descendant IFC4.3 spatial contents for facility-part hierarchies', () => {
+    const partNode = createNode(3, IfcTypeEnum.IfcBridgePart, [], [4]);
+    const bridgeNode = createNode(2, IfcTypeEnum.IfcBridge, [partNode], []);
+    const projectNode = createNode(1, IfcTypeEnum.IfcProject, [bridgeNode], []);
+
+    const hierarchy: SpatialHierarchy = {
+      project: projectNode,
+      byStorey: new Map(),
+      byBuilding: new Map([[2, []]]),
+      bySite: new Map(),
+      bySpace: new Map(),
+      storeyElevations: new Map(),
+      storeyHeights: new Map(),
+      elementToStorey: new Map(),
+      getStoreyElements: () => [],
+      getStoreyByElevation: () => null,
+      getContainingSpace: () => null,
+      getPath: () => [],
+    };
+
+    assert.deepEqual(collectSpatialSubtreeElementsWithIfcSpace(hierarchy, 2), [4]);
+  });
+});
+/* This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
+
 import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert';
 import { useViewerStore } from './index.js';

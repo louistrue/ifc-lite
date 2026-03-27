@@ -38,7 +38,8 @@ describe('SpatialHierarchyBuilder', () => {
     expect(hierarchy.project.children[0].type).toBe(IfcTypeEnum.IfcBridge);
     expect(hierarchy.project.children[0].children[0].type).toBe(IfcTypeEnum.IfcBridgePart);
     expect(hierarchy.project.children[0].children[0].elements).toEqual([4]);
-    expect(hierarchy.elementToStorey.get(4)).toBe(3);
+    expect(hierarchy.elementToStorey.get(4)).toBeUndefined();
+    expect(hierarchy.getPath(4).map((node) => node.expressId)).toEqual([1, 2, 3]);
     expect(hierarchy.byBuilding.get(2)).toEqual([]);
   });
 });

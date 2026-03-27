@@ -4,7 +4,7 @@
 
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { resolvePackageDirFromModuleUrl } from '../src/server.js';
+import { resolvePackageDirFromModuleUrl, resolveWasmAssetPath } from '../src/server.js';
 
 describe('resolvePackageDirFromModuleUrl', () => {
   it('decodes Windows file URLs without duplicating the drive prefix', () => {
@@ -24,5 +24,28 @@ describe('resolvePackageDirFromModuleUrl', () => {
     );
 
     assert.equal(dir, '/Users/test/node_modules/@ifc-lite/wasm');
+  });
+});
+
+describe('resolveWasmAssetPath', () => {
+  it('resolves snippet asset requests inside the wasm pkg directory', () => {
+    const assetPath = resolveWasmAssetPath(
+      '/Users/test/node_modules/@ifc-lite/wasm',
+      '/wasm/snippets/wasm-bindgen-rayon-123/src/workerHelpers.js',
+    );
+
+    assert.equal(
+      assetPath,
+      '/Users/test/node_modules/@ifc-lite/wasm/pkg/snippets/wasm-bindgen-rayon-123/src/workerHelpers.js',
+    );
+  });
+
+  it('rejects path traversal outside the wasm pkg directory', () => {
+    const assetPath = resolveWasmAssetPath(
+      '/Users/test/node_modules/@ifc-lite/wasm',
+      '/wasm/snippets/../../package.json',
+    );
+
+    assert.equal(assetPath, null);
   });
 });
