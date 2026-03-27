@@ -416,6 +416,9 @@ pub async fn parse_parquet_stream(
                             cache_key: key.clone(),
                             metadata: metadata_clone,
                             stats: stats_clone,
+                            mesh_coordinate_space: None,
+                            site_transform: None,
+                            building_transform: None,
                             data_model_stats: None, // Data model cached separately via data model endpoint
                         };
                         if let Ok(metadata_json) = serde_json::to_vec(&metadata_header) {
@@ -536,6 +539,12 @@ pub struct ParquetMetadataHeader {
     pub cache_key: String,
     pub metadata: ModelMetadata,
     pub stats: ProcessingStats,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mesh_coordinate_space: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub site_transform: Option<Vec<f64>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub building_transform: Option<Vec<f64>>,
     /// Data model statistics (if included).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub data_model_stats: Option<DataModelStats>,
@@ -680,6 +689,9 @@ pub async fn parse_parquet(
         cache_key: cache_key_clone.clone(),
         metadata: geometry_result.metadata,
         stats: geometry_result.stats,
+        mesh_coordinate_space: geometry_result.mesh_coordinate_space,
+        site_transform: geometry_result.site_transform,
+        building_transform: geometry_result.building_transform,
         data_model_stats: Some(data_model_stats),
     };
 
@@ -725,6 +737,12 @@ pub struct OptimizedParquetMetadataHeader {
     pub cache_key: String,
     pub metadata: ModelMetadata,
     pub stats: ProcessingStats,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mesh_coordinate_space: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub site_transform: Option<Vec<f64>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub building_transform: Option<Vec<f64>>,
     pub optimization_stats: OptimizedStats,
     /// Vertex multiplier for dequantization (10,000 = 0.1mm precision)
     pub vertex_multiplier: f32,
@@ -792,6 +810,9 @@ pub async fn parse_parquet_optimized(
         cache_key,
         metadata: result.metadata,
         stats: result.stats,
+        mesh_coordinate_space: result.mesh_coordinate_space,
+        site_transform: result.site_transform,
+        building_transform: result.building_transform,
         optimization_stats: opt_stats,
         vertex_multiplier: VERTEX_MULTIPLIER,
     };

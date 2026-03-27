@@ -199,6 +199,12 @@ export interface ParquetMetadataHeader {
   metadata: ModelMetadata;
   /** Processing statistics */
   stats: ProcessingStats;
+  /** Declares the coordinate space used by serialized mesh vertices. */
+  mesh_coordinate_space?: string;
+  /** IfcSite ObjectPlacement as a column-major 4x4 matrix (in meters). */
+  site_transform?: number[];
+  /** IfcBuilding ObjectPlacement as a column-major 4x4 matrix (in meters). */
+  building_transform?: number[];
   /** Data model statistics (if included) */
   data_model_stats?: {
     entity_count: number;
@@ -216,6 +222,12 @@ export interface ParquetParseResponse {
   cache_key: string;
   /** All meshes extracted from the IFC file */
   meshes: MeshData[];
+  /** Declares the coordinate space used by serialized mesh vertices. */
+  mesh_coordinate_space?: string;
+  /** IfcSite ObjectPlacement as a column-major 4x4 matrix (in meters). */
+  site_transform?: number[];
+  /** IfcBuilding ObjectPlacement as a column-major 4x4 matrix (in meters). */
+  building_transform?: number[];
   /** Model metadata */
   metadata: ModelMetadata;
   /** Processing statistics */
@@ -257,6 +269,12 @@ export interface OptimizedParquetMetadataHeader {
   metadata: ModelMetadata;
   /** Processing statistics */
   stats: ProcessingStats;
+  /** Declares the coordinate space used by serialized mesh vertices. */
+  mesh_coordinate_space?: string;
+  /** IfcSite ObjectPlacement as a column-major 4x4 matrix (in meters). */
+  site_transform?: number[];
+  /** IfcBuilding ObjectPlacement as a column-major 4x4 matrix (in meters). */
+  building_transform?: number[];
   /** Optimization statistics */
   optimization_stats: OptimizationStats;
   /** Vertex multiplier for dequantization (default: 10000 = 0.1mm precision) */
@@ -271,6 +289,12 @@ export interface OptimizedParquetParseResponse {
   cache_key: string;
   /** All meshes extracted from the IFC file */
   meshes: MeshData[];
+  /** Declares the coordinate space used by serialized mesh vertices. */
+  mesh_coordinate_space?: string;
+  /** IfcSite ObjectPlacement as a column-major 4x4 matrix (in meters). */
+  site_transform?: number[];
+  /** IfcBuilding ObjectPlacement as a column-major 4x4 matrix (in meters). */
+  building_transform?: number[];
   /** Model metadata */
   metadata: ModelMetadata;
   /** Processing statistics */

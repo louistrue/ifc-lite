@@ -543,6 +543,9 @@ export class IfcServerClient {
     return {
       cache_key: metadata.cache_key,
       meshes,
+      mesh_coordinate_space: metadata.mesh_coordinate_space,
+      site_transform: metadata.site_transform,
+      building_transform: metadata.building_transform,
       metadata: metadata.metadata,
       stats: metadata.stats,
       parquet_stats: {
@@ -696,6 +699,9 @@ export class IfcServerClient {
     return {
       cache_key: metadata.cache_key,
       meshes,
+      mesh_coordinate_space: metadata.mesh_coordinate_space,
+      site_transform: metadata.site_transform,
+      building_transform: metadata.building_transform,
       metadata: metadata.metadata,
       stats: metadata.stats,
       optimization_stats: metadata.optimization_stats,

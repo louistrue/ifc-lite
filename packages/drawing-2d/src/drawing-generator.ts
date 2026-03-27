@@ -25,7 +25,7 @@ import type {
   LineCategory,
   ProfileEntry,
 } from './types';
-import { DEFAULT_SECTION_CONFIG } from './types';
+import { DEFAULT_SECTION_CONFIG, makeEntityKey } from './types';
 import { SectionCutter } from './section-cutter';
 import { PolygonBuilder } from './polygon-builder';
 import { EdgeExtractor, getViewDirection } from './edge-extractor';
@@ -206,18 +206,30 @@ export class Drawing2DGenerator {
           config.plane.position
         );
 
-        // When no profile projection, fall back to crease edges for projection lines
-        if (opts.includeProjection && projectionLines.length === 0) {
-          const creaseEdges = projectionEdges.filter(
-            (e) => e.type === 'crease' && !silhouettes.includes(e)
+        if (opts.includeProjection) {
+          const profileKeys = new Set(
+            (profiles ?? []).map((profile) => makeEntityKey(profile.modelIndex, profile.expressId))
           );
-          projectionLines = this.edgeExtractor.edgesToDrawingLines(
-            creaseEdges,
-            config.plane.axis,
-            config.plane.flipped,
-            'projection',
-            config.plane.position
-          );
+          const creaseEdges = projectionEdges.filter((edge) => {
+            if (edge.type !== 'crease' || silhouettes.includes(edge)) {
+              return false;
+            }
+            if (profileKeys.size === 0) {
+              return true;
+            }
+            return !profileKeys.has(makeEntityKey(edge.modelIndex, edge.entityId));
+          });
+
+          projectionLines = [
+            ...projectionLines,
+            ...this.edgeExtractor.edgesToDrawingLines(
+              creaseEdges,
+              config.plane.axis,
+              config.plane.flipped,
+              'projection',
+              config.plane.position
+            ),
+          ];
         }
       } else if (!profiles || profiles.length === 0) {
         // Legacy path: no profiles and no edge extraction → use crease edges for projection

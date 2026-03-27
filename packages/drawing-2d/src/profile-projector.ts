@@ -91,26 +91,14 @@ function isInProjectionRange(
   viewDepth: number,
 ): boolean {
   const { axis, position: sectionPos, flipped } = plane;
-
-  const m = profile.transform;
-  // Origin of the profile in world space (column 3 of the matrix)
-  const baseCoord = matTranslation(m, axis);
-
-  // Extrusion direction component along axis
-  const dirComponent = profile.extrusionDir[axisIndex(axis)];
-
-  // The profile base is at baseCoord; top is at baseCoord + depth * dirComponent
-  const topCoord = baseCoord + dirComponent * profile.extrusionDepth;
-
-  const lo = Math.min(baseCoord, topCoord);
-  const hi = Math.max(baseCoord, topCoord);
+  const { min, max } = getProfileAxisRange(profile, axis);
 
   // Projection window (elements on the "far" side of the cut plane)
   const rangeMin = flipped ? sectionPos - viewDepth : sectionPos;
   const rangeMax = flipped ? sectionPos : sectionPos + viewDepth;
 
   // Overlap test: [lo, hi] ∩ [rangeMin, rangeMax] ≠ ∅
-  return lo <= rangeMax && hi >= rangeMin;
+  return min <= rangeMax && max >= rangeMin;
 }
 
 /**
@@ -180,6 +168,39 @@ function transformPoint2D(x: number, y: number, m: Float32Array): Vec3 {
 function matTranslation(m: Float32Array, axis: 'x' | 'y' | 'z'): number {
   // Translation is in column 3 (indices 12, 13, 14 for x, y, z)
   return m[12 + axisIndex(axis)];
+}
+
+function getProfileAxisRange(
+  profile: ProfileEntry,
+  axis: 'x' | 'y' | 'z',
+): { min: number; max: number } {
+  const axisName = axis;
+  const extrusionDelta = profile.extrusionDir[axisIndex(axis)] * profile.extrusionDepth;
+
+  let min = Number.POSITIVE_INFINITY;
+  let max = Number.NEGATIVE_INFINITY;
+
+  const updateRange = (points2d: Float32Array) => {
+    const count = Math.floor(points2d.length / 2);
+    for (let index = 0; index < count; index++) {
+      const point = transformPoint2D(points2d[index * 2], points2d[index * 2 + 1], profile.transform);
+      const base = point[axisName];
+      const top = base + extrusionDelta;
+      min = Math.min(min, base, top);
+      max = Math.max(max, base, top);
+    }
+  };
+
+  updateRange(profile.outerPoints);
+  updateRange(profile.holePoints);
+
+  if (!Number.isFinite(min) || !Number.isFinite(max)) {
+    const base = matTranslation(profile.transform, axis);
+    const top = base + extrusionDelta;
+    return { min: Math.min(base, top), max: Math.max(base, top) };
+  }
+
+  return { min, max };
 }
 
 function axisIndex(axis: 'x' | 'y' | 'z'): 0 | 1 | 2 {
