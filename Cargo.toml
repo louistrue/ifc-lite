@@ -3,16 +3,16 @@ members = ["rust/core", "rust/geometry", "rust/wasm-bindings", "apps/server", "a
 resolver = "2"
 
 [workspace.package]
-version = "2.1.3"
+version = "2.1.4"
 edition = "2021"
 authors = ["IFC-Lite Contributors"]
 license = "MPL-2.0"
 repository = "https://github.com/louistrue/ifc-lite"
 
 [workspace.dependencies]
-ifc-lite-core = { version = "2.1.3", path = "rust/core" }
-ifc-lite-geometry = { version = "2.1.3", path = "rust/geometry" }
-ifc-lite-wasm = { version = "2.1.3", path = "rust/wasm-bindings" }
+ifc-lite-core = { version = "2.1.4", path = "rust/core" }
+ifc-lite-geometry = { version = "2.1.4", path = "rust/geometry" }
+ifc-lite-wasm = { version = "2.1.4", path = "rust/wasm-bindings" }
 
 [profile.release]
 opt-level = 3           # Optimize for speed

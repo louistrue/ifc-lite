@@ -1,5 +1,13 @@
 # @ifc-lite/wasm
 
+## 1.14.6
+
+### Patch Changes
+
+- [#432](https://github.com/louistrue/ifc-lite/pull/432) [`113bafc`](https://github.com/louistrue/ifc-lite/commit/113bafc07436c809a8cb24d8682cf63ae5ed99e9) Thanks [@louistrue](https://github.com/louistrue)! - Regenerate the WASM bindings with support for `IfcDerivedProfileDef` and `IfcMirroredProfileDef` profile transforms so derived swept profiles render correctly.
+
+- [#432](https://github.com/louistrue/ifc-lite/pull/432) [`113bafc`](https://github.com/louistrue/ifc-lite/commit/113bafc07436c809a8cb24d8682cf63ae5ed99e9) Thanks [@louistrue](https://github.com/louistrue)! - Include the generated `pkg/snippets` worker helper files in the published `@ifc-lite/wasm` package so bundlers can resolve the wasm-bindgen rayon import at runtime.
+
 ## 1.14.5
 
 ### Patch Changes

@@ -1,5 +1,16 @@
 # @ifc-lite/viewer-core
 
+## 0.2.2
+
+### Patch Changes
+
+- [#432](https://github.com/louistrue/ifc-lite/pull/432) [`113bafc`](https://github.com/louistrue/ifc-lite/commit/113bafc07436c809a8cb24d8682cf63ae5ed99e9) Thanks [@louistrue](https://github.com/louistrue)! - Fix `ifc-lite view` WASM package resolution on Windows by converting module file URLs with `fileURLToPath`, which avoids duplicated drive prefixes and decodes spaces in installed paths.
+
+- [#432](https://github.com/louistrue/ifc-lite/pull/432) [`113bafc`](https://github.com/louistrue/ifc-lite/commit/113bafc07436c809a8cb24d8682cf63ae5ed99e9) Thanks [@louistrue](https://github.com/louistrue)! - Serve generated `@ifc-lite/wasm` snippet assets from the embedded viewer server so `ifc-lite view` can load the rayon worker helper modules at runtime in addition to resolving Windows package paths correctly.
+
+- Updated dependencies [[`113bafc`](https://github.com/louistrue/ifc-lite/commit/113bafc07436c809a8cb24d8682cf63ae5ed99e9), [`113bafc`](https://github.com/louistrue/ifc-lite/commit/113bafc07436c809a8cb24d8682cf63ae5ed99e9)]:
+  - @ifc-lite/wasm@1.14.6
+
 ## 0.2.1
 
 ### Patch Changes
