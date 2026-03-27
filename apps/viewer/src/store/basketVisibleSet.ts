@@ -149,8 +149,10 @@ function expandRefToElements(state: ViewerStateSnapshot, ref: EntityRef): Entity
   const entityType = dataStore.entities.getTypeName(ref.expressId) || '';
   if (isSpatialStructureTypeName(entityType) && !isSpaceLikeSpatialTypeName(entityType)) {
     const localIds = getContainerElementIds(dataStore, ref.expressId);
-    if (localIds.length === 0) return [];
-    return localIds.map((expressId) => ({ modelId: ref.modelId, expressId }));
+    const ids = localIds.includes(ref.expressId)
+      ? localIds
+      : [ref.expressId, ...localIds];
+    return ids.map((expressId) => ({ modelId: ref.modelId, expressId }));
   }
 
   return [ref];

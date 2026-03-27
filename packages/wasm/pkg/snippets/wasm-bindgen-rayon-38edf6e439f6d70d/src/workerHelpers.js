@@ -28,8 +28,7 @@ function waitForMsgType(target, type) {
   });
 }
 
-// Guard: only run worker init in a Worker context (skip in Node.js tests)
-if (typeof self !== 'undefined') waitForMsgType(self, 'wasm_bindgen_worker_init').then(async ({ init, receiver }) => {
+waitForMsgType(self, 'wasm_bindgen_worker_init').then(async ({ init, receiver }) => {
   // # Note 1
   // Our JS should have been generated in
   // `[out-dir]/snippets/wasm-bindgen-rayon-[hash]/workerHelpers.js`,

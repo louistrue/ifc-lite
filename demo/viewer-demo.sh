@@ -11,14 +11,14 @@
 # Requirements:
 #   npm i -g @ifc-lite/cli    (or use: npx @ifc-lite/cli)
 #
-# The demo walks through 6 scenes interactively. Press Enter to advance.
+# The demo walks through 8 scenes interactively. Press Enter to advance.
 # ============================================================================
 
 set -euo pipefail
 
 MODEL="tests/models/ara3d/AC20-FZK-Haus.ifc"
 PORT=3456
-CLI="pnpm exec ifc-lite"   # change to "ifc-lite" or "npx @ifc-lite/cli" if installed globally
+CLI=(pnpm exec ifc-lite)   # change to (ifc-lite) or (npx @ifc-lite/cli) if installed globally
 
 # ---------- helpers ----------------------------------------------------------
 
@@ -45,7 +45,7 @@ step() {
 run() {
   echo ""
   echo -e "${GREEN}\$ $*${RESET}"
-  eval "$@"
+  "$@"
 }
 
 pause() {
@@ -77,12 +77,12 @@ lsof -ti :"$PORT" 2>/dev/null | xargs kill 2>/dev/null || true
 banner "Scene 1: Instant Model Insight"
 
 step "Model summary" "Schema, storeys, element counts — parsed in milliseconds"
-run $CLI info "$MODEL"
+run "${CLI[@]}" info "$MODEL"
 
 pause
 
 step "Query walls with quantities" "Filter by type, show dimensions"
-run $CLI query "$MODEL" --type IfcWallStandardCase --quantities --limit 5
+run "${CLI[@]}" query "$MODEL" --type IfcWallStandardCase --quantities --limit 5
 
 pause
 
@@ -93,8 +93,8 @@ banner "Scene 2: Launch 3D Viewer"
 
 step "Start interactive viewer" "Opens browser with WebGL 2 renderer"
 echo ""
-echo -e "${GREEN}\$ $CLI view $MODEL --port $PORT &${RESET}"
-$CLI view "$MODEL" --port "$PORT" &
+echo -e "${GREEN}\$ ${CLI[*]} view $MODEL --port $PORT &${RESET}"
+"${CLI[@]}" view "$MODEL" --port "$PORT" &
 VIEWER_PID=$!
 
 # Wait for the server to be ready
@@ -210,7 +210,7 @@ send '{"action":"reset"}'
 banner "Scene 6: Property Analysis (analyze command)"
 
 step "Find walls missing FireRating" "Walls have ThermalTransmittance but no FireRating — flag them red"
-run $CLI analyze "$MODEL" --viewer "$PORT" \
+run "${CLI[@]}" analyze "$MODEL" --viewer "$PORT" \
   --type IfcWallStandardCase \
   --missing "Pset_WallCommon.FireRating" \
   --color red --isolate --flyto
@@ -223,7 +223,7 @@ send '{"action":"showall"}'
 sleep 1
 
 step "Heatmap: wall area" "Color walls by GrossSideArea — blue (small) to red (large)"
-run $CLI analyze "$MODEL" --viewer "$PORT" \
+run "${CLI[@]}" analyze "$MODEL" --viewer "$PORT" \
   --type IfcWallStandardCase \
   --heatmap "BaseQuantities.GrossSideArea" \
   --palette blue-red
@@ -236,7 +236,7 @@ send '{"action":"showall"}'
 sleep 1
 
 step "Filter by property value" "Find walls with area > 12 m²"
-run $CLI analyze "$MODEL" --viewer "$PORT" \
+run "${CLI[@]}" analyze "$MODEL" --viewer "$PORT" \
   --type IfcWallStandardCase \
   --where "BaseQuantities.GrossSideArea>12" \
   --color orange --isolate --flyto
@@ -280,7 +280,7 @@ echo -e "${DIM}  Rules file:${RESET}"
 cat "$RULES_FILE" | jq .
 echo ""
 
-run $CLI analyze "$MODEL" --viewer "$PORT" --rules "$RULES_FILE" --json
+run "${CLI[@]}" analyze "$MODEL" --viewer "$PORT" --rules "$RULES_FILE" --json
 
 rm -f "$RULES_FILE"
 

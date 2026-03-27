@@ -3,9 +3,18 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 import assert from 'node:assert/strict';
-import { describe, it } from 'node:test';
+import { beforeEach, describe, it } from 'node:test';
 import { IfcTypeEnum, type SpatialHierarchy, type SpatialNode } from '@ifc-lite/data';
-import { collectSpatialSubtreeElementsWithIfcSpace } from './basketVisibleSet';
+import {
+  collectSpatialSubtreeElementsWithIfcSpace,
+  getSmartBasketInputFromStore,
+  getBasketSelectionRefsFromStore,
+  getVisibleBasketEntityRefsFromStore,
+  isBasketIsolationActiveFromStore,
+  invalidateVisibleBasketCache,
+} from './basketVisibleSet.js';
+import { useViewerStore } from './index.js';
+import { entityRefToString } from './types.js';
 
 function createNode(expressId: number, type: IfcTypeEnum, children: SpatialNode[] = [], elements: number[] = []): SpatialNode {
   return {
@@ -40,22 +49,40 @@ describe('collectSpatialSubtreeElementsWithIfcSpace', () => {
 
     assert.deepEqual(collectSpatialSubtreeElementsWithIfcSpace(hierarchy, 2), [4]);
   });
-});
-/* This Source Code Form is subject to the terms of the Mozilla Public
- * License, v. 2.0. If a copy of the MPL was not distributed with this
- * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-import { describe, it, beforeEach } from 'node:test';
-import assert from 'node:assert';
-import { useViewerStore } from './index.js';
-import {
-  getSmartBasketInputFromStore,
-  getBasketSelectionRefsFromStore,
-  getVisibleBasketEntityRefsFromStore,
-  isBasketIsolationActiveFromStore,
-  invalidateVisibleBasketCache,
-} from './basketVisibleSet.js';
-import { entityRefToString } from './types.js';
+  it('keeps the selected container when the spatial subtree has no descendant elements', () => {
+    const bridgeNode = createNode(2, IfcTypeEnum.IfcBridge, [], []);
+    const projectNode = createNode(1, IfcTypeEnum.IfcProject, [bridgeNode], []);
+
+    const hierarchy: SpatialHierarchy = {
+      project: projectNode,
+      byStorey: new Map(),
+      byBuilding: new Map([[2, []]]),
+      bySite: new Map(),
+      bySpace: new Map(),
+      storeyElevations: new Map(),
+      storeyHeights: new Map(),
+      elementToStorey: new Map(),
+      getStoreyElements: () => [],
+      getStoreyByElevation: () => null,
+      getContainingSpace: () => null,
+      getPath: () => [],
+    };
+
+    useViewerStore.setState({
+      ifcDataStore: {
+        spatialHierarchy: hierarchy,
+        entities: { getTypeName: () => 'IfcBridge' },
+      } as any,
+      selectedEntity: { modelId: 'legacy', expressId: 2 },
+      selectedEntities: [],
+      selectedEntityIds: new Set(),
+      selectedEntitiesSet: new Set(),
+    });
+
+    assert.deepEqual(getBasketSelectionRefsFromStore(), [{ modelId: 'legacy', expressId: 2 }]);
+  });
+});
 
 describe('basketVisibleSet', () => {
   beforeEach(() => {

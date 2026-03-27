@@ -5,7 +5,8 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GeometryProcessor, type MeshData } from '@ifc-lite/geometry';
-import { extractPropertiesOnDemand, extractQuantitiesOnDemand } from '@ifc-lite/parser';
+import { RelationshipType } from '@ifc-lite/data';
+import { extractAllEntityAttributes, extractPropertiesOnDemand, extractQuantitiesOnDemand } from '@ifc-lite/parser';
 import { batchWithVertexColors, findEntityByFace, type TriangleMaps } from './ifc-to-threejs.js';
 import { buildDataStore, getEntityData, type IfcDataStore } from './ifc-data.js';
 import { federationRegistry } from '../../../packages/renderer/src/federation-registry.js';
@@ -182,6 +183,8 @@ async function runComparison(): Promise<void> {
   }
 
   compareButton.disabled = true;
+  currentSession = null;
+  resetDiffCounts();
   selectionContentEl.innerHTML = '';
   selectionEmptyEl.textContent = 'Nothing selected.';
   clearSelection();
@@ -404,6 +407,12 @@ function clearSelection(): void {
   removeHighlight();
 }
 
+function resetDiffCounts(): void {
+  for (const state of Object.keys(countEls) as DiffState[]) {
+    countEls[state].textContent = '0';
+  }
+}
+
 function applyHighlight(meshSegments: MeshData[]): void {
   removeHighlight();
 
@@ -544,6 +553,9 @@ function fitCameraToObject(object: THREE.Object3D | null): void {
 }
 
 function buildDataFingerprint(store: IfcDataStore, expressId: number, ifcType: string, name: string): string {
+  const namedAttributes = extractAllEntityAttributes(store, expressId);
+  const predefinedType = namedAttributes.find((attribute) => attribute.name === 'PredefinedType')?.value ?? '';
+
   const propertySets = extractPropertiesOnDemand(store, expressId)
     .map((set) => ({
       name: set.name,
@@ -562,9 +574,28 @@ function buildDataFingerprint(store: IfcDataStore, expressId: number, ifcType: s
     }))
     .sort((a, b) => a.name.localeCompare(b.name));
 
+  const typeAssignments = store.relationships
+    .getRelated(expressId, RelationshipType.DefinesByType, 'inverse')
+    .map((typeId) => ({
+      expressId: typeId,
+      globalId: store.entities.getGlobalId(typeId) || '',
+      name: store.entities.getName(typeId) || '',
+      type: store.entities.getTypeName(typeId) || '',
+    }))
+    .sort((a, b) =>
+      a.type.localeCompare(b.type)
+      || a.name.localeCompare(b.name)
+      || a.globalId.localeCompare(b.globalId)
+      || a.expressId - b.expressId
+    );
+
   return stableHash(JSON.stringify({
     Type: ifcType,
     Name: name,
+    Description: store.entities.getDescription(expressId) || '',
+    ObjectType: store.entities.getObjectType(expressId) || '',
+    PredefinedType: predefinedType,
+    TypeAssignments: typeAssignments,
     PropertySets: propertySets,
     QuantitySets: quantitySets,
   }));
