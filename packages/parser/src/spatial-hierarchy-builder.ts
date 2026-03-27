@@ -13,6 +13,35 @@ import { EntityExtractor } from './entity-extractor.js';
 
 const log = createLogger('SpatialHierarchy');
 
+function isSpatialContainerType(typeEnum: IfcTypeEnum): boolean {
+  return (
+    typeEnum === IfcTypeEnum.IfcSite ||
+    typeEnum === IfcTypeEnum.IfcBuilding ||
+    typeEnum === IfcTypeEnum.IfcBuildingStorey ||
+    typeEnum === IfcTypeEnum.IfcSpace ||
+    typeEnum === IfcTypeEnum.IfcFacility ||
+    typeEnum === IfcTypeEnum.IfcFacilityPart ||
+    typeEnum === IfcTypeEnum.IfcBridge ||
+    typeEnum === IfcTypeEnum.IfcBridgePart ||
+    typeEnum === IfcTypeEnum.IfcRoad ||
+    typeEnum === IfcTypeEnum.IfcRoadPart ||
+    typeEnum === IfcTypeEnum.IfcRailway ||
+    typeEnum === IfcTypeEnum.IfcRailwayPart ||
+    typeEnum === IfcTypeEnum.IfcMarineFacility
+  );
+}
+
+function isBuildingLikeSpatialType(typeEnum: IfcTypeEnum): boolean {
+  return (
+    typeEnum === IfcTypeEnum.IfcBuilding ||
+    typeEnum === IfcTypeEnum.IfcFacility ||
+    typeEnum === IfcTypeEnum.IfcBridge ||
+    typeEnum === IfcTypeEnum.IfcRoad ||
+    typeEnum === IfcTypeEnum.IfcRailway ||
+    typeEnum === IfcTypeEnum.IfcMarineFacility
+  );
+}
+
 export class SpatialHierarchyBuilder {
   /**
    * Build spatial hierarchy from entities and relationships
@@ -67,13 +96,6 @@ export class SpatialHierarchyBuilder {
       entityTypeMap,
       lengthUnitScale
     );
-
-    // Build reverse lookup map: elementId -> storeyId
-    for (const [storeyId, elementIds] of byStorey) {
-      for (const elementId of elementIds) {
-        elementToStorey.set(elementId, storeyId);
-      }
-    }
 
     // Note: storeyHeights remains empty for client path - uses on-demand property extraction
 
@@ -206,16 +228,11 @@ export class SpatialHierarchyBuilder {
       'forward'
     );
 
-    // Filter to only spatial structure types
+    // Filter to supported spatial container types, including IFC4.3 facility/facility-part hierarchies.
     const childNodes: SpatialNode[] = [];
     for (const childId of aggregatedChildren) {
       const childType = entityTypeMap.get(childId) ?? IfcTypeEnum.Unknown;
-      if (
-        childType === IfcTypeEnum.IfcSite ||
-        childType === IfcTypeEnum.IfcBuilding ||
-        childType === IfcTypeEnum.IfcBuildingStorey ||
-        childType === IfcTypeEnum.IfcSpace
-      ) {
+      if (isSpatialContainerType(childType)) {
         const childNode = this.buildNode(
           childId,
           entities,
@@ -239,12 +256,16 @@ export class SpatialHierarchyBuilder {
     // Add elements to appropriate maps
     if (typeEnum === IfcTypeEnum.IfcBuildingStorey) {
       byStorey.set(expressId, containedElements);
-    } else if (typeEnum === IfcTypeEnum.IfcBuilding) {
+    } else if (isBuildingLikeSpatialType(typeEnum)) {
       byBuilding.set(expressId, containedElements);
     } else if (typeEnum === IfcTypeEnum.IfcSite) {
       bySite.set(expressId, containedElements);
     } else if (typeEnum === IfcTypeEnum.IfcSpace) {
       bySpace.set(expressId, containedElements);
+    }
+
+    for (const elementId of containedElements) {
+      elementToStorey.set(elementId, expressId);
     }
 
     return {
