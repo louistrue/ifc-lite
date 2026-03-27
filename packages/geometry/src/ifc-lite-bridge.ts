@@ -78,13 +78,25 @@ export class IfcLiteBridge {
       // Initialize rayon thread pool for parallel geometry processing in WASM.
       // Requires SharedArrayBuffer (COOP/COEP headers). Falls back to single-threaded
       // if unavailable — rayon's par_iter() still works, just sequentially.
+      //
+      // IMPORTANT: A failed initThreadPool() corrupts the WASM module's internal
+      // async/closure state (the wasm-bindgen-rayon builder.build() uses
+      // unwrap_throw() which leaves dangling closures). There is no way to
+      // re-instantiate because wasm-bindgen caches the WASM instance.
+      // Therefore we MUST probe that module workers actually work in this
+      // browser before calling initThreadPool().
       if (typeof SharedArrayBuffer !== 'undefined') {
-        try {
-          const threads = navigator.hardwareConcurrency || 4;
-          await initThreadPool(threads);
-          log.info(`Thread pool initialized with ${threads} threads`);
-        } catch (e) {
-          log.warn('Thread pool init failed, falling back to single-threaded geometry processing', { data: e });
+        const canUseThreads = await this.probeModuleWorkerSupport();
+        if (canUseThreads) {
+          try {
+            const threads = navigator.hardwareConcurrency || 4;
+            await initThreadPool(threads);
+            log.info(`Thread pool initialized with ${threads} threads`);
+          } catch (e) {
+            log.warn('Thread pool init failed, falling back to single-threaded geometry processing', { data: e });
+          }
+        } else {
+          log.warn('Module workers unavailable — geometry processing will be single-threaded');
         }
       } else {
         log.warn('SharedArrayBuffer unavailable (missing COOP/COEP headers?) — geometry processing will be single-threaded');
@@ -103,6 +115,37 @@ export class IfcLiteBridge {
         this.reset();
       }
       throw error;
+    }
+  }
+
+  /**
+   * Test whether the browser can create module workers with SharedArrayBuffer.
+   * wasm-bindgen-rayon's initThreadPool creates module workers internally;
+   * if that fails the WASM module is left in an unrecoverable state.
+   * This probe creates a minimal module worker to verify support before
+   * committing to initThreadPool.
+   */
+  private async probeModuleWorkerSupport(): Promise<boolean> {
+    try {
+      const blob = new Blob(
+        ['self.postMessage("ok")'],
+        { type: 'application/javascript' },
+      );
+      const url = URL.createObjectURL(blob);
+      const result = await new Promise<boolean>((resolve) => {
+        try {
+          const w = new Worker(url, { type: 'module' });
+          const timer = setTimeout(() => { w.terminate(); resolve(false); }, 2000);
+          w.onmessage = () => { clearTimeout(timer); w.terminate(); resolve(true); };
+          w.onerror = () => { clearTimeout(timer); w.terminate(); resolve(false); };
+        } catch {
+          resolve(false);
+        }
+      });
+      URL.revokeObjectURL(url);
+      return result;
+    } catch {
+      return false;
     }
   }
 
