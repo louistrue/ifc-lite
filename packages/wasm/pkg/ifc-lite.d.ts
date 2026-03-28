@@ -255,6 +255,11 @@ export class IfcAPI {
    */
   parseMeshesAsync(content: string, options: any): Promise<any>;
   /**
+   * Run the pre-pass ONCE and return serialized results for worker distribution.
+   * Takes raw bytes (&[u8]) to avoid TextDecoder overhead.
+   */
+  buildPrePassOnce(data: Uint8Array): any;
+  /**
    * Parse a subset of IFC geometry entities by index range.
    *
    * Performs the full pre-pass (entity index, combined style/void/brep scan)
@@ -332,6 +337,11 @@ export class IfcAPI {
    * ```
    */
   parseMeshesInstanced(content: string): InstancedMeshCollection;
+  /**
+   * Process geometry for a subset of pre-scanned entities.
+   * Takes raw bytes and pre-pass data from buildPrePassOnce.
+   */
+  processGeometryBatch(data: Uint8Array, jobs_flat: Uint32Array, unit_scale: number, rtc_x: number, rtc_y: number, rtc_z: number, needs_shift: boolean, void_keys: Uint32Array, void_counts: Uint32Array, void_values: Uint32Array): MeshCollection;
   /**
    * Parse IFC file with streaming GPU-ready geometry batches
    *
@@ -946,6 +956,7 @@ export interface InitOutput {
   readonly gpumeshmetadata_indexOffset: (a: number) => number;
   readonly gpumeshmetadata_vertexCount: (a: number) => number;
   readonly gpumeshmetadata_vertexOffset: (a: number) => number;
+  readonly ifcapi_buildPrePassOnce: (a: number, b: number, c: number) => number;
   readonly ifcapi_debugProcessEntity953: (a: number, b: number, c: number, d: number) => void;
   readonly ifcapi_debugProcessFirstWall: (a: number, b: number, c: number, d: number) => void;
   readonly ifcapi_getGeoReference: (a: number, b: number, c: number) => number;
@@ -965,6 +976,7 @@ export interface InitOutput {
   readonly ifcapi_parseToGpuGeometryAsync: (a: number, b: number, c: number, d: number) => number;
   readonly ifcapi_parseToGpuInstancedGeometry: (a: number, b: number, c: number) => number;
   readonly ifcapi_parseZeroCopy: (a: number, b: number, c: number) => number;
+  readonly ifcapi_processGeometryBatch: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number, l: number, m: number, n: number, o: number, p: number) => number;
   readonly ifcapi_scanEntitiesFast: (a: number, b: number, c: number) => number;
   readonly ifcapi_scanEntitiesFastBytes: (a: number, b: number, c: number) => number;
   readonly ifcapi_scanGeometryEntitiesFast: (a: number, b: number, c: number) => number;
@@ -1063,9 +1075,9 @@ export interface InitOutput {
   readonly meshcollection_rtcOffsetX: (a: number) => number;
   readonly symboliccircle_expressId: (a: number) => number;
   readonly __wbg_gpuinstancedgeometryref_free: (a: number, b: number) => void;
-  readonly __wasm_bindgen_func_elem_1081: (a: number, b: number, c: number) => void;
-  readonly __wasm_bindgen_func_elem_1080: (a: number, b: number) => void;
-  readonly __wasm_bindgen_func_elem_1121: (a: number, b: number, c: number, d: number) => void;
+  readonly __wasm_bindgen_func_elem_1090: (a: number, b: number, c: number) => void;
+  readonly __wasm_bindgen_func_elem_1089: (a: number, b: number) => void;
+  readonly __wasm_bindgen_func_elem_1130: (a: number, b: number, c: number, d: number) => void;
   readonly __wbindgen_export: (a: number) => void;
   readonly __wbindgen_export2: (a: number, b: number, c: number) => void;
   readonly __wbindgen_export3: (a: number, b: number) => number;

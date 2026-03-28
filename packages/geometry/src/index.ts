@@ -463,32 +463,30 @@ export class GeometryProcessor {
     yield { type: 'start', totalEstimate: buffer.length / 1000 };
     yield { type: 'model-open', modelID: 0 };
 
-    // Copy file bytes into SharedArrayBuffer — workers get a reference, NOT a copy.
-    // This eliminates N × fileSize postMessage overhead (e.g., 4 × 169MB = 676MB).
+    // Copy file bytes into SharedArrayBuffer for zero-copy sharing with workers
     const sharedBuffer = new SharedArrayBuffer(buffer.byteLength);
     new Uint8Array(sharedBuffer).set(buffer);
 
-    // Decode content on main thread for entity scan
-    const content = new TextDecoder().decode(buffer);
+    // ── PHASE 1: Pre-pass ONCE on main thread ──
+    // Scans entire file, builds job list + style data + void index.
+    // Workers skip this entirely and receive pre-computed results.
+    const theApi = this.bridge!.getApi();
+    const prePassResult = theApi.buildPrePassOnce(buffer);
 
-    // Determine total geometry entity count via fast scan
-    const api = this.bridge!.getApi();
-    const geometryEntities = api.scanGeometryEntitiesFast(content);
-    const totalEntities = Array.isArray(geometryEntities) ? geometryEntities.length : 0;
-
-    if (totalEntities === 0) {
+    if (!prePassResult || !prePassResult.jobsFlat || prePassResult.totalJobs === 0) {
       const coordinateInfo = this.coordinateHandler.getFinalCoordinateInfo();
       yield { type: 'complete', totalMeshes: 0, coordinateInfo };
       return;
     }
 
-    // Determine worker count (cap at 4, min 1)
+    const { jobsFlat, totalJobs, unitScale, rtcX, rtcY, rtcZ, needsShift,
+            voidKeys, voidCounts, voidValues } = prePassResult;
+
+    // ── PHASE 2: Split jobs across workers ──
     const maxWorkers = 4;
     const hardwareConcurrency = typeof navigator !== 'undefined' ? (navigator.hardwareConcurrency ?? 2) : 2;
-    const workerCount = Math.min(maxWorkers, hardwareConcurrency, totalEntities);
-
-    // Split entity range across workers
-    const chunkSize = Math.ceil(totalEntities / workerCount);
+    const workerCount = Math.min(maxWorkers, hardwareConcurrency, totalJobs);
+    const jobsPerWorker = Math.ceil(totalJobs / workerCount);
 
     // Queue-based async generator: workers push batches, generator yields them
     const batchQueue: MeshData[][] = [];
@@ -500,12 +498,14 @@ export class GeometryProcessor {
     const workers: Worker[] = [];
 
     for (let i = 0; i < workerCount; i++) {
-      const startIdx = i * chunkSize;
-      const endIdx = Math.min((i + 1) * chunkSize, totalEntities);
-      if (startIdx >= endIdx) {
+      // Slice jobs for this worker (each job is 3 u32s: id, start, end)
+      const jobStart = i * jobsPerWorker;
+      const jobEnd = Math.min((i + 1) * jobsPerWorker, totalJobs);
+      if (jobStart >= jobEnd) {
         workersCompleted++;
         continue;
       }
+      const workerJobs = jobsFlat.slice(jobStart * 3, jobEnd * 3);
 
       const worker = new Worker(
         new URL('./geometry.worker.ts', import.meta.url),
@@ -571,12 +571,17 @@ export class GeometryProcessor {
         }
       };
 
-      // Send work to worker — sharedBuffer is NOT copied (SharedArrayBuffer)
+      // Send work — sharedBuffer is zero-copy, typed arrays are transferred
       worker.postMessage({
         type: 'process' as const,
         sharedBuffer,
-        startIdx,
-        endIdx,
+        jobsFlat: workerJobs,
+        unitScale,
+        rtcX, rtcY, rtcZ,
+        needsShift,
+        voidKeys,
+        voidCounts,
+        voidValues,
       });
     }
 
@@ -689,41 +694,15 @@ export class GeometryProcessor {
       // Large files: Try parallel Web Worker processing if available,
       // fall back to single-thread streaming otherwise.
       {
-        // Fast single-threaded: skip expensive style building (~1.2s) + BREP preprocessing
-        yield { type: 'start', totalEstimate: buffer.length / 1000 };
-        await new Promise(r => setTimeout(r, 0));
-        const content = new TextDecoder().decode(buffer);
-        yield { type: 'model-open', modelID: 0 };
+        const useParallel = typeof SharedArrayBuffer !== 'undefined'
+        && typeof Worker !== 'undefined'
+        && typeof navigator !== 'undefined'
+        && (navigator.hardwareConcurrency ?? 1) > 1;
 
-        if (!this.bridge) throw new Error('WASM bridge not initialized');
-        const theApi = this.bridge.getApi()!;
-
-        // Fast scan to get total entity count
-        const entities = theApi.scanGeometryEntitiesFast(content);
-        const total = Array.isArray(entities) ? entities.length : 0;
-
-        // Process ALL entities in one fast WASM call (skip styles + BREP preprocessing)
-        const collection = theApi.parseMeshesSubset(content, 0, total, true);
-
-        const allMeshes: MeshData[] = [];
-        for (let i = 0; i < collection.length; i++) {
-          const m = collection.get(i);
-          if (!m) continue;
-          allMeshes.push({
-            expressId: m.expressId,
-            ifcType: m.ifcType,
-            positions: new Float32Array(m.positions),
-            normals: new Float32Array(m.normals),
-            indices: new Uint32Array(m.indices),
-            color: [m.color[0], m.color[1], m.color[2], m.color[3]],
-          });
-        }
-        collection.free();
-
-        this.coordinateHandler.processMeshesIncremental(allMeshes);
-        const coordinateInfo = this.coordinateHandler.getFinalCoordinateInfo();
-        yield { type: 'batch', meshes: allMeshes, totalSoFar: allMeshes.length, coordinateInfo: coordinateInfo || undefined };
-        yield { type: 'complete', totalMeshes: allMeshes.length, coordinateInfo };
+      if (useParallel) {
+        yield* this.processParallel(buffer);
+      } else {
+        yield* this.processStreaming(buffer, options.entityIndex, batchConfig);
       }
     }
   }

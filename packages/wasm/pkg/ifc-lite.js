@@ -126,6 +126,13 @@ function makeMutClosure(arg0, arg1, dtor, f) {
     return real;
 }
 
+function passArray32ToWasm0(arg, malloc) {
+    const ptr = malloc(arg.length * 4, 4) >>> 0;
+    getUint32ArrayMemory0().set(arg, ptr / 4);
+    WASM_VECTOR_LEN = arg.length;
+    return ptr;
+}
+
 function passArray8ToWasm0(arg, malloc) {
     const ptr = malloc(arg.length * 1, 1) >>> 0;
     getUint8ArrayMemory0().set(arg, ptr / 1);
@@ -205,12 +212,12 @@ if (!('encodeInto' in cachedTextEncoder)) {
 
 let WASM_VECTOR_LEN = 0;
 
-function __wasm_bindgen_func_elem_1081(arg0, arg1, arg2) {
-    wasm.__wasm_bindgen_func_elem_1081(arg0, arg1, addHeapObject(arg2));
+function __wasm_bindgen_func_elem_1090(arg0, arg1, arg2) {
+    wasm.__wasm_bindgen_func_elem_1090(arg0, arg1, addHeapObject(arg2));
 }
 
-function __wasm_bindgen_func_elem_1121(arg0, arg1, arg2, arg3) {
-    wasm.__wasm_bindgen_func_elem_1121(arg0, arg1, addHeapObject(arg2), addHeapObject(arg3));
+function __wasm_bindgen_func_elem_1130(arg0, arg1, arg2, arg3) {
+    wasm.__wasm_bindgen_func_elem_1130(arg0, arg1, addHeapObject(arg2), addHeapObject(arg3));
 }
 
 const GeoReferenceJsFinalization = (typeof FinalizationRegistry === 'undefined')
@@ -1144,6 +1151,18 @@ export class IfcAPI {
         return takeObject(ret);
     }
     /**
+     * Run the pre-pass ONCE and return serialized results for worker distribution.
+     * Takes raw bytes (&[u8]) to avoid TextDecoder overhead.
+     * @param {Uint8Array} data
+     * @returns {any}
+     */
+    buildPrePassOnce(data) {
+        const ptr0 = passArray8ToWasm0(data, wasm.__wbindgen_export3);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.ifcapi_buildPrePassOnce(this.__wbg_ptr, ptr0, len0);
+        return takeObject(ret);
+    }
+    /**
      * Parse a subset of IFC geometry entities by index range.
      *
      * Performs the full pre-pass (entity index, combined style/void/brep scan)
@@ -1244,6 +1263,35 @@ export class IfcAPI {
         const len0 = WASM_VECTOR_LEN;
         const ret = wasm.ifcapi_parseMeshesInstanced(this.__wbg_ptr, ptr0, len0);
         return InstancedMeshCollection.__wrap(ret);
+    }
+    /**
+     * Process geometry for a subset of pre-scanned entities.
+     * Takes raw bytes and pre-pass data from buildPrePassOnce.
+     * @param {Uint8Array} data
+     * @param {Uint32Array} jobs_flat
+     * @param {number} unit_scale
+     * @param {number} rtc_x
+     * @param {number} rtc_y
+     * @param {number} rtc_z
+     * @param {boolean} needs_shift
+     * @param {Uint32Array} void_keys
+     * @param {Uint32Array} void_counts
+     * @param {Uint32Array} void_values
+     * @returns {MeshCollection}
+     */
+    processGeometryBatch(data, jobs_flat, unit_scale, rtc_x, rtc_y, rtc_z, needs_shift, void_keys, void_counts, void_values) {
+        const ptr0 = passArray8ToWasm0(data, wasm.__wbindgen_export3);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passArray32ToWasm0(jobs_flat, wasm.__wbindgen_export3);
+        const len1 = WASM_VECTOR_LEN;
+        const ptr2 = passArray32ToWasm0(void_keys, wasm.__wbindgen_export3);
+        const len2 = WASM_VECTOR_LEN;
+        const ptr3 = passArray32ToWasm0(void_counts, wasm.__wbindgen_export3);
+        const len3 = WASM_VECTOR_LEN;
+        const ptr4 = passArray32ToWasm0(void_values, wasm.__wbindgen_export3);
+        const len4 = WASM_VECTOR_LEN;
+        const ret = wasm.ifcapi_processGeometryBatch(this.__wbg_ptr, ptr0, len0, ptr1, len1, unit_scale, rtc_x, rtc_y, rtc_z, needs_shift, ptr2, len2, ptr3, len3, ptr4, len4);
+        return MeshCollection.__wrap(ret);
     }
     /**
      * Parse IFC file with streaming GPU-ready geometry batches
@@ -2789,7 +2837,7 @@ function __wbg_get_imports() {
                 const a = state0.a;
                 state0.a = 0;
                 try {
-                    return __wasm_bindgen_func_elem_1121(a, state0.b, arg0, arg1);
+                    return __wasm_bindgen_func_elem_1130(a, state0.b, arg0, arg1);
                 } finally {
                     state0.a = a;
                 }
@@ -2810,6 +2858,14 @@ function __wbg_get_imports() {
     };
     imports.wbg.__wbg_new_no_args_cb138f77cf6151ee = function(arg0, arg1) {
         const ret = new Function(getStringFromWasm0(arg0, arg1));
+        return addHeapObject(ret);
+    };
+    imports.wbg.__wbg_new_with_length_202b3db94ba5fc86 = function(arg0) {
+        const ret = new Uint32Array(arg0 >>> 0);
+        return addHeapObject(ret);
+    };
+    imports.wbg.__wbg_new_with_length_806b9e5b8290af7c = function(arg0) {
+        const ret = new Float64Array(arg0 >>> 0);
         return addHeapObject(ret);
     };
     imports.wbg.__wbg_prototypesetcall_96cc7097487b926d = function(arg0, arg1, arg2) {
@@ -2839,6 +2895,12 @@ function __wbg_get_imports() {
     }, arguments) };
     imports.wbg.__wbg_set_7df433eea03a5c14 = function(arg0, arg1, arg2) {
         getObject(arg0)[arg1 >>> 0] = takeObject(arg2);
+    };
+    imports.wbg.__wbg_set_index_021489b2916af13e = function(arg0, arg1, arg2) {
+        getObject(arg0)[arg1 >>> 0] = arg2;
+    };
+    imports.wbg.__wbg_set_index_42abe35f117e614e = function(arg0, arg1, arg2) {
+        getObject(arg0)[arg1 >>> 0] = arg2 >>> 0;
     };
     imports.wbg.__wbg_stack_0ed75d68575b0f3c = function(arg0, arg1) {
         const ret = getObject(arg1).stack;
@@ -2882,7 +2944,7 @@ function __wbg_get_imports() {
     };
     imports.wbg.__wbindgen_cast_46fe3e4a37968b61 = function(arg0, arg1) {
         // Cast intrinsic for `Closure(Closure { dtor_idx: 146, function: Function { arguments: [Externref], shim_idx: 147, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
-        const ret = makeMutClosure(arg0, arg1, wasm.__wasm_bindgen_func_elem_1080, __wasm_bindgen_func_elem_1081);
+        const ret = makeMutClosure(arg0, arg1, wasm.__wasm_bindgen_func_elem_1089, __wasm_bindgen_func_elem_1090);
         return addHeapObject(ret);
     };
     imports.wbg.__wbindgen_cast_d6cd19b81560fd6e = function(arg0) {

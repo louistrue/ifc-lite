@@ -2,15 +2,26 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-import init, { IfcAPI } from '@ifc-lite/wasm';
+import init, { initSync, IfcAPI } from '@ifc-lite/wasm';
 
-export interface GeometryWorkerRequest {
-  type: 'process';
-  /** SharedArrayBuffer containing the raw IFC file bytes — zero-copy across workers */
-  sharedBuffer: SharedArrayBuffer;
-  startIdx: number;
-  endIdx: number;
+export interface GeometryWorkerInitMessage {
+  type: 'init';
+  wasmModule?: WebAssembly.Module;
 }
+
+export interface GeometryWorkerProcessMessage {
+  type: 'process';
+  sharedBuffer: SharedArrayBuffer;
+  jobsFlat: Uint32Array;      // [id, start, end, id, start, end, ...]
+  unitScale: number;
+  rtcX: number; rtcY: number; rtcZ: number;
+  needsShift: boolean;
+  voidKeys: Uint32Array;
+  voidCounts: Uint32Array;
+  voidValues: Uint32Array;
+}
+
+export type GeometryWorkerRequest = GeometryWorkerInitMessage | GeometryWorkerProcessMessage;
 
 export interface GeometryWorkerBatchMessage {
   type: 'batch';
@@ -40,64 +51,72 @@ export type GeometryWorkerResponse =
   | GeometryWorkerErrorMessage;
 
 let api: IfcAPI | null = null;
-let wasmReady = false;
-
-async function ensureInit(): Promise<void> {
-  if (wasmReady) return;
-  await init();
-  api = new IfcAPI();
-  wasmReady = true;
-}
 
 self.onmessage = async (e: MessageEvent<GeometryWorkerRequest>) => {
-  const { type, sharedBuffer, startIdx, endIdx } = e.data;
-  if (type !== 'process') return;
-
   try {
-    await ensureInit();
-
-    // Copy shared bytes to a regular ArrayBuffer for TextDecoder
-    // (Firefox disallows TextDecoder.decode on SharedArrayBuffer views).
-    // This is a local copy per worker (~169MB), but the postMessage
-    // transfer was zero-cost thanks to SharedArrayBuffer.
-    const localBuffer = new Uint8Array(sharedBuffer.byteLength);
-    localBuffer.set(new Uint8Array(sharedBuffer));
-    const content = new TextDecoder().decode(localBuffer);
-
-    const collection = api!.parseMeshesSubset(content, startIdx, endIdx, true);
-
-    const meshes: GeometryWorkerBatchMessage['meshes'] = [];
-    const transferBuffers: ArrayBuffer[] = [];
-
-    for (let i = 0; i < collection.length; i++) {
-      const mesh = collection.get(i);
-      if (!mesh) continue;
-
-      const positions = new Float32Array(mesh.positions);
-      const normals = new Float32Array(mesh.normals);
-      const indices = new Uint32Array(mesh.indices);
-
-      meshes.push({
-        expressId: mesh.expressId,
-        ifcType: mesh.ifcType,
-        positions,
-        normals,
-        indices,
-        color: [mesh.color[0], mesh.color[1], mesh.color[2], mesh.color[3]],
-      });
-
-      transferBuffers.push(positions.buffer, normals.buffer, indices.buffer);
-      mesh.free();
+    if (e.data.type === 'init') {
+      // Initialize WASM — use pre-compiled module if provided
+      if (e.data.wasmModule) {
+        initSync({ module_or_path: e.data.wasmModule });
+      } else {
+        await init();
+      }
+      api = new IfcAPI();
+      (self as unknown as Worker).postMessage({ type: 'ready' });
+      return;
     }
-    collection.free();
 
-    (self as unknown as Worker).postMessage(
-      { type: 'batch', meshes } as GeometryWorkerBatchMessage,
-      transferBuffers,
-    );
-    (self as unknown as Worker).postMessage(
-      { type: 'complete', totalMeshes: meshes.length } as GeometryWorkerCompleteMessage,
-    );
+    if (e.data.type === 'process') {
+      if (!api) {
+        await init();
+        api = new IfcAPI();
+      }
+
+      const { sharedBuffer, jobsFlat, unitScale, rtcX, rtcY, rtcZ, needsShift,
+              voidKeys, voidCounts, voidValues } = e.data;
+
+      // Copy shared bytes to local buffer (Firefox requires this for typed array ops)
+      const localBytes = new Uint8Array(sharedBuffer.byteLength);
+      localBytes.set(new Uint8Array(sharedBuffer));
+
+      // Call processGeometryBatch with pre-pass data
+      const collection = api.processGeometryBatch(
+        localBytes, jobsFlat, unitScale,
+        rtcX, rtcY, rtcZ, needsShift,
+        voidKeys, voidCounts, voidValues,
+      );
+
+      const meshes: GeometryWorkerBatchMessage['meshes'] = [];
+      const transferBuffers: ArrayBuffer[] = [];
+
+      for (let i = 0; i < collection.length; i++) {
+        const mesh = collection.get(i);
+        if (!mesh) continue;
+
+        const positions = new Float32Array(mesh.positions);
+        const normals = new Float32Array(mesh.normals);
+        const indices = new Uint32Array(mesh.indices);
+
+        meshes.push({
+          expressId: mesh.expressId,
+          ifcType: mesh.ifcType,
+          positions, normals, indices,
+          color: [mesh.color[0], mesh.color[1], mesh.color[2], mesh.color[3]],
+        });
+
+        transferBuffers.push(positions.buffer, normals.buffer, indices.buffer);
+        mesh.free();
+      }
+      collection.free();
+
+      (self as unknown as Worker).postMessage(
+        { type: 'batch', meshes } as GeometryWorkerBatchMessage,
+        transferBuffers,
+      );
+      (self as unknown as Worker).postMessage(
+        { type: 'complete', totalMeshes: meshes.length } as GeometryWorkerCompleteMessage,
+      );
+    }
   } catch (err) {
     (self as unknown as Worker).postMessage(
       { type: 'error', message: err instanceof Error ? err.message : String(err) } as GeometryWorkerErrorMessage,
