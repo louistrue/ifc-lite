@@ -8,6 +8,7 @@ import { ViewportOverlays } from './ViewportOverlays';
 import { ToolOverlays } from './ToolOverlays';
 import { Section2DPanel } from './Section2DPanel';
 import { BasketPresentationDock } from './BasketPresentationDock';
+import { BCFOverlay } from './bcf/BCFOverlay';
 import { useViewerStore } from '@/store';
 import { collectIfcBuildingStoreyElementsWithIfcSpace } from '@/store/basketVisibleSet';
 import { useIfc } from '@/hooks/useIfc';
@@ -32,6 +33,7 @@ export function ViewportContainer() {
   // Multi-model support: get all loaded models from store (for merged geometry)
   const storeModels = useViewerStore((s) => s.models);
   const resetViewerState = useViewerStore((s) => s.resetViewerState);
+  const bcfOverlayVisible = useViewerStore((s) => s.bcfOverlayVisible);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [showTroubleshooting, setShowTroubleshooting] = useState(false);
@@ -611,6 +613,7 @@ export function ViewportContainer() {
         computedIsolatedIds={computedIsolatedIds}
         modelIdToIndex={modelIdToIndex}
       />
+      {bcfOverlayVisible && <BCFOverlay />}
       <ViewportOverlays />
       <ToolOverlays />
       <BasketPresentationDock />

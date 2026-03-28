@@ -584,14 +584,41 @@ fn build_spatial_hierarchy(
     // Build all spatial nodes with full information
     let mut nodes_map: FxHashMap<u32, SpatialNode> = FxHashMap::default();
     
-    // Collect all spatial entity IDs (Project, Site, Building, Storey, Space)
-    let spatial_types = ["IFCPROJECT", "IFCSITE", "IFCBUILDING", "IFCBUILDINGSTOREY", "IFCSPACE"];
+    let is_spatial_type = |type_name: &str| {
+        matches!(
+            type_name.to_uppercase().as_str(),
+            "IFCPROJECT"
+                | "IFCSITE"
+                | "IFCBUILDING"
+                | "IFCBUILDINGSTOREY"
+                | "IFCSPACE"
+                | "IFCFACILITY"
+                | "IFCFACILITYPART"
+                | "IFCBRIDGE"
+                | "IFCBRIDGEPART"
+                | "IFCROAD"
+                | "IFCROADPART"
+                | "IFCRAILWAY"
+                | "IFCRAILWAYPART"
+                | "IFCMARINEFACILITY"
+        )
+    };
+    let is_building_like_spatial_type = |type_name: &str| {
+        matches!(
+            type_name.to_uppercase().as_str(),
+            "IFCBUILDING"
+                | "IFCFACILITY"
+                | "IFCBRIDGE"
+                | "IFCROAD"
+                | "IFCRAILWAY"
+                | "IFCMARINEFACILITY"
+        )
+    };
+
+    // Collect all supported spatial entity IDs, including IFC4.3 facility hierarchies.
     let spatial_entity_ids: Vec<u32> = entities
         .iter()
-        .filter(|e| {
-            let type_upper = e.type_name.to_uppercase();
-            spatial_types.iter().any(|&st| type_upper == st)
-        })
+        .filter(|e| is_spatial_type(&e.type_name))
         .map(|e| e.entity_id)
         .collect();
 
@@ -647,7 +674,7 @@ fn build_spatial_hierarchy(
                 let type_upper = spatial_node.type_name.to_uppercase();
                 if type_upper == "IFCBUILDINGSTOREY" {
                     element_to_storey.push((element_id, spatial_id));
-                } else if type_upper == "IFCBUILDING" {
+                } else if is_building_like_spatial_type(&type_upper) {
                     element_to_building.push((element_id, spatial_id));
                 } else if type_upper == "IFCSITE" {
                     element_to_site.push((element_id, spatial_id));

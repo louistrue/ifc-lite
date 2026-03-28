@@ -33,14 +33,19 @@ impl ProfileProcessor {
         profile: &DecodedEntity,
         decoder: &mut EntityDecoder,
     ) -> Result<Profile2D> {
-        match self.schema.profile_category(&profile.ifc_type) {
-            Some(ProfileCategory::Parametric) => self.process_parametric(profile, decoder),
-            Some(ProfileCategory::Arbitrary) => self.process_arbitrary(profile, decoder),
-            Some(ProfileCategory::Composite) => self.process_composite(profile, decoder),
-            _ => Err(Error::geometry(format!(
-                "Unsupported profile type: {}",
-                profile.ifc_type
-            ))),
+        match profile.ifc_type {
+            IfcType::IfcDerivedProfileDef | IfcType::IfcMirroredProfileDef => {
+                self.process_derived(profile, decoder)
+            }
+            _ => match self.schema.profile_category(&profile.ifc_type) {
+                Some(ProfileCategory::Parametric) => self.process_parametric(profile, decoder),
+                Some(ProfileCategory::Arbitrary) => self.process_arbitrary(profile, decoder),
+                Some(ProfileCategory::Composite) => self.process_composite(profile, decoder),
+                _ => Err(Error::geometry(format!(
+                    "Unsupported profile type: {}",
+                    profile.ifc_type
+                ))),
+            },
         }
     }
 
@@ -173,6 +178,132 @@ impl ProfileProcessor {
         }
 
         Ok(())
+    }
+
+    /// Process IfcDerivedProfileDef / IfcMirroredProfileDef.
+    /// IfcDerivedProfileDef: ProfileType, ProfileName, ParentProfile, Operator, Label
+    fn process_derived(
+        &self,
+        profile: &DecodedEntity,
+        decoder: &mut EntityDecoder,
+    ) -> Result<Profile2D> {
+        let parent_attr = profile
+            .get(2)
+            .ok_or_else(|| Error::geometry("Derived profile missing ParentProfile".to_string()))?;
+        let parent_profile = decoder.resolve_ref(parent_attr)?.ok_or_else(|| {
+            Error::geometry("Derived profile ParentProfile not found".to_string())
+        })?;
+
+        let mut result = self.process(&parent_profile, decoder)?;
+
+        let operator_attr = profile
+            .get(3)
+            .ok_or_else(|| Error::geometry("Derived profile missing Operator".to_string()))?;
+        let operator = decoder
+            .resolve_ref(operator_attr)?
+            .ok_or_else(|| Error::geometry("Derived profile Operator not found".to_string()))?;
+
+        self.apply_cartesian_transformation_operator_2d(&mut result, &operator, decoder)?;
+        Ok(result)
+    }
+
+    /// Apply IfcCartesianTransformationOperator2D to all profile contours.
+    fn apply_cartesian_transformation_operator_2d(
+        &self,
+        profile: &mut Profile2D,
+        operator: &DecodedEntity,
+        decoder: &mut EntityDecoder,
+    ) -> Result<()> {
+        let (origin_x, origin_y) = if let Some(origin_attr) = operator.get(2) {
+            if let Some(origin_entity) = decoder.resolve_ref(origin_attr)? {
+                let coords = origin_entity
+                    .get(0)
+                    .and_then(|v| v.as_list())
+                    .ok_or_else(|| {
+                        Error::geometry("Missing operator origin coordinates".to_string())
+                    })?;
+                (
+                    coords.first().and_then(|v| v.as_float()).unwrap_or(0.0),
+                    coords.get(1).and_then(|v| v.as_float()).unwrap_or(0.0),
+                )
+            } else {
+                (0.0, 0.0)
+            }
+        } else {
+            (0.0, 0.0)
+        };
+
+        let scale_x = operator.get_float(3).unwrap_or(1.0);
+        let scale_y = match operator.ifc_type {
+            IfcType::IfcCartesianTransformationOperator2DnonUniform => {
+                operator.get_float(4).unwrap_or(scale_x)
+            }
+            _ => scale_x,
+        };
+
+        let axis1 = self.parse_operator_axis_2d(operator.get(0), decoder, (1.0, 0.0))?;
+        let axis2 = self.parse_operator_axis_2d(operator.get(1), decoder, (0.0, 1.0))?;
+
+        let (x_axis, y_axis) = match (axis1, axis2) {
+            (Some(x_axis), Some(y_axis)) => (x_axis, y_axis),
+            (Some(x_axis), None) => (x_axis, (-x_axis.1, x_axis.0)),
+            (None, Some(y_axis)) => ((y_axis.1, -y_axis.0), y_axis),
+            (None, None) => ((1.0, 0.0), (0.0, 1.0)),
+        };
+
+        for point in &mut profile.outer {
+            let old_x = point.x;
+            let old_y = point.y;
+            point.x = old_x * x_axis.0 * scale_x + old_y * y_axis.0 * scale_y + origin_x;
+            point.y = old_x * x_axis.1 * scale_x + old_y * y_axis.1 * scale_y + origin_y;
+        }
+
+        for hole in &mut profile.holes {
+            for point in hole {
+                let old_x = point.x;
+                let old_y = point.y;
+                point.x = old_x * x_axis.0 * scale_x + old_y * y_axis.0 * scale_y + origin_x;
+                point.y = old_x * x_axis.1 * scale_x + old_y * y_axis.1 * scale_y + origin_y;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn parse_operator_axis_2d(
+        &self,
+        axis_attr: Option<&AttributeValue>,
+        decoder: &mut EntityDecoder,
+        default: (f64, f64),
+    ) -> Result<Option<(f64, f64)>> {
+        let Some(axis_attr) = axis_attr else {
+            return Ok(None);
+        };
+        if axis_attr.is_null() {
+            return Ok(None);
+        }
+
+        let Some(axis_entity) = decoder.resolve_ref(axis_attr)? else {
+            return Ok(None);
+        };
+        let ratios = axis_entity
+            .get(0)
+            .and_then(|v| v.as_list())
+            .ok_or_else(|| Error::geometry("Missing operator axis ratios".to_string()))?;
+        let x = ratios
+            .first()
+            .and_then(|v| v.as_float())
+            .unwrap_or(default.0);
+        let y = ratios
+            .get(1)
+            .and_then(|v| v.as_float())
+            .unwrap_or(default.1);
+        let len = (x * x + y * y).sqrt();
+        if len <= 1e-10 {
+            return Ok(Some(default));
+        }
+
+        Ok(Some((x / len, y / len)))
     }
 
     /// Process rectangle profile
@@ -1193,7 +1324,6 @@ impl ProfileProcessor {
                         .and_then(|v| v.as_string())
                         .unwrap_or("");
                     let is_arc_type = type_name.to_uppercase().contains("ARC");
-                    
                     if let Some(AttributeValue::List(indices_list)) = segment_list.get(1) {
                         (is_arc_type, Some(indices_list.as_slice()))
                     } else {
@@ -1283,12 +1413,11 @@ impl ProfileProcessor {
         // The determinant d scales with the square of the point distances
         let arc_span = ((p3.x - p1.x).powi(2) + (p3.y - p1.y).powi(2)).sqrt();
         let collinear_tolerance = 1e-6 * arc_span.powi(2).max(1e-10);
-        
         if d.abs() < collinear_tolerance {
             // Points are collinear - return as line
             return vec![p1, p2, p3];
         }
-        
+
         // Calculate center
         let ux_num = (ax * ax + ay * ay) * (by - cy)
             + (bx * bx + by * by) * (cy - ay)
@@ -1300,7 +1429,6 @@ impl ProfileProcessor {
         let uy = uy_num / d;
         let center = Point2::new(ux, uy);
         let radius = ((p1.x - center.x).powi(2) + (p1.y - center.y).powi(2)).sqrt();
-        
         // If radius is more than 100x the arc span, the points are essentially collinear
         if radius > arc_span * 100.0 {
             return vec![p1, p2, p3];
@@ -1326,7 +1454,6 @@ impl ProfileProcessor {
         // The correct direction is the one that passes through angle2
         let diff_direct = normalize_angle(angle3 - angle1);
         let diff_to_mid = normalize_angle(angle2 - angle1);
-        
         let go_direct = if diff_direct > 0.0 {
             // Direct path is counterclockwise (positive angles)
             diff_to_mid > 0.0 && diff_to_mid < diff_direct
@@ -1529,5 +1656,54 @@ mod tests {
 
         assert_eq!(profile.outer.len(), 5); // 4 corners + closing point
         assert!(!profile.outer.is_empty());
+    }
+
+    #[test]
+    fn test_derived_profile_applies_translation_rotation_and_scale() {
+        let content = r#"
+#1=IFCDIRECTION((0.0,1.0));
+#2=IFCCARTESIANPOINT((10.0,20.0));
+#3=IFCCARTESIANTRANSFORMATIONOPERATOR2D(#1,$,#2,2.0);
+#4=IFCRECTANGLEPROFILEDEF(.AREA.,$,$,2.0,4.0);
+#5=IFCDERIVEDPROFILEDEF(.AREA.,$,#4,#3,$);
+"#;
+
+        let mut decoder = EntityDecoder::new(content);
+        let schema = IfcSchema::new();
+        let processor = ProfileProcessor::new(schema);
+
+        let profile_entity = decoder.decode_by_id(5).unwrap();
+        let profile = processor.process(&profile_entity, &mut decoder).unwrap();
+
+        assert_eq!(profile.outer.len(), 4);
+        assert!(profile.outer.contains(&Point2::new(14.0, 18.0)));
+        assert!(profile.outer.contains(&Point2::new(14.0, 22.0)));
+        assert!(profile.outer.contains(&Point2::new(6.0, 22.0)));
+        assert!(profile.outer.contains(&Point2::new(6.0, 18.0)));
+    }
+
+    #[test]
+    fn test_mirrored_profile_uses_derived_operator() {
+        let content = r#"
+#1=IFCDIRECTION((-1.0,0.0));
+#2=IFCDIRECTION((0.0,1.0));
+#3=IFCCARTESIANPOINT((0.0,0.0));
+#4=IFCCARTESIANTRANSFORMATIONOPERATOR2D(#1,#2,#3,1.0);
+#5=IFCRECTANGLEPROFILEDEF(.AREA.,$,$,2.0,4.0);
+#6=IFCMIRROREDPROFILEDEF(.AREA.,$,#5,#4,$);
+"#;
+
+        let mut decoder = EntityDecoder::new(content);
+        let schema = IfcSchema::new();
+        let processor = ProfileProcessor::new(schema);
+
+        let profile_entity = decoder.decode_by_id(6).unwrap();
+        let profile = processor.process(&profile_entity, &mut decoder).unwrap();
+
+        assert_eq!(profile.outer.len(), 4);
+        assert!(profile.outer.contains(&Point2::new(1.0, -2.0)));
+        assert!(profile.outer.contains(&Point2::new(-1.0, -2.0)));
+        assert!(profile.outer.contains(&Point2::new(-1.0, 2.0)));
+        assert!(profile.outer.contains(&Point2::new(1.0, 2.0)));
     }
 }

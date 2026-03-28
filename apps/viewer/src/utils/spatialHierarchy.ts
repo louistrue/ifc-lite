@@ -11,20 +11,14 @@
 import {
   IfcTypeEnum,
   RelationshipType,
+  isBuildingLikeSpatialType,
+  isSpatialStructureType,
+  isStoreyLikeSpatialType,
   type SpatialHierarchy,
   type SpatialNode,
   type EntityTable,
   type RelationshipGraph,
 } from '@ifc-lite/data';
-
-// Spatial structure types that form the IFC containment hierarchy
-const SPATIAL_TYPES = new Set([
-  IfcTypeEnum.IfcProject,
-  IfcTypeEnum.IfcSite,
-  IfcTypeEnum.IfcBuilding,
-  IfcTypeEnum.IfcBuildingStorey,
-  IfcTypeEnum.IfcSpace,
-]);
 
 /**
  * Rebuild spatial hierarchy from cache data (entities + relationships)
@@ -77,7 +71,7 @@ export function rebuildSpatialHierarchy(
     // Filter out spatial structure elements - O(1) per element now!
     const containedElements = rawContainedElements.filter((id) => {
       const elemType = entityTypeMap.get(id);
-      return elemType !== undefined && !SPATIAL_TYPES.has(elemType);
+      return elemType !== undefined && !isSpatialStructureType(elemType);
     });
 
     // Get aggregated children via IfcRelAggregates
@@ -91,20 +85,26 @@ export function rebuildSpatialHierarchy(
     const childNodes: SpatialNode[] = [];
     for (const childId of aggregatedChildren) {
       const childType = entityTypeMap.get(childId);
-      if (childType && SPATIAL_TYPES.has(childType) && childType !== IfcTypeEnum.IfcProject) {
+      if (childType && isSpatialStructureType(childType) && childType !== IfcTypeEnum.IfcProject) {
         childNodes.push(buildNode(childId));
       }
     }
 
     // Add elements to appropriate maps
-    if (typeEnum === IfcTypeEnum.IfcBuildingStorey) {
+    if (isStoreyLikeSpatialType(typeEnum)) {
       byStorey.set(expressId, containedElements);
-    } else if (typeEnum === IfcTypeEnum.IfcBuilding) {
+    } else if (isBuildingLikeSpatialType(typeEnum)) {
       byBuilding.set(expressId, containedElements);
     } else if (typeEnum === IfcTypeEnum.IfcSite) {
       bySite.set(expressId, containedElements);
     } else if (typeEnum === IfcTypeEnum.IfcSpace) {
       bySpace.set(expressId, containedElements);
+    }
+
+    if (isStoreyLikeSpatialType(typeEnum)) {
+      for (const elementId of containedElements) {
+        elementToStorey.set(elementId, expressId);
+      }
     }
 
     return {
@@ -117,13 +117,6 @@ export function rebuildSpatialHierarchy(
   }
 
   const projectNode = buildNode(projectId);
-
-  // Build reverse lookup map: elementId -> storeyId
-  for (const [storeyId, elementIds] of byStorey) {
-    for (const elementId of elementIds) {
-      elementToStorey.set(elementId, storeyId);
-    }
-  }
 
   // Pre-build space lookup for O(1) getContainingSpace
   const elementToSpace = new Map<number, number>();
@@ -159,9 +152,6 @@ export function rebuildSpatialHierarchy(
 
     getPath(elementId: number): SpatialNode[] {
       const path: SpatialNode[] = [];
-
-      // DFS to find element in spatial tree
-      // Elements can be in SpatialNode.elements (e.g., IfcSpace) even if not in elementToStorey
       const findPath = (node: SpatialNode, targetId: number): boolean => {
         path.push(node);
         if (node.elements.includes(targetId)) {

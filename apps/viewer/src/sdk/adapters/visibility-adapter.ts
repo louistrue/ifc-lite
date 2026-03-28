@@ -5,15 +5,8 @@
 import type { EntityRef, VisibilityBackendMethods } from '@ifc-lite/sdk';
 import type { StoreApi } from './types.js';
 import { getModelForRef, type ModelLike } from './model-compat.js';
-import { collectIfcBuildingStoreyElementsWithIfcSpace } from '../../store/basketVisibleSet.js';
-import { IfcTypeEnum, type SpatialNode } from '@ifc-lite/data';
-
-const SPATIAL_TYPES = new Set([
-  'IfcBuildingStorey',
-  'IfcBuilding',
-  'IfcSite',
-  'IfcProject',
-]);
+import { collectSpatialSubtreeElementsWithIfcSpace } from '../../store/basketVisibleSet.js';
+import { isSpaceLikeSpatialTypeName, isSpatialStructureTypeName, type SpatialNode } from '@ifc-lite/data';
 
 function findDescendantNode(root: SpatialNode, expressId: number): SpatialNode | null {
   const stack: SpatialNode[] = [root];
@@ -27,21 +20,6 @@ function findDescendantNode(root: SpatialNode, expressId: number): SpatialNode |
   return null;
 }
 
-function collectDescendantStoreyIds(node: SpatialNode): number[] {
-  const storeyIds: number[] = [];
-  const stack: SpatialNode[] = [node];
-  while (stack.length > 0) {
-    const current = stack.pop()!;
-    if (current.type === IfcTypeEnum.IfcBuildingStorey) {
-      storeyIds.push(current.expressId);
-    }
-    for (const child of current.children) {
-      stack.push(child);
-    }
-  }
-  return storeyIds;
-}
-
 /**
  * If `ref` points to a spatial structure element (storey, building, etc.),
  * expand it to the local expressIds of all contained elements.
@@ -50,37 +28,17 @@ function collectDescendantStoreyIds(node: SpatialNode): number[] {
 function expandSpatialRef(ref: EntityRef, model: ModelLike): number[] {
   const dataStore = model.ifcDataStore;
   const typeName = dataStore.entities.getTypeName(ref.expressId) || '';
-  if (!SPATIAL_TYPES.has(typeName)) return [ref.expressId];
+  if (!isSpatialStructureTypeName(typeName) || isSpaceLikeSpatialTypeName(typeName)) {
+    return [ref.expressId];
+  }
 
   const hierarchy = dataStore.spatialHierarchy;
   if (!hierarchy) return [ref.expressId];
-
-  if (typeName === 'IfcBuildingStorey') {
-    const ids = collectIfcBuildingStoreyElementsWithIfcSpace(hierarchy, ref.expressId);
-    return ids && ids.length > 0 ? ids : [ref.expressId];
-  }
-
-  // For higher-level containers (IfcBuilding, IfcSite, IfcProject),
-  // walk the spatial tree from ref.expressId to find descendant storeys only
   const startNode = findDescendantNode(hierarchy.project, ref.expressId);
   if (!startNode) return [ref.expressId];
 
-  const descendantStoreyIds = collectDescendantStoreyIds(startNode);
-
-  const allIds: number[] = [];
-  const seen = new Set<number>();
-  for (const storeyId of descendantStoreyIds) {
-    const storeyIds = collectIfcBuildingStoreyElementsWithIfcSpace(hierarchy, storeyId);
-    if (storeyIds) {
-      for (const id of storeyIds) {
-        if (!seen.has(id)) {
-          seen.add(id);
-          allIds.push(id);
-        }
-      }
-    }
-  }
-  return allIds.length > 0 ? allIds : [ref.expressId];
+  const ids = collectSpatialSubtreeElementsWithIfcSpace(hierarchy, ref.expressId);
+  return ids && ids.length > 0 ? ids : [ref.expressId];
 }
 
 export function createVisibilityAdapter(store: StoreApi): VisibilityBackendMethods {

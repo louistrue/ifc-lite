@@ -32,7 +32,7 @@ import { configureMutationView } from '@/utils/configureMutationView';
 import { IfcQuery } from '@ifc-lite/query';
 import { MutablePropertyView } from '@ifc-lite/mutations';
 import { extractClassificationsOnDemand, extractMaterialsOnDemand, extractTypePropertiesOnDemand, extractTypeEntityOwnProperties, extractDocumentsOnDemand, extractRelationshipsOnDemand, type IfcDataStore } from '@ifc-lite/parser';
-import { EntityFlags, RelationshipType } from '@ifc-lite/data';
+import { EntityFlags, RelationshipType, isSpatialStructureTypeName, isStoreyLikeSpatialTypeName } from '@ifc-lite/data';
 import type { EntityRef, FederatedModel } from '@/store/types';
 
 import { CoordVal, CoordRow } from './properties/CoordinateDisplay';
@@ -573,7 +573,7 @@ export function PropertiesPanel() {
     };
   }, [selectedEntity, model, ifcDataStore, mutationViews, mutationVersion]);
 
-  // Spatial containment info for spatial containers (Project, Site, Building, Storey)
+  // Spatial containment info for spatial containers (Project, Facility, Part, Storey, Space)
   const spatialContainment = useMemo(() => {
     if (!selectedEntity) return null;
     const dataStore = model?.ifcDataStore ?? ifcDataStore;
@@ -583,9 +583,8 @@ export function PropertiesPanel() {
     const hierarchy = dataStore.spatialHierarchy;
     const typeName = dataStore.entities.getTypeName(expressId);
 
-    // Only show for spatial containers
-    const spatialTypes = ['IfcProject', 'IfcSite', 'IfcBuilding', 'IfcBuildingStorey', 'IfcSpace'];
-    if (!spatialTypes.includes(typeName)) return null;
+    // Only show for spatial structure elements.
+    if (!isSpatialStructureTypeName(typeName)) return null;
 
     const stats: Array<{ label: string; value: string | number }> = [];
 
@@ -621,7 +620,7 @@ export function PropertiesPanel() {
     // Also count from containment maps
     const mapSources: Array<[string, Map<number, number[]> | undefined]> = [
       ['Elements (Site)', hierarchy.bySite],
-      ['Elements (Building)', hierarchy.byBuilding],
+      ['Elements (Building-like)', hierarchy.byBuilding],
       ['Elements (Storey)', hierarchy.byStorey],
       ['Elements (Space)', hierarchy.bySpace],
     ];
@@ -633,7 +632,7 @@ export function PropertiesPanel() {
     }
 
     // Elevation for storeys
-    if (typeName === 'IfcBuildingStorey') {
+    if (isStoreyLikeSpatialTypeName(typeName)) {
       const elevation = hierarchy.storeyElevations.get(expressId);
       if (elevation !== undefined) {
         stats.push({ label: 'Elevation', value: `${elevation.toFixed(2)} m` });

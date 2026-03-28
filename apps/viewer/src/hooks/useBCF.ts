@@ -22,6 +22,10 @@ import {
   type ViewerBounds,
 } from '@ifc-lite/bcf';
 import type { Renderer } from '@ifc-lite/renderer';
+import {
+  globalIdToExpressId as globalIdToExpressIdLookup,
+  expressIdToGlobalId as expressIdToGlobalIdLookup,
+} from './bcfIdLookup';
 
 // ============================================================================
 // Types
@@ -122,6 +126,8 @@ export function useBCF(options: UseBCFOptions = {}): UseBCFResult {
 
   // Get coordinate info for bounds
   const models = useViewerStore((s) => s.models);
+  // Legacy single-model data store (used when models Map is empty)
+  const ifcDataStore = useViewerStore((s) => s.ifcDataStore);
 
   /**
    * Get the canvas element (local ref or global)
@@ -225,22 +231,9 @@ export function useBCF(options: UseBCFOptions = {}): UseBCFResult {
    * Handles multi-model federation by finding the correct model and subtracting offset
    */
   const expressIdToGlobalId = useCallback(
-    (expressId: number): string | null => {
-      for (const model of models.values()) {
-        const offset = model.idOffset ?? 0;
-        const localExpressId = expressId - offset;
-
-        // Check if this expressId belongs to this model's range
-        if (localExpressId > 0 && localExpressId <= (model.maxExpressId ?? Infinity)) {
-          const globalIdString = model.ifcDataStore?.entities?.getGlobalId(localExpressId);
-          if (globalIdString) {
-            return globalIdString;
-          }
-        }
-      }
-      return null;
-    },
-    [models]
+    (expressId: number): string | null =>
+      expressIdToGlobalIdLookup(expressId, models, ifcDataStore),
+    [models, ifcDataStore]
   );
 
   /**
@@ -248,21 +241,9 @@ export function useBCF(options: UseBCFOptions = {}): UseBCFResult {
    * Returns { expressId, modelId } or null if not found
    */
   const globalIdToExpressId = useCallback(
-    (globalIdString: string): { expressId: number; modelId: string } | null => {
-      for (const [modelId, model] of models.entries()) {
-        const localExpressId = model.ifcDataStore?.entities?.getExpressIdByGlobalId(globalIdString);
-        if (localExpressId !== undefined && localExpressId > 0) {
-          // Add model offset for federation
-          const offset = model.idOffset ?? 0;
-          return {
-            expressId: localExpressId + offset,
-            modelId,
-          };
-        }
-      }
-      return null;
-    },
-    [models]
+    (globalIdString: string): { expressId: number; modelId: string } | null =>
+      globalIdToExpressIdLookup(globalIdString, models, ifcDataStore),
+    [models, ifcDataStore]
   );
 
   /**

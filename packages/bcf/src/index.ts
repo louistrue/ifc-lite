@@ -72,6 +72,21 @@ export {
   extractViewpointState,
 } from './viewpoint.js';
 
+// 3D Overlay (viewer-agnostic marker positioning)
+export type {
+  OverlayPoint3D,
+  OverlayBBox,
+  BCFMarker3D,
+  BCFOverlayProjection,
+  EntityBoundsLookup,
+  ComputeMarkersOptions,
+} from './overlay.js';
+export { computeMarkerPositions } from './overlay.js';
+
+// 3D Overlay DOM Renderer (browser-only, framework-agnostic)
+export type { BCFOverlayRendererOptions } from './overlay-renderer.js';
+export { BCFOverlayRenderer } from './overlay-renderer.js';
+
 // IDS → BCF reporter
 export type {
   IDSReportInput,
