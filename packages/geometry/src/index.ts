@@ -471,16 +471,22 @@ export class GeometryProcessor {
     // Scans entire file, builds job list + style data + void index.
     // Workers skip this entirely and receive pre-computed results.
     const theApi = this.bridge!.getApi();
+    console.time('[Parallel] prePass');
     const prePassResult = theApi.buildPrePassOnce(buffer);
+    console.timeEnd('[Parallel] prePass');
+    console.warn('[Parallel] prePass result:', prePassResult?.totalJobs, 'jobs,', prePassResult?.voidKeys?.length, 'voids');
 
-    if (!prePassResult || !prePassResult.jobsFlat || prePassResult.totalJobs === 0) {
+    if (!prePassResult || !prePassResult.jobs || prePassResult.totalJobs === 0) {
       const coordinateInfo = this.coordinateHandler.getFinalCoordinateInfo();
       yield { type: 'complete', totalMeshes: 0, coordinateInfo };
       return;
     }
 
-    const { jobsFlat, totalJobs, unitScale, rtcX, rtcY, rtcZ, needsShift,
+    const { jobs: jobsFlat, totalJobs, unitScale, rtcOffset, needsShift,
             voidKeys, voidCounts, voidValues } = prePassResult;
+    const rtcX = rtcOffset?.[0] ?? 0;
+    const rtcY = rtcOffset?.[1] ?? 0;
+    const rtcZ = rtcOffset?.[2] ?? 0;
 
     // ── PHASE 2: Split jobs across workers ──
     const maxWorkers = 4;
