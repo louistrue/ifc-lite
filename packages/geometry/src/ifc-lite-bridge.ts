@@ -77,23 +77,19 @@ export class IfcLiteBridge {
     }
 
     try {
-      // Initialize WASM module - wasm-bindgen automatically resolves the WASM URL
-      // from import.meta.url, no need to manually construct paths.
-      // wasm-bindgen's init() is idempotent (returns cached instance on re-call).
+      log.info('[init] Starting WASM initialization...');
       await init();
+      log.info('[init] WASM module loaded');
 
-      // Initialize rayon thread pool ONCE per page lifetime.
-      // initThreadPool() is NOT idempotent — calling it twice crashes because
-      // the rayon global pool is already set up (builder.build() panics).
-      // A failed initThreadPool also corrupts the WASM module's closure state
-      // (unwrap_throw leaves dangling closures), making parseMeshesAsync crash.
-      // Guard with both module-level flag AND module worker probe.
       if (!wasmModuleInitialized) {
         if (typeof SharedArrayBuffer !== 'undefined') {
+          log.info('[init] SharedArrayBuffer available, probing module worker support...');
           const canUseThreads = await this.probeModuleWorkerSupport();
+          log.info(`[init] Module worker probe result: ${canUseThreads}`);
           if (canUseThreads) {
             try {
               const threads = navigator.hardwareConcurrency || 4;
+              log.info(`[init] Calling initThreadPool with ${threads} threads...`);
               await initThreadPool(threads);
               log.info(`Thread pool initialized with ${threads} threads`);
             } catch (e) {
@@ -106,6 +102,9 @@ export class IfcLiteBridge {
           log.warn('SharedArrayBuffer unavailable (missing COOP/COEP headers?) — geometry processing will be single-threaded');
         }
         wasmModuleInitialized = true;
+        log.info('[init] wasmModuleInitialized = true');
+      } else {
+        log.info('[init] WASM already initialized (skipping thread pool)');
       }
 
       this.ifcApi = new IfcAPI();
@@ -133,6 +132,7 @@ export class IfcLiteBridge {
    */
   private async probeModuleWorkerSupport(): Promise<boolean> {
     try {
+      log.info('[probe] Creating test blob worker...');
       const blob = new Blob(
         ['self.postMessage("ok")'],
         { type: 'application/javascript' },
@@ -141,16 +141,33 @@ export class IfcLiteBridge {
       const result = await new Promise<boolean>((resolve) => {
         try {
           const w = new Worker(url, { type: 'module' });
-          const timer = setTimeout(() => { w.terminate(); resolve(false); }, 2000);
-          w.onmessage = () => { clearTimeout(timer); w.terminate(); resolve(true); };
-          w.onerror = () => { clearTimeout(timer); w.terminate(); resolve(false); };
-        } catch {
+          const timer = setTimeout(() => {
+            log.warn('[probe] Worker timed out after 2s');
+            w.terminate();
+            resolve(false);
+          }, 2000);
+          w.onmessage = () => {
+            log.info('[probe] Worker responded OK');
+            clearTimeout(timer);
+            w.terminate();
+            resolve(true);
+          };
+          w.onerror = (e) => {
+            log.warn('[probe] Worker error', { data: e });
+            clearTimeout(timer);
+            w.terminate();
+            resolve(false);
+          };
+        } catch (e) {
+          log.warn('[probe] Worker creation failed', { data: e });
           resolve(false);
         }
       });
       URL.revokeObjectURL(url);
+      log.info(`[probe] Result: ${result}`);
       return result;
-    } catch {
+    } catch (e) {
+      log.warn('[probe] Outer catch', { data: e });
       return false;
     }
   }
