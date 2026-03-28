@@ -1032,7 +1032,7 @@ fn extract_surface_style_info(
                     let alpha: f32 = 1.0 - rendering.get_float(1).unwrap_or(0.0) as f32;
 
                     return Some(GeometryStyleInfo {
-                        color: [r, g, b, alpha.max(0.0).min(1.0)],
+                        color: [r, g, b, alpha.clamp(0.0, 1.0)],
                         material_name: material_name.clone(),
                     });
                 }

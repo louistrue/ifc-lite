@@ -65,14 +65,15 @@ function buildBoxMeshFromAabb(min: Vec3, max: Vec3, expressId: number): MeshData
   ]);
 
   // 12 triangles (two per face), referencing 24 vertices
+  // Winding order follows right-hand rule so cross(e1,e2) matches the declared normal.
   // prettier-ignore
   const indices = new Uint32Array([
-    0,1,2, 0,2,3,       // bottom
-    4,6,5, 4,7,6,       // top
-    8,10,9, 8,11,10,    // front
-    12,13,14, 12,14,15, // back
-    16,17,18, 16,18,19, // left
-    20,22,21, 20,23,22, // right
+    0,2,1, 0,3,2,       // bottom  (normal  0, 0,-1)
+    4,5,6, 4,6,7,       // top     (normal  0, 0, 1)
+    8,9,10, 8,10,11,    // front   (normal  0,-1, 0)
+    12,14,13, 12,15,14, // back    (normal  0, 1, 0)
+    16,18,17, 16,19,18, // left    (normal -1, 0, 0)
+    20,21,22, 20,22,23, // right   (normal  1, 0, 0)
   ]);
 
   return {

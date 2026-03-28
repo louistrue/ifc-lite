@@ -73,6 +73,17 @@ export interface ObjectStyle {
  */
 export type ObjectStylesConfig = Record<string, ObjectStyle>;
 
+/** Per-style partial override accepted by the deep-merge in resolveObjectStyle. */
+export type ObjectStyleOverride =
+  Partial<Omit<ObjectStyle, 'cutLines' | 'projectionLines' | 'hatch'>> & {
+    cutLines?: Partial<ObjectStyleLineProps>;
+    projectionLines?: Partial<ObjectStyleLineProps>;
+    hatch?: Partial<ObjectStyleHatch> | null;
+  };
+
+/** Map of partial per-type overrides passed into resolve / visibility helpers. */
+export type ObjectStyleOverrides = Partial<Record<string, ObjectStyleOverride>>;
+
 // ═══════════════════════════════════════════════════════════════════════════
 // DASH-PATTERN LOOKUP
 // ═══════════════════════════════════════════════════════════════════════════
@@ -355,7 +366,7 @@ export const DEFAULT_OBJECT_STYLES: ObjectStylesConfig = {
  */
 export function resolveObjectStyle(
   ifcType: string,
-  userOverrides: Partial<ObjectStylesConfig> = {},
+  userOverrides: ObjectStyleOverrides = {},
 ): ObjectStyle {
   const fallback = DEFAULT_OBJECT_STYLES['_default'];
   const typeDefault = DEFAULT_OBJECT_STYLES[ifcType] ?? fallback;
@@ -384,7 +395,7 @@ export function resolveObjectStyle(
  */
 export function isIfcTypeVisible(
   ifcType: string,
-  userOverrides: Partial<ObjectStylesConfig> = {},
+  userOverrides: ObjectStyleOverrides = {},
 ): boolean {
   return resolveObjectStyle(ifcType, userOverrides).visible;
 }
@@ -394,7 +405,7 @@ export function isIfcTypeVisible(
  * meshes before passing them to the drawing generator.
  */
 export function getHiddenIfcTypes(
-  userOverrides: Partial<ObjectStylesConfig> = {},
+  userOverrides: ObjectStyleOverrides = {},
 ): string[] {
   const allTypes = new Set([
     ...Object.keys(DEFAULT_OBJECT_STYLES),

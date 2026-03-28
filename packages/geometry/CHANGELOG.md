@@ -1,5 +1,16 @@
 # @ifc-lite/geometry
 
+## 1.15.0
+
+### Minor Changes
+
+- [#439](https://github.com/louistrue/ifc-lite/pull/439) [`a672eec`](https://github.com/louistrue/ifc-lite/commit/a672eec196ec77b0229b0953f9a1b59991f814a6) Thanks [@louistrue](https://github.com/louistrue)! - Add Web Worker parallel geometry processing. Pre-pass runs once on a dedicated worker, then geometry is split across multiple workers using SharedArrayBuffer for zero-copy file sharing. Disable wasm-bindgen-rayon initThreadPool (incompatible with Vite production builds). Switch from async streaming to optimized single-call processing for maximum throughput.
+
+### Patch Changes
+
+- Updated dependencies [[`a672eec`](https://github.com/louistrue/ifc-lite/commit/a672eec196ec77b0229b0953f9a1b59991f814a6)]:
+  - @ifc-lite/wasm@1.15.0
+
 ## 1.14.4
 
 ### Patch Changes

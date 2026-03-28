@@ -328,6 +328,8 @@ export type {
   ObjectStyleHatch,
   ObjectStyle,
   ObjectStylesConfig,
+  ObjectStyleOverride,
+  ObjectStyleOverrides,
 } from './object-styles';
 
 // ═══════════════════════════════════════════════════════════════════════════

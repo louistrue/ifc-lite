@@ -10,7 +10,6 @@
 import { createLogger } from '@ifc-lite/data';
 import init, {
   IfcAPI,
-  initThreadPool,
   MeshCollection,
   MeshDataJs,
   InstancedMeshCollection,
@@ -99,22 +98,12 @@ export class IfcLiteBridge {
       // from import.meta.url, no need to manually construct paths
       await init();
 
-      // Initialize rayon thread pool for parallel geometry processing in WASM.
-      // Requires SharedArrayBuffer (COOP/COEP headers). Falls back to single-threaded
-      // if unavailable — rayon's par_iter() still works, just sequentially.
-      if (typeof SharedArrayBuffer !== 'undefined') {
-        try {
-          const threads = navigator.hardwareConcurrency || 4;
-          await initThreadPool(threads);
-          log.info(`Thread pool initialized with ${threads} threads`);
-        } catch (e) {
-          log.warn('Thread pool init failed, falling back to single-threaded geometry processing', {
-            data: { error: e instanceof Error ? e.message : String(e) },
-          });
-        }
-      } else {
-        log.warn('SharedArrayBuffer unavailable (missing COOP/COEP headers?) — geometry processing will be single-threaded');
-      }
+      // Thread pool initialization is DISABLED.
+      // wasm-bindgen-rayon's initThreadPool creates workers that import the WASM
+      // module via ../../.. — this path doesn't resolve in Vite production builds,
+      // causing workers to hang forever and corrupt the WASM closure state.
+      // Without the thread pool, rayon's par_iter() falls back to sequential.
+      log.warn('Geometry processing: single-threaded mode (thread pool disabled for Vite compatibility)');
 
       this.ifcApi = new IfcAPI();
       this.initialized = true;
@@ -282,6 +271,31 @@ export class IfcLiteBridge {
       log.error('Failed to extract profiles', error, {
         operation: 'extractProfiles',
         data: { contentLength: content.length },
+      });
+      if (this.isWasmRuntimeError(error)) {
+        this.markFatalWasmRuntimeError();
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Parse a subset of IFC geometry entities by index range.
+   * Performs the full pre-pass but only processes entities in [startIdx, endIdx).
+   * Designed for Web Worker parallelization where each worker handles a slice.
+   */
+  parseMeshesSubset(content: string, startIdx: number, endIdx: number): MeshCollection {
+    if (!this.ifcApi) {
+      throw new Error('IFC-Lite not initialized. Call init() first.');
+    }
+    try {
+      const collection = this.ifcApi.parseMeshesSubset(content, startIdx, endIdx);
+      log.debug(`Parsed subset [${startIdx}, ${endIdx}) → ${collection.length} meshes`, { operation: 'parseMeshesSubset' });
+      return collection;
+    } catch (error) {
+      log.error('Failed to parse IFC geometry subset', error, {
+        operation: 'parseMeshesSubset',
+        data: { contentLength: content.length, startIdx, endIdx },
       });
       if (this.isWasmRuntimeError(error)) {
         this.markFatalWasmRuntimeError();

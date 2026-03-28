@@ -255,6 +255,38 @@ export class IfcAPI {
    */
   parseMeshesAsync(content: string, options: any): Promise<any>;
   /**
+   * Fast pre-pass: scans for geometry entities ONLY (skips style/void/material resolution).
+   * Returns job list + unit scale + RTC offset in ~1-2s instead of ~6s.
+   * Geometry workers can start immediately with default colors + no void subtraction.
+   * A parallel style worker can run buildPrePassOnce for correct colors later.
+   */
+  buildPrePassFast(data: Uint8Array): any;
+  /**
+   * Run the pre-pass ONCE and return serialized results for worker distribution.
+   * Takes raw bytes (&[u8]) to avoid TextDecoder overhead.
+   */
+  buildPrePassOnce(data: Uint8Array): any;
+  /**
+   * Parse a subset of IFC geometry entities by index range.
+   *
+   * Performs the full pre-pass (entity index, combined style/void/brep scan)
+   * but only processes geometry entities whose index (in the combined
+   * simple + complex job list) falls within `[start_idx, end_idx)`.
+   *
+   * This enables Web Worker parallelization: each worker processes a
+   * disjoint slice of the entity list while sharing the same pre-pass data.
+   *
+   * Example:
+   * ```javascript
+   * const api = new IfcAPI();
+   * // Worker 1: entities 0..500
+   * const batch1 = api.parseMeshesSubset(content, 0, 500);
+   * // Worker 2: entities 500..1000
+   * const batch2 = api.parseMeshesSubset(content, 500, 1000);
+   * ```
+   */
+  parseMeshesSubset(content: string, start_idx: number, end_idx: number, skip_expensive: boolean): MeshCollection;
+  /**
    * Parse IFC file and return GPU-ready geometry for zero-copy upload
    *
    * This method generates geometry that is:
@@ -312,6 +344,11 @@ export class IfcAPI {
    * ```
    */
   parseMeshesInstanced(content: string): InstancedMeshCollection;
+  /**
+   * Process geometry for a subset of pre-scanned entities.
+   * Takes raw bytes and pre-pass data from buildPrePassOnce.
+   */
+  processGeometryBatch(data: Uint8Array, jobs_flat: Uint32Array, unit_scale: number, rtc_x: number, rtc_y: number, rtc_z: number, needs_shift: boolean, void_keys: Uint32Array, void_counts: Uint32Array, void_values: Uint32Array, style_ids: Uint32Array, style_colors: Uint8Array): MeshCollection;
   /**
    * Parse IFC file with streaming GPU-ready geometry batches
    *
@@ -397,29 +434,6 @@ export class IfcAPI {
    * ```
    */
   parseZeroCopy(content: string): ZeroCopyMesh;
-  /**
-   * Extract raw profile polygons from all building elements with `IfcExtrudedAreaSolid`
-   * representations.
-   *
-   * Returns a [`ProfileCollection`] whose entries each carry:
-   * - A 2D polygon (outer + holes) in local profile space (metres)
-   * - A 4 × 4 column-major transform in WebGL Y-up world space
-   * - Extrusion direction (world space) and depth (metres)
-   *
-   * Use [`ProfileProjector`] (TypeScript) to convert these into `DrawingLine[]`
-   * for clean projection without tessellation artifacts.
-   *
-   * ```javascript
-   * const api = new IfcAPI();
-   * const profiles = api.extractProfiles(ifcContent, 0);
-   * console.log('Profiles:', profiles.length);
-   * for (let i = 0; i < profiles.length; i++) {
-   *   const p = profiles.get(i);
-   *   console.log(p.ifcType, 'depth:', p.extrusionDepth);
-   * }
-   * ```
-   */
-  extractProfiles(content: string, model_index: number): ProfileCollection;
   /**
    * Debug: Test processing entity #953 (FacetedBrep wall)
    */
@@ -678,63 +692,6 @@ export class MeshDataJs {
   readonly positions: Float32Array;
 }
 
-export class ProfileCollection {
-  private constructor();
-  free(): void;
-  [Symbol.dispose](): void;
-  /**
-   * Get profile at `index`.  Returns `undefined` for out-of-bounds index.
-   */
-  get(index: number): ProfileEntryJs | undefined;
-  /**
-   * Number of profiles.
-   */
-  readonly length: number;
-}
-
-export class ProfileEntryJs {
-  private constructor();
-  free(): void;
-  [Symbol.dispose](): void;
-  /**
-   * Express ID of the building element.
-   */
-  readonly expressId: number;
-  /**
-   * Number of points per hole.
-   */
-  readonly holeCounts: Uint32Array;
-  /**
-   * All hole points concatenated: `[x0, y0, x1, y1, …]` (metres).
-   */
-  readonly holePoints: Float32Array;
-  /**
-   * Model index for multi-model federation.
-   */
-  readonly modelIndex: number;
-  /**
-   * Outer boundary: flat `[x0, y0, x1, y1, …]` in local profile space (metres).
-   */
-  readonly outerPoints: Float32Array;
-  /**
-   * Extrusion direction `[dx, dy, dz]` in WebGL Y-up world space (unit vector).
-   */
-  readonly extrusionDir: Float32Array;
-  /**
-   * Extrusion depth (metres).
-   */
-  readonly extrusionDepth: number;
-  /**
-   * IFC type name (e.g., `"IfcWall"`).
-   */
-  readonly ifcType: string;
-  /**
-   * 4 × 4 column-major transform in WebGL Y-up world space.
-   * `M * [x, y, 0, 1]ᵀ` gives the world position.
-   */
-  readonly transform: Float32Array;
-}
-
 export class RtcOffsetJs {
   private constructor();
   free(): void;
@@ -910,8 +867,6 @@ export function get_memory(): any;
  */
 export function init(): void;
 
-export function initThreadPool(num_threads: number): Promise<any>;
-
 /**
  * Get the version of IFC-Lite.
  *
@@ -927,20 +882,10 @@ export function initThreadPool(num_threads: number): Promise<any>;
  */
 export function version(): string;
 
-export class wbg_rayon_PoolBuilder {
-  private constructor();
-  free(): void;
-  [Symbol.dispose](): void;
-  numThreads(): number;
-  build(): void;
-  receiver(): number;
-}
-
-export function wbg_rayon_start_worker(receiver: number): void;
-
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
 
 export interface InitOutput {
+  readonly memory: WebAssembly.Memory;
   readonly __wbg_georeferencejs_free: (a: number, b: number) => void;
   readonly __wbg_get_georeferencejs_eastings: (a: number) => number;
   readonly __wbg_get_georeferencejs_northings: (a: number) => number;
@@ -959,8 +904,6 @@ export interface InitOutput {
   readonly __wbg_meshcollection_free: (a: number, b: number) => void;
   readonly __wbg_meshcollectionwithrtc_free: (a: number, b: number) => void;
   readonly __wbg_meshdatajs_free: (a: number, b: number) => void;
-  readonly __wbg_profilecollection_free: (a: number, b: number) => void;
-  readonly __wbg_profileentryjs_free: (a: number, b: number) => void;
   readonly __wbg_rtcoffsetjs_free: (a: number, b: number) => void;
   readonly __wbg_set_georeferencejs_eastings: (a: number, b: number) => void;
   readonly __wbg_set_georeferencejs_northings: (a: number, b: number) => void;
@@ -1020,9 +963,10 @@ export interface InitOutput {
   readonly gpumeshmetadata_indexOffset: (a: number) => number;
   readonly gpumeshmetadata_vertexCount: (a: number) => number;
   readonly gpumeshmetadata_vertexOffset: (a: number) => number;
+  readonly ifcapi_buildPrePassFast: (a: number, b: number, c: number) => number;
+  readonly ifcapi_buildPrePassOnce: (a: number, b: number, c: number) => number;
   readonly ifcapi_debugProcessEntity953: (a: number, b: number, c: number, d: number) => void;
   readonly ifcapi_debugProcessFirstWall: (a: number, b: number, c: number, d: number) => void;
-  readonly ifcapi_extractProfiles: (a: number, b: number, c: number, d: number) => number;
   readonly ifcapi_getGeoReference: (a: number, b: number, c: number) => number;
   readonly ifcapi_getMemory: (a: number) => number;
   readonly ifcapi_is_ready: (a: number) => number;
@@ -1032,6 +976,7 @@ export interface InitOutput {
   readonly ifcapi_parseMeshesAsync: (a: number, b: number, c: number, d: number) => number;
   readonly ifcapi_parseMeshesInstanced: (a: number, b: number, c: number) => number;
   readonly ifcapi_parseMeshesInstancedAsync: (a: number, b: number, c: number, d: number) => number;
+  readonly ifcapi_parseMeshesSubset: (a: number, b: number, c: number, d: number, e: number, f: number) => number;
   readonly ifcapi_parseMeshesWithRtc: (a: number, b: number, c: number) => number;
   readonly ifcapi_parseStreaming: (a: number, b: number, c: number, d: number) => number;
   readonly ifcapi_parseSymbolicRepresentations: (a: number, b: number, c: number) => number;
@@ -1039,6 +984,7 @@ export interface InitOutput {
   readonly ifcapi_parseToGpuGeometryAsync: (a: number, b: number, c: number, d: number) => number;
   readonly ifcapi_parseToGpuInstancedGeometry: (a: number, b: number, c: number) => number;
   readonly ifcapi_parseZeroCopy: (a: number, b: number, c: number) => number;
+  readonly ifcapi_processGeometryBatch: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number, l: number, m: number, n: number, o: number, p: number, q: number, r: number, s: number, t: number) => number;
   readonly ifcapi_scanEntitiesFast: (a: number, b: number, c: number) => number;
   readonly ifcapi_scanEntitiesFastBytes: (a: number, b: number, c: number) => number;
   readonly ifcapi_scanGeometryEntitiesFast: (a: number, b: number, c: number) => number;
@@ -1073,16 +1019,6 @@ export interface InitOutput {
   readonly meshdatajs_positions: (a: number) => number;
   readonly meshdatajs_triangleCount: (a: number) => number;
   readonly meshdatajs_vertexCount: (a: number) => number;
-  readonly profilecollection_get: (a: number, b: number) => number;
-  readonly profilecollection_length: (a: number) => number;
-  readonly profileentryjs_extrusionDepth: (a: number) => number;
-  readonly profileentryjs_extrusionDir: (a: number) => number;
-  readonly profileentryjs_holeCounts: (a: number) => number;
-  readonly profileentryjs_holePoints: (a: number) => number;
-  readonly profileentryjs_ifcType: (a: number, b: number) => void;
-  readonly profileentryjs_modelIndex: (a: number) => number;
-  readonly profileentryjs_outerPoints: (a: number) => number;
-  readonly profileentryjs_transform: (a: number) => number;
   readonly rtcoffsetjs_isSignificant: (a: number) => number;
   readonly rtcoffsetjs_toWorld: (a: number, b: number, c: number, d: number, e: number) => void;
   readonly symboliccircle_centerX: (a: number) => number;
@@ -1115,6 +1051,7 @@ export interface InitOutput {
   readonly zerocopymesh_positions_len: (a: number) => number;
   readonly zerocopymesh_positions_ptr: (a: number) => number;
   readonly zerocopymesh_vertex_count: (a: number) => number;
+  readonly init: () => void;
   readonly gpuinstancedgeometryref_indicesLen: (a: number) => number;
   readonly gpuinstancedgeometryref_instanceCount: (a: number) => number;
   readonly gpuinstancedgeometryref_instanceDataLen: (a: number) => number;
@@ -1123,7 +1060,6 @@ export interface InitOutput {
   readonly instancedmeshcollection_totalGeometries: (a: number) => number;
   readonly meshcollectionwithrtc_length: (a: number) => number;
   readonly zerocopymesh_indices_len: (a: number) => number;
-  readonly init: () => void;
   readonly __wbg_set_rtcoffsetjs_x: (a: number, b: number) => void;
   readonly __wbg_set_rtcoffsetjs_y: (a: number, b: number) => void;
   readonly __wbg_set_rtcoffsetjs_z: (a: number, b: number) => void;
@@ -1145,28 +1081,17 @@ export interface InitOutput {
   readonly gpuinstancedgeometryref_geometryId: (a: number) => bigint;
   readonly instancedgeometry_geometryId: (a: number) => bigint;
   readonly meshcollection_rtcOffsetX: (a: number) => number;
-  readonly profileentryjs_expressId: (a: number) => number;
   readonly symboliccircle_expressId: (a: number) => number;
   readonly __wbg_gpuinstancedgeometryref_free: (a: number, b: number) => void;
-  readonly __wbg_wbg_rayon_poolbuilder_free: (a: number, b: number) => void;
-  readonly initThreadPool: (a: number) => number;
-  readonly wbg_rayon_poolbuilder_build: (a: number) => void;
-  readonly wbg_rayon_poolbuilder_numThreads: (a: number) => number;
-  readonly wbg_rayon_poolbuilder_receiver: (a: number) => number;
-  readonly wbg_rayon_start_worker: (a: number) => void;
-  readonly __wasm_bindgen_func_elem_519: (a: number, b: number) => void;
-  readonly __wasm_bindgen_func_elem_518: (a: number, b: number) => void;
-  readonly __wasm_bindgen_func_elem_991: (a: number, b: number, c: number) => void;
-  readonly __wasm_bindgen_func_elem_990: (a: number, b: number) => void;
-  readonly __wasm_bindgen_func_elem_1262: (a: number, b: number, c: number, d: number) => void;
-  readonly memory: WebAssembly.Memory;
+  readonly __wasm_bindgen_func_elem_1092: (a: number, b: number, c: number) => void;
+  readonly __wasm_bindgen_func_elem_1091: (a: number, b: number) => void;
+  readonly __wasm_bindgen_func_elem_1132: (a: number, b: number, c: number, d: number) => void;
   readonly __wbindgen_export: (a: number) => void;
   readonly __wbindgen_export2: (a: number, b: number, c: number) => void;
   readonly __wbindgen_export3: (a: number, b: number) => number;
   readonly __wbindgen_export4: (a: number, b: number, c: number, d: number) => number;
   readonly __wbindgen_add_to_stack_pointer: (a: number) => number;
-  readonly __wbindgen_thread_destroy: (a?: number, b?: number, c?: number) => void;
-  readonly __wbindgen_start: (a: number) => void;
+  readonly __wbindgen_start: () => void;
 }
 
 export type SyncInitInput = BufferSource | WebAssembly.Module;
@@ -1175,20 +1100,18 @@ export type SyncInitInput = BufferSource | WebAssembly.Module;
 * Instantiates the given `module`, which can either be bytes or
 * a precompiled `WebAssembly.Module`.
 *
-* @param {{ module: SyncInitInput, memory?: WebAssembly.Memory, thread_stack_size?: number }} module - Passing `SyncInitInput` directly is deprecated.
-* @param {WebAssembly.Memory} memory - Deprecated.
+* @param {{ module: SyncInitInput }} module - Passing `SyncInitInput` directly is deprecated.
 *
 * @returns {InitOutput}
 */
-export function initSync(module: { module: SyncInitInput, memory?: WebAssembly.Memory, thread_stack_size?: number } | SyncInitInput, memory?: WebAssembly.Memory): InitOutput;
+export function initSync(module: { module: SyncInitInput } | SyncInitInput): InitOutput;
 
 /**
 * If `module_or_path` is {RequestInfo} or {URL}, makes a request and
 * for everything else, calls `WebAssembly.instantiate` directly.
 *
-* @param {{ module_or_path: InitInput | Promise<InitInput>, memory?: WebAssembly.Memory, thread_stack_size?: number }} module_or_path - Passing `InitInput` directly is deprecated.
-* @param {WebAssembly.Memory} memory - Deprecated.
+* @param {{ module_or_path: InitInput | Promise<InitInput> }} module_or_path - Passing `InitInput` directly is deprecated.
 *
 * @returns {Promise<InitOutput>}
 */
-export default function __wbg_init (module_or_path?: { module_or_path: InitInput | Promise<InitInput>, memory?: WebAssembly.Memory, thread_stack_size?: number } | InitInput | Promise<InitInput>, memory?: WebAssembly.Memory): Promise<InitOutput>;
+export default function __wbg_init (module_or_path?: { module_or_path: InitInput | Promise<InitInput> } | InitInput | Promise<InitInput>): Promise<InitOutput>;

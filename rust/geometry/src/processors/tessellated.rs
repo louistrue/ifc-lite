@@ -172,6 +172,11 @@ impl PolygonalFaceSetProcessor {
             }
         };
 
+        // Guard: empty outer_indices would panic on any [0] access below
+        if outer_indices.is_empty() {
+            return;
+        }
+
         // For complex polygons (5+ vertices), use ear-clipping triangulation
         // This handles concave polygons correctly (like opening cutouts)
 

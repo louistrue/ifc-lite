@@ -21,7 +21,7 @@ use super::swept::{SweptDiskSolidProcessor, RevolvedAreaSolidProcessor};
 /// Prevents stack overflow from deeply nested IfcBooleanResult chains.
 /// In WASM, the stack is limited (~1-8MB), and each recursion level uses
 /// significant stack space for CSG operations.
-const MAX_BOOLEAN_DEPTH: u32 = 20;
+const MAX_BOOLEAN_DEPTH: u32 = 10;
 
 /// BooleanResult processor
 /// Handles IfcBooleanResult and IfcBooleanClippingResult - CSG operations
