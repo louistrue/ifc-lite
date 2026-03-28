@@ -2221,17 +2221,19 @@ impl IfcAPI {
             void_values.set_index(i as u32, v);
         }
 
-        // Serialize geometry_styles as flat array [id, r_u8, g_u8, b_u8, a_u8, ...]
+        // Serialize geometry_styles as two arrays: styleIds (u32) + styleColors (u8 RGBA)
         let styles_len = pre_pass.geometry_styles.len();
-        let geometry_styles = js_sys::Uint32Array::new_with_length((styles_len * 5) as u32);
+        let style_ids = js_sys::Uint32Array::new_with_length(styles_len as u32);
+        let style_colors = js_sys::Uint8Array::new_with_length((styles_len * 4) as u32);
         let mut si = 0u32;
         for (&id, &color) in &pre_pass.geometry_styles {
-            geometry_styles.set_index(si, id);
-            geometry_styles.set_index(si + 1, (color[0] * 255.0) as u32);
-            geometry_styles.set_index(si + 2, (color[1] * 255.0) as u32);
-            geometry_styles.set_index(si + 3, (color[2] * 255.0) as u32);
-            geometry_styles.set_index(si + 4, (color[3] * 255.0) as u32);
-            si += 5;
+            style_ids.set_index(si, id);
+            let ci = si * 4;
+            style_colors.set_index(ci, (color[0] * 255.0) as u8);
+            style_colors.set_index(ci + 1, (color[1] * 255.0) as u8);
+            style_colors.set_index(ci + 2, (color[2] * 255.0) as u8);
+            style_colors.set_index(ci + 3, (color[3] * 255.0) as u8);
+            si += 1;
         }
 
         // Serialize faceted_brep_ids
@@ -2261,7 +2263,8 @@ impl IfcAPI {
         super::set_js_prop(&result, "voidKeys", &void_keys);
         super::set_js_prop(&result, "voidCounts", &void_counts);
         super::set_js_prop(&result, "voidValues", &void_values);
-        super::set_js_prop(&result, "geometryStyles", &geometry_styles);
+        super::set_js_prop(&result, "styleIds", &style_ids);
+        super::set_js_prop(&result, "styleColors", &style_colors);
         super::set_js_prop(&result, "facetedBrepIds", &faceted_brep_ids);
 
         result.into()
@@ -2273,19 +2276,19 @@ impl IfcAPI {
     pub fn process_geometry_batch(
         &self,
         data: &[u8],
-        jobs_flat: &[u32],    // [id, start, end, id, start, end, ...] groups of 3
+        jobs_flat: &[u32],
         unit_scale: f64,
-        rtc_x: f64,
-        rtc_y: f64,
-        rtc_z: f64,
+        rtc_x: f64, rtc_y: f64, rtc_z: f64,
         needs_shift: bool,
-        void_keys: &[u32],    // host IDs
-        void_counts: &[u32],  // number of openings per host
-        void_values: &[u32],  // flattened opening IDs
+        void_keys: &[u32],
+        void_counts: &[u32],
+        void_values: &[u32],
+        style_ids: &[u32],     // geometry style entity IDs
+        style_colors: &[u8],   // [r, g, b, a, r, g, b, a, ...] (0-255)
     ) -> MeshCollection {
         use ifc_lite_core::EntityDecoder;
         use ifc_lite_geometry::{calculate_normals, GeometryRouter};
-        use super::styling::get_default_color_for_type;
+        use super::styling::{get_default_color_for_type, resolve_element_color};
 
         let content = unsafe { std::str::from_utf8_unchecked(data) };
 
@@ -2311,6 +2314,42 @@ impl IfcAPI {
             let openings = void_values[value_offset..value_offset + count].to_vec();
             void_index.insert(host_id, openings);
             value_offset += count;
+        }
+
+        // Reconstruct geometry_styles from flat arrays
+        let mut geometry_styles: rustc_hash::FxHashMap<u32, [f32; 4]> =
+            rustc_hash::FxHashMap::default();
+        for i in 0..style_ids.len() {
+            let base = i * 4;
+            if base + 3 < style_colors.len() {
+                geometry_styles.insert(style_ids[i], [
+                    style_colors[base] as f32 / 255.0,
+                    style_colors[base + 1] as f32 / 255.0,
+                    style_colors[base + 2] as f32 / 255.0,
+                    style_colors[base + 3] as f32 / 255.0,
+                ]);
+            }
+        }
+
+        // Build element_styles by resolving colors for each entity in this batch
+        let mut element_styles: rustc_hash::FxHashMap<u32, [f32; 4]> =
+            rustc_hash::FxHashMap::default();
+        if !geometry_styles.is_empty() {
+            for chunk in jobs_flat.chunks(3) {
+                if chunk.len() < 3 { break; }
+                let id = chunk[0];
+                let start = chunk[1] as usize;
+                let end = chunk[2] as usize;
+                if let Ok(entity) = decoder.decode_at_with_id(id, start, end) {
+                    if entity.get(6).map(|a| !a.is_null()).unwrap_or(false) {
+                        if let Some(color) = resolve_element_color(
+                            &entity, &geometry_styles, &mut decoder,
+                        ) {
+                            element_styles.insert(id, color);
+                        }
+                    }
+                }
+            }
         }
 
         // Pre-allocate
@@ -2354,7 +2393,8 @@ impl IfcAPI {
                             if mesh.normals.len() != mesh.positions.len() {
                                 calculate_normals(&mut mesh);
                             }
-                            let color = get_default_color_for_type(&ifc_type);
+                            let color = element_styles.get(&id).copied()
+                                .unwrap_or_else(|| get_default_color_for_type(&ifc_type));
                             let ifc_type_name = type_name_cache
                                 .entry(ifc_type)
                                 .or_insert_with(|| ifc_type.name().to_string())
@@ -2368,7 +2408,8 @@ impl IfcAPI {
                             if mesh.normals.len() != mesh.positions.len() {
                                 calculate_normals(&mut mesh);
                             }
-                            let color = get_default_color_for_type(&ifc_type);
+                            let color = element_styles.get(&id).copied()
+                                .unwrap_or_else(|| get_default_color_for_type(&ifc_type));
                             let ifc_type_name = type_name_cache
                                 .entry(ifc_type)
                                 .or_insert_with(|| ifc_type.name().to_string())

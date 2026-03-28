@@ -212,12 +212,12 @@ if (!('encodeInto' in cachedTextEncoder)) {
 
 let WASM_VECTOR_LEN = 0;
 
-function __wasm_bindgen_func_elem_1090(arg0, arg1, arg2) {
-    wasm.__wasm_bindgen_func_elem_1090(arg0, arg1, addHeapObject(arg2));
+function __wasm_bindgen_func_elem_1092(arg0, arg1, arg2) {
+    wasm.__wasm_bindgen_func_elem_1092(arg0, arg1, addHeapObject(arg2));
 }
 
-function __wasm_bindgen_func_elem_1130(arg0, arg1, arg2, arg3) {
-    wasm.__wasm_bindgen_func_elem_1130(arg0, arg1, addHeapObject(arg2), addHeapObject(arg3));
+function __wasm_bindgen_func_elem_1132(arg0, arg1, arg2, arg3) {
+    wasm.__wasm_bindgen_func_elem_1132(arg0, arg1, addHeapObject(arg2), addHeapObject(arg3));
 }
 
 const GeoReferenceJsFinalization = (typeof FinalizationRegistry === 'undefined')
@@ -1277,9 +1277,11 @@ export class IfcAPI {
      * @param {Uint32Array} void_keys
      * @param {Uint32Array} void_counts
      * @param {Uint32Array} void_values
+     * @param {Uint32Array} style_ids
+     * @param {Uint8Array} style_colors
      * @returns {MeshCollection}
      */
-    processGeometryBatch(data, jobs_flat, unit_scale, rtc_x, rtc_y, rtc_z, needs_shift, void_keys, void_counts, void_values) {
+    processGeometryBatch(data, jobs_flat, unit_scale, rtc_x, rtc_y, rtc_z, needs_shift, void_keys, void_counts, void_values, style_ids, style_colors) {
         const ptr0 = passArray8ToWasm0(data, wasm.__wbindgen_export3);
         const len0 = WASM_VECTOR_LEN;
         const ptr1 = passArray32ToWasm0(jobs_flat, wasm.__wbindgen_export3);
@@ -1290,7 +1292,11 @@ export class IfcAPI {
         const len3 = WASM_VECTOR_LEN;
         const ptr4 = passArray32ToWasm0(void_values, wasm.__wbindgen_export3);
         const len4 = WASM_VECTOR_LEN;
-        const ret = wasm.ifcapi_processGeometryBatch(this.__wbg_ptr, ptr0, len0, ptr1, len1, unit_scale, rtc_x, rtc_y, rtc_z, needs_shift, ptr2, len2, ptr3, len3, ptr4, len4);
+        const ptr5 = passArray32ToWasm0(style_ids, wasm.__wbindgen_export3);
+        const len5 = WASM_VECTOR_LEN;
+        const ptr6 = passArray8ToWasm0(style_colors, wasm.__wbindgen_export3);
+        const len6 = WASM_VECTOR_LEN;
+        const ret = wasm.ifcapi_processGeometryBatch(this.__wbg_ptr, ptr0, len0, ptr1, len1, unit_scale, rtc_x, rtc_y, rtc_z, needs_shift, ptr2, len2, ptr3, len3, ptr4, len4, ptr5, len5, ptr6, len6);
         return MeshCollection.__wrap(ret);
     }
     /**
@@ -2837,7 +2843,7 @@ function __wbg_get_imports() {
                 const a = state0.a;
                 state0.a = 0;
                 try {
-                    return __wasm_bindgen_func_elem_1130(a, state0.b, arg0, arg1);
+                    return __wasm_bindgen_func_elem_1132(a, state0.b, arg0, arg1);
                 } finally {
                     state0.a = a;
                 }
@@ -2866,6 +2872,10 @@ function __wbg_get_imports() {
     };
     imports.wbg.__wbg_new_with_length_806b9e5b8290af7c = function(arg0) {
         const ret = new Float64Array(arg0 >>> 0);
+        return addHeapObject(ret);
+    };
+    imports.wbg.__wbg_new_with_length_aa5eaf41d35235e5 = function(arg0) {
+        const ret = new Uint8Array(arg0 >>> 0);
         return addHeapObject(ret);
     };
     imports.wbg.__wbg_prototypesetcall_96cc7097487b926d = function(arg0, arg1, arg2) {
@@ -2897,6 +2907,9 @@ function __wbg_get_imports() {
         getObject(arg0)[arg1 >>> 0] = takeObject(arg2);
     };
     imports.wbg.__wbg_set_index_021489b2916af13e = function(arg0, arg1, arg2) {
+        getObject(arg0)[arg1 >>> 0] = arg2;
+    };
+    imports.wbg.__wbg_set_index_04c4b93e64d08a52 = function(arg0, arg1, arg2) {
         getObject(arg0)[arg1 >>> 0] = arg2;
     };
     imports.wbg.__wbg_set_index_42abe35f117e614e = function(arg0, arg1, arg2) {
@@ -2944,7 +2957,7 @@ function __wbg_get_imports() {
     };
     imports.wbg.__wbindgen_cast_46fe3e4a37968b61 = function(arg0, arg1) {
         // Cast intrinsic for `Closure(Closure { dtor_idx: 146, function: Function { arguments: [Externref], shim_idx: 147, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
-        const ret = makeMutClosure(arg0, arg1, wasm.__wasm_bindgen_func_elem_1089, __wasm_bindgen_func_elem_1090);
+        const ret = makeMutClosure(arg0, arg1, wasm.__wasm_bindgen_func_elem_1091, __wasm_bindgen_func_elem_1092);
         return addHeapObject(ret);
     };
     imports.wbg.__wbindgen_cast_d6cd19b81560fd6e = function(arg0) {

@@ -19,6 +19,8 @@ export interface GeometryWorkerProcessMessage {
   voidKeys: Uint32Array;
   voidCounts: Uint32Array;
   voidValues: Uint32Array;
+  styleIds: Uint32Array;
+  styleColors: Uint8Array;
 }
 
 export type GeometryWorkerRequest = GeometryWorkerInitMessage | GeometryWorkerProcessMessage;
@@ -73,7 +75,7 @@ self.onmessage = async (e: MessageEvent<GeometryWorkerRequest>) => {
       }
 
       const { sharedBuffer, jobsFlat, unitScale, rtcX, rtcY, rtcZ, needsShift,
-              voidKeys, voidCounts, voidValues } = e.data;
+              voidKeys, voidCounts, voidValues, styleIds, styleColors } = e.data;
 
       // Copy shared bytes to local buffer (Firefox requires this for typed array ops)
       const localBytes = new Uint8Array(sharedBuffer.byteLength);
@@ -84,6 +86,7 @@ self.onmessage = async (e: MessageEvent<GeometryWorkerRequest>) => {
         localBytes, jobsFlat, unitScale,
         rtcX, rtcY, rtcZ, needsShift,
         voidKeys, voidCounts, voidValues,
+        styleIds, styleColors,
       );
 
       const meshes: GeometryWorkerBatchMessage['meshes'] = [];

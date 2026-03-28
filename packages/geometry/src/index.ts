@@ -483,7 +483,7 @@ export class GeometryProcessor {
     }
 
     const { jobs: jobsFlat, totalJobs, unitScale, rtcOffset, needsShift,
-            voidKeys, voidCounts, voidValues } = prePassResult;
+            voidKeys, voidCounts, voidValues, styleIds, styleColors } = prePassResult;
     const rtcX = rtcOffset?.[0] ?? 0;
     const rtcY = rtcOffset?.[1] ?? 0;
     const rtcZ = rtcOffset?.[2] ?? 0;
@@ -585,9 +585,8 @@ export class GeometryProcessor {
         unitScale,
         rtcX, rtcY, rtcZ,
         needsShift,
-        voidKeys,
-        voidCounts,
-        voidValues,
+        voidKeys, voidCounts, voidValues,
+        styleIds, styleColors,
       });
     }
 
