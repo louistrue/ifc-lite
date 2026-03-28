@@ -31,7 +31,7 @@ import { useIfc } from '@/hooks/useIfc';
 import { configureMutationView } from '@/utils/configureMutationView';
 import { IfcQuery } from '@ifc-lite/query';
 import { MutablePropertyView } from '@ifc-lite/mutations';
-import { extractClassificationsOnDemand, extractMaterialsOnDemand, extractTypePropertiesOnDemand, extractTypeEntityOwnProperties, extractDocumentsOnDemand, extractRelationshipsOnDemand, type IfcDataStore } from '@ifc-lite/parser';
+import { extractClassificationsOnDemand, extractMaterialsOnDemand, extractTypePropertiesOnDemand, extractTypeEntityOwnProperties, extractDocumentsOnDemand, extractRelationshipsOnDemand, extractGeoreferencingOnDemand, type IfcDataStore } from '@ifc-lite/parser';
 import { EntityFlags, RelationshipType, isSpatialStructureTypeName, isStoreyLikeSpatialTypeName } from '@ifc-lite/data';
 import type { EntityRef, FederatedModel } from '@/store/types';
 
@@ -45,6 +45,7 @@ import { DocumentCard } from './properties/DocumentCard';
 import { RelationshipsCard } from './properties/RelationshipsCard';
 import type { PropertySet, QuantitySet } from './properties/encodingUtils';
 import { BsddCard } from './properties/BsddCard';
+import { GeoreferencingPanel } from './properties/GeoreferencingPanel';
 
 type DisplayProperty = { name: string; value: unknown; isMutated: boolean };
 type DisplayPropertySet = {
@@ -515,6 +516,14 @@ export function PropertiesPanel() {
     return totalCount > 0 ? rels : null;
   }, [selectedEntity, model, ifcDataStore]);
 
+  // Extract georeferencing info for the model (used in coordinates section)
+  const georef = useMemo(() => {
+    const dataStore = model?.ifcDataStore ?? ifcDataStore;
+    if (!dataStore) return null;
+    const info = extractGeoreferencingOnDemand(dataStore as IfcDataStore);
+    return info?.hasGeoreference ? info : null;
+  }, [model, ifcDataStore]);
+
   // Extract type-level properties (e.g., from IfcWallType's HasPropertySets)
   const typeProperties = useMemo(() => {
     if (!selectedEntity) return null;
@@ -945,6 +954,9 @@ export function PropertiesPanel() {
                     <CoordVal axis="N" value={entityCoordinates.worldZup.center.y} />{' '}
                     <CoordVal axis="Z" value={entityCoordinates.worldZup.center.z} />
                   </span>
+                  {georef?.projectedCRS?.name && (
+                    <span className="font-mono text-[9px] text-teal-500/60 shrink-0">{georef.projectedCRS.name}</span>
+                  )}
                   <span className="text-[9px] text-teal-500/0 group-hover/coord:text-teal-500/40 transition-colors shrink-0">details</span>
                 </>
               )}
@@ -981,8 +993,25 @@ export function PropertiesPanel() {
                   </span>
                 </div>
               </div>
+              {/* Georeferencing details within coordinates section */}
+              {georef && (
+                <GeoreferencingPanel
+                  georef={georef}
+                  modelId={selectedEntity?.modelId === 'legacy' ? undefined : selectedEntity?.modelId}
+                  enableEditing={editMode}
+                />
+              )}
             </CollapsibleContent>
           </Collapsible>
+        )}
+
+        {/* Georeferencing info when no entity coordinates but georef exists */}
+        {!entityCoordinates && georef && (
+          <GeoreferencingPanel
+            georef={georef}
+            modelId={selectedEntity?.modelId === 'legacy' ? undefined : selectedEntity?.modelId}
+            enableEditing={editMode}
+          />
         )}
 
         {/* Model Source (when multiple models loaded) - below storey, less prominent */}

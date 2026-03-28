@@ -8,12 +8,13 @@
  */
 
 import { useState, useCallback, useMemo } from 'react';
-import { Globe, MapPin, PenLine, Check, X } from 'lucide-react';
+import { Globe, MapPin, PenLine, Check, X, Search } from 'lucide-react';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Badge } from '@/components/ui/badge';
 import { computeAngleToGridNorth, type GeoreferenceInfo, type MapConversion, type ProjectedCRS } from '@ifc-lite/parser';
 import { useViewerStore } from '@/store';
+import { EpsgLookupDialog, type EpsgResult } from './EpsgLookupDialog';
 
 /** Georef field mutation stored per-model */
 export interface GeorefFieldMutation {
@@ -211,6 +212,29 @@ export function GeoreferencingPanel({ georef, modelId, enableEditing }: Georefer
     setGeorefField(modelId, entity, field, value, oldValue as string | number | undefined);
   }, [modelId, setGeorefField, georef]);
 
+  // Handle EPSG lookup result - apply CRS info
+  const handleEpsgSelect = useCallback((result: EpsgResult) => {
+    if (!modelId || !setGeorefField) return;
+    const epsgName = `EPSG:${result.code}`;
+    setGeorefField(modelId, 'projectedCRS', 'name', epsgName, georef?.projectedCRS?.name);
+    if (result.name) {
+      setGeorefField(modelId, 'projectedCRS', 'description', result.name, georef?.projectedCRS?.description);
+    }
+    if (result.datum) {
+      setGeorefField(modelId, 'projectedCRS', 'geodeticDatum', result.datum, georef?.projectedCRS?.geodeticDatum);
+    }
+    if (result.projection) {
+      setGeorefField(modelId, 'projectedCRS', 'mapProjection', result.projection, georef?.projectedCRS?.mapProjection);
+    }
+    if (result.unit) {
+      const unitUpper = result.unit.toUpperCase();
+      const mapUnit = unitUpper.includes('METRE') || unitUpper.includes('METER') ? 'METRE'
+        : unitUpper.includes('FOOT') || unitUpper.includes('FEET') ? 'FOOT'
+        : result.unit;
+      setGeorefField(modelId, 'projectedCRS', 'mapUnit', mapUnit, georef?.projectedCRS?.mapUnit);
+    }
+  }, [modelId, setGeorefField, georef]);
+
   const hasData = mergedCRS || mergedConversion;
 
   if (!hasData && !georef?.hasGeoreference) return null;
@@ -222,9 +246,17 @@ export function GeoreferencingPanel({ georef, modelId, enableEditing }: Georefer
       <div className="p-3 bg-teal-50/50 dark:bg-teal-950/20">
         <div className="flex items-center gap-2">
           <Globe className="h-3.5 w-3.5 text-teal-600 dark:text-teal-400" />
-          <h4 className="font-bold text-xs uppercase tracking-wide text-teal-700 dark:text-teal-300">
+          <h4 className="font-bold text-xs uppercase tracking-wide text-teal-700 dark:text-teal-300 flex-1">
             Georeferencing
           </h4>
+          {editable && (
+            <EpsgLookupDialog onSelect={handleEpsgSelect}>
+              <button className="flex items-center gap-1 text-[10px] font-mono text-teal-600 dark:text-teal-400 hover:text-teal-800 dark:hover:text-teal-300 transition-colors px-1.5 py-0.5 border border-teal-300/50 dark:border-teal-700/50 hover:bg-teal-50 dark:hover:bg-teal-950/50">
+                <Search className="h-2.5 w-2.5" />
+                EPSG
+              </button>
+            </EpsgLookupDialog>
+          )}
         </div>
       </div>
 
