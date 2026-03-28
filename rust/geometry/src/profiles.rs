@@ -267,6 +267,17 @@ impl ProfileProcessor {
             }
         }
 
+        // If the transformation reverses orientation (negative determinant),
+        // the winding order of contours is flipped. Reverse them so that
+        // extrusion normals point outward correctly.
+        let det = scale_x * scale_y * (x_axis.0 * y_axis.1 - y_axis.0 * x_axis.1);
+        if det < 0.0 {
+            profile.outer.reverse();
+            for hole in &mut profile.holes {
+                hole.reverse();
+            }
+        }
+
         Ok(())
     }
 
