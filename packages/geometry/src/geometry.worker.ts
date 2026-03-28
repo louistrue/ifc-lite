@@ -67,7 +67,7 @@ self.onmessage = async (e: MessageEvent<GeometryWorkerRequest>) => {
   try {
     await ensureWasmInitialized();
 
-    const collection = api!.parseMeshesSubset(content, startIdx, endIdx);
+    const collection = api!.parseMeshesSubset(content, startIdx, endIdx, true);
 
     // Convert MeshCollection to transferable mesh data
     const meshes: GeometryWorkerBatchMessage['meshes'] = [];

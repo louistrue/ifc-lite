@@ -354,6 +354,7 @@ impl IfcAPI {
         content: String,
         start_idx: u32,
         end_idx: u32,
+        skip_expensive: bool,
     ) -> MeshCollection {
         use ifc_lite_core::EntityDecoder;
         use ifc_lite_geometry::{calculate_normals, GeometryRouter};
@@ -369,9 +370,8 @@ impl IfcAPI {
         // ── Phase 2: Single combined pre-pass (~600 ms) ──
         let pre_pass = combined_pre_pass(&content, &mut decoder);
 
-        // Pre-allocate decoder cache
         let total_jobs = pre_pass.simple_jobs.len() + pre_pass.complex_jobs.len();
-        decoder.reserve_cache(total_jobs * 2);
+        decoder.reserve_cache(if skip_expensive { total_jobs } else { total_jobs * 2 });
 
         // ── Phase 3: Setup ──
         let unit_scale = pre_pass
@@ -380,7 +380,6 @@ impl IfcAPI {
             .unwrap_or(1.0);
         let mut router = GeometryRouter::with_scale(unit_scale);
 
-        // Detect RTC offset
         let rtc_offset =
             router.detect_rtc_offset_from_jobs(&pre_pass.simple_jobs, &mut decoder);
         let needs_shift = rtc_offset.0.abs() > 10000.0
@@ -391,15 +390,14 @@ impl IfcAPI {
             router.set_rtc_offset(rtc_offset);
         }
 
-        // Extract building rotation
         let building_rotation = pre_pass
             .site_position
             .and_then(|pos| extract_building_rotation_from_site(pos, &mut decoder));
 
-        // ── Phase 3b: Build element style map ──
+        // ── Phase 3b: Build element style map (SKIP if skip_expensive) ──
         let mut element_styles: rustc_hash::FxHashMap<u32, [f32; 4]> =
             rustc_hash::FxHashMap::default();
-        if !pre_pass.geometry_styles.is_empty() {
+        if !skip_expensive && !pre_pass.geometry_styles.is_empty() {
             for jobs in [&pre_pass.simple_jobs, &pre_pass.complex_jobs] {
                 for &(id, start, end, _ifc_type) in jobs.iter() {
                     if let Ok(entity) = decoder.decode_at_with_id(id, start, end) {
@@ -417,8 +415,8 @@ impl IfcAPI {
             }
         }
 
-        // Batch preprocess FacetedBreps
-        if !pre_pass.faceted_brep_ids.is_empty() {
+        // Batch preprocess FacetedBreps (skip in fast worker mode)
+        if !skip_expensive && !pre_pass.faceted_brep_ids.is_empty() {
             router.preprocess_faceted_breps(&pre_pass.faceted_brep_ids, &mut decoder);
             decoder.clear_point_cache();
         }

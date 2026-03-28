@@ -273,7 +273,7 @@ export class IfcAPI {
    * const batch2 = api.parseMeshesSubset(content, 500, 1000);
    * ```
    */
-  parseMeshesSubset(content: string, start_idx: number, end_idx: number): MeshCollection;
+  parseMeshesSubset(content: string, start_idx: number, end_idx: number, skip_expensive: boolean): MeshCollection;
   /**
    * Parse IFC file and return GPU-ready geometry for zero-copy upload
    *
@@ -957,7 +957,7 @@ export interface InitOutput {
   readonly ifcapi_parseMeshesAsync: (a: number, b: number, c: number, d: number) => number;
   readonly ifcapi_parseMeshesInstanced: (a: number, b: number, c: number) => number;
   readonly ifcapi_parseMeshesInstancedAsync: (a: number, b: number, c: number, d: number) => number;
-  readonly ifcapi_parseMeshesSubset: (a: number, b: number, c: number, d: number, e: number) => number;
+  readonly ifcapi_parseMeshesSubset: (a: number, b: number, c: number, d: number, e: number, f: number) => number;
   readonly ifcapi_parseMeshesWithRtc: (a: number, b: number, c: number) => number;
   readonly ifcapi_parseStreaming: (a: number, b: number, c: number, d: number) => number;
   readonly ifcapi_parseSymbolicRepresentations: (a: number, b: number, c: number) => number;

@@ -1164,12 +1164,13 @@ export class IfcAPI {
      * @param {string} content
      * @param {number} start_idx
      * @param {number} end_idx
+     * @param {boolean} skip_expensive
      * @returns {MeshCollection}
      */
-    parseMeshesSubset(content, start_idx, end_idx) {
+    parseMeshesSubset(content, start_idx, end_idx, skip_expensive) {
         const ptr0 = passStringToWasm0(content, wasm.__wbindgen_export3, wasm.__wbindgen_export4);
         const len0 = WASM_VECTOR_LEN;
-        const ret = wasm.ifcapi_parseMeshesSubset(this.__wbg_ptr, ptr0, len0, start_idx, end_idx);
+        const ret = wasm.ifcapi_parseMeshesSubset(this.__wbg_ptr, ptr0, len0, start_idx, end_idx, skip_expensive);
         return MeshCollection.__wrap(ret);
     }
     /**
