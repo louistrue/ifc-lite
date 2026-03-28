@@ -119,13 +119,13 @@ export const mainShaderSource = `
           let hemisphereFactor = N.y * 0.5 + 0.5;
           let ambient = mix(groundColor, skyColor, hemisphereFactor) * 0.25;
 
-          // Main sun light - reduced intensity, tighter wrap for more contrast
-          let NdotL = max(dot(N, sunLight), 0.0);
-          let wrap = 0.3;  // Tighter wrap for more contrast
+          // Two-sided sun light so inner faces (I-beam channels) stay visible
+          let NdotL = abs(dot(N, sunLight));
+          let wrap = 0.3;
           let diffuseSun = max((NdotL + wrap) / (1.0 + wrap), 0.0) * 0.55;
 
-          // Fill light - reduced
-          let NdotFill = max(dot(N, fillLight), 0.0);
+          // Fill light - two-sided
+          let NdotFill = abs(dot(N, fillLight));
           let diffuseFill = NdotFill * 0.15;
 
           // Rim light for edge definition

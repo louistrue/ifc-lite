@@ -403,7 +403,7 @@ fn create_side_walls(boundary: &[nalgebra::Point2<f64>], depth: f64, mesh: &mut 
 /// low radial variance relative to the centroid. Rectangles/most polygons do not.
 #[inline]
 fn is_approximately_circular_profile(boundary: &[Point2<f64>], cx: f64, cy: f64) -> bool {
-    if boundary.len() < 12 {
+    if boundary.len() < 20 {
         return false;
     }
 
