@@ -65,6 +65,40 @@ function createDataStore(): IfcDataStore {
   } as unknown as IfcDataStore;
 }
 
+function createFacilityDataStore(): IfcDataStore {
+  const partNode = createSpatialNode(3, IfcTypeEnum.IfcBridgePart, 'DECK');
+  partNode.elements = [4];
+  const bridgeNode = createSpatialNode(2, IfcTypeEnum.IfcBridge, 'BRIDGE', [partNode]);
+  const projectNode = createSpatialNode(1, IfcTypeEnum.IfcProject, 'INFRA_PROJECT', [bridgeNode]);
+
+  const spatialHierarchy: SpatialHierarchy = {
+    project: projectNode,
+    byStorey: new Map(),
+    byBuilding: new Map([[2, []]]),
+    bySite: new Map(),
+    bySpace: new Map(),
+    storeyElevations: new Map(),
+    storeyHeights: new Map(),
+    elementToStorey: new Map(),
+    getStoreyElements: () => [],
+    getStoreyByElevation: () => null,
+    getContainingSpace: () => null,
+    getPath: () => [],
+  };
+
+  return {
+    spatialHierarchy,
+    entities: {
+      count: 0,
+      getName: (id: number) => (id === 4 ? 'Barrier' : ''),
+      getTypeName: (id: number) => {
+        if (id === 4) return 'IfcWall';
+        return 'Unknown';
+      },
+    },
+  } as unknown as IfcDataStore;
+}
+
 function createModel(idOffset: number): FederatedModel {
   return {
     id: 'model-1',
@@ -122,5 +156,41 @@ describe('buildTreeData', () => {
 
     assert.strictEqual(nodes.filter((node) => node.id === 'element-model-1-6').length, 1);
     assert.strictEqual(nodes.filter((node) => node.id === 'element-model-1-7').length, 1);
+  });
+
+  it('keeps IFC4.3 facility and facility-part nodes as spatial hierarchy rows', () => {
+    useViewerStore.setState({ models: new Map() });
+    useViewerStore.getState().registerModelOffset('tree-test-infra-padding', 199);
+    const idOffset = useViewerStore.getState().registerModelOffset('model-infra', 4);
+    const model = {
+      ...createModel(idOffset),
+      id: 'model-infra',
+      name: 'Infra Model',
+      ifcDataStore: createFacilityDataStore(),
+      maxExpressId: 4,
+    };
+    useViewerStore.setState({ models: new Map([['model-infra', model]]) });
+
+    const nodes = buildTreeData(
+      new Map<string, FederatedModel>([['model-infra', model]]),
+      null,
+      new Set(['root-1', 'root-1-2', 'root-1-2-3']),
+      false,
+      [],
+    );
+
+    const bridgeNode = nodes.find((node) => node.id === 'root-1-2');
+    assert.ok(bridgeNode);
+    assert.strictEqual(bridgeNode.type, 'IfcBridge');
+
+    const partNode = nodes.find((node) => node.id === 'root-1-2-3');
+    assert.ok(partNode);
+    assert.strictEqual(partNode.type, 'IfcBridgePart');
+    assert.strictEqual(partNode.elementCount, 1);
+
+    const barrierNode = nodes.find((node) => node.id === 'element-model-infra-4');
+    assert.ok(barrierNode);
+    assert.strictEqual(barrierNode.type, 'element');
+    assert.strictEqual(barrierNode.ifcType, 'IfcWall');
   });
 });

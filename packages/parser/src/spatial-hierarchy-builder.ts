@@ -7,7 +7,14 @@
  */
 
 import type { EntityTable, StringTable, RelationshipGraph, SpatialHierarchy, SpatialNode } from '@ifc-lite/data';
-import { IfcTypeEnum, RelationshipType, createLogger } from '@ifc-lite/data';
+import {
+  IfcTypeEnum,
+  RelationshipType,
+  createLogger,
+  isBuildingLikeSpatialType,
+  isSpatialStructureType,
+  isStoreyLikeSpatialType,
+} from '@ifc-lite/data';
 import type { EntityRef } from './types.js';
 import { EntityExtractor } from './entity-extractor.js';
 
@@ -68,13 +75,6 @@ export class SpatialHierarchyBuilder {
       lengthUnitScale
     );
 
-    // Build reverse lookup map: elementId -> storeyId
-    for (const [storeyId, elementIds] of byStorey) {
-      for (const elementId of elementIds) {
-        elementToStorey.set(elementId, storeyId);
-      }
-    }
-
     // Note: storeyHeights remains empty for client path - uses on-demand property extraction
 
     // Validation: log warnings if maps are empty
@@ -127,11 +127,7 @@ export class SpatialHierarchyBuilder {
       
       getPath(elementId: number): SpatialNode[] {
         const path: SpatialNode[] = [];
-        
-        // Find which storey contains this element
-        const storeyId = elementToStorey.get(elementId);
-        if (!storeyId) return path;
-        
+
         // Build path from project to element
         const findPath = (node: SpatialNode, targetId: number): boolean => {
           path.push(node);
@@ -192,11 +188,15 @@ export class SpatialHierarchyBuilder {
     }
 
     // Get direct contained elements via IfcRelContainedInSpatialStructure
-    const containedElements = relationships.getRelated(
+    const rawContainedElements = relationships.getRelated(
       expressId,
       RelationshipType.ContainsElements,
       'forward'
     );
+    const containedElements = rawContainedElements.filter((id) => {
+      const childType = entityTypeMap.get(id);
+      return childType !== undefined && !isSpatialStructureType(childType);
+    });
 
     // Get child spatial elements via IfcRelAggregates (inverse - who aggregates this?)
     // Actually, we want forward - what does this element aggregate?
@@ -206,16 +206,11 @@ export class SpatialHierarchyBuilder {
       'forward'
     );
 
-    // Filter to only spatial structure types
+    // Filter to supported spatial container types, including IFC4.3 facility/facility-part hierarchies.
     const childNodes: SpatialNode[] = [];
     for (const childId of aggregatedChildren) {
       const childType = entityTypeMap.get(childId) ?? IfcTypeEnum.Unknown;
-      if (
-        childType === IfcTypeEnum.IfcSite ||
-        childType === IfcTypeEnum.IfcBuilding ||
-        childType === IfcTypeEnum.IfcBuildingStorey ||
-        childType === IfcTypeEnum.IfcSpace
-      ) {
+      if (isSpatialStructureType(childType) && childType !== IfcTypeEnum.IfcProject) {
         const childNode = this.buildNode(
           childId,
           entities,
@@ -237,14 +232,20 @@ export class SpatialHierarchyBuilder {
     }
 
     // Add elements to appropriate maps
-    if (typeEnum === IfcTypeEnum.IfcBuildingStorey) {
+    if (isStoreyLikeSpatialType(typeEnum)) {
       byStorey.set(expressId, containedElements);
-    } else if (typeEnum === IfcTypeEnum.IfcBuilding) {
+    } else if (isBuildingLikeSpatialType(typeEnum)) {
       byBuilding.set(expressId, containedElements);
     } else if (typeEnum === IfcTypeEnum.IfcSite) {
       bySite.set(expressId, containedElements);
     } else if (typeEnum === IfcTypeEnum.IfcSpace) {
       bySpace.set(expressId, containedElements);
+    }
+
+    if (isStoreyLikeSpatialType(typeEnum)) {
+      for (const elementId of containedElements) {
+        elementToStorey.set(elementId, expressId);
+      }
     }
 
     return {

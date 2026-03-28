@@ -1,5 +1,15 @@
 # @ifc-lite/bcf
 
+## 1.15.0
+
+### Minor Changes
+
+- [#422](https://github.com/louistrue/ifc-lite/pull/422) [`506c65d`](https://github.com/louistrue/ifc-lite/commit/506c65da730a655ad6745a8e7a063435f335ff0d) Thanks [@louistrue](https://github.com/louistrue)! - Add 3D BCF topic marker overlay that positions markers above referenced geometry, tracks camera movement in real-time, and supports click/hover interactions with the BCF panel
+
+### Patch Changes
+
+- [#422](https://github.com/louistrue/ifc-lite/pull/422) [`506c65d`](https://github.com/louistrue/ifc-lite/commit/506c65da730a655ad6745a8e7a063435f335ff0d) Thanks [@louistrue](https://github.com/louistrue)! - Fix XSS vulnerability by escaping marker status text before HTML injection in overlay renderer
+
 ## 1.14.3
 
 ## 1.14.2

@@ -9,7 +9,16 @@ export type NodeType =
   | 'IfcProject'          // Project node
   | 'IfcSite'             // Site node
   | 'IfcBuilding'         // Building node
+  | 'IfcFacility'         // IFC4.3 facility root
+  | 'IfcBridge'           // IFC4.3 bridge root
+  | 'IfcRoad'             // IFC4.3 road root
+  | 'IfcRailway'          // IFC4.3 railway root
+  | 'IfcMarineFacility'   // IFC4.3 marine facility root
   | 'IfcBuildingStorey'   // Storey node
+  | 'IfcFacilityPart'     // IFC4.3 facility part
+  | 'IfcBridgePart'       // IFC4.3 bridge part
+  | 'IfcRoadPart'         // IFC4.3 road part
+  | 'IfcRailwayPart'      // IFC4.3 railway part
   | 'IfcSpace'            // Space node
   | 'type-group'          // IFC class grouping header (e.g., "IfcWall (47)")
   | 'ifc-type'            // IFC type entity node (e.g., "IfcWallType/W01")
@@ -57,6 +66,19 @@ export interface UnifiedStorey {
   totalElements: number;
 }
 
-// Spatial container types (Project/Site/Building) - these don't have direct visibility toggles
-const SPATIAL_CONTAINER_TYPES: Set<NodeType> = new Set(['IfcProject', 'IfcSite', 'IfcBuilding']);
+// Spatial container types (all non-leaf spatial nodes) - these don't participate in storey filters.
+const SPATIAL_CONTAINER_TYPES: Set<NodeType> = new Set([
+  'IfcProject',
+  'IfcSite',
+  'IfcBuilding',
+  'IfcFacility',
+  'IfcBridge',
+  'IfcRoad',
+  'IfcRailway',
+  'IfcMarineFacility',
+  'IfcFacilityPart',
+  'IfcBridgePart',
+  'IfcRoadPart',
+  'IfcRailwayPart',
+]);
 export const isSpatialContainer = (type: NodeType): boolean => SPATIAL_CONTAINER_TYPES.has(type);

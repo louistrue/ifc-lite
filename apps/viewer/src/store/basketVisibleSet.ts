@@ -2,7 +2,14 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-import { IfcTypeEnum, type SpatialNode, type SpatialHierarchy } from '@ifc-lite/data';
+import {
+  IfcTypeEnum,
+  isSpaceLikeSpatialTypeName,
+  isSpatialStructureTypeName,
+  isStoreyLikeSpatialTypeName,
+  type SpatialNode,
+  type SpatialHierarchy,
+} from '@ifc-lite/data';
 import type { IfcDataStore } from '@ifc-lite/parser';
 import type { EntityRef } from './types.js';
 import { entityRefToString, stringToEntityRef } from './types.js';
@@ -85,9 +92,6 @@ export function invalidateVisibleBasketCache(): void {
   _visibleCache = null;
 }
 
-const STOREY_TYPE = 'IfcBuildingStorey';
-const SPATIAL_CONTAINER_TYPES = new Set(['IfcProject', 'IfcSite', 'IfcBuilding']);
-
 function dedupeRefs(refs: EntityRef[]): EntityRef[] {
   const out: EntityRef[] = [];
   const seen = new Set<string>();
@@ -135,34 +139,7 @@ function findSpatialNode(root: SpatialNode, expressId: number): SpatialNode | nu
 }
 
 function getContainerElementIds(dataStore: IfcDataStore, containerExpressId: number): number[] {
-  const hierarchy = dataStore.spatialHierarchy;
-  if (!hierarchy?.project) return [];
-
-  const startNode = findSpatialNode(hierarchy.project, containerExpressId);
-  if (!startNode) return [];
-
-  const elementIds: number[] = [];
-  const seen = new Set<number>();
-  const stack: SpatialNode[] = [startNode];
-
-  while (stack.length > 0) {
-    const current = stack.pop()!;
-    if (current.type === IfcTypeEnum.IfcBuildingStorey) {
-      const storeyElements = hierarchy.byStorey.get(current.expressId) as number[] | undefined;
-      if (storeyElements) {
-        for (const id of storeyElements) {
-          if (seen.has(id)) continue;
-          seen.add(id);
-          elementIds.push(id);
-        }
-      }
-    }
-    for (const child of current.children || []) {
-      stack.push(child);
-    }
-  }
-
-  return elementIds;
+  return collectSpatialSubtreeElementsWithIfcSpace(dataStore.spatialHierarchy, containerExpressId) ?? [];
 }
 
 function expandRefToElements(state: ViewerStateSnapshot, ref: EntityRef): EntityRef[] {
@@ -170,16 +147,12 @@ function expandRefToElements(state: ViewerStateSnapshot, ref: EntityRef): Entity
   if (!dataStore) return [ref];
 
   const entityType = dataStore.entities.getTypeName(ref.expressId) || '';
-  if (entityType === STOREY_TYPE) {
-    const localIds = dataStore.spatialHierarchy?.byStorey.get(ref.expressId) as number[] | undefined;
-    if (!localIds || localIds.length === 0) return [];
-    return localIds.map((expressId) => ({ modelId: ref.modelId, expressId }));
-  }
-
-  if (SPATIAL_CONTAINER_TYPES.has(entityType)) {
+  if (isSpatialStructureTypeName(entityType) && !isSpaceLikeSpatialTypeName(entityType)) {
     const localIds = getContainerElementIds(dataStore, ref.expressId);
-    if (localIds.length === 0) return [];
-    return localIds.map((expressId) => ({ modelId: ref.modelId, expressId }));
+    const ids = localIds.includes(ref.expressId)
+      ? localIds
+      : [ref.expressId, ...localIds];
+    return ids.map((expressId) => ({ modelId: ref.modelId, expressId }));
   }
 
   return [ref];
@@ -287,21 +260,6 @@ function getExpandedSelectionRefs(state: ViewerStateSnapshot): EntityRef[] {
 }
 
 /**
- * Collect all descendant IfcSpace expressIds from a spatial node.
- */
-function collectDescendantSpaceIds(node: SpatialNode): number[] {
-  const spaceIds: number[] = [];
-  for (const child of node.children || []) {
-    if (child.type === IfcTypeEnum.IfcSpace) {
-      spaceIds.push(child.expressId);
-    }
-    // Recurse into all children (spaces can nest under other spatial nodes)
-    spaceIds.push(...collectDescendantSpaceIds(child));
-  }
-  return spaceIds;
-}
-
-/**
  * Collect all element IDs for an IfcBuildingStorey, including elements
  * contained in descendant IfcSpace nodes and the space geometry itself.
  */
@@ -309,26 +267,39 @@ export function collectIfcBuildingStoreyElementsWithIfcSpace(
   hierarchy: SpatialHierarchy,
   storeyId: number
 ): number[] | null {
-  const storeyElements = hierarchy.byStorey.get(storeyId);
-  if (!storeyElements) return null;
+  if (!hierarchy.byStorey.has(storeyId)) return null;
+  return collectSpatialSubtreeElementsWithIfcSpace(hierarchy, storeyId);
+}
 
-  const storeyNode = findSpatialNode(hierarchy.project, storeyId);
-  if (!storeyNode) return storeyElements;
+export function collectSpatialSubtreeElementsWithIfcSpace(
+  hierarchy: SpatialHierarchy | undefined,
+  expressId: number
+): number[] | null {
+  if (!hierarchy?.project) return null;
 
-  const spaceIds = collectDescendantSpaceIds(storeyNode);
-  if (spaceIds.length === 0) return storeyElements;
+  const startNode = findSpatialNode(hierarchy.project, expressId);
+  if (!startNode) return null;
 
-  // Combine storey elements + space expressIds + elements inside spaces
-  const combined = [...storeyElements];
-  for (const spaceId of spaceIds) {
-    combined.push(spaceId); // The space geometry itself
-    const spaceElements = hierarchy.bySpace.get(spaceId);
-    if (spaceElements) {
-      for (const elemId of spaceElements) {
-        combined.push(elemId);
-      }
+  const combined: number[] = [];
+  const seen = new Set<number>();
+  const stack: SpatialNode[] = [startNode];
+
+  while (stack.length > 0) {
+    const current = stack.pop()!;
+    if (current.type === IfcTypeEnum.IfcSpace && !seen.has(current.expressId)) {
+      seen.add(current.expressId);
+      combined.push(current.expressId);
+    }
+    for (const elementId of current.elements || []) {
+      if (seen.has(elementId)) continue;
+      seen.add(elementId);
+      combined.push(elementId);
+    }
+    for (const child of current.children || []) {
+      stack.push(child);
     }
   }
+
   return combined;
 }
 
@@ -508,7 +479,7 @@ export function getHierarchyBasketEntityRefsFromStore(): EntityRef[] {
   if (selectionRefs.length > 0) {
     const hasContainer = selectionRefs.some((ref) => {
       const typeName = getEntityTypeName(state, ref);
-      return typeName === STOREY_TYPE || SPATIAL_CONTAINER_TYPES.has(typeName);
+      return isStoreyLikeSpatialTypeName(typeName) || (isSpatialStructureTypeName(typeName) && !isSpaceLikeSpatialTypeName(typeName));
     });
     if (hasContainer || getSelectionBaseRefs(state).length > 0) {
       return selectionRefs;
