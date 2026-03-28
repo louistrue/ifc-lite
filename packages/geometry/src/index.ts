@@ -685,16 +685,43 @@ export class GeometryProcessor {
     } else {
       // Large files: Try parallel Web Worker processing if available,
       // fall back to single-thread streaming otherwise.
-      const useParallel = !this.isNative
-        && typeof Worker !== 'undefined'
-        && typeof navigator !== 'undefined'
-        && (navigator.hardwareConcurrency ?? 1) > 1;
+      // Use fast single-threaded path — skip expensive style building for speed
+      // Workers add too much overhead (N copies of content string via postMessage)
+      {
+        yield { type: 'start', totalEstimate: buffer.length / 1000 };
+        await new Promise(resolve => setTimeout(resolve, 0));
+        const decoder = new TextDecoder();
+        const content = decoder.decode(buffer);
+        yield { type: 'model-open', modelID: 0 };
 
-      if (useParallel) {
-        yield* this.processParallel(buffer);
-      } else {
-        // processStreaming will emit its own start and model-open events
-        yield* this.processStreaming(buffer, options.entityIndex, batchConfig);
+        if (!this.bridge) throw new Error('WASM bridge not initialized');
+
+        // Get total entity count
+        const entityInfo = this.bridge.getApi()?.scanGeometryEntitiesFast(content);
+        const totalEntities = entityInfo?.length ?? 0;
+
+        // Use parseMeshesSubset with skip_expensive=true for max speed
+        // Skips style building (~1.2s) and BREP preprocessing
+        const collection = this.bridge.getApi()!.parseMeshesSubset(content, 0, totalEntities, true);
+
+        const allMeshes: MeshData[] = [];
+        for (let i = 0; i < collection.length; i++) {
+          const mesh = collection.get(i);
+          if (!mesh) continue;
+          allMeshes.push({
+            expressId: mesh.expressId,
+            ifcType: mesh.ifcType,
+            positions: new Float32Array(mesh.positions),
+            normals: new Float32Array(mesh.normals),
+            indices: new Uint32Array(mesh.indices),
+            color: [mesh.color[0], mesh.color[1], mesh.color[2], mesh.color[3]],
+          });
+        }
+
+        this.coordinateHandler.processMeshesIncremental(allMeshes);
+        const coordinateInfo = this.coordinateHandler.getFinalCoordinateInfo();
+        yield { type: 'batch', meshes: allMeshes, totalSoFar: allMeshes.length, coordinateInfo: coordinateInfo || undefined };
+        yield { type: 'complete', totalMeshes: allMeshes.length, coordinateInfo };
       }
     }
   }
