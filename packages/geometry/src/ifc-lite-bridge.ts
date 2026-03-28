@@ -15,6 +15,12 @@ const log = createLogger('Geometry');
 const FATAL_WASM_RELOAD_REQUIRED_MESSAGE = 'IFC-Lite WASM cannot recover from a fatal runtime error within the same document lifetime. Reload the page or recreate the worker process before calling init() again.';
 let fatalWasmRuntimeError: Error | null = null;
 
+/** Module-level flag: tracks whether the WASM module + thread pool have been initialized.
+ *  wasm-bindgen's init() is idempotent, but initThreadPool() is NOT — calling it twice
+ *  crashes because the rayon global pool is already set up. Since IfcLiteBridge instances
+ *  are created per file load, we must guard thread pool init at the module level. */
+let wasmModuleInitialized = false;
+
 export interface StreamingProgress {
   percent: number;
   processed: number;
@@ -72,34 +78,34 @@ export class IfcLiteBridge {
 
     try {
       // Initialize WASM module - wasm-bindgen automatically resolves the WASM URL
-      // from import.meta.url, no need to manually construct paths
+      // from import.meta.url, no need to manually construct paths.
+      // wasm-bindgen's init() is idempotent (returns cached instance on re-call).
       await init();
 
-      // Initialize rayon thread pool for parallel geometry processing in WASM.
-      // Requires SharedArrayBuffer (COOP/COEP headers). Falls back to single-threaded
-      // if unavailable — rayon's par_iter() still works, just sequentially.
-      //
-      // IMPORTANT: A failed initThreadPool() corrupts the WASM module's internal
-      // async/closure state (the wasm-bindgen-rayon builder.build() uses
-      // unwrap_throw() which leaves dangling closures). There is no way to
-      // re-instantiate because wasm-bindgen caches the WASM instance.
-      // Therefore we MUST probe that module workers actually work in this
-      // browser before calling initThreadPool().
-      if (typeof SharedArrayBuffer !== 'undefined') {
-        const canUseThreads = await this.probeModuleWorkerSupport();
-        if (canUseThreads) {
-          try {
-            const threads = navigator.hardwareConcurrency || 4;
-            await initThreadPool(threads);
-            log.info(`Thread pool initialized with ${threads} threads`);
-          } catch (e) {
-            log.warn('Thread pool init failed, falling back to single-threaded geometry processing', { data: e });
+      // Initialize rayon thread pool ONCE per page lifetime.
+      // initThreadPool() is NOT idempotent — calling it twice crashes because
+      // the rayon global pool is already set up (builder.build() panics).
+      // A failed initThreadPool also corrupts the WASM module's closure state
+      // (unwrap_throw leaves dangling closures), making parseMeshesAsync crash.
+      // Guard with both module-level flag AND module worker probe.
+      if (!wasmModuleInitialized) {
+        if (typeof SharedArrayBuffer !== 'undefined') {
+          const canUseThreads = await this.probeModuleWorkerSupport();
+          if (canUseThreads) {
+            try {
+              const threads = navigator.hardwareConcurrency || 4;
+              await initThreadPool(threads);
+              log.info(`Thread pool initialized with ${threads} threads`);
+            } catch (e) {
+              log.warn('Thread pool init failed, falling back to single-threaded geometry processing', { data: e });
+            }
+          } else {
+            log.warn('Module workers unavailable — geometry processing will be single-threaded');
           }
         } else {
-          log.warn('Module workers unavailable — geometry processing will be single-threaded');
+          log.warn('SharedArrayBuffer unavailable (missing COOP/COEP headers?) — geometry processing will be single-threaded');
         }
-      } else {
-        log.warn('SharedArrayBuffer unavailable (missing COOP/COEP headers?) — geometry processing will be single-threaded');
+        wasmModuleInitialized = true;
       }
 
       this.ifcApi = new IfcAPI();
