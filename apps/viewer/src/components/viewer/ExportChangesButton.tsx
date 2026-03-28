@@ -63,11 +63,17 @@ export function ExportChangesButton({ className }: ExportChangesButtonProps) {
     return null;
   }, [models, legacyIfcDataStore, legacyGeometryResult]);
 
-  // Count mutations
+  // Count mutations (includes georef mutations)
   const mutationCount = useMemo(() => {
     if (!modelInfo) return 0;
     const mutationView = getMutationView(modelInfo.id);
-    return mutationView?.getMutations().length || 0;
+    let count = mutationView?.getMutations().length || 0;
+    const gm = useViewerStore.getState().georefMutations?.get(modelInfo.id);
+    if (gm) {
+      if (gm.projectedCRS) count += Object.keys(gm.projectedCRS).length;
+      if (gm.mapConversion) count += Object.keys(gm.mapConversion).length;
+    }
+    return count;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [modelInfo, getMutationView, mutationVersion]);
 

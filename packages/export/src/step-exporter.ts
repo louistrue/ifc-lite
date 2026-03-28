@@ -307,8 +307,8 @@ export class StepExporter {
       }
     }
 
-    // Process georeferencing mutations
-    if (options.georefMutations) {
+    // Process georeferencing mutations (only when applyMutations is enabled)
+    if (options.applyMutations !== false && options.georefMutations) {
       const gm = options.georefMutations;
 
       // Apply IfcProjectedCRS mutations
@@ -321,14 +321,19 @@ export class StepExporter {
           }
           const attrMap = modifiedAttributes.get(entityId)!;
           const crs = gm.projectedCRS;
-          if (crs.name !== undefined) attrMap.set('Name', String(crs.name));
-          if (crs.description !== undefined) attrMap.set('Description', String(crs.description));
-          if (crs.geodeticDatum !== undefined) attrMap.set('GeodeticDatum', String(crs.geodeticDatum));
-          if (crs.verticalDatum !== undefined) attrMap.set('VerticalDatum', String(crs.verticalDatum));
-          if (crs.mapProjection !== undefined) attrMap.set('MapProjection', String(crs.mapProjection));
-          if (crs.mapZone !== undefined) attrMap.set('MapZone', String(crs.mapZone));
-          if (crs.mapUnit !== undefined) attrMap.set('MapUnit', String(crs.mapUnit));
-          modifiedEntityCount++;
+          let changed = false;
+          if (crs.name !== undefined) { attrMap.set('Name', String(crs.name)); changed = true; }
+          if (crs.description !== undefined) { attrMap.set('Description', String(crs.description)); changed = true; }
+          if (crs.geodeticDatum !== undefined) { attrMap.set('GeodeticDatum', String(crs.geodeticDatum)); changed = true; }
+          if (crs.verticalDatum !== undefined) { attrMap.set('VerticalDatum', String(crs.verticalDatum)); changed = true; }
+          if (crs.mapProjection !== undefined) { attrMap.set('MapProjection', String(crs.mapProjection)); changed = true; }
+          if (crs.mapZone !== undefined) { attrMap.set('MapZone', String(crs.mapZone)); changed = true; }
+          // TODO: MapUnit is an entity reference to IfcNamedUnit, not a string.
+          // Skipping serialization until unit-reference extraction preserves the entity ID.
+          if (changed && !modifiedEntities.has(entityId)) {
+            modifiedEntities.add(entityId);
+            modifiedEntityCount++;
+          }
         }
       }
 
@@ -342,13 +347,17 @@ export class StepExporter {
           }
           const attrMap = modifiedAttributes.get(entityId)!;
           const mc = gm.mapConversion;
-          if (mc.eastings !== undefined) attrMap.set('Eastings', String(mc.eastings));
-          if (mc.northings !== undefined) attrMap.set('Northings', String(mc.northings));
-          if (mc.orthogonalHeight !== undefined) attrMap.set('OrthogonalHeight', String(mc.orthogonalHeight));
-          if (mc.xAxisAbscissa !== undefined) attrMap.set('XAxisAbscissa', String(mc.xAxisAbscissa));
-          if (mc.xAxisOrdinate !== undefined) attrMap.set('XAxisOrdinate', String(mc.xAxisOrdinate));
-          if (mc.scale !== undefined) attrMap.set('Scale', String(mc.scale));
-          modifiedEntityCount++;
+          let changed = false;
+          if (mc.eastings !== undefined) { attrMap.set('Eastings', String(mc.eastings)); changed = true; }
+          if (mc.northings !== undefined) { attrMap.set('Northings', String(mc.northings)); changed = true; }
+          if (mc.orthogonalHeight !== undefined) { attrMap.set('OrthogonalHeight', String(mc.orthogonalHeight)); changed = true; }
+          if (mc.xAxisAbscissa !== undefined) { attrMap.set('XAxisAbscissa', String(mc.xAxisAbscissa)); changed = true; }
+          if (mc.xAxisOrdinate !== undefined) { attrMap.set('XAxisOrdinate', String(mc.xAxisOrdinate)); changed = true; }
+          if (mc.scale !== undefined) { attrMap.set('Scale', String(mc.scale)); changed = true; }
+          if (changed && !modifiedEntities.has(entityId)) {
+            modifiedEntities.add(entityId);
+            modifiedEntityCount++;
+          }
         }
       }
     }

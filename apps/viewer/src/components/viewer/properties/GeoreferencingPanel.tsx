@@ -84,12 +84,12 @@ function GeorefRow({ label, value, suffix, isComputed, isNumber, editable, isMut
   }, [value, editable, isComputed]);
 
   const commitEdit = useCallback((overrideValue?: string) => {
-    if (!onSave) return;
+    if (!onSave) { setEditing(false); return; }
     const trimmed = (overrideValue ?? editValue).trim();
-    if (!trimmed && !hint.isSelect) return;
+    if (!trimmed && !hint.isSelect) { setEditing(false); return; }
     if (isNumber) {
       const num = parseFloat(trimmed);
-      if (!Number.isFinite(num)) return;
+      if (!Number.isFinite(num)) { setEditing(false); return; }
       onSave(num);
     } else {
       onSave(trimmed);

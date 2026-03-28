@@ -453,6 +453,44 @@ export const createMutationSlice: StateCreator<
     if (undoStack.length === 0) return;
 
     const mutation = undoStack[undoStack.length - 1];
+
+    // Handle georef mutations directly on georefMutations map
+    if (mutation.type === 'UPDATE_ATTRIBUTE' && mutation.attributeName?.startsWith('georef.')) {
+      const parts = mutation.attributeName.split('.');
+      const entity = parts[1] as 'projectedCRS' | 'mapConversion';
+      const field = parts[2];
+      set((s) => {
+        const newGeorefMuts = new Map(s.georefMutations);
+        const modelMuts = { ...(newGeorefMuts.get(modelId) || {}) };
+        const entityMuts = { ...(modelMuts[entity] || {}) } as Record<string, unknown>;
+        if (mutation.oldValue !== undefined && mutation.oldValue !== null) {
+          entityMuts[field] = mutation.oldValue;
+        } else {
+          delete entityMuts[field];
+        }
+        if (Object.keys(entityMuts).length === 0) {
+          delete modelMuts[entity];
+        } else {
+          modelMuts[entity] = entityMuts as typeof modelMuts[typeof entity];
+        }
+        newGeorefMuts.set(modelId, modelMuts);
+
+        const newUndoStacks = new Map(s.undoStacks);
+        newUndoStacks.set(modelId, undoStack.slice(0, -1));
+        const newRedoStacks = new Map(s.redoStacks);
+        const redoStack = newRedoStacks.get(modelId) || [];
+        newRedoStacks.set(modelId, [...redoStack, mutation]);
+
+        return {
+          georefMutations: newGeorefMuts,
+          undoStacks: newUndoStacks,
+          redoStacks: newRedoStacks,
+          mutationVersion: s.mutationVersion + 1,
+        };
+      });
+      return;
+    }
+
     const view = state.mutationViews.get(modelId);
     if (!view) return;
 
@@ -530,6 +568,40 @@ export const createMutationSlice: StateCreator<
     if (redoStack.length === 0) return;
 
     const mutation = redoStack[redoStack.length - 1];
+
+    // Handle georef mutations directly
+    if (mutation.type === 'UPDATE_ATTRIBUTE' && mutation.attributeName?.startsWith('georef.')) {
+      const parts = mutation.attributeName.split('.');
+      const entity = parts[1] as 'projectedCRS' | 'mapConversion';
+      const field = parts[2];
+      set((s) => {
+        const newGeorefMuts = new Map(s.georefMutations);
+        const modelMuts = { ...(newGeorefMuts.get(modelId) || {}) };
+        const entityMuts = { ...(modelMuts[entity] || {}) } as Record<string, unknown>;
+        if (mutation.newValue !== undefined && mutation.newValue !== null) {
+          entityMuts[field] = mutation.newValue;
+        } else {
+          delete entityMuts[field];
+        }
+        modelMuts[entity] = entityMuts as typeof modelMuts[typeof entity];
+        newGeorefMuts.set(modelId, modelMuts);
+
+        const newRedoStacks = new Map(s.redoStacks);
+        newRedoStacks.set(modelId, redoStack.slice(0, -1));
+        const newUndoStacks = new Map(s.undoStacks);
+        const undoStack = newUndoStacks.get(modelId) || [];
+        newUndoStacks.set(modelId, [...undoStack, mutation]);
+
+        return {
+          georefMutations: newGeorefMuts,
+          undoStacks: newUndoStacks,
+          redoStacks: newRedoStacks,
+          mutationVersion: s.mutationVersion + 1,
+        };
+      });
+      return;
+    }
+
     const view = state.mutationViews.get(modelId);
     if (!view) return;
 
@@ -670,6 +742,14 @@ export const createMutationSlice: StateCreator<
     let count = 0;
     for (const view of get().mutationViews.values()) {
       count += view.getModifiedEntityCount();
+    }
+    // Include models with georef-only edits
+    for (const [modelId, gm] of get().georefMutations) {
+      const hasGeoref = (gm.projectedCRS && Object.keys(gm.projectedCRS).length > 0)
+        || (gm.mapConversion && Object.keys(gm.mapConversion).length > 0);
+      if (hasGeoref && !get().mutationViews.has(modelId)) {
+        count += 1; // count the model as having modifications
+      }
     }
     return count;
   },
