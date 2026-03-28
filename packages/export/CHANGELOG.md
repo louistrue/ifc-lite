@@ -1,5 +1,16 @@
 # @ifc-lite/export
 
+## 1.17.0
+
+### Minor Changes
+
+- [#456](https://github.com/louistrue/ifc-lite/pull/456) [`e07f960`](https://github.com/louistrue/ifc-lite/commit/e07f960097649c5f63a5abc5f35009949d54a5c0) Thanks [@louistrue](https://github.com/louistrue)! - Add LOD geometry generation, profile projection for 2D drawings, and streaming server integration
+
+### Patch Changes
+
+- Updated dependencies [[`e07f960`](https://github.com/louistrue/ifc-lite/commit/e07f960097649c5f63a5abc5f35009949d54a5c0)]:
+  - @ifc-lite/geometry@1.16.0
+
 ## 1.16.0
 
 ### Minor Changes

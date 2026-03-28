@@ -1,5 +1,19 @@
 # @ifc-lite/viewer
 
+## 1.17.2
+
+### Patch Changes
+
+- [#447](https://github.com/louistrue/ifc-lite/pull/447) [`e532dfe`](https://github.com/louistrue/ifc-lite/commit/e532dfef16bedbdb7b106d610b88a97e723721c3) Thanks [@louistrue](https://github.com/louistrue)! - Enable visibility filter by default in list results table so rows are filtered by 3D visibility state out of the box
+
+- Updated dependencies [[`e07f960`](https://github.com/louistrue/ifc-lite/commit/e07f960097649c5f63a5abc5f35009949d54a5c0), [`e07f960`](https://github.com/louistrue/ifc-lite/commit/e07f960097649c5f63a5abc5f35009949d54a5c0), [`e07f960`](https://github.com/louistrue/ifc-lite/commit/e07f960097649c5f63a5abc5f35009949d54a5c0), [`e07f960`](https://github.com/louistrue/ifc-lite/commit/e07f960097649c5f63a5abc5f35009949d54a5c0)]:
+  - @ifc-lite/renderer@1.14.7
+  - @ifc-lite/wasm@1.16.0
+  - @ifc-lite/drawing-2d@1.15.0
+  - @ifc-lite/export@1.17.0
+  - @ifc-lite/geometry@1.16.0
+  - @ifc-lite/server-client@1.15.0
+
 ## 1.17.1
 
 ### Patch Changes
