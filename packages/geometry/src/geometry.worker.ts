@@ -56,9 +56,13 @@ self.onmessage = async (e: MessageEvent<GeometryWorkerRequest>) => {
   try {
     await ensureInit();
 
-    // Decode shared buffer to string (each worker does this independently,
-    // but the underlying SharedArrayBuffer is NOT copied via postMessage)
-    const content = new TextDecoder().decode(new Uint8Array(sharedBuffer));
+    // Copy shared bytes to a regular ArrayBuffer for TextDecoder
+    // (Firefox disallows TextDecoder.decode on SharedArrayBuffer views).
+    // This is a local copy per worker (~169MB), but the postMessage
+    // transfer was zero-cost thanks to SharedArrayBuffer.
+    const localBuffer = new Uint8Array(sharedBuffer.byteLength);
+    localBuffer.set(new Uint8Array(sharedBuffer));
+    const content = new TextDecoder().decode(localBuffer);
 
     const collection = api!.parseMeshesSubset(content, startIdx, endIdx, true);
 
