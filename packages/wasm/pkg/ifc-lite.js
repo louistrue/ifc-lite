@@ -205,12 +205,12 @@ if (!('encodeInto' in cachedTextEncoder)) {
 
 let WASM_VECTOR_LEN = 0;
 
-function __wasm_bindgen_func_elem_1119(arg0, arg1, arg2) {
-    wasm.__wasm_bindgen_func_elem_1119(arg0, arg1, addHeapObject(arg2));
+function __wasm_bindgen_func_elem_1065(arg0, arg1, arg2) {
+    wasm.__wasm_bindgen_func_elem_1065(arg0, arg1, addHeapObject(arg2));
 }
 
-function __wasm_bindgen_func_elem_1150(arg0, arg1, arg2, arg3) {
-    wasm.__wasm_bindgen_func_elem_1150(arg0, arg1, addHeapObject(arg2), addHeapObject(arg3));
+function __wasm_bindgen_func_elem_1099(arg0, arg1, arg2, arg3) {
+    wasm.__wasm_bindgen_func_elem_1099(arg0, arg1, addHeapObject(arg2), addHeapObject(arg3));
 }
 
 const GeoReferenceJsFinalization = (typeof FinalizationRegistry === 'undefined')
@@ -307,6 +307,91 @@ export class GeoReferenceJs {
         wasm.__wbg_georeferencejs_free(ptr, 0);
     }
     /**
+     * Transform local coordinates to map coordinates
+     * @param {number} x
+     * @param {number} y
+     * @param {number} z
+     * @returns {Float64Array}
+     */
+    localToMap(x, y, z) {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            wasm.georeferencejs_localToMap(retptr, this.__wbg_ptr, x, y, z);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            var v1 = getArrayF64FromWasm0(r0, r1).slice();
+            wasm.__wbindgen_export2(r0, r1 * 8, 8);
+            return v1;
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
+    }
+    /**
+     * Transform map coordinates to local coordinates
+     * @param {number} e
+     * @param {number} n
+     * @param {number} h
+     * @returns {Float64Array}
+     */
+    mapToLocal(e, n, h) {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            wasm.georeferencejs_mapToLocal(retptr, this.__wbg_ptr, e, n, h);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            var v1 = getArrayF64FromWasm0(r0, r1).slice();
+            wasm.__wbindgen_export2(r0, r1 * 8, 8);
+            return v1;
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
+    }
+    /**
+     * Get CRS name
+     * @returns {string | undefined}
+     */
+    get crsName() {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            wasm.georeferencejs_crsName(retptr, this.__wbg_ptr);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            let v1;
+            if (r0 !== 0) {
+                v1 = getStringFromWasm0(r0, r1).slice();
+                wasm.__wbindgen_export2(r0, r1 * 1, 1);
+            }
+            return v1;
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
+    }
+    /**
+     * Get rotation angle in radians
+     * @returns {number}
+     */
+    get rotation() {
+        const ret = wasm.georeferencejs_rotation(this.__wbg_ptr);
+        return ret;
+    }
+    /**
+     * Get 4x4 transformation matrix (column-major for WebGL)
+     * @returns {Float64Array}
+     */
+    toMatrix() {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            wasm.georeferencejs_toMatrix(retptr, this.__wbg_ptr);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            var v1 = getArrayF64FromWasm0(r0, r1).slice();
+            wasm.__wbindgen_export2(r0, r1 * 8, 8);
+            return v1;
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
+    }
+    /**
      * Eastings (X offset)
      * @returns {number}
      */
@@ -395,91 +480,6 @@ export class GeoReferenceJs {
      */
     set scale(arg0) {
         wasm.__wbg_set_georeferencejs_scale(this.__wbg_ptr, arg0);
-    }
-    /**
-     * Transform local coordinates to map coordinates
-     * @param {number} x
-     * @param {number} y
-     * @param {number} z
-     * @returns {Float64Array}
-     */
-    localToMap(x, y, z) {
-        try {
-            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-            wasm.georeferencejs_localToMap(retptr, this.__wbg_ptr, x, y, z);
-            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
-            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
-            var v1 = getArrayF64FromWasm0(r0, r1).slice();
-            wasm.__wbindgen_export2(r0, r1 * 8, 8);
-            return v1;
-        } finally {
-            wasm.__wbindgen_add_to_stack_pointer(16);
-        }
-    }
-    /**
-     * Transform map coordinates to local coordinates
-     * @param {number} e
-     * @param {number} n
-     * @param {number} h
-     * @returns {Float64Array}
-     */
-    mapToLocal(e, n, h) {
-        try {
-            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-            wasm.georeferencejs_mapToLocal(retptr, this.__wbg_ptr, e, n, h);
-            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
-            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
-            var v1 = getArrayF64FromWasm0(r0, r1).slice();
-            wasm.__wbindgen_export2(r0, r1 * 8, 8);
-            return v1;
-        } finally {
-            wasm.__wbindgen_add_to_stack_pointer(16);
-        }
-    }
-    /**
-     * Get CRS name
-     * @returns {string | undefined}
-     */
-    get crsName() {
-        try {
-            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-            wasm.georeferencejs_crsName(retptr, this.__wbg_ptr);
-            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
-            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
-            let v1;
-            if (r0 !== 0) {
-                v1 = getStringFromWasm0(r0, r1).slice();
-                wasm.__wbindgen_export2(r0, r1 * 1, 1);
-            }
-            return v1;
-        } finally {
-            wasm.__wbindgen_add_to_stack_pointer(16);
-        }
-    }
-    /**
-     * Get rotation angle in radians
-     * @returns {number}
-     */
-    get rotation() {
-        const ret = wasm.georeferencejs_rotation(this.__wbg_ptr);
-        return ret;
-    }
-    /**
-     * Get 4x4 transformation matrix (column-major for WebGL)
-     * @returns {Float64Array}
-     */
-    toMatrix() {
-        try {
-            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-            wasm.georeferencejs_toMatrix(retptr, this.__wbg_ptr);
-            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
-            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
-            var v1 = getArrayF64FromWasm0(r0, r1).slice();
-            wasm.__wbindgen_export2(r0, r1 * 8, 8);
-            return v1;
-        } finally {
-            wasm.__wbindgen_add_to_stack_pointer(16);
-        }
     }
 }
 if (Symbol.dispose) GeoReferenceJs.prototype[Symbol.dispose] = GeoReferenceJs.prototype.free;
@@ -1377,6 +1377,51 @@ export class IfcAPI {
         }
     }
     /**
+     * Get WASM memory for zero-copy access
+     * @returns {any}
+     */
+    getMemory() {
+        const ret = wasm.ifcapi_getMemory(this.__wbg_ptr);
+        return takeObject(ret);
+    }
+    /**
+     * Create and initialize the IFC API
+     */
+    constructor() {
+        const ret = wasm.ifcapi_new();
+        this.__wbg_ptr = ret >>> 0;
+        IfcAPIFinalization.register(this, this.__wbg_ptr, this);
+        return this;
+    }
+    /**
+     * Get version string
+     * @returns {string}
+     */
+    get version() {
+        let deferred1_0;
+        let deferred1_1;
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            wasm.ifcapi_version(retptr, this.__wbg_ptr);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            deferred1_0 = r0;
+            deferred1_1 = r1;
+            return getStringFromWasm0(r0, r1);
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+            wasm.__wbindgen_export2(deferred1_0, deferred1_1, 1);
+        }
+    }
+    /**
+     * Check if API is initialized
+     * @returns {boolean}
+     */
+    get is_ready() {
+        const ret = wasm.ifcapi_is_ready(this.__wbg_ptr);
+        return ret !== 0;
+    }
+    /**
      * Extract georeferencing information from IFC content
      * Returns null if no georeferencing is present
      *
@@ -1501,51 +1546,6 @@ export class IfcAPI {
         const len0 = WASM_VECTOR_LEN;
         const ret = wasm.ifcapi_parse(this.__wbg_ptr, ptr0, len0);
         return takeObject(ret);
-    }
-    /**
-     * Get WASM memory for zero-copy access
-     * @returns {any}
-     */
-    getMemory() {
-        const ret = wasm.ifcapi_getMemory(this.__wbg_ptr);
-        return takeObject(ret);
-    }
-    /**
-     * Create and initialize the IFC API
-     */
-    constructor() {
-        const ret = wasm.ifcapi_new();
-        this.__wbg_ptr = ret >>> 0;
-        IfcAPIFinalization.register(this, this.__wbg_ptr, this);
-        return this;
-    }
-    /**
-     * Get version string
-     * @returns {string}
-     */
-    get version() {
-        let deferred1_0;
-        let deferred1_1;
-        try {
-            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-            wasm.ifcapi_version(retptr, this.__wbg_ptr);
-            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
-            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
-            deferred1_0 = r0;
-            deferred1_1 = r1;
-            return getStringFromWasm0(r0, r1);
-        } finally {
-            wasm.__wbindgen_add_to_stack_pointer(16);
-            wasm.__wbindgen_export2(deferred1_0, deferred1_1, 1);
-        }
-    }
-    /**
-     * Check if API is initialized
-     * @returns {boolean}
-     */
-    get is_ready() {
-        const ret = wasm.ifcapi_is_ready(this.__wbg_ptr);
-        return ret !== 0;
     }
     /**
      * Parse IFC file and extract symbolic representations (Plan, Annotation, FootPrint)
@@ -2062,6 +2062,34 @@ export class RtcOffsetJs {
         wasm.__wbg_rtcoffsetjs_free(ptr, 0);
     }
     /**
+     * Check if offset is significant (>10km)
+     * @returns {boolean}
+     */
+    isSignificant() {
+        const ret = wasm.rtcoffsetjs_isSignificant(this.__wbg_ptr);
+        return ret !== 0;
+    }
+    /**
+     * Convert local coordinates to world coordinates
+     * @param {number} x
+     * @param {number} y
+     * @param {number} z
+     * @returns {Float64Array}
+     */
+    toWorld(x, y, z) {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            wasm.rtcoffsetjs_toWorld(retptr, this.__wbg_ptr, x, y, z);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            var v1 = getArrayF64FromWasm0(r0, r1).slice();
+            wasm.__wbindgen_export2(r0, r1 * 8, 8);
+            return v1;
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
+    }
+    /**
      * X offset (subtracted from positions)
      * @returns {number}
      */
@@ -2105,34 +2133,6 @@ export class RtcOffsetJs {
      */
     set z(arg0) {
         wasm.__wbg_set_georeferencejs_orthogonal_height(this.__wbg_ptr, arg0);
-    }
-    /**
-     * Check if offset is significant (>10km)
-     * @returns {boolean}
-     */
-    isSignificant() {
-        const ret = wasm.rtcoffsetjs_isSignificant(this.__wbg_ptr);
-        return ret !== 0;
-    }
-    /**
-     * Convert local coordinates to world coordinates
-     * @param {number} x
-     * @param {number} y
-     * @param {number} z
-     * @returns {Float64Array}
-     */
-    toWorld(x, y, z) {
-        try {
-            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-            wasm.rtcoffsetjs_toWorld(retptr, this.__wbg_ptr, x, y, z);
-            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
-            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
-            var v1 = getArrayF64FromWasm0(r0, r1).slice();
-            wasm.__wbindgen_export2(r0, r1 * 8, 8);
-            return v1;
-        } finally {
-            wasm.__wbindgen_add_to_stack_pointer(16);
-        }
     }
 }
 if (Symbol.dispose) RtcOffsetJs.prototype[Symbol.dispose] = RtcOffsetJs.prototype.free;
@@ -2759,7 +2759,7 @@ function __wbg_get_imports() {
                 const a = state0.a;
                 state0.a = 0;
                 try {
-                    return __wasm_bindgen_func_elem_1150(a, state0.b, arg0, arg1);
+                    return __wasm_bindgen_func_elem_1099(a, state0.b, arg0, arg1);
                 } finally {
                     state0.a = a;
                 }
@@ -2850,9 +2850,9 @@ function __wbg_get_imports() {
         const ret = BigInt.asUintN(64, arg0);
         return addHeapObject(ret);
     };
-    imports.wbg.__wbindgen_cast_8410bcb836a2825d = function(arg0, arg1) {
-        // Cast intrinsic for `Closure(Closure { dtor_idx: 145, function: Function { arguments: [Externref], shim_idx: 146, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
-        const ret = makeMutClosure(arg0, arg1, wasm.__wasm_bindgen_func_elem_1114, __wasm_bindgen_func_elem_1119);
+    imports.wbg.__wbindgen_cast_46fe3e4a37968b61 = function(arg0, arg1) {
+        // Cast intrinsic for `Closure(Closure { dtor_idx: 146, function: Function { arguments: [Externref], shim_idx: 147, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+        const ret = makeMutClosure(arg0, arg1, wasm.__wasm_bindgen_func_elem_1064, __wasm_bindgen_func_elem_1065);
         return addHeapObject(ret);
     };
     imports.wbg.__wbindgen_cast_d6cd19b81560fd6e = function(arg0) {

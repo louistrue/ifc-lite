@@ -18,6 +18,14 @@ export class GeoReferenceJs {
    */
   toMatrix(): Float64Array;
   /**
+   * Get CRS name
+   */
+  readonly crsName: string | undefined;
+  /**
+   * Get rotation angle in radians
+   */
+  readonly rotation: number;
+  /**
    * Eastings (X offset)
    */
   eastings: number;
@@ -41,14 +49,6 @@ export class GeoReferenceJs {
    * Scale factor
    */
   scale: number;
-  /**
-   * Get CRS name
-   */
-  readonly crsName: string | undefined;
-  /**
-   * Get rotation angle in radians
-   */
-  readonly rotation: number;
 }
 
 export class GpuGeometry {
@@ -406,6 +406,14 @@ export class IfcAPI {
    */
   debugProcessFirstWall(content: string): string;
   /**
+   * Get WASM memory for zero-copy access
+   */
+  getMemory(): any;
+  /**
+   * Create and initialize the IFC API
+   */
+  constructor();
+  /**
    * Extract georeferencing information from IFC content
    * Returns null if no georeferencing is present
    *
@@ -481,14 +489,6 @@ export class IfcAPI {
    * ```
    */
   parse(content: string): Promise<any>;
-  /**
-   * Get WASM memory for zero-copy access
-   */
-  getMemory(): any;
-  /**
-   * Create and initialize the IFC API
-   */
-  constructor();
   /**
    * Parse IFC file and extract symbolic representations (Plan, Annotation, FootPrint)
    * These are 2D curves used for architectural drawings instead of sectioning 3D geometry
@@ -1010,9 +1010,6 @@ export interface InitOutput {
   readonly zerocopymesh_positions_len: (a: number) => number;
   readonly zerocopymesh_positions_ptr: (a: number) => number;
   readonly zerocopymesh_vertex_count: (a: number) => number;
-  readonly gpuinstancedgeometryref_indicesByteLength: (a: number) => number;
-  readonly gpuinstancedgeometryref_instanceDataByteLength: (a: number) => number;
-  readonly gpuinstancedgeometryref_vertexDataByteLength: (a: number) => number;
   readonly init: () => void;
   readonly gpuinstancedgeometryref_indicesLen: (a: number) => number;
   readonly gpuinstancedgeometryref_instanceCount: (a: number) => number;
@@ -1022,7 +1019,11 @@ export interface InitOutput {
   readonly instancedmeshcollection_totalGeometries: (a: number) => number;
   readonly meshcollectionwithrtc_length: (a: number) => number;
   readonly zerocopymesh_indices_len: (a: number) => number;
+  readonly __wbg_set_rtcoffsetjs_x: (a: number, b: number) => void;
+  readonly __wbg_set_rtcoffsetjs_y: (a: number, b: number) => void;
+  readonly __wbg_set_rtcoffsetjs_z: (a: number, b: number) => void;
   readonly zerocopymesh_triangle_count: (a: number) => number;
+  readonly get_memory: () => number;
   readonly gpuinstancedgeometryref_indicesPtr: (a: number) => number;
   readonly gpuinstancedgeometryref_instanceDataPtr: (a: number) => number;
   readonly gpuinstancedgeometryref_instanceExpressIdsPtr: (a: number) => number;
@@ -1030,21 +1031,20 @@ export interface InitOutput {
   readonly zerocopymesh_indices_ptr: (a: number) => number;
   readonly zerocopymesh_normals_ptr: (a: number) => number;
   readonly gpuinstancedgeometrycollection_getRef: (a: number, b: number) => number;
-  readonly __wbg_set_rtcoffsetjs_x: (a: number, b: number) => void;
-  readonly __wbg_set_rtcoffsetjs_y: (a: number, b: number) => void;
-  readonly __wbg_set_rtcoffsetjs_z: (a: number, b: number) => void;
   readonly __wbg_get_rtcoffsetjs_x: (a: number) => number;
   readonly __wbg_get_rtcoffsetjs_y: (a: number) => number;
   readonly __wbg_get_rtcoffsetjs_z: (a: number) => number;
+  readonly gpuinstancedgeometryref_indicesByteLength: (a: number) => number;
+  readonly gpuinstancedgeometryref_instanceDataByteLength: (a: number) => number;
+  readonly gpuinstancedgeometryref_vertexDataByteLength: (a: number) => number;
   readonly gpuinstancedgeometryref_geometryId: (a: number) => bigint;
   readonly instancedgeometry_geometryId: (a: number) => bigint;
   readonly meshcollection_rtcOffsetX: (a: number) => number;
   readonly symboliccircle_expressId: (a: number) => number;
   readonly __wbg_gpuinstancedgeometryref_free: (a: number, b: number) => void;
-  readonly get_memory: () => number;
-  readonly __wasm_bindgen_func_elem_1119: (a: number, b: number, c: number) => void;
-  readonly __wasm_bindgen_func_elem_1114: (a: number, b: number) => void;
-  readonly __wasm_bindgen_func_elem_1150: (a: number, b: number, c: number, d: number) => void;
+  readonly __wasm_bindgen_func_elem_1065: (a: number, b: number, c: number) => void;
+  readonly __wasm_bindgen_func_elem_1064: (a: number, b: number) => void;
+  readonly __wasm_bindgen_func_elem_1099: (a: number, b: number, c: number, d: number) => void;
   readonly __wbindgen_export: (a: number) => void;
   readonly __wbindgen_export2: (a: number, b: number, c: number) => void;
   readonly __wbindgen_export3: (a: number, b: number) => number;
