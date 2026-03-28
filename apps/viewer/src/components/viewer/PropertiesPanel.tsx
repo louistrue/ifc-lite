@@ -997,7 +997,7 @@ export function PropertiesPanel() {
               {georef && (
                 <GeoreferencingPanel
                   georef={georef}
-                  modelId={selectedEntity?.modelId === 'legacy' ? undefined : selectedEntity?.modelId}
+                  modelId={selectedEntity?.modelId === 'legacy' ? '__legacy__' : (model?.id ?? selectedEntity?.modelId)}
                   enableEditing
                 />
               )}
@@ -1009,7 +1009,7 @@ export function PropertiesPanel() {
         {!entityCoordinates && georef && (
           <GeoreferencingPanel
             georef={georef}
-            modelId={selectedEntity?.modelId === 'legacy' ? undefined : selectedEntity?.modelId}
+            modelId={selectedEntity?.modelId === 'legacy' ? '__legacy__' : (model?.id ?? selectedEntity?.modelId)}
             enableEditing
           />
         )}
