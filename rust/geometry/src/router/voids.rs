@@ -436,31 +436,27 @@ impl GeometryRouter {
         decoder: &mut EntityDecoder,
         void_index: &FxHashMap<u32, Vec<u32>>,
     ) -> Result<Mesh> {
-        // Check if this element has any openings
+        let eid = element.id;
+        web_sys::console::warn_1(&format!("[VOID] #{} start", eid).into());
+
         let opening_ids = match void_index.get(&element.id) {
             Some(ids) if !ids.is_empty() => ids,
             _ => {
-                // No openings - just process normally
                 return self.process_element(element, decoder);
             }
         };
 
-        // No blanket opening-count gate here. Rectangular and diagonal openings use
-        // fast AABB clipping with no per-element limit. NonRectangular (CSG) openings
-        // are independently capped by MAX_CSG_OPERATIONS below, so elements with many
-        // complex openings degrade gracefully rather than skipping void subtraction
-        // entirely.
-
-        // STEP 1: Get chamfered wall mesh (preserves chamfered corners at intersections)
+        web_sys::console::warn_1(&format!("[VOID] #{} has {} openings, getting wall mesh...", eid, opening_ids.len()).into());
         let wall_mesh = match self.process_element(element, decoder) {
             Ok(m) => m,
-            Err(_) => {
+            Err(e) => {
+                web_sys::console::warn_1(&format!("[VOID] #{} process_element failed: {}", eid, e).into());
                 return self.process_element(element, decoder);
             }
         };
+        web_sys::console::warn_1(&format!("[VOID] #{} wall mesh: {} verts, {} tris", eid, wall_mesh.positions.len()/3, wall_mesh.indices.len()/3).into());
 
-        // OPTIMIZATION: Only extract clipping planes if element actually has them
-        // This skips expensive profile extraction for ~95% of elements
+        web_sys::console::warn_1(&format!("[VOID] #{} extracting clipping planes...", eid).into());
         use nalgebra::Vector3;
         let world_clipping_planes: Vec<(Point3<f64>, Vector3<f64>, bool)> =
             if self.has_clipping_planes(element, decoder) {
@@ -491,13 +487,14 @@ impl GeometryRouter {
                 Vec::new()
             };
 
+        web_sys::console::warn_1(&format!("[VOID] #{} classifying openings...", eid).into());
         let openings = self.classify_openings(opening_ids, decoder);
+        web_sys::console::warn_1(&format!("[VOID] #{} classified {} openings", eid, openings.len()).into());
 
         if openings.is_empty() {
             return self.process_element(element, decoder);
         }
 
-        // STEP 6: Cut openings using appropriate method
         use crate::csg::ClippingProcessor;
         let clipper = ClippingProcessor::new();
         let mut result = wall_mesh;
@@ -530,9 +527,14 @@ impl GeometryRouter {
         let mut csg_operation_count = 0;
         const MAX_CSG_OPERATIONS: usize = 10; // Limit to prevent runaway CSG
 
+        web_sys::console::warn_1(&format!("[VOID] #{} applying diagonal openings...", eid).into());
         self.apply_diagonal_openings(&mut result, &openings, &wall_min, &wall_max);
+        web_sys::console::warn_1(&format!("[VOID] #{} diagonal done, cutting {} openings...", eid, openings.len()).into());
 
-        for opening in openings.iter() {
+        for (oi, opening) in openings.iter().enumerate() {
+            web_sys::console::warn_1(&format!("[VOID] #{} opening {}/{}: {:?}", eid, oi+1, openings.len(),
+                match opening { OpeningType::Rectangular(..) => "Rect", OpeningType::DiagonalRectangular(..) => "DiagRect", OpeningType::NonRectangular(..) => "NonRect" }
+            ).into());
             match opening {
                 OpeningType::Rectangular(open_min, open_max, extrusion_dir) => {
                     // Use AABB clipping for axis-aligned rectangular openings

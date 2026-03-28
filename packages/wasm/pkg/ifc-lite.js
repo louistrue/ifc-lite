@@ -205,12 +205,12 @@ if (!('encodeInto' in cachedTextEncoder)) {
 
 let WASM_VECTOR_LEN = 0;
 
-function __wasm_bindgen_func_elem_1269(arg0, arg1, arg2) {
-    wasm.__wasm_bindgen_func_elem_1269(arg0, arg1, addHeapObject(arg2));
+function __wasm_bindgen_func_elem_1067(arg0, arg1, arg2) {
+    wasm.__wasm_bindgen_func_elem_1067(arg0, arg1, addHeapObject(arg2));
 }
 
-function __wasm_bindgen_func_elem_1307(arg0, arg1, arg2, arg3) {
-    wasm.__wasm_bindgen_func_elem_1307(arg0, arg1, addHeapObject(arg2), addHeapObject(arg3));
+function __wasm_bindgen_func_elem_1107(arg0, arg1, arg2, arg3) {
+    wasm.__wasm_bindgen_func_elem_1107(arg0, arg1, addHeapObject(arg2), addHeapObject(arg3));
 }
 
 const GeoReferenceJsFinalization = (typeof FinalizationRegistry === 'undefined')
@@ -1652,7 +1652,7 @@ export class InstancedGeometry {
      * @returns {bigint}
      */
     get geometryId() {
-        const ret = wasm.instancedgeometry_geometryId(this.__wbg_ptr);
+        const ret = wasm.gpuinstancedgeometry_geometryId(this.__wbg_ptr);
         return BigInt.asUintN(64, ret);
     }
     /**
@@ -1726,7 +1726,7 @@ export class InstancedMeshCollection {
      * @returns {number}
      */
     get totalGeometries() {
-        const ret = wasm.instancedmeshcollection_length(this.__wbg_ptr);
+        const ret = wasm.gpuinstancedgeometrycollection_length(this.__wbg_ptr);
         return ret >>> 0;
     }
     /**
@@ -1741,7 +1741,7 @@ export class InstancedMeshCollection {
      * @returns {number}
      */
     get length() {
-        const ret = wasm.instancedmeshcollection_length(this.__wbg_ptr);
+        const ret = wasm.gpuinstancedgeometrycollection_length(this.__wbg_ptr);
         return ret >>> 0;
     }
 }
@@ -1774,7 +1774,7 @@ export class MeshCollection {
      * @returns {number}
      */
     get rtcOffsetX() {
-        const ret = wasm.meshcollection_rtcOffsetX(this.__wbg_ptr);
+        const ret = wasm.gpugeometry_rtcOffsetZ(this.__wbg_ptr);
         return ret;
     }
     /**
@@ -1917,7 +1917,7 @@ export class MeshCollectionWithRtc {
      * @returns {number}
      */
     get length() {
-        const ret = wasm.meshcollectionwithrtc_length(this.__wbg_ptr);
+        const ret = wasm.meshcollection_length(this.__wbg_ptr);
         return ret >>> 0;
     }
     /**
@@ -2162,7 +2162,7 @@ export class SymbolicCircle {
      * @returns {number}
      */
     get expressId() {
-        const ret = wasm.symboliccircle_expressId(this.__wbg_ptr);
+        const ret = wasm.gpumeshmetadata_vertexCount(this.__wbg_ptr);
         return ret >>> 0;
     }
     /**
@@ -2497,7 +2497,7 @@ export class ZeroCopyMesh {
      * @returns {number}
      */
     get indices_len() {
-        const ret = wasm.zerocopymesh_indices_len(this.__wbg_ptr);
+        const ret = wasm.gpuinstancedgeometry_indicesLen(this.__wbg_ptr);
         return ret >>> 0;
     }
     /**
@@ -2505,7 +2505,7 @@ export class ZeroCopyMesh {
      * @returns {number}
      */
     get indices_ptr() {
-        const ret = wasm.zerocopymesh_indices_ptr(this.__wbg_ptr);
+        const ret = wasm.gpuinstancedgeometry_indicesPtr(this.__wbg_ptr);
         return ret >>> 0;
     }
     /**
@@ -2521,7 +2521,7 @@ export class ZeroCopyMesh {
      * @returns {number}
      */
     get normals_ptr() {
-        const ret = wasm.zerocopymesh_normals_ptr(this.__wbg_ptr);
+        const ret = wasm.gpuinstancedgeometry_vertexDataPtr(this.__wbg_ptr);
         return ret >>> 0;
     }
     /**
@@ -2554,7 +2554,7 @@ export class ZeroCopyMesh {
      * @returns {number}
      */
     get triangle_count() {
-        const ret = wasm.zerocopymesh_triangle_count(this.__wbg_ptr);
+        const ret = wasm.gpuinstancedgeometry_triangleCount(this.__wbg_ptr);
         return ret >>> 0;
     }
     /**
@@ -2759,7 +2759,7 @@ function __wbg_get_imports() {
                 const a = state0.a;
                 state0.a = 0;
                 try {
-                    return __wasm_bindgen_func_elem_1307(a, state0.b, arg0, arg1);
+                    return __wasm_bindgen_func_elem_1107(a, state0.b, arg0, arg1);
                 } finally {
                     state0.a = a;
                 }
@@ -2845,14 +2845,14 @@ function __wbg_get_imports() {
         const ret = getStringFromWasm0(arg0, arg1);
         return addHeapObject(ret);
     };
-    imports.wbg.__wbindgen_cast_443332637da6f2f5 = function(arg0, arg1) {
-        // Cast intrinsic for `Closure(Closure { dtor_idx: 160, function: Function { arguments: [Externref], shim_idx: 161, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
-        const ret = makeMutClosure(arg0, arg1, wasm.__wasm_bindgen_func_elem_1268, __wasm_bindgen_func_elem_1269);
-        return addHeapObject(ret);
-    };
     imports.wbg.__wbindgen_cast_4625c577ab2ec9ee = function(arg0) {
         // Cast intrinsic for `U64 -> Externref`.
         const ret = BigInt.asUintN(64, arg0);
+        return addHeapObject(ret);
+    };
+    imports.wbg.__wbindgen_cast_46fe3e4a37968b61 = function(arg0, arg1) {
+        // Cast intrinsic for `Closure(Closure { dtor_idx: 146, function: Function { arguments: [Externref], shim_idx: 147, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+        const ret = makeMutClosure(arg0, arg1, wasm.__wasm_bindgen_func_elem_1066, __wasm_bindgen_func_elem_1067);
         return addHeapObject(ret);
     };
     imports.wbg.__wbindgen_cast_d6cd19b81560fd6e = function(arg0) {
