@@ -39,13 +39,12 @@ if [ "${DEBUG_GEOMETRY:-}" = "1" ]; then
   echo "🔍 Building with debug_geometry feature enabled"
 fi
 
-rustup run nightly-2025-11-15 "$WASM_PACK" build rust/wasm-bindings \
+"$WASM_PACK" build rust/wasm-bindings \
   --target web \
   --out-dir ../../packages/wasm/pkg \
   --out-name ifc-lite \
   --release \
-  $FEATURES \
-  -- -Z build-std=panic_abort,std
+  $FEATURES
 
 # NOTE: wasm-opt is disabled. Both wasm-opt v116 (cargo) and older npm versions
 # miscompile the wasm-bindgen async/Promise machinery and thread dispatch code

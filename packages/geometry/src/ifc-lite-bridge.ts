@@ -8,17 +8,15 @@
  */
 
 import { createLogger } from '@ifc-lite/data';
-import init, { IfcAPI, initThreadPool, MeshCollection, MeshDataJs, InstancedMeshCollection, InstancedGeometry, InstanceData, SymbolicRepresentationCollection, SymbolicPolyline, SymbolicCircle } from '@ifc-lite/wasm';
+import init, { IfcAPI, MeshCollection, MeshDataJs, InstancedMeshCollection, InstancedGeometry, InstanceData, SymbolicRepresentationCollection, SymbolicPolyline, SymbolicCircle } from '@ifc-lite/wasm';
 export type { MeshCollection, MeshDataJs, InstancedMeshCollection, InstancedGeometry, InstanceData, SymbolicRepresentationCollection, SymbolicPolyline, SymbolicCircle };
 
 const log = createLogger('Geometry');
 const FATAL_WASM_RELOAD_REQUIRED_MESSAGE = 'IFC-Lite WASM cannot recover from a fatal runtime error within the same document lifetime. Reload the page or recreate the worker process before calling init() again.';
 let fatalWasmRuntimeError: Error | null = null;
 
-/** Module-level flag: tracks whether the WASM module + thread pool have been initialized.
- *  wasm-bindgen's init() is idempotent, but initThreadPool() is NOT — calling it twice
- *  crashes because the rayon global pool is already set up. Since IfcLiteBridge instances
- *  are created per file load, we must guard thread pool init at the module level. */
+/** Module-level flag: wasm-bindgen's init() is idempotent but we track
+ *  initialization state for logging purposes. */
 let wasmModuleInitialized = false;
 
 export interface StreamingProgress {
@@ -77,26 +75,8 @@ export class IfcLiteBridge {
     }
 
     try {
-      console.warn('[Geometry] [init] Starting WASM initialization...');
       await init();
-      console.warn('[Geometry] [init] WASM module loaded');
-
-      // NOTE: initThreadPool is intentionally DISABLED.
-      //
-      // wasm-bindgen-rayon's initThreadPool creates Web Workers that import
-      // the WASM module via a relative `../../..` path. In Vite production
-      // builds, this path doesn't resolve (Vite rewrites/hashes module URLs),
-      // causing the workers to hang forever. Even with a timeout fallback,
-      // the hung workers corrupt the WASM module's internal closure/Promise
-      // state, making subsequent parseMeshesAsync calls crash with
-      // "RuntimeError: unreachable" on large files.
-      //
-      // Without the thread pool, rayon's par_iter() falls back to sequential
-      // iteration on the main thread, which works correctly. Multi-threading
-      // can be re-enabled once wasm-bindgen-rayon supports Vite's bundled
-      // module resolution (see: https://github.com/nicknisi/wasm-bindgen-rayon/issues)
       if (!wasmModuleInitialized) {
-        console.warn('[Geometry] Thread pool disabled (incompatible with Vite production builds) — using single-threaded mode');
         wasmModuleInitialized = true;
       }
 
@@ -113,55 +93,6 @@ export class IfcLiteBridge {
         this.reset();
       }
       throw error;
-    }
-  }
-
-  /**
-   * Test whether the browser can create module workers with SharedArrayBuffer.
-   * wasm-bindgen-rayon's initThreadPool creates module workers internally;
-   * if that fails the WASM module is left in an unrecoverable state.
-   * This probe creates a minimal module worker to verify support before
-   * committing to initThreadPool.
-   */
-  private async probeModuleWorkerSupport(): Promise<boolean> {
-    try {
-      console.warn('[Geometry] [probe] Creating test blob worker...');
-      const blob = new Blob(
-        ['self.postMessage("ok")'],
-        { type: 'application/javascript' },
-      );
-      const url = URL.createObjectURL(blob);
-      const result = await new Promise<boolean>((resolve) => {
-        try {
-          const w = new Worker(url, { type: 'module' });
-          const timer = setTimeout(() => {
-            console.warn('[Geometry] [probe] Worker timed out after 2s');
-            w.terminate();
-            resolve(false);
-          }, 2000);
-          w.onmessage = () => {
-            console.warn('[Geometry] [probe] Worker responded OK');
-            clearTimeout(timer);
-            w.terminate();
-            resolve(true);
-          };
-          w.onerror = (e) => {
-            console.warn('[Geometry] [probe] Worker error', e);
-            clearTimeout(timer);
-            w.terminate();
-            resolve(false);
-          };
-        } catch (e) {
-          console.warn('[Geometry] [probe] Worker creation failed', e);
-          resolve(false);
-        }
-      });
-      URL.revokeObjectURL(url);
-      console.warn(`[Geometry] [probe] Result: ${result}`);
-      return result;
-    } catch (e) {
-      console.warn('[Geometry] [probe] Outer catch', e);
-      return false;
     }
   }
 

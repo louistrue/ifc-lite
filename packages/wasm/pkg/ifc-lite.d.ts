@@ -18,14 +18,6 @@ export class GeoReferenceJs {
    */
   toMatrix(): Float64Array;
   /**
-   * Get CRS name
-   */
-  readonly crsName: string | undefined;
-  /**
-   * Get rotation angle in radians
-   */
-  readonly rotation: number;
-  /**
    * Eastings (X offset)
    */
   eastings: number;
@@ -49,6 +41,14 @@ export class GeoReferenceJs {
    * Scale factor
    */
   scale: number;
+  /**
+   * Get CRS name
+   */
+  readonly crsName: string | undefined;
+  /**
+   * Get rotation angle in radians
+   */
+  readonly rotation: number;
 }
 
 export class GpuGeometry {
@@ -406,14 +406,6 @@ export class IfcAPI {
    */
   debugProcessFirstWall(content: string): string;
   /**
-   * Get WASM memory for zero-copy access
-   */
-  getMemory(): any;
-  /**
-   * Create and initialize the IFC API
-   */
-  constructor();
-  /**
    * Extract georeferencing information from IFC content
    * Returns null if no georeferencing is present
    *
@@ -489,6 +481,14 @@ export class IfcAPI {
    * ```
    */
   parse(content: string): Promise<any>;
+  /**
+   * Get WASM memory for zero-copy access
+   */
+  getMemory(): any;
+  /**
+   * Create and initialize the IFC API
+   */
+  constructor();
   /**
    * Parse IFC file and extract symbolic representations (Plan, Annotation, FootPrint)
    * These are 2D curves used for architectural drawings instead of sectioning 3D geometry
@@ -830,8 +830,6 @@ export function get_memory(): any;
  */
 export function init(): void;
 
-export function initThreadPool(num_threads: number): Promise<any>;
-
 /**
  * Get the version of IFC-Lite.
  *
@@ -847,20 +845,10 @@ export function initThreadPool(num_threads: number): Promise<any>;
  */
 export function version(): string;
 
-export class wbg_rayon_PoolBuilder {
-  private constructor();
-  free(): void;
-  [Symbol.dispose](): void;
-  numThreads(): number;
-  build(): void;
-  receiver(): number;
-}
-
-export function wbg_rayon_start_worker(receiver: number): void;
-
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
 
 export interface InitOutput {
+  readonly memory: WebAssembly.Memory;
   readonly __wbg_georeferencejs_free: (a: number, b: number) => void;
   readonly __wbg_get_georeferencejs_eastings: (a: number) => number;
   readonly __wbg_get_georeferencejs_northings: (a: number) => number;
@@ -1022,6 +1010,10 @@ export interface InitOutput {
   readonly zerocopymesh_positions_len: (a: number) => number;
   readonly zerocopymesh_positions_ptr: (a: number) => number;
   readonly zerocopymesh_vertex_count: (a: number) => number;
+  readonly gpuinstancedgeometryref_indicesByteLength: (a: number) => number;
+  readonly gpuinstancedgeometryref_instanceDataByteLength: (a: number) => number;
+  readonly gpuinstancedgeometryref_vertexDataByteLength: (a: number) => number;
+  readonly init: () => void;
   readonly gpuinstancedgeometryref_indicesLen: (a: number) => number;
   readonly gpuinstancedgeometryref_instanceCount: (a: number) => number;
   readonly gpuinstancedgeometryref_instanceDataLen: (a: number) => number;
@@ -1030,12 +1022,7 @@ export interface InitOutput {
   readonly instancedmeshcollection_totalGeometries: (a: number) => number;
   readonly meshcollectionwithrtc_length: (a: number) => number;
   readonly zerocopymesh_indices_len: (a: number) => number;
-  readonly init: () => void;
-  readonly __wbg_set_rtcoffsetjs_x: (a: number, b: number) => void;
-  readonly __wbg_set_rtcoffsetjs_y: (a: number, b: number) => void;
-  readonly __wbg_set_rtcoffsetjs_z: (a: number, b: number) => void;
   readonly zerocopymesh_triangle_count: (a: number) => number;
-  readonly get_memory: () => number;
   readonly gpuinstancedgeometryref_indicesPtr: (a: number) => number;
   readonly gpuinstancedgeometryref_instanceDataPtr: (a: number) => number;
   readonly gpuinstancedgeometryref_instanceExpressIdsPtr: (a: number) => number;
@@ -1043,36 +1030,29 @@ export interface InitOutput {
   readonly zerocopymesh_indices_ptr: (a: number) => number;
   readonly zerocopymesh_normals_ptr: (a: number) => number;
   readonly gpuinstancedgeometrycollection_getRef: (a: number, b: number) => number;
+  readonly __wbg_set_rtcoffsetjs_x: (a: number, b: number) => void;
+  readonly __wbg_set_rtcoffsetjs_y: (a: number, b: number) => void;
+  readonly __wbg_set_rtcoffsetjs_z: (a: number, b: number) => void;
   readonly __wbg_get_rtcoffsetjs_x: (a: number) => number;
   readonly __wbg_get_rtcoffsetjs_y: (a: number) => number;
   readonly __wbg_get_rtcoffsetjs_z: (a: number) => number;
-  readonly gpuinstancedgeometryref_indicesByteLength: (a: number) => number;
-  readonly gpuinstancedgeometryref_instanceDataByteLength: (a: number) => number;
-  readonly gpuinstancedgeometryref_vertexDataByteLength: (a: number) => number;
   readonly gpuinstancedgeometryref_geometryId: (a: number) => bigint;
   readonly instancedgeometry_geometryId: (a: number) => bigint;
   readonly meshcollection_rtcOffsetX: (a: number) => number;
   readonly symboliccircle_expressId: (a: number) => number;
   readonly __wbg_gpuinstancedgeometryref_free: (a: number, b: number) => void;
-  readonly __wbg_wbg_rayon_poolbuilder_free: (a: number, b: number) => void;
-  readonly initThreadPool: (a: number) => number;
-  readonly wbg_rayon_poolbuilder_build: (a: number) => void;
-  readonly wbg_rayon_poolbuilder_numThreads: (a: number) => number;
-  readonly wbg_rayon_poolbuilder_receiver: (a: number) => number;
-  readonly wbg_rayon_start_worker: (a: number) => void;
-  readonly __wasm_bindgen_func_elem_961: (a: number, b: number, c: number) => void;
-  readonly __wasm_bindgen_func_elem_960: (a: number, b: number) => void;
-  readonly __wasm_bindgen_func_elem_497: (a: number, b: number) => void;
-  readonly __wasm_bindgen_func_elem_496: (a: number, b: number) => void;
-  readonly __wasm_bindgen_func_elem_1230: (a: number, b: number, c: number, d: number) => void;
-  readonly memory: WebAssembly.Memory;
+  readonly get_memory: () => number;
+  readonly __wasm_bindgen_func_elem_481: (a: number, b: number) => void;
+  readonly __wasm_bindgen_func_elem_477: (a: number, b: number) => void;
+  readonly __wasm_bindgen_func_elem_1140: (a: number, b: number, c: number) => void;
+  readonly __wasm_bindgen_func_elem_1135: (a: number, b: number) => void;
+  readonly __wasm_bindgen_func_elem_1171: (a: number, b: number, c: number, d: number) => void;
   readonly __wbindgen_export: (a: number) => void;
   readonly __wbindgen_export2: (a: number, b: number, c: number) => void;
   readonly __wbindgen_export3: (a: number, b: number) => number;
   readonly __wbindgen_export4: (a: number, b: number, c: number, d: number) => number;
   readonly __wbindgen_add_to_stack_pointer: (a: number) => number;
-  readonly __wbindgen_thread_destroy: (a?: number, b?: number, c?: number) => void;
-  readonly __wbindgen_start: (a: number) => void;
+  readonly __wbindgen_start: () => void;
 }
 
 export type SyncInitInput = BufferSource | WebAssembly.Module;
@@ -1081,20 +1061,18 @@ export type SyncInitInput = BufferSource | WebAssembly.Module;
 * Instantiates the given `module`, which can either be bytes or
 * a precompiled `WebAssembly.Module`.
 *
-* @param {{ module: SyncInitInput, memory?: WebAssembly.Memory, thread_stack_size?: number }} module - Passing `SyncInitInput` directly is deprecated.
-* @param {WebAssembly.Memory} memory - Deprecated.
+* @param {{ module: SyncInitInput }} module - Passing `SyncInitInput` directly is deprecated.
 *
 * @returns {InitOutput}
 */
-export function initSync(module: { module: SyncInitInput, memory?: WebAssembly.Memory, thread_stack_size?: number } | SyncInitInput, memory?: WebAssembly.Memory): InitOutput;
+export function initSync(module: { module: SyncInitInput } | SyncInitInput): InitOutput;
 
 /**
 * If `module_or_path` is {RequestInfo} or {URL}, makes a request and
 * for everything else, calls `WebAssembly.instantiate` directly.
 *
-* @param {{ module_or_path: InitInput | Promise<InitInput>, memory?: WebAssembly.Memory, thread_stack_size?: number }} module_or_path - Passing `InitInput` directly is deprecated.
-* @param {WebAssembly.Memory} memory - Deprecated.
+* @param {{ module_or_path: InitInput | Promise<InitInput> }} module_or_path - Passing `InitInput` directly is deprecated.
 *
 * @returns {Promise<InitOutput>}
 */
-export default function __wbg_init (module_or_path?: { module_or_path: InitInput | Promise<InitInput>, memory?: WebAssembly.Memory, thread_stack_size?: number } | InitInput | Promise<InitInput>, memory?: WebAssembly.Memory): Promise<InitOutput>;
+export default function __wbg_init (module_or_path?: { module_or_path: InitInput | Promise<InitInput> } | InitInput | Promise<InitInput>): Promise<InitOutput>;
