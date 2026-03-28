@@ -2288,7 +2288,7 @@ impl IfcAPI {
     ) -> MeshCollection {
         use ifc_lite_core::EntityDecoder;
         use ifc_lite_geometry::{calculate_normals, GeometryRouter};
-        use super::styling::{get_default_color_for_type, resolve_element_color};
+        use super::styling::{get_default_color_for_type, resolve_element_color, resolve_submesh_color};
 
         let content = unsafe { std::str::from_utf8_unchecked(data) };
 
@@ -2403,18 +2403,58 @@ impl IfcAPI {
                         }
                     }
                 } else {
-                    if let Ok(mut mesh) = router.process_element(&entity, &mut decoder) {
-                        if !mesh.is_empty() {
+                    // Try sub-mesh approach for multi-material elements (windows with glass transparency)
+                    let skip_submesh = matches!(ifc_type, ifc_lite_core::IfcType::IfcSite);
+                    let sub_meshes_result = if skip_submesh {
+                        Err(ifc_lite_geometry::Error::geometry("Skip".to_string()))
+                    } else {
+                        router.process_element_with_submeshes(&entity, &mut decoder)
+                    };
+
+                    let has_submeshes = sub_meshes_result.as_ref().map(|s| !s.is_empty()).unwrap_or(false);
+
+                    if has_submeshes {
+                        let sub_meshes = sub_meshes_result.unwrap();
+                        let default_color = get_default_color_for_type(&ifc_type);
+                        let element_color = element_styles.get(&id).copied();
+                        let mut mat_color_idx = 0usize;
+
+                        for sub in sub_meshes.sub_meshes {
+                            let mut mesh = sub.mesh;
+                            if mesh.is_empty() { continue; }
                             if mesh.normals.len() != mesh.positions.len() {
                                 calculate_normals(&mut mesh);
                             }
-                            let color = element_styles.get(&id).copied()
-                                .unwrap_or_else(|| get_default_color_for_type(&ifc_type));
+                            let color = resolve_submesh_color(
+                                sub.geometry_id,
+                                &geometry_styles,
+                                &mut decoder,
+                                None, // material styles not available in worker
+                                &mut mat_color_idx,
+                                element_color,
+                                default_color,
+                            );
                             let ifc_type_name = type_name_cache
                                 .entry(ifc_type)
                                 .or_insert_with(|| ifc_type.name().to_string())
                                 .clone();
                             mesh_collection.add(MeshDataJs::new(id, ifc_type_name, mesh, color));
+                        }
+                    } else {
+                        // Fallback: single mesh
+                        if let Ok(mut mesh) = router.process_element(&entity, &mut decoder) {
+                            if !mesh.is_empty() {
+                                if mesh.normals.len() != mesh.positions.len() {
+                                    calculate_normals(&mut mesh);
+                                }
+                                let color = element_styles.get(&id).copied()
+                                    .unwrap_or_else(|| get_default_color_for_type(&ifc_type));
+                                let ifc_type_name = type_name_cache
+                                    .entry(ifc_type)
+                                    .or_insert_with(|| ifc_type.name().to_string())
+                                    .clone();
+                                mesh_collection.add(MeshDataJs::new(id, ifc_type_name, mesh, color));
+                            }
                         }
                     }
                 }
