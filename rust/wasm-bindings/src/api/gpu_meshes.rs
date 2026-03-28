@@ -78,6 +78,10 @@ impl IfcAPI {
             }
         }
 
+        // Propagate voids from aggregate parents (IfcWall) to children (IfcBuildingElementPart)
+        // so that multilayer wall parts also get window/door cutouts.
+        ifc_lite_geometry::propagate_voids_to_parts(&mut void_index, &content, &mut decoder);
+
         // Create geometry router (without RTC offset initially)
         let mut router = GeometryRouter::with_units(&content, &mut decoder);
 

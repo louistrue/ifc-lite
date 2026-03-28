@@ -11,8 +11,84 @@
 //! - RelatingBuildingElement: The host (wall, slab, beam, etc.)
 //! - RelatedOpeningElement: The opening (IfcOpeningElement)
 
-use ifc_lite_core::{EntityDecoder, EntityScanner};
+use ifc_lite_core::{EntityDecoder, EntityScanner, IfcType};
 use rustc_hash::FxHashMap;
+
+/// Propagate void (opening) relationships from aggregate parents to their children.
+///
+/// In IFC, multilayer walls use `IfcRelAggregates` to decompose a parent `IfcWall`
+/// into child `IfcBuildingElementPart` entities (one per material layer). The
+/// `IfcRelVoidsElement` relationships reference the parent wall, but the individual
+/// layer parts also need void subtraction to cut windows/doors through each layer.
+///
+/// This function scans for `IfcRelAggregates` where the parent has voids and copies
+/// those void relationships to every child part that has geometry.
+pub fn propagate_voids_to_parts(
+    void_index: &mut FxHashMap<u32, Vec<u32>>,
+    content: &str,
+    decoder: &mut EntityDecoder,
+) {
+    let mut scanner = EntityScanner::new(content);
+    let mut propagations: Vec<(u32, Vec<u32>)> = Vec::new();
+
+    while let Some((id, type_name, start, end)) = scanner.next_entity() {
+        if type_name != "IFCRELAGGREGATES" {
+            continue;
+        }
+        let entity = match decoder.decode_at_with_id(id, start, end) {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+
+        // IfcRelAggregates: attr 4 = RelatingObject, attr 5 = RelatedObjects
+        let parent_id = match entity.get_ref(4) {
+            Some(id) => id,
+            None => continue,
+        };
+
+        if !void_index.contains_key(&parent_id) {
+            continue;
+        }
+
+        let children_attr = match entity.get(5) {
+            Some(attr) => attr,
+            None => continue,
+        };
+        let children: Vec<u32> = match children_attr.as_list() {
+            Some(list) => list.iter().filter_map(|item| item.as_entity_ref()).collect(),
+            None => continue,
+        };
+
+        let mut eligible_children = Vec::new();
+        for child_id in children {
+            if let Ok(child) = decoder.decode_by_id(child_id) {
+                if child.ifc_type == IfcType::IfcBuildingElementPart {
+                    let has_repr = child.get(6).map(|a| !a.is_null()).unwrap_or(false);
+                    if has_repr {
+                        eligible_children.push(child_id);
+                    }
+                }
+            }
+        }
+
+        if !eligible_children.is_empty() {
+            propagations.push((parent_id, eligible_children));
+        }
+    }
+
+    for (parent_id, children) in propagations {
+        let parent_voids = match void_index.get(&parent_id) {
+            Some(v) => v.clone(),
+            None => continue,
+        };
+        for child_id in children {
+            void_index
+                .entry(child_id)
+                .or_default()
+                .extend(parent_voids.iter().copied());
+        }
+    }
+}
 
 /// Index mapping host elements to their voids
 ///
