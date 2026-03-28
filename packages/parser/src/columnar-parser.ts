@@ -13,6 +13,7 @@ import type { EntityRef } from './types.js';
 import { SpatialHierarchyBuilder } from './spatial-hierarchy-builder.js';
 import { EntityExtractor } from './entity-extractor.js';
 import { extractLengthUnitScale } from './unit-extractor.js';
+import { decodeIfcString } from '@ifc-lite/encoding';
 import { getAttributeNames } from './ifc-schema.js';
 import { parsePropertyValue } from './on-demand-extractors.js';
 import { CompactEntityIndex, buildCompactEntityIndex } from './compact-entity-index.js';
@@ -349,9 +350,10 @@ function batchExtractGlobalIdAndName(
     // Phase 4: Build result map
     for (let i = 0; i < validIndices.length; i++) {
         const ref = refs[validIndices[i]];
+        const rawName = names[i] || '';
         result.set(ref.expressId, {
             globalId: gids[i] || '',
-            name: names[i] || '',
+            name: rawName ? decodeIfcString(rawName) : '',
         });
     }
 
