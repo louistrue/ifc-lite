@@ -77,39 +77,39 @@ export class IfcLiteBridge {
     }
 
     try {
-      log.info('[init] Starting WASM initialization...');
+      console.warn('[Geometry] [init] Starting WASM initialization...');
       await init();
-      log.info('[init] WASM module loaded');
+      console.warn('[Geometry] [init] WASM module loaded');
 
       if (!wasmModuleInitialized) {
         if (typeof SharedArrayBuffer !== 'undefined') {
-          log.info('[init] SharedArrayBuffer available, probing module worker support...');
+          console.warn('[Geometry] [init] SharedArrayBuffer available, probing module worker support...');
           const canUseThreads = await this.probeModuleWorkerSupport();
-          log.info(`[init] Module worker probe result: ${canUseThreads}`);
+          console.warn(`[Geometry] [init] Module worker probe result: ${canUseThreads}`);
           if (canUseThreads) {
             try {
               const threads = navigator.hardwareConcurrency || 4;
-              log.info(`[init] Calling initThreadPool with ${threads} threads...`);
+              console.warn(`[Geometry] [init] Calling initThreadPool with ${threads} threads...`);
               await initThreadPool(threads);
-              log.info(`Thread pool initialized with ${threads} threads`);
+              console.warn(`[Geometry] Thread pool initialized with ${threads} threads`);
             } catch (e) {
-              log.warn('Thread pool init failed, falling back to single-threaded geometry processing', { data: e });
+              console.warn('[Geometry] Thread pool init failed, falling back to single-threaded', e);
             }
           } else {
-            log.warn('Module workers unavailable — geometry processing will be single-threaded');
+            console.warn('[Geometry] Module workers unavailable — single-threaded mode');
           }
         } else {
-          log.warn('SharedArrayBuffer unavailable (missing COOP/COEP headers?) — geometry processing will be single-threaded');
+          console.warn('[Geometry] SharedArrayBuffer unavailable — single-threaded mode');
         }
         wasmModuleInitialized = true;
-        log.info('[init] wasmModuleInitialized = true');
+        console.warn('[Geometry] [init] wasmModuleInitialized = true');
       } else {
-        log.info('[init] WASM already initialized (skipping thread pool)');
+        console.warn('[Geometry] [init] WASM already initialized (skipping thread pool)');
       }
 
       this.ifcApi = new IfcAPI();
       this.initialized = true;
-      log.info('WASM geometry engine initialized');
+      console.warn('[Geometry] WASM geometry engine initialized');
     } catch (error) {
       log.error('Failed to initialize WASM geometry engine', error, {
         operation: 'init',
@@ -132,7 +132,7 @@ export class IfcLiteBridge {
    */
   private async probeModuleWorkerSupport(): Promise<boolean> {
     try {
-      log.info('[probe] Creating test blob worker...');
+      console.warn('[Geometry] [probe] Creating test blob worker...');
       const blob = new Blob(
         ['self.postMessage("ok")'],
         { type: 'application/javascript' },
@@ -142,32 +142,32 @@ export class IfcLiteBridge {
         try {
           const w = new Worker(url, { type: 'module' });
           const timer = setTimeout(() => {
-            log.warn('[probe] Worker timed out after 2s');
+            console.warn('[Geometry] [probe] Worker timed out after 2s');
             w.terminate();
             resolve(false);
           }, 2000);
           w.onmessage = () => {
-            log.info('[probe] Worker responded OK');
+            console.warn('[Geometry] [probe] Worker responded OK');
             clearTimeout(timer);
             w.terminate();
             resolve(true);
           };
           w.onerror = (e) => {
-            log.warn('[probe] Worker error', { data: e });
+            console.warn('[Geometry] [probe] Worker error', e);
             clearTimeout(timer);
             w.terminate();
             resolve(false);
           };
         } catch (e) {
-          log.warn('[probe] Worker creation failed', { data: e });
+          console.warn('[Geometry] [probe] Worker creation failed', e);
           resolve(false);
         }
       });
       URL.revokeObjectURL(url);
-      log.info(`[probe] Result: ${result}`);
+      console.warn(`[Geometry] [probe] Result: ${result}`);
       return result;
     } catch (e) {
-      log.warn('[probe] Outer catch', { data: e });
+      console.warn('[Geometry] [probe] Outer catch', e);
       return false;
     }
   }
