@@ -127,11 +127,6 @@ impl IfcAPI {
 
             stats.total += 1;
 
-            // Log every entity to find the panicking one
-            web_sys::console::warn_1(&format!(
-                "[WASM] #{} {} [{}]", id, type_name, stats.total
-            ).into());
-
             // Decode and process the entity
             if let Ok(entity) = decoder.decode_at_with_id(id, start, end) {
                 // Check if entity actually has representation (attribute index 6 for IfcProduct)
@@ -965,7 +960,6 @@ impl IfcAPI {
             let options = options.take().expect("options already taken");
 
             spawn_local(async move {
-                web_sys::console::warn_1(&"[WASM] parseMeshesAsync: entered spawn_local".into());
 
                 // Parse options - smaller default batch size for faster first frame
                 let batch_size: usize = js_sys::Reflect::get(&options, &"batchSize".into())
@@ -991,23 +985,17 @@ impl IfcAPI {
                     .ok()
                     .and_then(|v| v.dyn_into::<Function>().ok());
 
-                web_sys::console::warn_1(&"[WASM] Phase 1: building entity index...".into());
                 // ── Phase 1: Build entity index (fast memchr scan, ~200 ms) ──
                 let entity_index = ifc_lite_core::build_entity_index(&content);
                 let mut decoder = EntityDecoder::with_index(&content, entity_index);
 
-                web_sys::console::warn_1(&"[WASM] Phase 2: combined pre-pass...".into());
                 let pre_pass = combined_pre_pass(&content, &mut decoder);
 
                 // Pre-allocate decoder cache to avoid HashMap resize-and-rehash
                 // during Phase 3b/4. Each building element + shared placement/repr
                 // chain entities = ~2x the job count.
                 let total_jobs = pre_pass.simple_jobs.len() + pre_pass.complex_jobs.len();
-                web_sys::console::warn_1(&format!("[WASM] Phase 2 done: {} simple + {} complex jobs, {} breps",
-                    pre_pass.simple_jobs.len(), pre_pass.complex_jobs.len(), pre_pass.faceted_brep_ids.len()).into());
                 decoder.reserve_cache(total_jobs * 2);
-
-                web_sys::console::warn_1(&"[WASM] Phase 3: setup...".into());
                 // Extract unit scale from collected IfcProject (avoids with_units scan)
                 let unit_scale = pre_pass
                     .project_id
@@ -1043,7 +1031,6 @@ impl IfcAPI {
                     .site_position
                     .and_then(|pos| extract_building_rotation_from_site(pos, &mut decoder));
 
-                web_sys::console::warn_1(&"[WASM] Phase 3b: building element styles...".into());
                 // ── Phase 3b: Build element style map + pre-warm decoder cache (~1.2 s) ──
                 // Iterates collected jobs (no re-scan!) to:
                 //   1. Build element_id → color map for O(1) color lookup during processing
@@ -1093,7 +1080,6 @@ impl IfcAPI {
                 let mut type_name_cache: rustc_hash::FxHashMap<ifc_lite_core::IfcType, String> =
                     rustc_hash::FxHashMap::default();
 
-                web_sys::console::warn_1(&format!("[WASM] Phase 4: processing {} simple jobs...", pre_pass.simple_jobs.len()).into());
                 // Process simple geometry first (walls, slabs, etc.) for fast first frame
                 for &(id, start, end, ifc_type) in &pre_pass.simple_jobs {
                     if let Ok(entity) = decoder.decode_at_with_id(id, start, end) {
@@ -1182,14 +1168,11 @@ impl IfcAPI {
 
                 let total_elements = processed + pre_pass.complex_jobs.len();
 
-                web_sys::console::warn_1(&format!("[WASM] Simple phase done: {} processed. Starting BREP preprocess ({} breps)...",
-                    processed, pre_pass.faceted_brep_ids.len()).into());
                 if !pre_pass.faceted_brep_ids.is_empty() {
                     router.preprocess_faceted_breps(&pre_pass.faceted_brep_ids, &mut decoder);
                     decoder.clear_point_cache();
                 }
 
-                web_sys::console::warn_1(&format!("[WASM] Phase 5: processing {} complex jobs...", pre_pass.complex_jobs.len()).into());
                 for &(id, start, end, ifc_type) in &pre_pass.complex_jobs {
                     if let Ok(entity) = decoder.decode_at_with_id(id, start, end) {
                         let has_openings = pre_pass.void_index.contains_key(&id);

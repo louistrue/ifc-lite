@@ -437,8 +437,6 @@ impl GeometryRouter {
         decoder: &mut EntityDecoder,
         void_index: &FxHashMap<u32, Vec<u32>>,
     ) -> Result<Mesh> {
-        let eid = element.id;
-        web_sys::console::warn_1(&format!("[VOID] #{} start", eid).into());
 
         let opening_ids = match void_index.get(&element.id) {
             Some(ids) if !ids.is_empty() => ids,
@@ -447,17 +445,12 @@ impl GeometryRouter {
             }
         };
 
-        web_sys::console::warn_1(&format!("[VOID] #{} has {} openings, getting wall mesh...", eid, opening_ids.len()).into());
         let wall_mesh = match self.process_element(element, decoder) {
             Ok(m) => m,
-            Err(e) => {
-                web_sys::console::warn_1(&format!("[VOID] #{} process_element failed: {}", eid, e).into());
+            Err(_) => {
                 return self.process_element(element, decoder);
             }
         };
-        web_sys::console::warn_1(&format!("[VOID] #{} wall mesh: {} verts, {} tris", eid, wall_mesh.positions.len()/3, wall_mesh.indices.len()/3).into());
-
-        web_sys::console::warn_1(&format!("[VOID] #{} extracting clipping planes...", eid).into());
         use nalgebra::Vector3;
         let world_clipping_planes: Vec<(Point3<f64>, Vector3<f64>, bool)> =
             if self.has_clipping_planes(element, decoder) {
@@ -488,9 +481,7 @@ impl GeometryRouter {
                 Vec::new()
             };
 
-        web_sys::console::warn_1(&format!("[VOID] #{} classifying openings...", eid).into());
         let openings = self.classify_openings(opening_ids, decoder);
-        web_sys::console::warn_1(&format!("[VOID] #{} classified {} openings", eid, openings.len()).into());
 
         if openings.is_empty() {
             return self.process_element(element, decoder);
@@ -528,7 +519,6 @@ impl GeometryRouter {
         let mut csg_operation_count = 0;
         const MAX_CSG_OPERATIONS: usize = 10; // Limit to prevent runaway CSG
 
-        web_sys::console::warn_1(&format!("[VOID] #{} applying diagonal openings...", eid).into());
         self.apply_diagonal_openings(&mut result, &openings, &wall_min, &wall_max);
 
         // Merge adjacent/overlapping rectangular openings to prevent exponential
@@ -560,9 +550,7 @@ impl GeometryRouter {
 
         // Single-pass multi-box rectangular clipping
         if !rect_boxes.is_empty() {
-            web_sys::console::warn_1(&format!("[VOID] #{} single-pass clipping {} rect boxes", eid, rect_boxes.len()).into());
             result = self.cut_multiple_rectangular_openings(&result, &rect_boxes);
-            web_sys::console::warn_1(&format!("[VOID] #{} after multi-clip: {}v/{}t", eid, result.positions.len()/3, result.indices.len()/3).into());
         }
 
         let mut rect_operation_count = 0usize;
@@ -1051,12 +1039,8 @@ impl GeometryRouter {
         // Safety: cap triangle count to prevent OOM from pathological cases.
         const MAX_TRIANGLES: usize = 500_000;
 
-        for (bi, (open_min, open_max)) in boxes.iter().enumerate() {
+        for (_bi, (open_min, open_max)) in boxes.iter().enumerate() {
             if current.indices.len() / 3 > MAX_TRIANGLES {
-                web_sys::console::warn_1(&format!(
-                    "[CLIP] Triangle limit reached ({} > {}), skipping remaining {} boxes",
-                    current.indices.len() / 3, MAX_TRIANGLES, boxes.len() - bi
-                ).into());
                 break;
             }
             current = self.cut_rectangular_opening(&current, *open_min, *open_max);
