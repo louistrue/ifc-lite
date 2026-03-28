@@ -467,11 +467,24 @@ export class GeometryProcessor {
     const sharedBuffer = new SharedArrayBuffer(buffer.byteLength);
     new Uint8Array(sharedBuffer).set(buffer);
 
-    // ── PHASE 1: Pre-pass ONCE on main thread ──
-    // Scans entire file, builds job list + style data + void index.
-    // Workers skip this entirely and receive pre-computed results.
-    const theApi = this.bridge!.getApi();
-    const prePassResult = theApi.buildPrePassOnce(buffer);
+    // ── PHASE 1: Pre-pass in a dedicated worker (doesn't block main thread) ──
+    const prePassResult = await new Promise<any>((resolve, reject) => {
+      const ppWorker = new Worker(
+        new URL('./geometry.worker.ts', import.meta.url),
+        { type: 'module' },
+      );
+      ppWorker.onmessage = (e: MessageEvent) => {
+        if (e.data.type === 'prepass-result') {
+          ppWorker.terminate();
+          resolve(e.data.result);
+        } else if (e.data.type === 'error') {
+          ppWorker.terminate();
+          reject(new Error(e.data.message));
+        }
+      };
+      ppWorker.onerror = (e) => { ppWorker.terminate(); reject(new Error(e.message)); };
+      ppWorker.postMessage({ type: 'prepass', sharedBuffer });
+    });
 
     if (!prePassResult || !prePassResult.jobs || prePassResult.totalJobs === 0) {
       const coordinateInfo = this.coordinateHandler.getFinalCoordinateInfo();
