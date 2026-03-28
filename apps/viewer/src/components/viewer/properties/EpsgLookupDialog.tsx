@@ -5,8 +5,9 @@
 /**
  * EPSG lookup dialog - search by code or name.
  *
- * Uses a bundled database of common CRS codes for instant offline search,
- * plus epsg.io direct code lookup for any EPSG code entered numerically.
+ * Uses the EPSG.org Registry API (apps.epsg.org) as the authoritative
+ * source, proxied via /api/epsg to avoid CORS issues. Falls back to a
+ * bundled database of common CRS codes for instant offline results.
  */
 
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
@@ -31,108 +32,81 @@ export interface EpsgResult {
   projection?: string;
 }
 
-// ── Bundled CRS database (most common codes for BIM/GIS) ───────────────
-// Covers UTM zones, national grids, Web Mercator, WGS84, and common projected CRS.
+// ── EPSG.org Registry API (proxied) ────────────────────────────────────
+
+const EPSG_API = '/api/epsg/api/v1';
+
+async function searchEpsgRegistry(
+  query: string,
+  signal: AbortSignal
+): Promise<EpsgResult[]> {
+  const isCode = /^\d+$/.test(query);
+
+  if (isCode) {
+    const res = await fetch(`${EPSG_API}/CoordRefSystem/${query}`, {
+      signal,
+      headers: { Accept: 'application/json' },
+    });
+    if (!res.ok) return [];
+    const data = await res.json();
+    if (!data?.Code) return [];
+    return [mapRegistryResult(data)];
+  }
+
+  // Text search
+  const res = await fetch(
+    `${EPSG_API}/CoordRefSystem?searchText=${encodeURIComponent(query)}&pageSize=25&includeDeprecated=false`,
+    { signal, headers: { Accept: 'application/json' } }
+  );
+  if (!res.ok) return [];
+  const items = await res.json();
+  if (!Array.isArray(items)) return [];
+  return items.filter((r: Record<string, unknown>) => r.Code && r.Name).map(mapRegistryResult);
+}
+
+function mapRegistryResult(r: Record<string, unknown>): EpsgResult {
+  const areaOfUse = r.AreaOfUse as Record<string, unknown> | undefined;
+  const datum = r.Datum as Record<string, unknown> | undefined;
+  const projection = r.Projection as Record<string, unknown> | undefined;
+  const coordSys = r.CoordSys as Record<string, unknown> | undefined;
+  const axes = (coordSys?.CoordinateAxis as Array<Record<string, unknown>>) ?? [];
+  const uom = (axes[0]?.Uom as Record<string, unknown>) ?? {};
+
+  let kind: string | undefined;
+  const rawKind = String(r.Kind ?? r.Type ?? '');
+  if (rawKind.toLowerCase().includes('projected')) kind = 'Projected';
+  else if (rawKind.toLowerCase().includes('geographic')) kind = 'Geographic';
+  else if (rawKind.toLowerCase().includes('compound')) kind = 'Compound';
+  else if (rawKind.toLowerCase().includes('engineering')) kind = 'Engineering';
+  else if (rawKind) kind = rawKind;
+
+  return {
+    code: String(r.Code),
+    name: String(r.Name ?? ''),
+    area: areaOfUse?.Name ? String(areaOfUse.Name) : '',
+    unit: uom?.Name ? String(uom.Name) : '',
+    kind,
+    datum: datum?.Name ? String(datum.Name) : undefined,
+    projection: projection?.Name ? String(projection.Name) : undefined,
+  };
+}
+
+// ── Bundled offline fallback (common BIM/GIS codes) ────────────────────
 
 const COMMON_CRS: EpsgResult[] = [
-  // Global
   { code: '4326', name: 'WGS 84', area: 'World', unit: 'degree', kind: 'Geographic', datum: 'WGS84' },
   { code: '3857', name: 'WGS 84 / Pseudo-Mercator', area: 'World', unit: 'metre', kind: 'Projected', datum: 'WGS84', projection: 'Pseudo-Mercator' },
   { code: '4258', name: 'ETRS89', area: 'Europe', unit: 'degree', kind: 'Geographic', datum: 'ETRS89' },
-  { code: '3035', name: 'ETRS89-extended / LAEA Europe', area: 'Europe', unit: 'metre', kind: 'Projected', datum: 'ETRS89' },
-  // UTM WGS84 North (selected zones)
-  { code: '32601', name: 'WGS 84 / UTM zone 1N', area: 'World - N 0°-84°, W 180°-174°', unit: 'metre', kind: 'Projected', datum: 'WGS84', projection: 'UTM' },
-  { code: '32610', name: 'WGS 84 / UTM zone 10N', area: 'World - N 0°-84°, W 126°-120°', unit: 'metre', kind: 'Projected', datum: 'WGS84', projection: 'UTM' },
-  { code: '32611', name: 'WGS 84 / UTM zone 11N', area: 'World - N 0°-84°, W 120°-114°', unit: 'metre', kind: 'Projected', datum: 'WGS84', projection: 'UTM' },
-  { code: '32612', name: 'WGS 84 / UTM zone 12N', area: 'World - N 0°-84°, W 114°-108°', unit: 'metre', kind: 'Projected', datum: 'WGS84', projection: 'UTM' },
-  { code: '32613', name: 'WGS 84 / UTM zone 13N', area: 'World - N 0°-84°, W 108°-102°', unit: 'metre', kind: 'Projected', datum: 'WGS84', projection: 'UTM' },
-  { code: '32614', name: 'WGS 84 / UTM zone 14N', area: 'World - N 0°-84°, W 102°-96°', unit: 'metre', kind: 'Projected', datum: 'WGS84', projection: 'UTM' },
-  { code: '32615', name: 'WGS 84 / UTM zone 15N', area: 'World - N 0°-84°, W 96°-90°', unit: 'metre', kind: 'Projected', datum: 'WGS84', projection: 'UTM' },
-  { code: '32616', name: 'WGS 84 / UTM zone 16N', area: 'World - N 0°-84°, W 90°-84°', unit: 'metre', kind: 'Projected', datum: 'WGS84', projection: 'UTM' },
-  { code: '32617', name: 'WGS 84 / UTM zone 17N', area: 'World - N 0°-84°, W 84°-78°', unit: 'metre', kind: 'Projected', datum: 'WGS84', projection: 'UTM' },
-  { code: '32618', name: 'WGS 84 / UTM zone 18N', area: 'World - N 0°-84°, W 78°-72°', unit: 'metre', kind: 'Projected', datum: 'WGS84', projection: 'UTM' },
-  { code: '32619', name: 'WGS 84 / UTM zone 19N', area: 'World - N 0°-84°, W 72°-66°', unit: 'metre', kind: 'Projected', datum: 'WGS84', projection: 'UTM' },
-  { code: '32620', name: 'WGS 84 / UTM zone 20N', area: 'World - N 0°-84°, W 66°-60°', unit: 'metre', kind: 'Projected', datum: 'WGS84', projection: 'UTM' },
-  { code: '32628', name: 'WGS 84 / UTM zone 28N', area: 'World - N 0°-84°, W 18°-12°', unit: 'metre', kind: 'Projected', datum: 'WGS84', projection: 'UTM' },
-  { code: '32629', name: 'WGS 84 / UTM zone 29N', area: 'World - N 0°-84°, W 12°-6°', unit: 'metre', kind: 'Projected', datum: 'WGS84', projection: 'UTM' },
-  { code: '32630', name: 'WGS 84 / UTM zone 30N', area: 'World - N 0°-84°, W 6°-0°', unit: 'metre', kind: 'Projected', datum: 'WGS84', projection: 'UTM' },
-  { code: '32631', name: 'WGS 84 / UTM zone 31N', area: 'World - N 0°-84°, E 0°-6°', unit: 'metre', kind: 'Projected', datum: 'WGS84', projection: 'UTM' },
-  { code: '32632', name: 'WGS 84 / UTM zone 32N', area: 'World - N 0°-84°, E 6°-12°', unit: 'metre', kind: 'Projected', datum: 'WGS84', projection: 'UTM' },
-  { code: '32633', name: 'WGS 84 / UTM zone 33N', area: 'World - N 0°-84°, E 12°-18°', unit: 'metre', kind: 'Projected', datum: 'WGS84', projection: 'UTM' },
-  { code: '32634', name: 'WGS 84 / UTM zone 34N', area: 'World - N 0°-84°, E 18°-24°', unit: 'metre', kind: 'Projected', datum: 'WGS84', projection: 'UTM' },
-  { code: '32635', name: 'WGS 84 / UTM zone 35N', area: 'World - N 0°-84°, E 24°-30°', unit: 'metre', kind: 'Projected', datum: 'WGS84', projection: 'UTM' },
-  { code: '32636', name: 'WGS 84 / UTM zone 36N', area: 'World - N 0°-84°, E 30°-36°', unit: 'metre', kind: 'Projected', datum: 'WGS84', projection: 'UTM' },
-  { code: '32637', name: 'WGS 84 / UTM zone 37N', area: 'World - N 0°-84°, E 36°-42°', unit: 'metre', kind: 'Projected', datum: 'WGS84', projection: 'UTM' },
-  { code: '32638', name: 'WGS 84 / UTM zone 38N', area: 'World - N 0°-84°, E 42°-48°', unit: 'metre', kind: 'Projected', datum: 'WGS84', projection: 'UTM' },
-  // Switzerland
-  { code: '2056', name: 'CH1903+ / LV95', area: 'Switzerland, Liechtenstein', unit: 'metre', kind: 'Projected', datum: 'CH1903+', projection: 'Swiss Oblique Mercator' },
-  { code: '21781', name: 'CH1903 / LV03', area: 'Switzerland, Liechtenstein', unit: 'metre', kind: 'Projected', datum: 'CH1903', projection: 'Swiss Oblique Mercator' },
-  // Germany
-  { code: '25832', name: 'ETRS89 / UTM zone 32N', area: 'Europe - E 6°-12°', unit: 'metre', kind: 'Projected', datum: 'ETRS89', projection: 'UTM' },
-  { code: '25833', name: 'ETRS89 / UTM zone 33N', area: 'Europe - E 12°-18°', unit: 'metre', kind: 'Projected', datum: 'ETRS89', projection: 'UTM' },
-  { code: '5555', name: 'ETRS89 / UTM zone 32N + DHHN2016 height', area: 'Germany', unit: 'metre', kind: 'Compound', datum: 'ETRS89' },
-  { code: '31467', name: 'DHDN / 3-degree Gauss-Kruger zone 3', area: 'Germany - E 7.5°-10.5°', unit: 'metre', kind: 'Projected', datum: 'DHDN' },
-  // Austria
-  { code: '31256', name: 'MGI / Austria GK M31', area: 'Austria - E 13.33°-16.33°', unit: 'metre', kind: 'Projected', datum: 'MGI' },
-  { code: '31255', name: 'MGI / Austria GK M28', area: 'Austria - W of 14.83°E', unit: 'metre', kind: 'Projected', datum: 'MGI' },
-  { code: '31257', name: 'MGI / Austria GK M34', area: 'Austria - E of 14.83°E', unit: 'metre', kind: 'Projected', datum: 'MGI' },
-  // UK
+  { code: '2056', name: 'CH1903+ / LV95', area: 'Switzerland', unit: 'metre', kind: 'Projected', datum: 'CH1903+' },
+  { code: '21781', name: 'CH1903 / LV03', area: 'Switzerland', unit: 'metre', kind: 'Projected', datum: 'CH1903' },
+  { code: '25832', name: 'ETRS89 / UTM zone 32N', area: 'Europe 6°-12°E', unit: 'metre', kind: 'Projected', datum: 'ETRS89', projection: 'UTM' },
+  { code: '25833', name: 'ETRS89 / UTM zone 33N', area: 'Europe 12°-18°E', unit: 'metre', kind: 'Projected', datum: 'ETRS89', projection: 'UTM' },
   { code: '27700', name: 'OSGB 1936 / British National Grid', area: 'United Kingdom', unit: 'metre', kind: 'Projected', datum: 'OSGB 1936' },
-  // France
-  { code: '2154', name: 'RGF93 v1 / Lambert-93', area: 'France', unit: 'metre', kind: 'Projected', datum: 'RGF93 v1', projection: 'Lambert-93' },
-  // Netherlands
-  { code: '28992', name: 'Amersfoort / RD New', area: 'Netherlands', unit: 'metre', kind: 'Projected', datum: 'Amersfoort', projection: 'Stereographic' },
-  // Belgium
-  { code: '31370', name: 'Belge 1972 / Belgian Lambert 72', area: 'Belgium', unit: 'metre', kind: 'Projected', datum: 'Belge 1972' },
-  // Spain
-  { code: '25830', name: 'ETRS89 / UTM zone 30N', area: 'Europe - W 6°-0°', unit: 'metre', kind: 'Projected', datum: 'ETRS89', projection: 'UTM' },
-  // Italy
-  { code: '6706', name: 'RDN2008 / UTM zone 32N', area: 'Italy - W of 12°E', unit: 'metre', kind: 'Projected', datum: 'RDN2008', projection: 'UTM' },
-  // Scandinavia
-  { code: '3006', name: 'SWEREF99 TM', area: 'Sweden', unit: 'metre', kind: 'Projected', datum: 'SWEREF99' },
-  { code: '25835', name: 'ETRS89 / UTM zone 35N', area: 'Europe - E 24°-30°', unit: 'metre', kind: 'Projected', datum: 'ETRS89', projection: 'UTM' },
-  // North America
-  { code: '2263', name: 'NAD83 / New York Long Island (ftUS)', area: 'USA - New York - Long Island', unit: 'US survey foot', kind: 'Projected', datum: 'NAD83' },
-  { code: '2227', name: 'NAD83 / California zone 3 (ftUS)', area: 'USA - California - zone 3', unit: 'US survey foot', kind: 'Projected', datum: 'NAD83' },
-  { code: '6339', name: 'NAD83(2011) / UTM zone 10N', area: 'USA - W 126°-120°', unit: 'metre', kind: 'Projected', datum: 'NAD83(2011)', projection: 'UTM' },
-  { code: '26917', name: 'NAD83 / UTM zone 17N', area: 'North America - W 84°-78°', unit: 'metre', kind: 'Projected', datum: 'NAD83', projection: 'UTM' },
-  // Australia / NZ
-  { code: '28355', name: 'GDA94 / MGA zone 55', area: 'Australia - E 144°-150°', unit: 'metre', kind: 'Projected', datum: 'GDA94', projection: 'UTM' },
-  { code: '7855', name: 'GDA2020 / MGA zone 55', area: 'Australia - E 144°-150°', unit: 'metre', kind: 'Projected', datum: 'GDA2020', projection: 'UTM' },
-  { code: '2193', name: 'NZGD2000 / New Zealand Transverse Mercator', area: 'New Zealand', unit: 'metre', kind: 'Projected', datum: 'NZGD2000' },
-  // Asia
-  { code: '32650', name: 'WGS 84 / UTM zone 50N', area: 'World - N 0°-84°, E 114°-120°', unit: 'metre', kind: 'Projected', datum: 'WGS84', projection: 'UTM' },
-  { code: '32651', name: 'WGS 84 / UTM zone 51N', area: 'World - N 0°-84°, E 120°-126°', unit: 'metre', kind: 'Projected', datum: 'WGS84', projection: 'UTM' },
-  { code: '2326', name: 'Hong Kong 1980 Grid System', area: 'Hong Kong', unit: 'metre', kind: 'Projected', datum: 'Hong Kong 1980' },
-  { code: '3414', name: 'SVY21 / Singapore TM', area: 'Singapore', unit: 'metre', kind: 'Projected', datum: 'SVY21' },
-  // Middle East
-  { code: '32640', name: 'WGS 84 / UTM zone 40N', area: 'World - N 0°-84°, E 54°-60°', unit: 'metre', kind: 'Projected', datum: 'WGS84', projection: 'UTM' },
+  { code: '2154', name: 'RGF93 v1 / Lambert-93', area: 'France', unit: 'metre', kind: 'Projected', datum: 'RGF93 v1' },
+  { code: '28992', name: 'Amersfoort / RD New', area: 'Netherlands', unit: 'metre', kind: 'Projected', datum: 'Amersfoort' },
+  { code: '32632', name: 'WGS 84 / UTM zone 32N', area: 'World 6°-12°E', unit: 'metre', kind: 'Projected', datum: 'WGS84', projection: 'UTM' },
+  { code: '32633', name: 'WGS 84 / UTM zone 33N', area: 'World 12°-18°E', unit: 'metre', kind: 'Projected', datum: 'WGS84', projection: 'UTM' },
 ];
-
-// ── API lookup for codes not in the bundled database ───────────────────
-
-async function lookupEpsgCode(code: string, signal: AbortSignal): Promise<EpsgResult | null> {
-  // Try epsg.io direct code lookup (still works, CORS enabled)
-  try {
-    const res = await fetch(`https://epsg.io/${code}.json`, { signal });
-    if (!res.ok) return null;
-    const data = await res.json();
-    const r = data.results?.[0];
-    if (!r) return null;
-    return {
-      code: String(r.code),
-      name: String(r.name || ''),
-      area: String(r.area || ''),
-      unit: String(r.unit || ''),
-      kind: r.kind === 'CRS-PROJCRS' ? 'Projected' : r.kind === 'CRS-GEOGCRS' ? 'Geographic' : r.kind === 'CRS-COMPOUNDCRS' ? 'Compound' : undefined,
-      datum: r.datum ? String(r.datum) : undefined,
-      projection: r.projection ? String(r.projection) : undefined,
-    };
-  } catch (err: unknown) {
-    if (err instanceof Error && err.name === 'AbortError') throw err;
-    return null;
-  }
-}
 
 // ── Dialog component ───────────────────────────────────────────────────
 
@@ -150,11 +124,10 @@ export function EpsgLookupDialog({ onSelect, children }: EpsgLookupDialogProps) 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
-  // Build search index once
-  const searchIndex = useMemo(() => {
+  const localIndex = useMemo(() => {
     return COMMON_CRS.map(crs => ({
       ...crs,
-      _searchText: `${crs.code} ${crs.name} ${crs.area} ${crs.datum || ''} ${crs.projection || ''}`.toLowerCase(),
+      _s: `${crs.code} ${crs.name} ${crs.area} ${crs.datum ?? ''} ${crs.projection ?? ''}`.toLowerCase(),
     }));
   }, []);
 
@@ -166,62 +139,51 @@ export function EpsgLookupDialog({ onSelect, children }: EpsgLookupDialogProps) 
       return;
     }
 
-    const isCode = /^\d+$/.test(trimmed);
-
-    // Local search first (instant)
+    // Show instant local matches while API loads
     const queryLower = trimmed.toLowerCase();
-    const localMatches = searchIndex
-      .filter(crs => {
-        if (isCode) return crs.code.startsWith(trimmed);
-        return crs._searchText.includes(queryLower);
-      })
-      .slice(0, 20);
+    const isCode = /^\d+$/.test(trimmed);
+    const localMatches = localIndex
+      .filter(c => isCode ? c.code.startsWith(trimmed) : c._s.includes(queryLower))
+      .slice(0, 10);
 
     if (localMatches.length > 0) {
       setResults(localMatches);
-      setError(null);
-      setLoading(false);
-      return;
     }
 
-    // If user entered a code not in our database, try online lookup
-    if (isCode && trimmed.length >= 4) {
-      if (abortRef.current) abortRef.current.abort();
-      const controller = new AbortController();
-      abortRef.current = controller;
-      setLoading(true);
-      setError(null);
+    // Then search the authoritative API
+    if (abortRef.current) abortRef.current.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    setLoading(true);
+    setError(null);
 
-      try {
-        const result = await lookupEpsgCode(trimmed, controller.signal);
-        if (controller.signal.aborted) return;
-        if (result) {
-          setResults([result]);
-          setError(null);
-        } else {
-          setResults([]);
-          setError(`EPSG:${trimmed} not found`);
-        }
-      } catch (err: unknown) {
-        if (err instanceof Error && err.name === 'AbortError') return;
+    try {
+      const apiResults = await searchEpsgRegistry(trimmed, controller.signal);
+      if (controller.signal.aborted) return;
+
+      if (apiResults.length > 0) {
+        setResults(apiResults);
+        setError(null);
+      } else if (localMatches.length === 0) {
         setResults([]);
-        setError(`Could not look up EPSG:${trimmed}`);
-      } finally {
-        if (!controller.signal.aborted) setLoading(false);
+        setError('No coordinate reference systems found');
       }
-      return;
+    } catch (err: unknown) {
+      if (err instanceof Error && err.name === 'AbortError') return;
+      // Keep local results if API fails
+      if (localMatches.length === 0) {
+        setError('Search unavailable — try entering an EPSG code directly');
+      }
+    } finally {
+      if (!controller.signal.aborted) setLoading(false);
     }
-
-    // Text search with no local matches
-    setResults([]);
-    setError(trimmed.length < 2 ? null : 'No matching CRS found — try an EPSG code number');
-  }, [searchIndex]);
+  }, [localIndex]);
 
   const handleInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
     setQuery(value);
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => search(value), 150);
+    debounceRef.current = setTimeout(() => search(value), 250);
   }, [search]);
 
   const handleSelect = useCallback((result: EpsgResult) => {
@@ -231,10 +193,9 @@ export function EpsgLookupDialog({ onSelect, children }: EpsgLookupDialogProps) 
     setResults([]);
   }, [onSelect]);
 
-  // Show popular CRS when dialog opens with empty query
   useEffect(() => {
     if (open && !query) {
-      setResults(COMMON_CRS.slice(0, 10));
+      setResults(COMMON_CRS.slice(0, 8));
       setError(null);
     }
   }, [open, query]);
@@ -263,13 +224,13 @@ export function EpsgLookupDialog({ onSelect, children }: EpsgLookupDialogProps) 
             EPSG Lookup
           </DialogTitle>
           <DialogDescription className="text-[11px] text-muted-foreground">
-            Search by code, name, country, or datum
+            Search the IOGP EPSG registry by code, name, country, or datum
           </DialogDescription>
         </DialogHeader>
 
         <div className="px-4 pb-3">
           <Input
-            placeholder="e.g. 2056, UTM, Switzerland..."
+            placeholder="e.g. 2056, UTM, Switzerland, WGS84..."
             value={query}
             onChange={handleInputChange}
             leftIcon={loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Search className="h-3.5 w-3.5" />}

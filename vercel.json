@@ -6,6 +6,10 @@
   "framework": "vite",
   "rewrites": [
     {
+      "source": "/api/epsg/:path*",
+      "destination": "https://apps.epsg.org/:path*"
+    },
+    {
       "source": "/api/bsdd/:path*",
       "destination": "https://api.bsdd.buildingsmart.org/:path*"
     }

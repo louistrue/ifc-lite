@@ -265,6 +265,11 @@ export default defineConfig({
         target: 'http://localhost:3001',
         changeOrigin: true,
       },
+      '/api/epsg': {
+        target: 'https://apps.epsg.org',
+        changeOrigin: true,
+        rewrite: (p) => p.replace(/^\/api\/epsg/, ''),
+      },
       '/api/bsdd': {
         target: 'https://api.bsdd.buildingsmart.org',
         changeOrigin: true,
