@@ -467,23 +467,20 @@ export class GeometryProcessor {
     const sharedBuffer = new SharedArrayBuffer(buffer.byteLength);
     new Uint8Array(sharedBuffer).set(buffer);
 
-    // ── PHASE 1: Pre-pass in a dedicated worker (doesn't block main thread) ──
+    // ── PHASE 1: Full pre-pass in worker ──
+    const makeWorker = () => new Worker(
+      new URL('./geometry.worker.ts', import.meta.url),
+      { type: 'module' },
+    );
+
     const prePassResult = await new Promise<any>((resolve, reject) => {
-      const ppWorker = new Worker(
-        new URL('./geometry.worker.ts', import.meta.url),
-        { type: 'module' },
-      );
-      ppWorker.onmessage = (e: MessageEvent) => {
-        if (e.data.type === 'prepass-result') {
-          ppWorker.terminate();
-          resolve(e.data.result);
-        } else if (e.data.type === 'error') {
-          ppWorker.terminate();
-          reject(new Error(e.data.message));
-        }
+      const w = makeWorker();
+      w.onmessage = (e: MessageEvent) => {
+        if (e.data.type === 'prepass-result') { w.terminate(); resolve(e.data.result); }
+        else if (e.data.type === 'error') { w.terminate(); reject(new Error(e.data.message)); }
       };
-      ppWorker.onerror = (e) => { ppWorker.terminate(); reject(new Error(e.message)); };
-      ppWorker.postMessage({ type: 'prepass', sharedBuffer });
+      w.onerror = (e) => { w.terminate(); reject(new Error(e.message)); };
+      w.postMessage({ type: 'prepass', sharedBuffer });
     });
 
     if (!prePassResult || !prePassResult.jobs || prePassResult.totalJobs === 0) {
@@ -498,11 +495,36 @@ export class GeometryProcessor {
     const rtcY = rtcOffset?.[1] ?? 0;
     const rtcZ = rtcOffset?.[2] ?? 0;
 
-    // ── PHASE 2: Split jobs across workers ──
-    const maxWorkers = 4;
-    const hardwareConcurrency = typeof navigator !== 'undefined' ? (navigator.hardwareConcurrency ?? 2) : 2;
-    const workerCount = Math.min(maxWorkers, hardwareConcurrency, totalJobs);
+    // ── PHASE 2: Dynamic worker provisioning based on device capability ──
+    const cores = typeof navigator !== 'undefined' ? (navigator.hardwareConcurrency ?? 2) : 2;
+    const deviceMemoryGB = typeof navigator !== 'undefined' ? ((navigator as any).deviceMemory ?? 8) : 8;
+    const fileSizeGB = buffer.byteLength / (1024 * 1024 * 1024);
+
+    // Determine optimal workers:
+    // - Desktop (16+ cores, 16+ GB): up to 8 workers
+    // - Laptop (8 cores, 8 GB): 2-4 workers (avoid thermal throttling on fanless)
+    // - Low-end (4 cores, 4 GB): 1-2 workers
+    // - Large files need more memory per worker, so fewer workers
+    let maxWorkers: number;
+    if (cores >= 16 && deviceMemoryGB >= 16) {
+      maxWorkers = Math.min(8, Math.floor(cores / 2));
+    } else if (cores >= 8 && deviceMemoryGB >= 8) {
+      // MacBook Air M-series: 8 cores but fanless → throttles with too many workers
+      // Use 3 workers: enough parallelism without severe throttling
+      maxWorkers = fileSizeGB > 0.5 ? 2 : 3;
+    } else {
+      maxWorkers = Math.max(1, Math.min(2, Math.floor(cores / 2)));
+    }
+
+    const workerCount = Math.min(maxWorkers, totalJobs);
     const jobsPerWorker = Math.ceil(totalJobs / workerCount);
+
+    const chunks: [number, number][] = [];
+    for (let i = 0; i < workerCount; i++) {
+      const start = i * jobsPerWorker;
+      const end = Math.min(start + jobsPerWorker, totalJobs);
+      if (start < end) chunks.push([start, end]);
+    }
 
     // Queue-based async generator: workers push batches, generator yields them
     const batchQueue: MeshData[][] = [];
@@ -513,10 +535,8 @@ export class GeometryProcessor {
 
     const workers: Worker[] = [];
 
-    for (let i = 0; i < workerCount; i++) {
-      // Slice jobs for this worker (each job is 3 u32s: id, start, end)
-      const jobStart = i * jobsPerWorker;
-      const jobEnd = Math.min((i + 1) * jobsPerWorker, totalJobs);
+    for (let i = 0; i < chunks.length; i++) {
+      const [jobStart, jobEnd] = chunks[i];
       if (jobStart >= jobEnd) {
         workersCompleted++;
         continue;
@@ -622,7 +642,7 @@ export class GeometryProcessor {
         throw workerError;
       }
 
-      if (workersCompleted >= workerCount && batchQueue.length === 0) {
+      if (workersCompleted >= chunks.length && batchQueue.length === 0) {
         break;
       }
 

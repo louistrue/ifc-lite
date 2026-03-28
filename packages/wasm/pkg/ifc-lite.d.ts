@@ -255,6 +255,13 @@ export class IfcAPI {
    */
   parseMeshesAsync(content: string, options: any): Promise<any>;
   /**
+   * Fast pre-pass: scans for geometry entities ONLY (skips style/void/material resolution).
+   * Returns job list + unit scale + RTC offset in ~1-2s instead of ~6s.
+   * Geometry workers can start immediately with default colors + no void subtraction.
+   * A parallel style worker can run buildPrePassOnce for correct colors later.
+   */
+  buildPrePassFast(data: Uint8Array): any;
+  /**
    * Run the pre-pass ONCE and return serialized results for worker distribution.
    * Takes raw bytes (&[u8]) to avoid TextDecoder overhead.
    */
@@ -956,6 +963,7 @@ export interface InitOutput {
   readonly gpumeshmetadata_indexOffset: (a: number) => number;
   readonly gpumeshmetadata_vertexCount: (a: number) => number;
   readonly gpumeshmetadata_vertexOffset: (a: number) => number;
+  readonly ifcapi_buildPrePassFast: (a: number, b: number, c: number) => number;
   readonly ifcapi_buildPrePassOnce: (a: number, b: number, c: number) => number;
   readonly ifcapi_debugProcessEntity953: (a: number, b: number, c: number, d: number) => void;
   readonly ifcapi_debugProcessFirstWall: (a: number, b: number, c: number, d: number) => void;
@@ -1075,9 +1083,9 @@ export interface InitOutput {
   readonly meshcollection_rtcOffsetX: (a: number) => number;
   readonly symboliccircle_expressId: (a: number) => number;
   readonly __wbg_gpuinstancedgeometryref_free: (a: number, b: number) => void;
-  readonly __wasm_bindgen_func_elem_1089: (a: number, b: number, c: number) => void;
-  readonly __wasm_bindgen_func_elem_1088: (a: number, b: number) => void;
-  readonly __wasm_bindgen_func_elem_1129: (a: number, b: number, c: number, d: number) => void;
+  readonly __wasm_bindgen_func_elem_1092: (a: number, b: number, c: number) => void;
+  readonly __wasm_bindgen_func_elem_1091: (a: number, b: number) => void;
+  readonly __wasm_bindgen_func_elem_1132: (a: number, b: number, c: number, d: number) => void;
   readonly __wbindgen_export: (a: number) => void;
   readonly __wbindgen_export2: (a: number, b: number, c: number) => void;
   readonly __wbindgen_export3: (a: number, b: number) => number;

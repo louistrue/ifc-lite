@@ -212,12 +212,12 @@ if (!('encodeInto' in cachedTextEncoder)) {
 
 let WASM_VECTOR_LEN = 0;
 
-function __wasm_bindgen_func_elem_1089(arg0, arg1, arg2) {
-    wasm.__wasm_bindgen_func_elem_1089(arg0, arg1, addHeapObject(arg2));
+function __wasm_bindgen_func_elem_1092(arg0, arg1, arg2) {
+    wasm.__wasm_bindgen_func_elem_1092(arg0, arg1, addHeapObject(arg2));
 }
 
-function __wasm_bindgen_func_elem_1129(arg0, arg1, arg2, arg3) {
-    wasm.__wasm_bindgen_func_elem_1129(arg0, arg1, addHeapObject(arg2), addHeapObject(arg3));
+function __wasm_bindgen_func_elem_1132(arg0, arg1, arg2, arg3) {
+    wasm.__wasm_bindgen_func_elem_1132(arg0, arg1, addHeapObject(arg2), addHeapObject(arg3));
 }
 
 const GeoReferenceJsFinalization = (typeof FinalizationRegistry === 'undefined')
@@ -1148,6 +1148,20 @@ export class IfcAPI {
         const ptr0 = passStringToWasm0(content, wasm.__wbindgen_export3, wasm.__wbindgen_export4);
         const len0 = WASM_VECTOR_LEN;
         const ret = wasm.ifcapi_parseMeshesAsync(this.__wbg_ptr, ptr0, len0, addHeapObject(options));
+        return takeObject(ret);
+    }
+    /**
+     * Fast pre-pass: scans for geometry entities ONLY (skips style/void/material resolution).
+     * Returns job list + unit scale + RTC offset in ~1-2s instead of ~6s.
+     * Geometry workers can start immediately with default colors + no void subtraction.
+     * A parallel style worker can run buildPrePassOnce for correct colors later.
+     * @param {Uint8Array} data
+     * @returns {any}
+     */
+    buildPrePassFast(data) {
+        const ptr0 = passArray8ToWasm0(data, wasm.__wbindgen_export3);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.ifcapi_buildPrePassFast(this.__wbg_ptr, ptr0, len0);
         return takeObject(ret);
     }
     /**
@@ -2843,7 +2857,7 @@ function __wbg_get_imports() {
                 const a = state0.a;
                 state0.a = 0;
                 try {
-                    return __wasm_bindgen_func_elem_1129(a, state0.b, arg0, arg1);
+                    return __wasm_bindgen_func_elem_1132(a, state0.b, arg0, arg1);
                 } finally {
                     state0.a = a;
                 }
@@ -2957,7 +2971,7 @@ function __wbg_get_imports() {
     };
     imports.wbg.__wbindgen_cast_8410bcb836a2825d = function(arg0, arg1) {
         // Cast intrinsic for `Closure(Closure { dtor_idx: 145, function: Function { arguments: [Externref], shim_idx: 146, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
-        const ret = makeMutClosure(arg0, arg1, wasm.__wasm_bindgen_func_elem_1088, __wasm_bindgen_func_elem_1089);
+        const ret = makeMutClosure(arg0, arg1, wasm.__wasm_bindgen_func_elem_1091, __wasm_bindgen_func_elem_1092);
         return addHeapObject(ret);
     };
     imports.wbg.__wbindgen_cast_d6cd19b81560fd6e = function(arg0) {

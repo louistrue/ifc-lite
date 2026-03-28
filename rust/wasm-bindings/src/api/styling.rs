@@ -890,7 +890,7 @@ pub(crate) fn pick_material_style_for_submesh(
 }
 
 /// Check if a type name is "simple" geometry (processed first for fast first frame).
-fn is_simple_geometry_type(type_name: &str) -> bool {
+pub(crate) fn is_simple_geometry_type(type_name: &str) -> bool {
     matches!(
         type_name,
         "IFCWALL"

@@ -56,12 +56,15 @@ let api: IfcAPI | null = null;
 
 self.onmessage = async (e: MessageEvent<GeometryWorkerRequest | { type: 'prepass'; sharedBuffer: SharedArrayBuffer }>) => {
   try {
-    if (e.data.type === 'prepass') {
-      // Run pre-pass off main thread
+    if (e.data.type === 'prepass' || e.data.type === 'prepass-fast') {
       if (!api) { await init(); api = new IfcAPI(); }
       const localBuffer = new Uint8Array(e.data.sharedBuffer.byteLength);
       localBuffer.set(new Uint8Array(e.data.sharedBuffer));
-      const result = api.buildPrePassOnce(localBuffer);
+      // Fast pre-pass: only scan for entity locations (~1-2s)
+      // Full pre-pass: also resolves styles + voids (~6s)
+      const result = e.data.type === 'prepass-fast'
+        ? api.buildPrePassFast(localBuffer)
+        : api.buildPrePassOnce(localBuffer);
       (self as unknown as Worker).postMessage({ type: 'prepass-result', result });
       return;
     }
