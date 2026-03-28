@@ -45,7 +45,6 @@ async function searchEpsgRegistry(
   if (isCode) {
     const res = await fetch(`${EPSG_API}/CoordRefSystem/${query}`, {
       signal,
-      headers: { Accept: 'application/json' },
     });
     if (!res.ok) return [];
     const data = await res.json();
@@ -53,15 +52,25 @@ async function searchEpsgRegistry(
     return [mapRegistryResult(data)];
   }
 
-  // Text search
-  const res = await fetch(
+  // Text search — try multiple endpoint patterns
+  // The EPSG.org API may return an array directly or a paginated { Results: [] } wrapper
+  for (const endpoint of [
     `${EPSG_API}/CoordRefSystem?searchText=${encodeURIComponent(query)}&pageSize=25&includeDeprecated=false`,
-    { signal, headers: { Accept: 'application/json' } }
-  );
-  if (!res.ok) return [];
-  const items = await res.json();
-  if (!Array.isArray(items)) return [];
-  return items.filter((r: Record<string, unknown>) => r.Code && r.Name).map(mapRegistryResult);
+    `${EPSG_API}/CoordRefSystem?name=${encodeURIComponent(query)}&pageSize=25`,
+  ]) {
+    try {
+      const res = await fetch(endpoint, { signal });
+      if (!res.ok) continue;
+      const data = await res.json();
+      const items = Array.isArray(data) ? data : (data?.Results ?? data?.results ?? []);
+      if (!Array.isArray(items) || items.length === 0) continue;
+      return items.filter((r: Record<string, unknown>) => r.Code && r.Name).map(mapRegistryResult);
+    } catch (err: unknown) {
+      if (err instanceof Error && err.name === 'AbortError') throw err;
+      continue;
+    }
+  }
+  return [];
 }
 
 function mapRegistryResult(r: Record<string, unknown>): EpsgResult {
@@ -170,6 +179,7 @@ export function EpsgLookupDialog({ onSelect, children }: EpsgLookupDialogProps) 
       }
     } catch (err: unknown) {
       if (err instanceof Error && err.name === 'AbortError') return;
+      console.warn('[EPSG Lookup] API search failed:', err);
       // Keep local results if API fails
       if (localMatches.length === 0) {
         setError('Search unavailable — try entering an EPSG code directly');
