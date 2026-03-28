@@ -90,8 +90,18 @@ export class IfcLiteBridge {
             try {
               const threads = navigator.hardwareConcurrency || 4;
               console.warn(`[Geometry] [init] Calling initThreadPool with ${threads} threads...`);
-              await initThreadPool(threads);
-              console.warn(`[Geometry] Thread pool initialized with ${threads} threads`);
+              // Race initThreadPool with a timeout — if workers can't load the
+              // WASM module (e.g. Vite rewrites the ../../.. import path), the
+              // Promise.all inside startWorkers hangs forever.
+              const threadPoolResult = await Promise.race([
+                initThreadPool(threads).then(() => 'ok' as const),
+                new Promise<'timeout'>(r => setTimeout(() => r('timeout'), 5000)),
+              ]);
+              if (threadPoolResult === 'ok') {
+                console.warn(`[Geometry] Thread pool initialized with ${threads} threads`);
+              } else {
+                console.warn('[Geometry] initThreadPool timed out after 5s — falling back to single-threaded');
+              }
             } catch (e) {
               console.warn('[Geometry] Thread pool init failed, falling back to single-threaded', e);
             }
