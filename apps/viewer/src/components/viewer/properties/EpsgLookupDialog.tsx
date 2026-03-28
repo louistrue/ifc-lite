@@ -10,7 +10,7 @@
  */
 
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
-import { Search, Globe, Loader2, MapPin } from 'lucide-react';
+import { Search, Globe, Loader2 } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -20,7 +20,6 @@ import {
   DialogDescription,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import { ScrollArea } from '@/components/ui/scroll-area';
 
 export interface EpsgResult {
   code: string;
@@ -257,72 +256,56 @@ export function EpsgLookupDialog({ onSelect, children }: EpsgLookupDialogProps) 
           </button>
         )}
       </DialogTrigger>
-      <DialogContent className="max-w-md" hideCloseButton>
-        <DialogHeader>
+      <DialogContent className="max-w-sm gap-0 p-0 overflow-hidden" hideCloseButton>
+        <DialogHeader className="px-4 pt-4 pb-3">
           <DialogTitle className="flex items-center gap-2 text-sm">
             <Globe className="h-4 w-4 text-teal-500" />
-            EPSG Coordinate Reference System Lookup
+            EPSG Lookup
           </DialogTitle>
-          <DialogDescription className="text-xs text-muted-foreground">
-            Search by code, name, country, or datum. Enter any EPSG code for online lookup.
+          <DialogDescription className="text-[11px] text-muted-foreground">
+            Search by code, name, country, or datum
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-3">
+        <div className="px-4 pb-3">
           <Input
-            placeholder="e.g. 2056, UTM 32N, Switzerland, WGS84..."
+            placeholder="e.g. 2056, UTM, Switzerland..."
             value={query}
             onChange={handleInputChange}
             leftIcon={loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Search className="h-3.5 w-3.5" />}
+            className="h-8 text-xs"
             autoFocus
           />
-
-          {error && (
-            <p className="text-xs text-muted-foreground px-1">{error}</p>
-          )}
-
-          {results.length > 0 && (
-            <ScrollArea className="max-h-[300px] border rounded-md">
-              <div className="divide-y">
-                {results.map((result) => (
-                  <button
-                    key={result.code}
-                    className="w-full text-left px-3 py-2.5 hover:bg-teal-50 dark:hover:bg-teal-950/30 transition-colors"
-                    onClick={() => handleSelect(result)}
-                  >
-                    <div className="flex items-center gap-2">
-                      <span className="font-mono text-xs font-bold text-teal-700 dark:text-teal-400 bg-teal-50 dark:bg-teal-950/50 px-1.5 py-0.5 border border-teal-200 dark:border-teal-800 shrink-0">
-                        {result.code}
-                      </span>
-                      <span className="text-xs font-medium text-zinc-900 dark:text-zinc-100 truncate flex-1">
-                        {result.name}
-                      </span>
-                      {result.kind && (
-                        <span className="text-[9px] font-mono px-1 py-0.5 border border-zinc-200 dark:border-zinc-700 text-zinc-500 dark:text-zinc-400 shrink-0">
-                          {result.kind}
-                        </span>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-3 mt-1 text-[10px] text-muted-foreground">
-                      {result.area && (
-                        <span className="flex items-center gap-0.5 truncate">
-                          <MapPin className="h-2.5 w-2.5 shrink-0" />
-                          {result.area}
-                        </span>
-                      )}
-                      {result.datum && (
-                        <span className="shrink-0">Datum: {result.datum}</span>
-                      )}
-                      {result.unit && (
-                        <span className="shrink-0">{result.unit}</span>
-                      )}
-                    </div>
-                  </button>
-                ))}
-              </div>
-            </ScrollArea>
-          )}
         </div>
+
+        {error && (
+          <p className="text-[11px] text-muted-foreground px-4 pb-2">{error}</p>
+        )}
+
+        {results.length > 0 && (
+          <div className="border-t overflow-y-auto max-h-[280px]">
+            {results.map((result) => (
+              <button
+                key={result.code}
+                className="w-full text-left px-4 py-2 hover:bg-muted/50 transition-colors border-b border-border/50 last:border-b-0"
+                onClick={() => handleSelect(result)}
+              >
+                <div className="flex items-baseline gap-2 min-w-0">
+                  <code className="text-[11px] font-bold text-teal-600 dark:text-teal-400 shrink-0">{result.code}</code>
+                  <span className="text-[11px] text-foreground truncate">{result.name}</span>
+                  {result.kind && (
+                    <span className="text-[9px] text-muted-foreground shrink-0 ml-auto">{result.kind}</span>
+                  )}
+                </div>
+                <div className="flex items-center gap-2 mt-0.5 text-[10px] text-muted-foreground">
+                  {result.area && <span className="truncate">{result.area}</span>}
+                  {result.datum && <span className="shrink-0">{result.datum}</span>}
+                  {result.unit && <span className="shrink-0">{result.unit}</span>}
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
       </DialogContent>
     </Dialog>
   );
