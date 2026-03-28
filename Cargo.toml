@@ -19,7 +19,7 @@ opt-level = 3           # Optimize for speed
 lto = true              # Link-time optimization
 codegen-units = 1       # Better optimization (slower compile)
 strip = true            # Strip symbols
-panic = 'abort'         # wasm32 browsers don't support WASM exception handling
+panic = 'abort'         # Smaller panic handler
 overflow-checks = false # Remove overflow checks in release
 
 [profile.release.package."*"]

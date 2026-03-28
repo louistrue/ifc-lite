@@ -14,7 +14,7 @@
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
-    "test": "tsx --test test/*.test.ts"
+    "test": "tsx --test test/**/*.test.ts"
   },
   "files": [
     "dist",
