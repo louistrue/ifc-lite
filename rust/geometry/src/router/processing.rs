@@ -720,11 +720,13 @@ impl GeometryRouter {
 
         let items = decoder.resolve_ref_list(items_attr)?;
 
-        // Process all items and merge (without recursing into MappedItem to avoid infinite loop)
+        // Process all items and merge
+        // Skip nested MappedItems AND IfcBooleanClippingResult that reference MappedItems
+        // to prevent stack overflow from deeply nested recursive geometry
         let mut mesh = Mesh::new();
         for sub_item in items {
             if sub_item.ifc_type == IfcType::IfcMappedItem {
-                continue; // Skip nested MappedItems to avoid recursion
+                continue;
             }
             if let Some(processor) = self.processors.get(&sub_item.ifc_type) {
                 if let Ok(mut sub_mesh) = processor.process(&sub_item, decoder, &self.schema) {
