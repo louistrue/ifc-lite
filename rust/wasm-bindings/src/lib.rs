@@ -60,11 +60,7 @@
 
 use wasm_bindgen::prelude::*;
 
-// NOTE: wasm-bindgen-rayon is intentionally NOT re-exported.
-// Its presence in the WASM binary corrupts Closure cleanup when the thread
-// pool isn't initialized (which is always the case in Vite production builds).
-// Rayon's par_iter() falls back to sequential iteration without a thread pool.
-// pub use wasm_bindgen_rayon::init_thread_pool;
+pub use wasm_bindgen_rayon::init_thread_pool;
 
 #[cfg(feature = "console_error_panic_hook")]
 pub use console_error_panic_hook::set_once as set_panic_hook;
