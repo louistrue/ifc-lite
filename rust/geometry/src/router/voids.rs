@@ -546,6 +546,10 @@ impl GeometryRouter {
                         (*open_min, *open_max)
                     };
                     result = self.cut_rectangular_opening(&result, final_min, final_max);
+                    // Validate mesh after each cut - bail if degenerate
+                    if result.is_empty() || !result.positions.iter().all(|v| v.is_finite()) {
+                        return Ok(result);
+                    }
                 }
                 OpeningType::DiagonalRectangular(_opening_mesh, _extrusion_dir) => {
                     // Already handled in the batched block above
@@ -1212,6 +1216,19 @@ impl GeometryRouter {
             Plane::new(Point3::new(0.0, 0.0, open_max.z), Vector3::new(0.0, 0.0, -1.0)),
         ];
 
+        // Guard: skip if input vertices contain NaN (from degenerate prior clips)
+        if !v0.x.is_finite() || !v0.y.is_finite() || !v0.z.is_finite()
+            || !v1.x.is_finite() || !v1.y.is_finite() || !v1.z.is_finite()
+            || !v2.x.is_finite() || !v2.y.is_finite() || !v2.z.is_finite()
+        {
+            // Keep the triangle as-is (don't clip degenerate geometry)
+            let base = result.vertex_count() as u32;
+            result.add_vertex(*v0, *normal);
+            result.add_vertex(*v1, *normal);
+            result.add_vertex(*v2, *normal);
+            result.add_triangle(base, base + 1, base + 2);
+            return;
+        }
         // Initialize remaining with the input triangle
         buffers.remaining.push(Triangle::new(*v0, *v1, *v2));
 

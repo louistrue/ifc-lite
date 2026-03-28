@@ -39,31 +39,23 @@ if [ "${DEBUG_GEOMETRY:-}" = "1" ]; then
   echo "🔍 Building with debug_geometry feature enabled"
 fi
 
+# Build WASM binary.
+# NOTE: wasm-bindgen-rayon was removed (incompatible with Vite production builds).
+# The .cargo/config.toml uses build-std=["std","panic_abort"] which requires nightly.
+# wasm-bindgen is pinned to 0.2.106 in Cargo.toml for stability.
 rustup run nightly-2025-11-15 "$WASM_PACK" build rust/wasm-bindings \
   --target web \
   --out-dir ../../packages/wasm/pkg \
   --out-name ifc-lite \
   --release \
-  $FEATURES \
-  -- -Z build-std=panic_abort,std
+  $FEATURES
 
-# Optimize with wasm-opt
-echo "⚡ Optimizing with wasm-opt..."
-if command -v wasm-opt &> /dev/null; then
-  wasm-opt -Oz \
-    --enable-bulk-memory \
-    --enable-mutable-globals \
-    --enable-nontrapping-float-to-int \
-    --enable-sign-ext \
-    --enable-threads \
-    --enable-atomics \
-    packages/wasm/pkg/ifc-lite_bg.wasm \
-    -o packages/wasm/pkg/ifc-lite_bg.wasm
-  echo "✅ Optimized with wasm-opt"
-else
-  echo "⚠️  wasm-opt not found, skipping optimization"
-  echo "   Install with: npm install -g wasm-opt"
-fi
+# NOTE: wasm-opt is disabled.
+# Multiple wasm-opt versions (npm and cargo) have been tested and all miscompile
+# the wasm-bindgen closure/async machinery when --enable-threads is used,
+# causing RuntimeError: unreachable in production. The Rust compiler's LLVM -O3
+# (release profile) provides sufficient optimization.
+echo "ℹ️  wasm-opt disabled — using LLVM -O3 only"
 
 # Show bundle size
 echo ""
@@ -71,12 +63,12 @@ echo "📊 Bundle size:"
 ls -lh packages/wasm/pkg/ifc-lite_bg.wasm | awk '{print "   WASM: " $5}'
 
 WASM_SIZE=$(wc -c < packages/wasm/pkg/ifc-lite_bg.wasm)
-TARGET_SIZE=$((800 * 1024))  # 800 KB target
+TARGET_SIZE=$((1100 * 1024))  # 1100 KB target (larger without wasm-opt)
 
 if [ $WASM_SIZE -lt $TARGET_SIZE ]; then
-  echo "   ✅ Under 800KB target!"
+  echo "   ✅ Under target!"
 else
-  echo "   ⚠️  Over 800KB target ($(($WASM_SIZE / 1024))KB)"
+  echo "   ⚠️  Over target ($(($WASM_SIZE / 1024))KB)"
 fi
 
 echo ""
