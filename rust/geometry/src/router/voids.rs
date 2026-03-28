@@ -531,9 +531,7 @@ impl GeometryRouter {
         self.apply_diagonal_openings(&mut result, &openings, &wall_min, &wall_max);
         web_sys::console::warn_1(&format!("[VOID] #{} diagonal done, cutting {} openings...", eid, openings.len()).into());
 
-        // Track rectangular operations to prevent crashes from excessive clipping
-        let mut rect_operation_count = 0;
-        const MAX_RECT_OPERATIONS: usize = 15;
+        let mut rect_operation_count = 0usize;
 
         for (oi, opening) in openings.iter().enumerate() {
             web_sys::console::warn_1(&format!("[VOID] #{} opening {}/{}: {:?}", eid, oi+1, openings.len(),
@@ -1259,6 +1257,12 @@ impl GeometryRouter {
                 let d1 = plane.signed_distance(&tri.v1);
                 let d2 = plane.signed_distance(&tri.v2);
 
+                // Guard: NaN distances from degenerate vertices (from prior interpolation)
+                if !d0.is_finite() || !d1.is_finite() || !d2.is_finite() {
+                    buffers.result.push(tri.clone()); // keep as-is
+                    continue;
+                }
+
                 let f0 = d0 >= -epsilon;
                 let f1 = d1 >= -epsilon;
                 let f2 = d2 >= -epsilon;
@@ -1266,15 +1270,12 @@ impl GeometryRouter {
 
                 match front_count {
                     3 => {
-                        // All front (inside this plane boundary) - continue
                         buffers.next_remaining.push(tri.clone());
                     }
                     0 => {
-                        // All behind (outside this plane boundary) - keep
                         buffers.result.push(tri.clone());
                     }
                     1 => {
-                        // One vertex in front - front part is 1 triangle, back part is a quad (2 tris)
                         let (front, back1, back2, d_f, d_b1, d_b2) = if f0 {
                             (tri.v0, tri.v1, tri.v2, d0, d1, d2)
                         } else if f1 {
@@ -1286,7 +1287,6 @@ impl GeometryRouter {
                         let denom1 = d_f - d_b1;
                         let denom2 = d_f - d_b2;
                         if denom1.abs() < 1e-12 || denom2.abs() < 1e-12 {
-                            // Near-degenerate split — keep triangle as-is
                             buffers.next_remaining.push(tri.clone());
                             continue;
                         }
@@ -1295,15 +1295,19 @@ impl GeometryRouter {
                         let p1 = front + (back1 - front) * t1;
                         let p2 = front + (back2 - front) * t2;
 
-                        // Front (inside): Triangle(front, p1, p2) - continues
-                        buffers.next_remaining.push(Triangle::new(front, p1, p2));
+                        // Validate interpolated points
+                        if !p1.x.is_finite() || !p1.y.is_finite() || !p1.z.is_finite()
+                            || !p2.x.is_finite() || !p2.y.is_finite() || !p2.z.is_finite()
+                        {
+                            buffers.next_remaining.push(tri.clone());
+                            continue;
+                        }
 
-                        // Back (outside): quad (p1, back1, back2, p2) as 2 triangles - result
+                        buffers.next_remaining.push(Triangle::new(front, p1, p2));
                         buffers.result.push(Triangle::new(p1, back1, back2));
                         buffers.result.push(Triangle::new(p1, back2, p2));
                     }
                     2 => {
-                        // Two vertices in front - front part is quad (2 tris), back part is 1 triangle
                         let (front1, front2, back, d_f1, d_f2, d_b) = if !f0 {
                             (tri.v1, tri.v2, tri.v0, d1, d2, d0)
                         } else if !f1 {
@@ -1315,7 +1319,6 @@ impl GeometryRouter {
                         let denom1 = d_f1 - d_b;
                         let denom2 = d_f2 - d_b;
                         if denom1.abs() < 1e-12 || denom2.abs() < 1e-12 {
-                            // Near-degenerate split — keep triangle as-is
                             buffers.next_remaining.push(tri.clone());
                             continue;
                         }
@@ -1324,14 +1327,22 @@ impl GeometryRouter {
                         let p1 = front1 + (back - front1) * t1;
                         let p2 = front2 + (back - front2) * t2;
 
-                        // Front (inside): quad (front1, front2, p2, p1) as 2 tris - continues
+                        // Validate interpolated points
+                        if !p1.x.is_finite() || !p1.y.is_finite() || !p1.z.is_finite()
+                            || !p2.x.is_finite() || !p2.y.is_finite() || !p2.z.is_finite()
+                        {
+                            buffers.next_remaining.push(tri.clone());
+                            continue;
+                        }
+
                         buffers.next_remaining.push(Triangle::new(front1, front2, p1));
                         buffers.next_remaining.push(Triangle::new(front2, p2, p1));
-
-                        // Back (outside): Triangle(p1, p2, back) - result
                         buffers.result.push(Triangle::new(p1, p2, back));
                     }
-                    _ => unreachable!(),
+                    _ => {
+                        // Should be unreachable, but guard against corruption
+                        buffers.result.push(tri.clone());
+                    }
                 }
             }
 
