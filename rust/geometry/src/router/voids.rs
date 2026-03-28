@@ -958,10 +958,16 @@ impl GeometryRouter {
 
         let mut clip_buffers = ClipBuffers::new();
 
+        let num_vertices = mesh.positions.len() / 3;
         for chunk in mesh.indices.chunks_exact(3) {
             let i0 = chunk[0] as usize;
             let i1 = chunk[1] as usize;
             let i2 = chunk[2] as usize;
+
+            // Bounds check: skip triangles with out-of-range vertex indices
+            if i0 >= num_vertices || i1 >= num_vertices || i2 >= num_vertices {
+                continue;
+            }
 
             let v0 = Point3::new(
                 mesh.positions[i0 * 3] as f64,
