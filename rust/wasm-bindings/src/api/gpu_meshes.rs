@@ -2147,4 +2147,239 @@ impl IfcAPI {
 
         collection
     }
+
+    /// Run the pre-pass ONCE and return serialized results for worker distribution.
+    /// Takes raw bytes (&[u8]) to avoid TextDecoder overhead.
+    #[wasm_bindgen(js_name = buildPrePassOnce)]
+    pub fn build_pre_pass_once(&self, data: &[u8]) -> JsValue {
+        use ifc_lite_core::EntityDecoder;
+        use ifc_lite_geometry::GeometryRouter;
+        use super::styling::{combined_pre_pass, extract_building_rotation_from_site};
+
+        let content = unsafe { std::str::from_utf8_unchecked(data) };
+
+        // Build entity index
+        let entity_index = ifc_lite_core::build_entity_index(content);
+        let mut decoder = EntityDecoder::with_index(content, entity_index);
+
+        // Run combined pre-pass
+        let pre_pass = combined_pre_pass(content, &mut decoder);
+
+        // Extract unit scale
+        let unit_scale = pre_pass
+            .project_id
+            .and_then(|pid| ifc_lite_core::extract_length_unit_scale(&mut decoder, pid).ok())
+            .unwrap_or(1.0);
+        let mut router = GeometryRouter::with_scale(unit_scale);
+
+        // Detect RTC offset
+        let rtc_offset =
+            router.detect_rtc_offset_from_jobs(&pre_pass.simple_jobs, &mut decoder);
+        let needs_shift = rtc_offset.0.abs() > 10000.0
+            || rtc_offset.1.abs() > 10000.0
+            || rtc_offset.2.abs() > 10000.0;
+
+        // Extract building rotation
+        let building_rotation = pre_pass
+            .site_position
+            .and_then(|pos| extract_building_rotation_from_site(pos, &mut decoder));
+
+        // Build combined job list: simple first, then complex
+        let total_jobs = pre_pass.simple_jobs.len() + pre_pass.complex_jobs.len();
+
+        // Serialize jobs as flat Uint32Array: [id, start, end, id, start, end, ...]
+        let jobs_flat = js_sys::Uint32Array::new_with_length((total_jobs * 3) as u32);
+        let mut idx = 0u32;
+        for &(id, start, end, _ifc_type) in pre_pass.simple_jobs.iter().chain(pre_pass.complex_jobs.iter()) {
+            jobs_flat.set_index(idx, id);
+            jobs_flat.set_index(idx + 1, start as u32);
+            jobs_flat.set_index(idx + 2, end as u32);
+            idx += 3;
+        }
+
+        // Serialize void_index as 3 flat arrays: keys, counts, values
+        let void_keys_vec: Vec<u32> = pre_pass.void_index.keys().copied().collect();
+        let mut void_counts_vec: Vec<u32> = Vec::with_capacity(void_keys_vec.len());
+        let mut void_values_vec: Vec<u32> = Vec::new();
+        for &key in &void_keys_vec {
+            if let Some(openings) = pre_pass.void_index.get(&key) {
+                void_counts_vec.push(openings.len() as u32);
+                void_values_vec.extend_from_slice(openings);
+            }
+        }
+
+        let void_keys = js_sys::Uint32Array::new_with_length(void_keys_vec.len() as u32);
+        for (i, &k) in void_keys_vec.iter().enumerate() {
+            void_keys.set_index(i as u32, k);
+        }
+        let void_counts = js_sys::Uint32Array::new_with_length(void_counts_vec.len() as u32);
+        for (i, &c) in void_counts_vec.iter().enumerate() {
+            void_counts.set_index(i as u32, c);
+        }
+        let void_values = js_sys::Uint32Array::new_with_length(void_values_vec.len() as u32);
+        for (i, &v) in void_values_vec.iter().enumerate() {
+            void_values.set_index(i as u32, v);
+        }
+
+        // Serialize geometry_styles as flat array [id, r_u8, g_u8, b_u8, a_u8, ...]
+        let styles_len = pre_pass.geometry_styles.len();
+        let geometry_styles = js_sys::Uint32Array::new_with_length((styles_len * 5) as u32);
+        let mut si = 0u32;
+        for (&id, &color) in &pre_pass.geometry_styles {
+            geometry_styles.set_index(si, id);
+            geometry_styles.set_index(si + 1, (color[0] * 255.0) as u32);
+            geometry_styles.set_index(si + 2, (color[1] * 255.0) as u32);
+            geometry_styles.set_index(si + 3, (color[2] * 255.0) as u32);
+            geometry_styles.set_index(si + 4, (color[3] * 255.0) as u32);
+            si += 5;
+        }
+
+        // Serialize faceted_brep_ids
+        let faceted_brep_ids = js_sys::Uint32Array::new_with_length(pre_pass.faceted_brep_ids.len() as u32);
+        for (i, &id) in pre_pass.faceted_brep_ids.iter().enumerate() {
+            faceted_brep_ids.set_index(i as u32, id);
+        }
+
+        // Build result object
+        let result = js_sys::Object::new();
+        super::set_js_prop(&result, "jobs", &jobs_flat);
+        super::set_js_prop(&result, "totalJobs", &(total_jobs as f64).into());
+        super::set_js_prop(&result, "unitScale", &unit_scale.into());
+
+        let rtc_arr = js_sys::Float64Array::new_with_length(3);
+        rtc_arr.set_index(0, rtc_offset.0);
+        rtc_arr.set_index(1, rtc_offset.1);
+        rtc_arr.set_index(2, rtc_offset.2);
+        super::set_js_prop(&result, "rtcOffset", &rtc_arr);
+        super::set_js_prop(&result, "needsShift", &needs_shift.into());
+
+        match building_rotation {
+            Some(rot) => super::set_js_prop(&result, "buildingRotation", &rot.into()),
+            None => super::set_js_prop(&result, "buildingRotation", &JsValue::NULL),
+        };
+
+        super::set_js_prop(&result, "voidKeys", &void_keys);
+        super::set_js_prop(&result, "voidCounts", &void_counts);
+        super::set_js_prop(&result, "voidValues", &void_values);
+        super::set_js_prop(&result, "geometryStyles", &geometry_styles);
+        super::set_js_prop(&result, "facetedBrepIds", &faceted_brep_ids);
+
+        result.into()
+    }
+
+    /// Process geometry for a subset of pre-scanned entities.
+    /// Takes raw bytes and pre-pass data from buildPrePassOnce.
+    #[wasm_bindgen(js_name = processGeometryBatch)]
+    pub fn process_geometry_batch(
+        &self,
+        data: &[u8],
+        jobs_flat: &[u32],    // [id, start, end, id, start, end, ...] groups of 3
+        unit_scale: f64,
+        rtc_x: f64,
+        rtc_y: f64,
+        rtc_z: f64,
+        needs_shift: bool,
+        void_keys: &[u32],    // host IDs
+        void_counts: &[u32],  // number of openings per host
+        void_values: &[u32],  // flattened opening IDs
+    ) -> MeshCollection {
+        use ifc_lite_core::EntityDecoder;
+        use ifc_lite_geometry::{calculate_normals, GeometryRouter};
+        use super::styling::get_default_color_for_type;
+
+        let content = unsafe { std::str::from_utf8_unchecked(data) };
+
+        // Build entity index (fast, ~200ms, unavoidable per worker)
+        let entity_index = ifc_lite_core::build_entity_index(content);
+        let mut decoder = EntityDecoder::with_index(content, entity_index);
+
+        // Create geometry router with unit scale
+        let mut router = GeometryRouter::with_scale(unit_scale);
+
+        // Set RTC offset if needed
+        if needs_shift {
+            router.set_rtc_offset((rtc_x, rtc_y, rtc_z));
+        }
+
+        // Reconstruct void_index from flat arrays
+        let mut void_index: rustc_hash::FxHashMap<u32, Vec<u32>> =
+            rustc_hash::FxHashMap::default();
+        let mut value_offset = 0usize;
+        for i in 0..void_keys.len() {
+            let host_id = void_keys[i];
+            let count = void_counts[i] as usize;
+            let openings = void_values[value_offset..value_offset + count].to_vec();
+            void_index.insert(host_id, openings);
+            value_offset += count;
+        }
+
+        // Pre-allocate
+        let num_jobs = jobs_flat.len() / 3;
+        decoder.reserve_cache(num_jobs * 2);
+        let mut mesh_collection = MeshCollection::with_capacity(num_jobs);
+
+        if needs_shift {
+            mesh_collection.set_rtc_offset(rtc_x, rtc_y, rtc_z);
+        }
+
+        // Cache IFC type name strings
+        let mut type_name_cache: rustc_hash::FxHashMap<ifc_lite_core::IfcType, String> =
+            rustc_hash::FxHashMap::default();
+
+        // Process only the entities specified in jobs_flat
+        for chunk in jobs_flat.chunks(3) {
+            if chunk.len() < 3 {
+                break;
+            }
+            let id = chunk[0];
+            let start = chunk[1] as usize;
+            let end = chunk[2] as usize;
+
+            if let Ok(entity) = decoder.decode_at_with_id(id, start, end) {
+                let has_representation = entity.get(6).map(|a| !a.is_null()).unwrap_or(false);
+                if !has_representation {
+                    continue;
+                }
+
+                let ifc_type = entity.ifc_type;
+                let has_openings = void_index.contains_key(&id);
+
+                if has_openings {
+                    if let Ok(mut mesh) = router.process_element_with_voids(
+                        &entity,
+                        &mut decoder,
+                        &void_index,
+                    ) {
+                        if !mesh.is_empty() {
+                            if mesh.normals.len() != mesh.positions.len() {
+                                calculate_normals(&mut mesh);
+                            }
+                            let color = get_default_color_for_type(&ifc_type);
+                            let ifc_type_name = type_name_cache
+                                .entry(ifc_type)
+                                .or_insert_with(|| ifc_type.name().to_string())
+                                .clone();
+                            mesh_collection.add(MeshDataJs::new(id, ifc_type_name, mesh, color));
+                        }
+                    }
+                } else {
+                    if let Ok(mut mesh) = router.process_element(&entity, &mut decoder) {
+                        if !mesh.is_empty() {
+                            if mesh.normals.len() != mesh.positions.len() {
+                                calculate_normals(&mut mesh);
+                            }
+                            let color = get_default_color_for_type(&ifc_type);
+                            let ifc_type_name = type_name_cache
+                                .entry(ifc_type)
+                                .or_insert_with(|| ifc_type.name().to_string())
+                                .clone();
+                            mesh_collection.add(MeshDataJs::new(id, ifc_type_name, mesh, color));
+                        }
+                    }
+                }
+            }
+        }
+
+        mesh_collection
+    }
 }
