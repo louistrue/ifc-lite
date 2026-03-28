@@ -13,7 +13,7 @@ import { describe, it } from 'node:test';
 const packageDir = dirname(dirname(fileURLToPath(import.meta.url)));
 
 describe('@ifc-lite/wasm packaging', () => {
-  it('packs the rayon snippet helper into the published tarball', () => {
+  it('packs the core wasm files into the published tarball', () => {
     const packDir = mkdtempSync(join(tmpdir(), 'ifc-lite-wasm-pack-'));
 
     try {
@@ -29,10 +29,9 @@ describe('@ifc-lite/wasm packaging', () => {
         encoding: 'utf8',
       });
 
-      assert.match(
-        listing,
-        /package\/pkg\/snippets\/wasm-bindgen-rayon-[^/]+\/src\/workerHelpers\.js/,
-      );
+      assert.match(listing, /package\/pkg\/ifc-lite\.js/);
+      assert.match(listing, /package\/pkg\/ifc-lite\.d\.ts/);
+      assert.match(listing, /package\/pkg\/ifc-lite_bg\.wasm/);
     } finally {
       rmSync(packDir, { recursive: true, force: true });
     }
