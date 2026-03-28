@@ -8,8 +8,7 @@
  */
 
 import { useState, useCallback, useMemo } from 'react';
-import { Globe, MapPin, PenLine, Check, X, Search } from 'lucide-react';
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { Globe, MapPin, PenLine, Check, X, Search, ChevronRight } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Badge } from '@/components/ui/badge';
 import { computeAngleToGridNorth, type GeoreferenceInfo, type MapConversion, type ProjectedCRS } from '@ifc-lite/parser';
@@ -40,9 +39,10 @@ function GeorefRow({ label, value, suffix, isComputed, isNumber, editable, isMut
   const [editValue, setEditValue] = useState('');
 
   const startEdit = useCallback(() => {
+    if (!editable || isComputed) return;
     setEditValue(value != null ? String(value) : '');
     setEditing(true);
-  }, [value]);
+  }, [value, editable, isComputed]);
 
   const commitEdit = useCallback(() => {
     if (!onSave) return;
@@ -70,9 +70,10 @@ function GeorefRow({ label, value, suffix, isComputed, isNumber, editable, isMut
 
   return (
     <div
-      className={`flex items-start gap-2 px-3 py-1.5 group/row min-w-0 ${
+      className={`flex items-start gap-2 px-3 py-1.5 min-w-0 ${
         isMutated ? 'bg-purple-50/50 dark:bg-purple-950/30' : ''
-      }`}
+      } ${editable && !isComputed ? 'cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-900/50 group/row' : ''}`}
+      onClick={!editing ? startEdit : undefined}
     >
       <span className="text-[11px] text-zinc-500 dark:text-zinc-400 shrink-0 pt-0.5 flex items-center gap-0.5 min-w-[110px]">
         {isComputed && (
@@ -92,12 +93,12 @@ function GeorefRow({ label, value, suffix, isComputed, isNumber, editable, isMut
           </Badge>
         )}
         {editing ? (
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
             <input
               value={editValue}
               onChange={e => setEditValue(e.target.value)}
               onKeyDown={handleKeyDown}
-              className="w-40 text-[11px] font-mono px-1.5 py-0.5 border border-teal-400 dark:border-teal-600 bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 outline-none focus:ring-1 focus:ring-teal-400"
+              className="w-44 text-[11px] font-mono px-1.5 py-0.5 border border-teal-400 dark:border-teal-600 bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 outline-none focus:ring-1 focus:ring-teal-400"
               autoFocus
             />
             <button onClick={commitEdit} className="p-0.5 text-green-600 hover:text-green-700 dark:text-green-400">
@@ -121,12 +122,7 @@ function GeorefRow({ label, value, suffix, isComputed, isNumber, editable, isMut
               {suffix && <span className="text-zinc-400 dark:text-zinc-500 ml-0.5">{suffix}</span>}
             </span>
             {editable && !isComputed && (
-              <button
-                onClick={startEdit}
-                className="p-0.5 opacity-0 group-hover/row:opacity-100 transition-opacity text-zinc-400 hover:text-teal-600 dark:hover:text-teal-400 shrink-0 mt-0.5"
-              >
-                <PenLine className="h-3 w-3" />
-              </button>
+              <PenLine className="h-3 w-3 opacity-0 group-hover/row:opacity-100 transition-opacity text-zinc-400 shrink-0 mt-0.5" />
             )}
           </>
         )}
@@ -144,6 +140,8 @@ export interface GeoreferencingPanelProps {
 export function GeoreferencingPanel({ georef, modelId, enableEditing }: GeoreferencingPanelProps) {
   const georefMutations = useViewerStore(s => s.georefMutations);
   const setGeorefField = useViewerStore(s => s.setGeorefField);
+  const [crsOpen, setCrsOpen] = useState(false);
+  const [conversionOpen, setConversionOpen] = useState(false);
 
   // Bump version read to trigger re-renders
   useViewerStore(s => s.mutationVersion);
@@ -236,32 +234,38 @@ export function GeoreferencingPanel({ georef, modelId, enableEditing }: Georefer
   const editable = enableEditing && !!modelId;
 
   return (
-    <div className="border-b border-zinc-200 dark:border-zinc-800">
-      <div className="p-2.5 bg-teal-50/50 dark:bg-teal-950/20">
-        <div className="flex items-center gap-2">
-          <Globe className="h-3.5 w-3.5 text-teal-600 dark:text-teal-400" />
-          <h4 className="font-bold text-xs uppercase tracking-wide text-teal-700 dark:text-teal-300 flex-1">
-            Georeferencing
-          </h4>
-          {editable && (
-            <EpsgLookupDialog onSelect={handleEpsgSelect}>
-              <button className="flex items-center gap-1 text-[10px] font-mono text-teal-600 dark:text-teal-400 hover:text-teal-800 dark:hover:text-teal-300 transition-colors px-1.5 py-0.5 border border-teal-300/50 dark:border-teal-700/50 hover:bg-teal-50 dark:hover:bg-teal-950/50">
-                <Search className="h-2.5 w-2.5" />
-                EPSG
-              </button>
-            </EpsgLookupDialog>
-          )}
-        </div>
+    <div className="border-t border-zinc-200 dark:border-zinc-800">
+      {/* Header */}
+      <div className="px-2.5 py-1.5 bg-teal-50/50 dark:bg-teal-950/20 flex items-center gap-2">
+        <Globe className="h-3.5 w-3.5 text-teal-600 dark:text-teal-400" />
+        <span className="font-bold text-xs uppercase tracking-wide text-teal-700 dark:text-teal-300 flex-1">
+          Georeferencing
+        </span>
+        {editable && (
+          <EpsgLookupDialog onSelect={handleEpsgSelect}>
+            <button className="flex items-center gap-1 text-[10px] font-mono text-teal-600 dark:text-teal-400 hover:text-teal-800 dark:hover:text-teal-300 transition-colors px-1.5 py-0.5 border border-teal-300/50 dark:border-teal-700/50 hover:bg-teal-50 dark:hover:bg-teal-950/50">
+              <Search className="h-2.5 w-2.5" />
+              EPSG
+            </button>
+          </EpsgLookupDialog>
+        )}
       </div>
 
-      {/* IfcProjectedCRS */}
+      {/* IfcProjectedCRS - collapsed by default */}
       {mergedCRS && (
-        <Collapsible defaultOpen>
-          <CollapsibleTrigger className="flex items-center gap-2 w-full px-3 py-1.5 hover:bg-zinc-50 dark:hover:bg-zinc-900 text-left transition-colors border-b border-zinc-100 dark:border-zinc-900">
+        <div>
+          <button
+            onClick={() => setCrsOpen(!crsOpen)}
+            className="flex items-center gap-2 w-full px-3 py-1.5 hover:bg-zinc-50 dark:hover:bg-zinc-900 text-left transition-colors border-b border-zinc-100 dark:border-zinc-900"
+          >
+            <ChevronRight className={`h-3 w-3 text-teal-500 shrink-0 transition-transform ${crsOpen ? 'rotate-90' : ''}`} />
             <Globe className="h-3 w-3 text-teal-500 shrink-0" />
-            <span className="font-bold text-[11px] text-zinc-700 dark:text-zinc-300 uppercase tracking-wide">Projected CRS</span>
-          </CollapsibleTrigger>
-          <CollapsibleContent>
+            <span className="font-bold text-[11px] text-zinc-700 dark:text-zinc-300 uppercase tracking-wide flex-1 text-left">Projected CRS</span>
+            {!crsOpen && mergedCRS.name && (
+              <span className="text-[10px] font-mono text-teal-600/70 dark:text-teal-500/60 truncate max-w-[50%]">{mergedCRS.name}</span>
+            )}
+          </button>
+          {crsOpen && (
             <div className="divide-y divide-zinc-100 dark:divide-zinc-900">
               <GeorefRow
                 label="Name"
@@ -323,18 +327,27 @@ export function GeoreferencingPanel({ georef, modelId, enableEditing }: Georefer
                 onSave={v => handleSave('projectedCRS', 'mapUnit', v)}
               />
             </div>
-          </CollapsibleContent>
-        </Collapsible>
+          )}
+        </div>
       )}
 
-      {/* IfcMapConversion */}
+      {/* IfcMapConversion - collapsed by default */}
       {mergedConversion && (
-        <Collapsible defaultOpen>
-          <CollapsibleTrigger className="flex items-center gap-2 w-full px-3 py-1.5 hover:bg-zinc-50 dark:hover:bg-zinc-900 text-left transition-colors border-b border-zinc-100 dark:border-zinc-900">
+        <div>
+          <button
+            onClick={() => setConversionOpen(!conversionOpen)}
+            className="flex items-center gap-2 w-full px-3 py-1.5 hover:bg-zinc-50 dark:hover:bg-zinc-900 text-left transition-colors border-b border-zinc-100 dark:border-zinc-900"
+          >
+            <ChevronRight className={`h-3 w-3 text-teal-500 shrink-0 transition-transform ${conversionOpen ? 'rotate-90' : ''}`} />
             <MapPin className="h-3 w-3 text-teal-500 shrink-0" />
-            <span className="font-bold text-[11px] text-zinc-700 dark:text-zinc-300 uppercase tracking-wide">Coordinate Operation</span>
-          </CollapsibleTrigger>
-          <CollapsibleContent>
+            <span className="font-bold text-[11px] text-zinc-700 dark:text-zinc-300 uppercase tracking-wide flex-1 text-left">Coordinate Operation</span>
+            {!conversionOpen && (
+              <span className="text-[10px] font-mono text-teal-600/70 dark:text-teal-500/60">
+                E {mergedConversion.eastings.toFixed(0)} N {mergedConversion.northings.toFixed(0)}
+              </span>
+            )}
+          </button>
+          {conversionOpen && (
             <div className="divide-y divide-zinc-100 dark:divide-zinc-900">
               <GeorefRow label="Type" value="IfcMapConversion" />
               <GeorefRow
@@ -397,8 +410,8 @@ export function GeoreferencingPanel({ georef, modelId, enableEditing }: Georefer
                 onSave={v => handleSave('mapConversion', 'scale', v)}
               />
             </div>
-          </CollapsibleContent>
-        </Collapsible>
+          )}
+        </div>
       )}
     </div>
   );
