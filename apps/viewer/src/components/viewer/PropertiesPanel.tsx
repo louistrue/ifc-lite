@@ -998,7 +998,7 @@ export function PropertiesPanel() {
                 <GeoreferencingPanel
                   georef={georef}
                   modelId={selectedEntity?.modelId === 'legacy' ? undefined : selectedEntity?.modelId}
-                  enableEditing={editMode}
+                  enableEditing
                 />
               )}
             </CollapsibleContent>
@@ -1010,7 +1010,7 @@ export function PropertiesPanel() {
           <GeoreferencingPanel
             georef={georef}
             modelId={selectedEntity?.modelId === 'legacy' ? undefined : selectedEntity?.modelId}
-            enableEditing={editMode}
+            enableEditing
           />
         )}
 

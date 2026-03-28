@@ -70,13 +70,11 @@ function GeorefRow({ label, value, suffix, isComputed, isNumber, editable, isMut
 
   return (
     <div
-      className={`flex items-center gap-3 px-3 py-2 group/row ${
-        isMutated
-          ? 'bg-purple-50/50 dark:bg-purple-950/30'
-          : ''
+      className={`flex items-start gap-2 px-3 py-1.5 group/row min-w-0 ${
+        isMutated ? 'bg-purple-50/50 dark:bg-purple-950/30' : ''
       }`}
     >
-      <span className="text-xs text-zinc-500 shrink-0 flex items-center gap-1">
+      <span className="text-[11px] text-zinc-500 dark:text-zinc-400 shrink-0 pt-0.5 flex items-center gap-0.5 min-w-[110px]">
         {isComputed && (
           <Tooltip>
             <TooltipTrigger asChild>
@@ -87,49 +85,45 @@ function GeorefRow({ label, value, suffix, isComputed, isNumber, editable, isMut
         )}
         {label}
       </span>
-      <div className="ml-auto flex items-center gap-1.5 min-w-0">
+      <div className="flex-1 flex items-start gap-1 min-w-0 justify-end">
         {isMutated && (
-          <Badge variant="secondary" className="h-4 px-1 text-[9px] bg-purple-100 dark:bg-purple-900 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-700 shrink-0">
+          <Badge variant="secondary" className="h-4 px-1 text-[9px] bg-purple-100 dark:bg-purple-900 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-700 shrink-0 mt-0.5">
             edited
           </Badge>
         )}
         {editing ? (
           <div className="flex items-center gap-1">
             <input
-              type={isNumber ? 'text' : 'text'}
               value={editValue}
               onChange={e => setEditValue(e.target.value)}
               onKeyDown={handleKeyDown}
-              className="w-32 text-xs font-mono px-1.5 py-0.5 border border-teal-300 dark:border-teal-700 bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 outline-none focus:ring-1 focus:ring-teal-400"
+              className="w-40 text-[11px] font-mono px-1.5 py-0.5 border border-teal-400 dark:border-teal-600 bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 outline-none focus:ring-1 focus:ring-teal-400"
               autoFocus
             />
-            <button
-              onClick={commitEdit}
-              className="p-0.5 text-green-600 hover:text-green-700 dark:text-green-400"
-            >
+            <button onClick={commitEdit} className="p-0.5 text-green-600 hover:text-green-700 dark:text-green-400">
               <Check className="h-3 w-3" />
             </button>
-            <button
-              onClick={cancelEdit}
-              className="p-0.5 text-red-500 hover:text-red-600 dark:text-red-400"
-            >
+            <button onClick={cancelEdit} className="p-0.5 text-red-500 hover:text-red-600 dark:text-red-400">
               <X className="h-3 w-3" />
             </button>
           </div>
         ) : (
           <>
-            <span className={`text-xs font-mono tabular-nums truncate max-w-[65%] ${
-              isMutated
-                ? 'text-purple-700 dark:text-purple-300 font-semibold'
-                : 'text-teal-700 dark:text-teal-400'
-            }`}>
+            <span
+              className={`text-[11px] font-mono tabular-nums break-all text-right ${
+                isMutated
+                  ? 'text-purple-700 dark:text-purple-300 font-semibold'
+                  : 'text-teal-700 dark:text-teal-400'
+              }`}
+              title={displayValue}
+            >
               {displayValue}
-              {suffix && <span className="text-zinc-400 ml-1">{suffix}</span>}
+              {suffix && <span className="text-zinc-400 dark:text-zinc-500 ml-0.5">{suffix}</span>}
             </span>
             {editable && !isComputed && (
               <button
                 onClick={startEdit}
-                className="p-0.5 opacity-0 group-hover/row:opacity-100 transition-opacity text-zinc-400 hover:text-teal-600 dark:hover:text-teal-400"
+                className="p-0.5 opacity-0 group-hover/row:opacity-100 transition-opacity text-zinc-400 hover:text-teal-600 dark:hover:text-teal-400 shrink-0 mt-0.5"
               >
                 <PenLine className="h-3 w-3" />
               </button>
@@ -243,7 +237,7 @@ export function GeoreferencingPanel({ georef, modelId, enableEditing }: Georefer
 
   return (
     <div className="border-b border-zinc-200 dark:border-zinc-800">
-      <div className="p-3 bg-teal-50/50 dark:bg-teal-950/20">
+      <div className="p-2.5 bg-teal-50/50 dark:bg-teal-950/20">
         <div className="flex items-center gap-2">
           <Globe className="h-3.5 w-3.5 text-teal-600 dark:text-teal-400" />
           <h4 className="font-bold text-xs uppercase tracking-wide text-teal-700 dark:text-teal-300 flex-1">
@@ -263,7 +257,7 @@ export function GeoreferencingPanel({ georef, modelId, enableEditing }: Georefer
       {/* IfcProjectedCRS */}
       {mergedCRS && (
         <Collapsible defaultOpen>
-          <CollapsibleTrigger className="flex items-center gap-2 w-full px-3 py-2 hover:bg-zinc-50 dark:hover:bg-zinc-900 text-left transition-colors border-b border-zinc-100 dark:border-zinc-900">
+          <CollapsibleTrigger className="flex items-center gap-2 w-full px-3 py-1.5 hover:bg-zinc-50 dark:hover:bg-zinc-900 text-left transition-colors border-b border-zinc-100 dark:border-zinc-900">
             <Globe className="h-3 w-3 text-teal-500 shrink-0" />
             <span className="font-bold text-[11px] text-zinc-700 dark:text-zinc-300 uppercase tracking-wide">Projected CRS</span>
           </CollapsibleTrigger>
@@ -336,16 +330,13 @@ export function GeoreferencingPanel({ georef, modelId, enableEditing }: Georefer
       {/* IfcMapConversion */}
       {mergedConversion && (
         <Collapsible defaultOpen>
-          <CollapsibleTrigger className="flex items-center gap-2 w-full px-3 py-2 hover:bg-zinc-50 dark:hover:bg-zinc-900 text-left transition-colors border-b border-zinc-100 dark:border-zinc-900">
+          <CollapsibleTrigger className="flex items-center gap-2 w-full px-3 py-1.5 hover:bg-zinc-50 dark:hover:bg-zinc-900 text-left transition-colors border-b border-zinc-100 dark:border-zinc-900">
             <MapPin className="h-3 w-3 text-teal-500 shrink-0" />
             <span className="font-bold text-[11px] text-zinc-700 dark:text-zinc-300 uppercase tracking-wide">Coordinate Operation</span>
           </CollapsibleTrigger>
           <CollapsibleContent>
             <div className="divide-y divide-zinc-100 dark:divide-zinc-900">
-              <GeorefRow
-                label="Type"
-                value="IfcMapConversion"
-              />
+              <GeorefRow label="Type" value="IfcMapConversion" />
               <GeorefRow
                 label="Eastings"
                 value={mergedConversion.eastings}
