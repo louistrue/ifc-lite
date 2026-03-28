@@ -71,7 +71,7 @@ impl IfcAPI {
 
         // Build entity index once upfront
         let entity_index = build_entity_index(&content);
-        let mut decoder = EntityDecoder::with_index(&content, entity_index.clone());
+        let mut decoder = EntityDecoder::with_index(&content, entity_index);
 
         // Build style indices
         let geometry_styles = build_geometry_style_index(&content, &mut decoder);

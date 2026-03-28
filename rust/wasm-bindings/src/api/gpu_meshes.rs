@@ -48,7 +48,7 @@ impl IfcAPI {
         let entity_index = build_entity_index(&content);
 
         // Create decoder with pre-built index
-        let mut decoder = EntityDecoder::with_index(&content, entity_index.clone());
+        let mut decoder = EntityDecoder::with_index(&content, entity_index);
 
         // Build style index: first map geometry IDs to colors, then map element IDs to colors
         let geometry_styles = build_geometry_style_index(&content, &mut decoder);
@@ -331,6 +331,202 @@ impl IfcAPI {
         mesh_collection
     }
 
+    /// Parse a subset of IFC geometry entities by index range.
+    ///
+    /// Performs the full pre-pass (entity index, combined style/void/brep scan)
+    /// but only processes geometry entities whose index (in the combined
+    /// simple + complex job list) falls within `[start_idx, end_idx)`.
+    ///
+    /// This enables Web Worker parallelization: each worker processes a
+    /// disjoint slice of the entity list while sharing the same pre-pass data.
+    ///
+    /// Example:
+    /// ```javascript
+    /// const api = new IfcAPI();
+    /// // Worker 1: entities 0..500
+    /// const batch1 = api.parseMeshesSubset(content, 0, 500);
+    /// // Worker 2: entities 500..1000
+    /// const batch2 = api.parseMeshesSubset(content, 500, 1000);
+    /// ```
+    #[wasm_bindgen(js_name = parseMeshesSubset)]
+    pub fn parse_meshes_subset(
+        &self,
+        content: String,
+        start_idx: u32,
+        end_idx: u32,
+        skip_expensive: bool,
+    ) -> MeshCollection {
+        use ifc_lite_core::EntityDecoder;
+        use ifc_lite_geometry::{calculate_normals, GeometryRouter};
+        use super::styling::{
+            combined_pre_pass, extract_building_rotation_from_site, resolve_element_color,
+            resolve_submesh_color, get_default_color_for_type,
+        };
+
+        // ── Phase 1: Build entity index (fast memchr scan, ~200 ms) ──
+        let entity_index = ifc_lite_core::build_entity_index(&content);
+        let mut decoder = EntityDecoder::with_index(&content, entity_index);
+
+        // ── Phase 2: Single combined pre-pass (~600 ms) ──
+        let pre_pass = combined_pre_pass(&content, &mut decoder);
+
+        let total_jobs = pre_pass.simple_jobs.len() + pre_pass.complex_jobs.len();
+        decoder.reserve_cache(if skip_expensive { total_jobs } else { total_jobs * 2 });
+
+        // ── Phase 3: Setup ──
+        let unit_scale = pre_pass
+            .project_id
+            .and_then(|pid| ifc_lite_core::extract_length_unit_scale(&mut decoder, pid).ok())
+            .unwrap_or(1.0);
+        let mut router = GeometryRouter::with_scale(unit_scale);
+
+        let rtc_offset =
+            router.detect_rtc_offset_from_jobs(&pre_pass.simple_jobs, &mut decoder).unwrap_or((0.0, 0.0, 0.0));
+        let needs_shift = rtc_offset.0.abs() > 10000.0
+            || rtc_offset.1.abs() > 10000.0
+            || rtc_offset.2.abs() > 10000.0;
+
+        if needs_shift {
+            router.set_rtc_offset(rtc_offset);
+        }
+
+        let building_rotation = pre_pass
+            .site_position
+            .and_then(|pos| extract_building_rotation_from_site(pos, &mut decoder));
+
+        // ── Phase 3b: Build element style map (SKIP if skip_expensive) ──
+        let mut element_styles: rustc_hash::FxHashMap<u32, [f32; 4]> =
+            rustc_hash::FxHashMap::default();
+        if !skip_expensive && !pre_pass.geometry_styles.is_empty() {
+            for jobs in [&pre_pass.simple_jobs, &pre_pass.complex_jobs] {
+                for &(id, start, end, _ifc_type) in jobs.iter() {
+                    if let Ok(entity) = decoder.decode_at_with_id(id, start, end) {
+                        if entity.get(6).map(|a| !a.is_null()).unwrap_or(false) {
+                            if let Some(color) = resolve_element_color(
+                                &entity,
+                                &pre_pass.geometry_styles,
+                                &mut decoder,
+                            ) {
+                                element_styles.insert(id, color);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Batch preprocess FacetedBreps (skip in fast worker mode)
+        if !skip_expensive && !pre_pass.faceted_brep_ids.is_empty() {
+            router.preprocess_faceted_breps(&pre_pass.faceted_brep_ids, &mut decoder);
+            decoder.clear_point_cache();
+        }
+
+        // ── Phase 4: Process only the requested subset of geometry entities ──
+        // Build a combined job list: simple first, then complex (same order as parseMeshesAsync)
+        let all_jobs: Vec<(u32, usize, usize, ifc_lite_core::IfcType)> = pre_pass
+            .simple_jobs
+            .iter()
+            .chain(pre_pass.complex_jobs.iter())
+            .copied()
+            .collect();
+
+        let start = start_idx as usize;
+        let end = (end_idx as usize).min(all_jobs.len());
+
+        let estimated_elements = if end > start { end - start } else { 0 };
+        let mut mesh_collection = MeshCollection::with_capacity(estimated_elements);
+
+        if needs_shift {
+            mesh_collection.set_rtc_offset(rtc_offset.0, rtc_offset.1, rtc_offset.2);
+        }
+        mesh_collection.set_building_rotation(building_rotation);
+
+        // Cache IFC type name strings
+        let mut type_name_cache: rustc_hash::FxHashMap<ifc_lite_core::IfcType, String> =
+            rustc_hash::FxHashMap::default();
+
+        for &(id, job_start, job_end, ifc_type) in &all_jobs[start..end] {
+            if let Ok(entity) = decoder.decode_at_with_id(id, job_start, job_end) {
+                let has_representation = entity.get(6).map(|a| !a.is_null()).unwrap_or(false);
+                if !has_representation {
+                    continue;
+                }
+
+                let has_openings = pre_pass.void_index.contains_key(&id);
+                let default_color = get_default_color_for_type(&ifc_type);
+                let element_color = element_styles.get(&id).copied();
+                let ifc_type_name = type_name_cache
+                    .entry(ifc_type)
+                    .or_insert_with(|| ifc_type.name().to_string())
+                    .clone();
+
+                let mut push_mesh = |mesh: &mut ifc_lite_geometry::Mesh, color: [f32; 4]| {
+                    if mesh.is_empty() {
+                        return;
+                    }
+                    if mesh.normals.len() != mesh.positions.len() {
+                        calculate_normals(mesh);
+                    }
+                    let mesh_data =
+                        MeshDataJs::new(id, ifc_type_name.clone(), mesh.clone(), color);
+                    mesh_collection.add(mesh_data);
+                };
+
+                if has_openings {
+                    if let Ok(mut mesh) = router.process_element_with_voids(
+                        &entity,
+                        &mut decoder,
+                        &pre_pass.void_index,
+                    ) {
+                        let color = element_color.unwrap_or(default_color);
+                        push_mesh(&mut mesh, color);
+                    }
+                } else {
+                    let skip_submesh = matches!(ifc_type, ifc_lite_core::IfcType::IfcSite);
+                    let sub_meshes_result = if skip_submesh {
+                        Err(ifc_lite_geometry::Error::geometry(
+                            "Skip submesh for IfcSite".to_string(),
+                        ))
+                    } else {
+                        router.process_element_with_submeshes(&entity, &mut decoder)
+                    };
+
+                    let has_submeshes = sub_meshes_result
+                        .as_ref()
+                        .map(|s| !s.is_empty())
+                        .unwrap_or(false);
+
+                    if has_submeshes {
+                        let sub_meshes = sub_meshes_result.unwrap();
+                        let mat_colors = pre_pass.element_material_styles.get(&id);
+                        let mut mat_color_idx = 0usize;
+
+                        for sub in sub_meshes.sub_meshes {
+                            let mut mesh = sub.mesh;
+                            let color = resolve_submesh_color(
+                                sub.geometry_id,
+                                &pre_pass.geometry_styles,
+                                &mut decoder,
+                                mat_colors,
+                                &mut mat_color_idx,
+                                element_color,
+                                default_color,
+                            );
+                            push_mesh(&mut mesh, color);
+                        }
+                    } else if let Ok(mut mesh) =
+                        router.process_element(&entity, &mut decoder)
+                    {
+                        let color = element_color.unwrap_or(default_color);
+                        push_mesh(&mut mesh, color);
+                    }
+                }
+            }
+        }
+
+        mesh_collection
+    }
+
     /// Parse IFC file and return instanced geometry grouped by geometry hash
     /// This reduces draw calls by grouping identical geometries with different transforms
     ///
@@ -361,7 +557,7 @@ impl IfcAPI {
         let entity_index = build_entity_index(&content);
 
         // Create decoder with pre-built index
-        let mut decoder = EntityDecoder::with_index(&content, entity_index.clone());
+        let mut decoder = EntityDecoder::with_index(&content, entity_index);
 
         // Build style index: first map geometry IDs to colors, then map element IDs to colors
         let geometry_styles = build_geometry_style_index(&content, &mut decoder);
@@ -529,7 +725,7 @@ impl IfcAPI {
 
                 // Build entity index once upfront for O(1) lookups
                 let entity_index = build_entity_index(&content);
-                let mut decoder = EntityDecoder::with_index(&content, entity_index.clone());
+                let mut decoder = EntityDecoder::with_index(&content, entity_index);
 
                 // Build style index
                 let geometry_styles = build_geometry_style_index(&content, &mut decoder);
@@ -699,7 +895,7 @@ impl IfcAPI {
                             }
 
                             // Yield to browser
-                            gloo_timers::future::TimeoutFuture::new(0).await;
+                            // yield removed — sync for speed
                         }
                     } else {
                         // Defer complex geometry
@@ -745,7 +941,7 @@ impl IfcAPI {
                         let _ = callback.call2(&JsValue::NULL, &js_geometries, &progress);
                     }
 
-                    gloo_timers::future::TimeoutFuture::new(0).await;
+                    // yield removed — sync for speed
                 }
 
                 // Process deferred complex geometry
@@ -853,7 +1049,7 @@ impl IfcAPI {
                             let _ = callback.call2(&JsValue::NULL, &js_geometries, &progress);
                         }
 
-                        gloo_timers::future::TimeoutFuture::new(0).await;
+                        // yield removed — sync for speed
                     }
                 }
 
@@ -986,7 +1182,7 @@ impl IfcAPI {
 
                 // ── Phase 1: Build entity index (fast memchr scan, ~200 ms) ──
                 let entity_index = ifc_lite_core::build_entity_index(&content);
-                let mut decoder = EntityDecoder::with_index(&content, entity_index.clone());
+                let mut decoder = EntityDecoder::with_index(&content, entity_index);
 
                 // ── Phase 2: Single combined pre-pass (~600 ms, was ~3 s for 4 scans) ──
                 // Collects geometry styles, void relationships, brep IDs, project ID,
@@ -1013,7 +1209,7 @@ impl IfcAPI {
 
                 // DETECT RTC OFFSET from pre-collected building element jobs (no re-scan)
                 let rtc_offset =
-                    router.detect_rtc_offset_from_jobs(&pre_pass.simple_jobs, &mut decoder);
+                    router.detect_rtc_offset_from_jobs(&pre_pass.simple_jobs, &mut decoder).unwrap_or((0.0, 0.0, 0.0));
                 let needs_shift = rtc_offset.0.abs() > 10000.0
                     || rtc_offset.1.abs() > 10000.0
                     || rtc_offset.2.abs() > 10000.0;
@@ -1150,7 +1346,7 @@ impl IfcAPI {
                         current_batch_size = throughput_batch_size;
 
                         // Yield to browser
-                        gloo_timers::future::TimeoutFuture::new(0).await;
+                        // yield removed — sync for speed
                     }
                 }
 
@@ -1169,7 +1365,7 @@ impl IfcAPI {
                         total_meshes += js_meshes.length() as usize;
                     }
 
-                    gloo_timers::future::TimeoutFuture::new(0).await;
+                    // yield removed — sync for speed
                 }
 
                 let total_elements = processed + pre_pass.complex_jobs.len();
@@ -1312,7 +1508,7 @@ impl IfcAPI {
                             total_meshes += js_meshes.length() as usize;
                         }
 
-                        gloo_timers::future::TimeoutFuture::new(0).await;
+                        // yield removed — sync for speed
                     }
                 }
 
@@ -1411,7 +1607,7 @@ impl IfcAPI {
 
         // Build entity index once upfront for O(1) lookups
         let entity_index = build_entity_index(&content);
-        let mut decoder = EntityDecoder::with_index(&content, entity_index.clone());
+        let mut decoder = EntityDecoder::with_index(&content, entity_index);
 
         // Build style index for colors
         let geometry_styles = build_geometry_style_index(&content, &mut decoder);
@@ -1575,7 +1771,7 @@ impl IfcAPI {
 
                 // Build entity index
                 let entity_index = build_entity_index(&content);
-                let mut decoder = EntityDecoder::with_index(&content, entity_index.clone());
+                let mut decoder = EntityDecoder::with_index(&content, entity_index);
 
                 // Build style index
                 let geometry_styles = build_geometry_style_index(&content, &mut decoder);
@@ -1726,7 +1922,7 @@ impl IfcAPI {
                             flush_batch(&mut current_batch, &on_batch, &progress.into());
 
                             // Yield to browser
-                            gloo_timers::future::TimeoutFuture::new(0).await;
+                            // yield removed — sync for speed
                         }
                     } else {
                         // Defer complex geometry
@@ -1739,7 +1935,7 @@ impl IfcAPI {
                     let progress = js_sys::Object::new();
                     super::set_js_prop(&progress, "phase", &"simple_complete".into());
                     flush_batch(&mut current_batch, &on_batch, &progress.into());
-                    gloo_timers::future::TimeoutFuture::new(0).await;
+                    // yield removed — sync for speed
                 }
 
                 // Process deferred complex geometry
@@ -1787,7 +1983,7 @@ impl IfcAPI {
                         super::set_js_prop(&progress, "phase", &"complex".into());
 
                         flush_batch(&mut current_batch, &on_batch, &progress.into());
-                        gloo_timers::future::TimeoutFuture::new(0).await;
+                        // yield removed — sync for speed
                     }
                 }
 
@@ -1839,7 +2035,7 @@ impl IfcAPI {
 
         // Build entity index
         let entity_index = build_entity_index(&content);
-        let mut decoder = EntityDecoder::with_index(&content, entity_index.clone());
+        let mut decoder = EntityDecoder::with_index(&content, entity_index);
 
         // Build style index
         let geometry_styles = build_geometry_style_index(&content, &mut decoder);
@@ -1950,5 +2146,432 @@ impl IfcAPI {
         }
 
         collection
+    }
+
+    /// Run the pre-pass ONCE and return serialized results for worker distribution.
+    /// Takes raw bytes (&[u8]) to avoid TextDecoder overhead.
+    #[wasm_bindgen(js_name = buildPrePassOnce)]
+    pub fn build_pre_pass_once(&self, data: &[u8]) -> JsValue {
+        use ifc_lite_core::EntityDecoder;
+        use ifc_lite_geometry::GeometryRouter;
+        use super::styling::{combined_pre_pass, extract_building_rotation_from_site};
+
+        let content = unsafe { std::str::from_utf8_unchecked(data) };
+
+        // Build entity index
+        let entity_index = ifc_lite_core::build_entity_index(content);
+        let mut decoder = EntityDecoder::with_index(content, entity_index);
+
+        // Run combined pre-pass
+        let pre_pass = combined_pre_pass(content, &mut decoder);
+
+        // Extract unit scale
+        let unit_scale = pre_pass
+            .project_id
+            .and_then(|pid| ifc_lite_core::extract_length_unit_scale(&mut decoder, pid).ok())
+            .unwrap_or(1.0);
+        let mut router = GeometryRouter::with_scale(unit_scale);
+
+        // Detect RTC offset
+        let rtc_offset =
+            router.detect_rtc_offset_from_jobs(&pre_pass.simple_jobs, &mut decoder).unwrap_or((0.0, 0.0, 0.0));
+        let needs_shift = rtc_offset.0.abs() > 10000.0
+            || rtc_offset.1.abs() > 10000.0
+            || rtc_offset.2.abs() > 10000.0;
+
+        // Extract building rotation
+        let building_rotation = pre_pass
+            .site_position
+            .and_then(|pos| extract_building_rotation_from_site(pos, &mut decoder));
+
+        // Build combined job list: simple first, then complex
+        let total_jobs = pre_pass.simple_jobs.len() + pre_pass.complex_jobs.len();
+
+        // Serialize jobs as flat Uint32Array: [id, start, end, id, start, end, ...]
+        let jobs_flat = js_sys::Uint32Array::new_with_length((total_jobs * 3) as u32);
+        let mut idx = 0u32;
+        for &(id, start, end, _ifc_type) in pre_pass.simple_jobs.iter().chain(pre_pass.complex_jobs.iter()) {
+            jobs_flat.set_index(idx, id);
+            jobs_flat.set_index(idx + 1, start as u32);
+            jobs_flat.set_index(idx + 2, end as u32);
+            idx += 3;
+        }
+
+        // Serialize void_index as 3 flat arrays: keys, counts, values
+        let void_keys_vec: Vec<u32> = pre_pass.void_index.keys().copied().collect();
+        let mut void_counts_vec: Vec<u32> = Vec::with_capacity(void_keys_vec.len());
+        let mut void_values_vec: Vec<u32> = Vec::new();
+        for &key in &void_keys_vec {
+            if let Some(openings) = pre_pass.void_index.get(&key) {
+                void_counts_vec.push(openings.len() as u32);
+                void_values_vec.extend_from_slice(openings);
+            }
+        }
+
+        let void_keys = js_sys::Uint32Array::new_with_length(void_keys_vec.len() as u32);
+        for (i, &k) in void_keys_vec.iter().enumerate() {
+            void_keys.set_index(i as u32, k);
+        }
+        let void_counts = js_sys::Uint32Array::new_with_length(void_counts_vec.len() as u32);
+        for (i, &c) in void_counts_vec.iter().enumerate() {
+            void_counts.set_index(i as u32, c);
+        }
+        let void_values = js_sys::Uint32Array::new_with_length(void_values_vec.len() as u32);
+        for (i, &v) in void_values_vec.iter().enumerate() {
+            void_values.set_index(i as u32, v);
+        }
+
+        // Serialize geometry_styles as two arrays: styleIds (u32) + styleColors (u8 RGBA)
+        let styles_len = pre_pass.geometry_styles.len();
+        let style_ids = js_sys::Uint32Array::new_with_length(styles_len as u32);
+        let style_colors = js_sys::Uint8Array::new_with_length((styles_len * 4) as u32);
+        let mut si = 0u32;
+        for (&id, &color) in &pre_pass.geometry_styles {
+            style_ids.set_index(si, id);
+            let ci = si * 4;
+            style_colors.set_index(ci, (color[0] * 255.0) as u8);
+            style_colors.set_index(ci + 1, (color[1] * 255.0) as u8);
+            style_colors.set_index(ci + 2, (color[2] * 255.0) as u8);
+            style_colors.set_index(ci + 3, (color[3] * 255.0) as u8);
+            si += 1;
+        }
+
+        // Serialize faceted_brep_ids
+        let faceted_brep_ids = js_sys::Uint32Array::new_with_length(pre_pass.faceted_brep_ids.len() as u32);
+        for (i, &id) in pre_pass.faceted_brep_ids.iter().enumerate() {
+            faceted_brep_ids.set_index(i as u32, id);
+        }
+
+        // Build result object
+        let result = js_sys::Object::new();
+        super::set_js_prop(&result, "jobs", &jobs_flat);
+        super::set_js_prop(&result, "totalJobs", &(total_jobs as f64).into());
+        super::set_js_prop(&result, "unitScale", &unit_scale.into());
+
+        let rtc_arr = js_sys::Float64Array::new_with_length(3);
+        rtc_arr.set_index(0, rtc_offset.0);
+        rtc_arr.set_index(1, rtc_offset.1);
+        rtc_arr.set_index(2, rtc_offset.2);
+        super::set_js_prop(&result, "rtcOffset", &rtc_arr);
+        super::set_js_prop(&result, "needsShift", &needs_shift.into());
+
+        match building_rotation {
+            Some(rot) => super::set_js_prop(&result, "buildingRotation", &rot.into()),
+            None => super::set_js_prop(&result, "buildingRotation", &JsValue::NULL),
+        };
+
+        super::set_js_prop(&result, "voidKeys", &void_keys);
+        super::set_js_prop(&result, "voidCounts", &void_counts);
+        super::set_js_prop(&result, "voidValues", &void_values);
+        super::set_js_prop(&result, "styleIds", &style_ids);
+        super::set_js_prop(&result, "styleColors", &style_colors);
+        super::set_js_prop(&result, "facetedBrepIds", &faceted_brep_ids);
+
+        result.into()
+    }
+
+    /// Fast pre-pass: scans for geometry entities ONLY (skips style/void/material resolution).
+    /// Returns job list + unit scale + RTC offset in ~1-2s instead of ~6s.
+    /// Geometry workers can start immediately with default colors + no void subtraction.
+    /// A parallel style worker can run buildPrePassOnce for correct colors later.
+    #[wasm_bindgen(js_name = buildPrePassFast)]
+    pub fn build_pre_pass_fast(&self, data: &[u8]) -> JsValue {
+        use ifc_lite_core::{EntityScanner, EntityDecoder, IfcType};
+        use ifc_lite_geometry::GeometryRouter;
+        use super::styling::{is_simple_geometry_type, extract_building_rotation_from_site};
+
+        let content = unsafe { std::str::from_utf8_unchecked(data) };
+
+        let mut scanner = EntityScanner::new(content);
+        let estimated = content.len() / 2000;
+        let mut simple_jobs: Vec<(u32, usize, usize, IfcType)> = Vec::with_capacity(estimated / 2);
+        let mut complex_jobs: Vec<(u32, usize, usize, IfcType)> = Vec::with_capacity(estimated / 2);
+        let mut project_id: Option<u32> = None;
+        let mut site_position: Option<(u32, usize, usize)> = None;
+
+        // Fast scan: only collect geometry entity locations + project/site
+        // Skip ALL style/void/material/brep collection
+        while let Some((id, type_name, start, end)) = scanner.next_entity() {
+            match type_name {
+                "IFCPROJECT" => { if project_id.is_none() { project_id = Some(id); } }
+                "IFCSITE" => {
+                    if site_position.is_none() { site_position = Some((id, start, end)); }
+                    let ifc_type = IfcType::from_str(type_name);
+                    complex_jobs.push((id, start, end, ifc_type));
+                }
+                _ => {
+                    if ifc_lite_core::has_geometry_by_name(type_name) {
+                        let ifc_type = IfcType::from_str(type_name);
+                        if is_simple_geometry_type(type_name) {
+                            simple_jobs.push((id, start, end, ifc_type));
+                        } else {
+                            complex_jobs.push((id, start, end, ifc_type));
+                        }
+                    }
+                }
+            }
+        }
+
+        // Resolve unit scale + RTC offset (needs entity index for decoder)
+        let entity_index = ifc_lite_core::build_entity_index(content);
+        let mut decoder = EntityDecoder::with_index(content, entity_index);
+
+        let unit_scale = project_id
+            .and_then(|pid| ifc_lite_core::extract_length_unit_scale(&mut decoder, pid).ok())
+            .unwrap_or(1.0);
+        let mut router = GeometryRouter::with_scale(unit_scale);
+
+        let rtc_offset = router.detect_rtc_offset_from_jobs(&simple_jobs, &mut decoder).unwrap_or((0.0, 0.0, 0.0));
+        let needs_shift = rtc_offset.0.abs() > 10000.0
+            || rtc_offset.1.abs() > 10000.0
+            || rtc_offset.2.abs() > 10000.0;
+
+        let building_rotation = site_position
+            .and_then(|pos| extract_building_rotation_from_site(pos, &mut decoder));
+
+        // Serialize job list
+        let total_jobs = simple_jobs.len() + complex_jobs.len();
+        let jobs_flat = js_sys::Uint32Array::new_with_length((total_jobs * 3) as u32);
+        let mut idx = 0u32;
+        for &(id, start, end, _) in simple_jobs.iter().chain(complex_jobs.iter()) {
+            jobs_flat.set_index(idx, id);
+            jobs_flat.set_index(idx + 1, start as u32);
+            jobs_flat.set_index(idx + 2, end as u32);
+            idx += 3;
+        }
+
+        let result = js_sys::Object::new();
+        super::set_js_prop(&result, "jobs", &jobs_flat);
+        super::set_js_prop(&result, "totalJobs", &(total_jobs as f64).into());
+        super::set_js_prop(&result, "unitScale", &unit_scale.into());
+
+        let rtc_arr = js_sys::Float64Array::new_with_length(3);
+        rtc_arr.set_index(0, rtc_offset.0);
+        rtc_arr.set_index(1, rtc_offset.1);
+        rtc_arr.set_index(2, rtc_offset.2);
+        super::set_js_prop(&result, "rtcOffset", &rtc_arr);
+        super::set_js_prop(&result, "needsShift", &needs_shift.into());
+
+        match building_rotation {
+            Some(rot) => super::set_js_prop(&result, "buildingRotation", &rot.into()),
+            None => super::set_js_prop(&result, "buildingRotation", &JsValue::NULL),
+        };
+
+        // Empty style/void arrays — workers use default colors, no void subtraction
+        super::set_js_prop(&result, "voidKeys", &js_sys::Uint32Array::new_with_length(0));
+        super::set_js_prop(&result, "voidCounts", &js_sys::Uint32Array::new_with_length(0));
+        super::set_js_prop(&result, "voidValues", &js_sys::Uint32Array::new_with_length(0));
+        super::set_js_prop(&result, "styleIds", &js_sys::Uint32Array::new_with_length(0));
+        super::set_js_prop(&result, "styleColors", &js_sys::Uint8Array::new_with_length(0));
+
+        result.into()
+    }
+
+    /// Process geometry for a subset of pre-scanned entities.
+    /// Takes raw bytes and pre-pass data from buildPrePassOnce.
+    #[wasm_bindgen(js_name = processGeometryBatch)]
+    pub fn process_geometry_batch(
+        &self,
+        data: &[u8],
+        jobs_flat: &[u32],
+        unit_scale: f64,
+        rtc_x: f64, rtc_y: f64, rtc_z: f64,
+        needs_shift: bool,
+        void_keys: &[u32],
+        void_counts: &[u32],
+        void_values: &[u32],
+        style_ids: &[u32],     // geometry style entity IDs
+        style_colors: &[u8],   // [r, g, b, a, r, g, b, a, ...] (0-255)
+    ) -> MeshCollection {
+        use ifc_lite_core::EntityDecoder;
+        use ifc_lite_geometry::{calculate_normals, GeometryRouter};
+        use super::styling::{get_default_color_for_type, resolve_element_color, resolve_submesh_color};
+
+        let content = unsafe { std::str::from_utf8_unchecked(data) };
+
+        // Build entity index (fast, ~200ms, unavoidable per worker)
+        let entity_index = ifc_lite_core::build_entity_index(content);
+        let mut decoder = EntityDecoder::with_index(content, entity_index);
+
+        // Create geometry router with unit scale
+        let mut router = GeometryRouter::with_scale(unit_scale);
+
+        // Set RTC offset if needed
+        if needs_shift {
+            router.set_rtc_offset((rtc_x, rtc_y, rtc_z));
+        }
+
+        // Reconstruct void_index from flat arrays
+        let mut void_index: rustc_hash::FxHashMap<u32, Vec<u32>> =
+            rustc_hash::FxHashMap::default();
+        let mut value_offset = 0usize;
+        for i in 0..void_keys.len() {
+            let host_id = void_keys[i];
+            let count = void_counts[i] as usize;
+            let openings = void_values[value_offset..value_offset + count].to_vec();
+            void_index.insert(host_id, openings);
+            value_offset += count;
+        }
+
+        // Reconstruct geometry_styles from flat arrays
+        let mut geometry_styles: rustc_hash::FxHashMap<u32, [f32; 4]> =
+            rustc_hash::FxHashMap::default();
+        for i in 0..style_ids.len() {
+            let base = i * 4;
+            if base + 3 < style_colors.len() {
+                geometry_styles.insert(style_ids[i], [
+                    style_colors[base] as f32 / 255.0,
+                    style_colors[base + 1] as f32 / 255.0,
+                    style_colors[base + 2] as f32 / 255.0,
+                    style_colors[base + 3] as f32 / 255.0,
+                ]);
+            }
+        }
+
+        // Build element_styles by resolving colors for each entity in this batch
+        let mut element_styles: rustc_hash::FxHashMap<u32, [f32; 4]> =
+            rustc_hash::FxHashMap::default();
+        if !geometry_styles.is_empty() {
+            for chunk in jobs_flat.chunks(3) {
+                if chunk.len() < 3 { break; }
+                let id = chunk[0];
+                let start = chunk[1] as usize;
+                let end = chunk[2] as usize;
+                if let Ok(entity) = decoder.decode_at_with_id(id, start, end) {
+                    if entity.get(6).map(|a| !a.is_null()).unwrap_or(false) {
+                        if let Some(color) = resolve_element_color(
+                            &entity, &geometry_styles, &mut decoder,
+                        ) {
+                            element_styles.insert(id, color);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Pre-allocate
+        let num_jobs = jobs_flat.len() / 3;
+        decoder.reserve_cache(num_jobs * 2);
+        let mut mesh_collection = MeshCollection::with_capacity(num_jobs);
+
+        if needs_shift {
+            mesh_collection.set_rtc_offset(rtc_x, rtc_y, rtc_z);
+        }
+
+        // Cache IFC type name strings
+        let mut type_name_cache: rustc_hash::FxHashMap<ifc_lite_core::IfcType, String> =
+            rustc_hash::FxHashMap::default();
+
+        // Process only the entities specified in jobs_flat
+        for chunk in jobs_flat.chunks(3) {
+            if chunk.len() < 3 {
+                break;
+            }
+            let id = chunk[0];
+            let start = chunk[1] as usize;
+            let end = chunk[2] as usize;
+
+            if let Ok(entity) = decoder.decode_at_with_id(id, start, end) {
+                let has_representation = entity.get(6).map(|a| !a.is_null()).unwrap_or(false);
+                if !has_representation {
+                    continue;
+                }
+
+                let ifc_type = entity.ifc_type;
+                let has_openings = void_index.contains_key(&id);
+
+                if has_openings {
+                    if let Ok(mut mesh) = router.process_element_with_voids(
+                        &entity,
+                        &mut decoder,
+                        &void_index,
+                    ) {
+                        if !mesh.is_empty() {
+                            if mesh.normals.len() != mesh.positions.len() {
+                                calculate_normals(&mut mesh);
+                            }
+                            let color = element_styles.get(&id).copied()
+                                .unwrap_or_else(|| get_default_color_for_type(&ifc_type));
+                            let ifc_type_name = type_name_cache
+                                .entry(ifc_type)
+                                .or_insert_with(|| ifc_type.name().to_string())
+                                .clone();
+                            mesh_collection.add(MeshDataJs::new(id, ifc_type_name, mesh, color));
+                        }
+                    }
+                } else {
+                    // Only use expensive sub-mesh processing for types that need
+                    // per-item colors (windows with glass transparency, doors, etc).
+                    // Skip for ~90% of entities (beams, columns, slabs, walls).
+                    let needs_submesh = matches!(
+                        ifc_type,
+                        ifc_lite_core::IfcType::IfcWindow
+                            | ifc_lite_core::IfcType::IfcDoor
+                            | ifc_lite_core::IfcType::IfcCurtainWall
+                            | ifc_lite_core::IfcType::IfcPlate
+                            | ifc_lite_core::IfcType::IfcMember
+                    );
+
+                    let mut used_submesh = false;
+                    if needs_submesh {
+                        if let Ok(sub_meshes) = router.process_element_with_submeshes(&entity, &mut decoder) {
+                            if !sub_meshes.is_empty() {
+                                let default_color = get_default_color_for_type(&ifc_type);
+                                let element_color = element_styles.get(&id).copied();
+                                let mut mat_color_idx = 0usize;
+                                for sub in sub_meshes.sub_meshes {
+                                    let mut mesh = sub.mesh;
+                                    if mesh.is_empty() { continue; }
+                                    if mesh.normals.len() != mesh.positions.len() {
+                                        calculate_normals(&mut mesh);
+                                    }
+                                    let color = resolve_submesh_color(
+                                        sub.geometry_id, &geometry_styles, &mut decoder,
+                                        None, &mut mat_color_idx, element_color, default_color,
+                                    );
+                                    let ifc_type_name = type_name_cache
+                                        .entry(ifc_type)
+                                        .or_insert_with(|| ifc_type.name().to_string())
+                                        .clone();
+                                    mesh_collection.add(MeshDataJs::new(id, ifc_type_name, mesh, color));
+                                    used_submesh = true;
+                                }
+                            }
+                        }
+                    }
+
+                    if !used_submesh {
+                        // Use submesh path even for non-whitelisted types so that
+                        // unsupported representation items are skipped instead of
+                        // aborting the entire element (process_element uses `?`).
+                        if let Ok(sub_meshes) = router.process_element_with_submeshes(&entity, &mut decoder) {
+                            if !sub_meshes.is_empty() {
+                                let default_color = get_default_color_for_type(&ifc_type);
+                                let element_color = element_styles.get(&id).copied();
+                                let mut mat_color_idx = 0usize;
+                                for sub in sub_meshes.sub_meshes {
+                                    let mut mesh = sub.mesh;
+                                    if mesh.is_empty() { continue; }
+                                    if mesh.normals.len() != mesh.positions.len() {
+                                        calculate_normals(&mut mesh);
+                                    }
+                                    let color = resolve_submesh_color(
+                                        sub.geometry_id, &geometry_styles, &mut decoder,
+                                        None, &mut mat_color_idx, element_color, default_color,
+                                    );
+                                    let ifc_type_name = type_name_cache
+                                        .entry(ifc_type)
+                                        .or_insert_with(|| ifc_type.name().to_string())
+                                        .clone();
+                                    mesh_collection.add(MeshDataJs::new(id, ifc_type_name, mesh, color));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        mesh_collection
     }
 }

@@ -60,7 +60,7 @@
 
 use wasm_bindgen::prelude::*;
 
-pub use wasm_bindgen_rayon::init_thread_pool;
+// wasm-bindgen-rayon removed — incompatible with Vite production builds
 
 #[cfg(feature = "console_error_panic_hook")]
 pub use console_error_panic_hook::set_once as set_panic_hook;

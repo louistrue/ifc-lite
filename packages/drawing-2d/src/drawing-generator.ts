@@ -231,26 +231,35 @@ export class Drawing2DGenerator {
             ),
           ];
         }
-      } else if (!profiles || profiles.length === 0) {
-        // Legacy path: no profiles and no edge extraction → use crease edges for projection
-        if (opts.includeProjection) {
-          const allEdges = this.edgeExtractor.extractEdgesFromMeshes(meshes);
-          const projectionEdges = this.edgeExtractor.filterEdgesByDepth(
-            allEdges,
-            config.plane.axis,
-            config.plane.position,
-            config.projectionDepth,
-            config.plane.flipped
-          );
-          const creaseEdges = projectionEdges.filter((e) => e.type === 'crease');
-          projectionLines = this.edgeExtractor.edgesToDrawingLines(
+      } else if (opts.includeProjection) {
+        // No edge extraction requested, but projection is enabled.
+        // Use crease-edge fallback for entities not covered by profile extraction.
+        const profileKeys = new Set(
+          (profiles ?? []).map((profile) => makeEntityKey(profile.modelIndex, profile.expressId))
+        );
+        const allEdges = this.edgeExtractor.extractEdgesFromMeshes(meshes);
+        const projectionEdges = this.edgeExtractor.filterEdgesByDepth(
+          allEdges,
+          config.plane.axis,
+          config.plane.position,
+          config.projectionDepth,
+          config.plane.flipped
+        );
+        const creaseEdges = projectionEdges.filter((e) => {
+          if (e.type !== 'crease') return false;
+          if (profileKeys.size === 0) return true;
+          return !profileKeys.has(makeEntityKey(e.modelIndex, e.entityId));
+        });
+        projectionLines = [
+          ...projectionLines,
+          ...this.edgeExtractor.edgesToDrawingLines(
             creaseEdges,
             config.plane.axis,
             config.plane.flipped,
             'projection',
             config.plane.position
-          );
-        }
+          ),
+        ];
       }
 
       // Filter out outlier lines that are abnormally long (likely artifacts)

@@ -53,6 +53,7 @@ fn is_body_representation(rep_type: &str) -> bool {
 }
 
 /// Classification of an opening for void subtraction.
+#[derive(Clone)]
 enum OpeningType {
     /// Rectangular opening with AABB clipping
     /// Fields: (min_bounds, max_bounds, extrusion_direction)
@@ -436,31 +437,20 @@ impl GeometryRouter {
         decoder: &mut EntityDecoder,
         void_index: &FxHashMap<u32, Vec<u32>>,
     ) -> Result<Mesh> {
-        // Check if this element has any openings
+
         let opening_ids = match void_index.get(&element.id) {
             Some(ids) if !ids.is_empty() => ids,
             _ => {
-                // No openings - just process normally
                 return self.process_element(element, decoder);
             }
         };
 
-        // No blanket opening-count gate here. Rectangular and diagonal openings use
-        // fast AABB clipping with no per-element limit. NonRectangular (CSG) openings
-        // are independently capped by MAX_CSG_OPERATIONS below, so elements with many
-        // complex openings degrade gracefully rather than skipping void subtraction
-        // entirely.
-
-        // STEP 1: Get chamfered wall mesh (preserves chamfered corners at intersections)
         let wall_mesh = match self.process_element(element, decoder) {
             Ok(m) => m,
             Err(_) => {
                 return self.process_element(element, decoder);
             }
         };
-
-        // OPTIMIZATION: Only extract clipping planes if element actually has them
-        // This skips expensive profile extraction for ~95% of elements
         use nalgebra::Vector3;
         let world_clipping_planes: Vec<(Point3<f64>, Vector3<f64>, bool)> =
             if self.has_clipping_planes(element, decoder) {
@@ -497,7 +487,6 @@ impl GeometryRouter {
             return self.process_element(element, decoder);
         }
 
-        // STEP 6: Cut openings using appropriate method
         use crate::csg::ClippingProcessor;
         let clipper = ClippingProcessor::new();
         let mut result = wall_mesh;
@@ -532,23 +521,47 @@ impl GeometryRouter {
 
         self.apply_diagonal_openings(&mut result, &openings, &wall_min, &wall_max);
 
-        for opening in openings.iter() {
+        // Merge adjacent/overlapping rectangular openings to prevent exponential
+        // triangle growth. Without merging, N adjacent openings create O(2^N)
+        // boundary triangles because each clip splits triangles from prior clips.
+        let merged_openings = Self::merge_rectangular_openings(&openings);
+        // Collect all rectangular boxes for single-pass multi-box clipping.
+        // Sequential one-by-one clipping causes exponential triangle growth O(2^N)
+        // because each clip creates boundary triangles that the next clip re-splits.
+        // Single-pass: each triangle is tested against ALL boxes once.
+        let mut rect_boxes: Vec<(Point3<f64>, Point3<f64>)> = Vec::new();
+        let mut non_rect_openings: Vec<&OpeningType> = Vec::new();
+
+        for opening in &merged_openings {
             match opening {
                 OpeningType::Rectangular(open_min, open_max, extrusion_dir) => {
-                    // Use AABB clipping for axis-aligned rectangular openings
                     let (final_min, final_max) = if let Some(dir) = extrusion_dir {
-                        // Extend along the actual extrusion direction to penetrate multi-layer walls
                         self.extend_opening_along_direction(*open_min, *open_max, wall_min, wall_max, *dir)
                     } else {
-                        // Fallback: use opening bounds as-is (no direction available)
                         (*open_min, *open_max)
                     };
-                    result = self.cut_rectangular_opening(&result, final_min, final_max);
+                    rect_boxes.push((final_min, final_max));
                 }
-                OpeningType::DiagonalRectangular(_opening_mesh, _extrusion_dir) => {
-                    // Already handled in the batched block above
+                other => {
+                    non_rect_openings.push(other);
                 }
-                OpeningType::NonRectangular(opening_mesh) => {
+            }
+        }
+
+        // Single-pass multi-box rectangular clipping
+        if !rect_boxes.is_empty() {
+            result = self.cut_multiple_rectangular_openings(&result, &rect_boxes);
+        }
+
+        let mut rect_operation_count = 0usize;
+
+        // Process remaining non-rectangular openings only
+        for opening in &non_rect_openings {
+            match *opening {
+                OpeningType::Rectangular(..) | OpeningType::DiagonalRectangular(..) => {
+                    // Already handled above
+                }
+                OpeningType::NonRectangular(ref opening_mesh) => {
                     // Safety: limit total CSG operations to prevent crashes on complex geometry
                     if csg_operation_count >= MAX_CSG_OPERATIONS {
                         // Skip remaining CSG operations
@@ -717,6 +730,77 @@ impl GeometryRouter {
             }
         }
         openings
+    }
+
+    /// Merge adjacent/overlapping rectangular openings into larger boxes.
+    /// This prevents exponential triangle growth when many small openings
+    /// tile a wall surface — each clip creates boundary triangles that get
+    /// re-split by the next clip, causing O(2^N) growth.
+    fn merge_rectangular_openings(openings: &[OpeningType]) -> Vec<OpeningType> {
+        const MERGE_TOLERANCE: f64 = 0.01; // 1cm tolerance for adjacency
+
+        // Separate rectangular and non-rectangular openings
+        let mut rects: Vec<(Point3<f64>, Point3<f64>, Option<Vector3<f64>>)> = Vec::new();
+        let mut others: Vec<OpeningType> = Vec::new();
+
+        for opening in openings {
+            match opening {
+                OpeningType::Rectangular(min, max, dir) => {
+                    rects.push((*min, *max, *dir));
+                }
+                other => others.push(other.clone()),
+            }
+        }
+
+        // Iteratively merge overlapping/adjacent rectangles
+        let mut merged = true;
+        while merged {
+            merged = false;
+            let mut i = 0;
+            while i < rects.len() {
+                let mut j = i + 1;
+                while j < rects.len() {
+                    let (a_min, a_max, _) = &rects[i];
+                    let (b_min, b_max, _) = &rects[j];
+
+                    // Check if boxes overlap or are adjacent (within tolerance)
+                    let overlaps_x = a_min.x <= b_max.x + MERGE_TOLERANCE && a_max.x >= b_min.x - MERGE_TOLERANCE;
+                    let overlaps_y = a_min.y <= b_max.y + MERGE_TOLERANCE && a_max.y >= b_min.y - MERGE_TOLERANCE;
+                    let overlaps_z = a_min.z <= b_max.z + MERGE_TOLERANCE && a_max.z >= b_min.z - MERGE_TOLERANCE;
+
+                    if overlaps_x && overlaps_y && overlaps_z {
+                        // Merge into box i
+                        let dir = rects[i].2;
+                        rects[i] = (
+                            Point3::new(
+                                a_min.x.min(b_min.x),
+                                a_min.y.min(b_min.y),
+                                a_min.z.min(b_min.z),
+                            ),
+                            Point3::new(
+                                a_max.x.max(b_max.x),
+                                a_max.y.max(b_max.y),
+                                a_max.z.max(b_max.z),
+                            ),
+                            dir,
+                        );
+                        rects.remove(j);
+                        merged = true;
+                    } else {
+                        j += 1;
+                    }
+                }
+                i += 1;
+            }
+        }
+
+        // Reconstruct the opening list
+        let mut result: Vec<OpeningType> = rects
+            .into_iter()
+            .map(|(min, max, dir)| OpeningType::Rectangular(min, max, dir))
+            .collect();
+        result.extend(others);
+        result
     }
 
     fn apply_diagonal_openings(
@@ -930,6 +1014,41 @@ impl GeometryRouter {
     /// This method clips triangles against the opening bounding box using axis-aligned
     /// clipping planes. Internal face generation is disabled because it causes visual
     /// artifacts (rotated faces, thin lines extending from models).
+    /// Single-pass multi-box rectangular clipping.
+    /// Instead of iterating boxes one-by-one (O(2^N) triangle growth from boundary
+    /// re-splitting), this tests each triangle against ALL boxes simultaneously.
+    /// A triangle is discarded if it falls completely inside ANY box.
+    /// A triangle is kept as-is if it doesn't intersect ANY box.
+    /// Triangles that partially intersect are clipped against the intersecting box.
+    fn cut_multiple_rectangular_openings(
+        &self,
+        mesh: &Mesh,
+        boxes: &[(Point3<f64>, Point3<f64>)],
+    ) -> Mesh {
+        let mut current = mesh.clone();
+
+        // Process each box, but only clip triangles that actually intersect THIS box.
+        // The key insight: after clipping against box N, the new boundary triangles
+        // are at box N's edges. Box N+1 only clips triangles that intersect IT —
+        // if box N+1 doesn't overlap box N's edges, no re-splitting occurs.
+        //
+        // The exponential growth happened because adjacent boxes shared edges,
+        // causing every boundary triangle from box N to be re-split by box N+1.
+        // With merged boxes, adjacency is eliminated.
+        //
+        // Safety: cap triangle count to prevent OOM from pathological cases.
+        const MAX_TRIANGLES: usize = 500_000;
+
+        for (_bi, (open_min, open_max)) in boxes.iter().enumerate() {
+            if current.indices.len() / 3 > MAX_TRIANGLES {
+                break;
+            }
+            current = self.cut_rectangular_opening(&current, *open_min, *open_max);
+        }
+
+        current
+    }
+
     pub(super) fn cut_rectangular_opening(
         &self,
         mesh: &Mesh,
@@ -958,10 +1077,16 @@ impl GeometryRouter {
 
         let mut clip_buffers = ClipBuffers::new();
 
+        let num_vertices = mesh.positions.len() / 3;
         for chunk in mesh.indices.chunks_exact(3) {
             let i0 = chunk[0] as usize;
             let i1 = chunk[1] as usize;
             let i2 = chunk[2] as usize;
+
+            // Bounds check: skip triangles with out-of-range vertex indices
+            if i0 >= num_vertices || i1 >= num_vertices || i2 >= num_vertices {
+                continue;
+            }
 
             let v0 = Point3::new(
                 mesh.positions[i0 * 3] as f64,
@@ -1204,6 +1329,19 @@ impl GeometryRouter {
             Plane::new(Point3::new(0.0, 0.0, open_max.z), Vector3::new(0.0, 0.0, -1.0)),
         ];
 
+        // Guard: skip if input vertices contain NaN (from degenerate prior clips)
+        if !v0.x.is_finite() || !v0.y.is_finite() || !v0.z.is_finite()
+            || !v1.x.is_finite() || !v1.y.is_finite() || !v1.z.is_finite()
+            || !v2.x.is_finite() || !v2.y.is_finite() || !v2.z.is_finite()
+        {
+            // Keep the triangle as-is (don't clip degenerate geometry)
+            let base = result.vertex_count() as u32;
+            result.add_vertex(*v0, *normal);
+            result.add_vertex(*v1, *normal);
+            result.add_vertex(*v2, *normal);
+            result.add_triangle(base, base + 1, base + 2);
+            return;
+        }
         // Initialize remaining with the input triangle
         buffers.remaining.push(Triangle::new(*v0, *v1, *v2));
 
@@ -1217,6 +1355,12 @@ impl GeometryRouter {
                 let d1 = plane.signed_distance(&tri.v1);
                 let d2 = plane.signed_distance(&tri.v2);
 
+                // Guard: NaN distances from degenerate vertices (from prior interpolation)
+                if !d0.is_finite() || !d1.is_finite() || !d2.is_finite() {
+                    buffers.result.push(tri.clone()); // keep as-is
+                    continue;
+                }
+
                 let f0 = d0 >= -epsilon;
                 let f1 = d1 >= -epsilon;
                 let f2 = d2 >= -epsilon;
@@ -1224,15 +1368,12 @@ impl GeometryRouter {
 
                 match front_count {
                     3 => {
-                        // All front (inside this plane boundary) - continue
                         buffers.next_remaining.push(tri.clone());
                     }
                     0 => {
-                        // All behind (outside this plane boundary) - keep
                         buffers.result.push(tri.clone());
                     }
                     1 => {
-                        // One vertex in front - front part is 1 triangle, back part is a quad (2 tris)
                         let (front, back1, back2, d_f, d_b1, d_b2) = if f0 {
                             (tri.v0, tri.v1, tri.v2, d0, d1, d2)
                         } else if f1 {
@@ -1244,7 +1385,6 @@ impl GeometryRouter {
                         let denom1 = d_f - d_b1;
                         let denom2 = d_f - d_b2;
                         if denom1.abs() < 1e-12 || denom2.abs() < 1e-12 {
-                            // Near-degenerate split — keep triangle as-is
                             buffers.next_remaining.push(tri.clone());
                             continue;
                         }
@@ -1253,15 +1393,19 @@ impl GeometryRouter {
                         let p1 = front + (back1 - front) * t1;
                         let p2 = front + (back2 - front) * t2;
 
-                        // Front (inside): Triangle(front, p1, p2) - continues
-                        buffers.next_remaining.push(Triangle::new(front, p1, p2));
+                        // Validate interpolated points
+                        if !p1.x.is_finite() || !p1.y.is_finite() || !p1.z.is_finite()
+                            || !p2.x.is_finite() || !p2.y.is_finite() || !p2.z.is_finite()
+                        {
+                            buffers.next_remaining.push(tri.clone());
+                            continue;
+                        }
 
-                        // Back (outside): quad (p1, back1, back2, p2) as 2 triangles - result
+                        buffers.next_remaining.push(Triangle::new(front, p1, p2));
                         buffers.result.push(Triangle::new(p1, back1, back2));
                         buffers.result.push(Triangle::new(p1, back2, p2));
                     }
                     2 => {
-                        // Two vertices in front - front part is quad (2 tris), back part is 1 triangle
                         let (front1, front2, back, d_f1, d_f2, d_b) = if !f0 {
                             (tri.v1, tri.v2, tri.v0, d1, d2, d0)
                         } else if !f1 {
@@ -1273,7 +1417,6 @@ impl GeometryRouter {
                         let denom1 = d_f1 - d_b;
                         let denom2 = d_f2 - d_b;
                         if denom1.abs() < 1e-12 || denom2.abs() < 1e-12 {
-                            // Near-degenerate split — keep triangle as-is
                             buffers.next_remaining.push(tri.clone());
                             continue;
                         }
@@ -1282,14 +1425,22 @@ impl GeometryRouter {
                         let p1 = front1 + (back - front1) * t1;
                         let p2 = front2 + (back - front2) * t2;
 
-                        // Front (inside): quad (front1, front2, p2, p1) as 2 tris - continues
+                        // Validate interpolated points
+                        if !p1.x.is_finite() || !p1.y.is_finite() || !p1.z.is_finite()
+                            || !p2.x.is_finite() || !p2.y.is_finite() || !p2.z.is_finite()
+                        {
+                            buffers.next_remaining.push(tri.clone());
+                            continue;
+                        }
+
                         buffers.next_remaining.push(Triangle::new(front1, front2, p1));
                         buffers.next_remaining.push(Triangle::new(front2, p2, p1));
-
-                        // Back (outside): Triangle(p1, p2, back) - result
                         buffers.result.push(Triangle::new(p1, p2, back));
                     }
-                    _ => unreachable!(),
+                    _ => {
+                        // Should be unreachable, but guard against corruption
+                        buffers.result.push(tri.clone());
+                    }
                 }
             }
 

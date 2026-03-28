@@ -104,11 +104,13 @@ impl GeometryRouter {
     }
 
     /// Detect RTC offset using pre-collected geometry jobs (avoids re-scanning the file).
+    /// Returns `None` when no usable translation samples were found, allowing
+    /// callers to distinguish "no shift needed" from "detection had no data".
     pub fn detect_rtc_offset_from_jobs(
         &self,
         jobs: &[(u32, usize, usize, IfcType)],
         decoder: &mut EntityDecoder,
-    ) -> (f64, f64, f64) {
+    ) -> Option<(f64, f64, f64)> {
         const MAX_SAMPLES: usize = 50;
         let translations: Vec<(f64, f64, f64)> = jobs
             .iter()
@@ -119,7 +121,10 @@ impl GeometryRouter {
             })
             .collect();
 
-        Self::rtc_offset_from_translations(&translations)
+        if translations.is_empty() {
+            return None;
+        }
+        Some(Self::rtc_offset_from_translations(&translations))
     }
 
     /// Process building element (IfcWall, IfcBeam, etc.) into mesh
@@ -720,11 +725,13 @@ impl GeometryRouter {
 
         let items = decoder.resolve_ref_list(items_attr)?;
 
-        // Process all items and merge (without recursing into MappedItem to avoid infinite loop)
+        // Process all items and merge
+        // Skip nested MappedItems AND IfcBooleanClippingResult that reference MappedItems
+        // to prevent stack overflow from deeply nested recursive geometry
         let mut mesh = Mesh::new();
         for sub_item in items {
             if sub_item.ifc_type == IfcType::IfcMappedItem {
-                continue; // Skip nested MappedItems to avoid recursion
+                continue;
             }
             if let Some(processor) = self.processors.get(&sub_item.ifc_type) {
                 if let Ok(mut sub_mesh) = processor.process(&sub_item, decoder, &self.schema) {

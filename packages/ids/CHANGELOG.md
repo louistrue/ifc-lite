@@ -1,5 +1,12 @@
 # @ifc-lite/ids
 
+## 1.14.7
+
+### Patch Changes
+
+- Updated dependencies [[`113bafc`](https://github.com/louistrue/ifc-lite/commit/113bafc07436c809a8cb24d8682cf63ae5ed99e9)]:
+  - @ifc-lite/data@1.14.6
+
 ## 1.14.6
 
 ### Patch Changes

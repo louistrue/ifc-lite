@@ -114,12 +114,15 @@ fn prepare_streaming_data(content: String) -> PreparedData {
         .iter()
         .map(|j| (j.id, j.start, j.end, j.ifc_type))
         .collect();
-    let mut rtc_offset = router.detect_rtc_offset_from_jobs(&rtc_jobs, &mut decoder);
-    if rtc_offset.0 == 0.0 && rtc_offset.1 == 0.0 && rtc_offset.2 == 0.0 {
-        // Fallback for files where large real-world coordinates are encoded in points
-        // rather than in placement transforms.
-        rtc_offset = scan_placement_bounds(&content).rtc_offset();
-    }
+    let rtc_offset = match router.detect_rtc_offset_from_jobs(&rtc_jobs, &mut decoder) {
+        Some(offset) => offset,
+        None => {
+            // No usable translation samples — fall back to full-file coordinate scan
+            // for files where large real-world coordinates are encoded in points
+            // rather than in placement transforms.
+            scan_placement_bounds(&content).rtc_offset()
+        }
+    };
     router.set_rtc_offset(rtc_offset);
     if !faceted_brep_ids.is_empty() {
         router.preprocess_faceted_breps(&faceted_brep_ids, &mut decoder);
