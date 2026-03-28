@@ -541,10 +541,15 @@ impl GeometryRouter {
             ).into());
             match opening {
                 OpeningType::Rectangular(open_min, open_max, extrusion_dir) => {
-                    if rect_operation_count >= MAX_RECT_OPERATIONS {
-                        continue;
-                    }
                     rect_operation_count += 1;
+                    // Log mesh state and opening bounds before each cut
+                    web_sys::console::warn_1(&format!(
+                        "[CLIP] #{} rect {}: mesh {}v/{}t, open ({:.2},{:.2},{:.2})->({:.2},{:.2},{:.2})",
+                        eid, rect_operation_count,
+                        result.positions.len()/3, result.indices.len()/3,
+                        open_min.x, open_min.y, open_min.z,
+                        open_max.x, open_max.y, open_max.z
+                    ).into());
                     let (final_min, final_max) = if let Some(dir) = extrusion_dir {
                         // Extend along the actual extrusion direction to penetrate multi-layer walls
                         self.extend_opening_along_direction(*open_min, *open_max, wall_min, wall_max, *dir)
@@ -553,8 +558,13 @@ impl GeometryRouter {
                         (*open_min, *open_max)
                     };
                     result = self.cut_rectangular_opening(&result, final_min, final_max);
-                    // Validate mesh after each cut - bail if degenerate
+                    web_sys::console::warn_1(&format!(
+                        "[CLIP] #{} rect {} done: {}v/{}t",
+                        eid, rect_operation_count,
+                        result.positions.len()/3, result.indices.len()/3,
+                    ).into());
                     if result.is_empty() || !result.positions.iter().all(|v| v.is_finite()) {
+                        web_sys::console::warn_1(&format!("[CLIP] #{} mesh degenerate after rect {}, bailing", eid, rect_operation_count).into());
                         return Ok(result);
                     }
                 }
