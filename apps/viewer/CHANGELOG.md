@@ -1,5 +1,15 @@
 # @ifc-lite/viewer
 
+## 1.17.1
+
+### Patch Changes
+
+- [#439](https://github.com/louistrue/ifc-lite/pull/439) [`a672eec`](https://github.com/louistrue/ifc-lite/commit/a672eec196ec77b0229b0953f9a1b59991f814a6) Thanks [@louistrue](https://github.com/louistrue)! - Add Cross-Origin-Opener-Policy and Cross-Origin-Embedder-Policy headers to vercel.json for SharedArrayBuffer support in production deployments.
+
+- Updated dependencies [[`a672eec`](https://github.com/louistrue/ifc-lite/commit/a672eec196ec77b0229b0953f9a1b59991f814a6), [`a672eec`](https://github.com/louistrue/ifc-lite/commit/a672eec196ec77b0229b0953f9a1b59991f814a6)]:
+  - @ifc-lite/wasm@1.15.0
+  - @ifc-lite/geometry@1.15.0
+
 ## 1.17.0
 
 ### Minor Changes
