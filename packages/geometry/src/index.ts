@@ -290,18 +290,30 @@ export class GeometryProcessor {
         throw new Error('WASM bridge not initialized');
       }
 
-      // Sync processing — 3x faster than async streaming (4.6s vs 13.7s).
-      // parseMeshes processes all geometry in one WASM call without yield overhead.
-      // JS-side chunking provides batched rendering updates.
+      // Use optimized parseMeshesAsync (combined pre-pass, batched BREP,
+      // element style caching) without yields for maximum throughput.
+      // Batches delivered via onBatch callback synchronously during processing.
       const collector = new IfcLiteMeshCollector(this.bridge.getApi(), content);
-      const allMeshes = collector.collectMeshes();
-      const extractedBuildingRotation = collector.getBuildingRotation();
-
-      const BATCH_SIZE = 3000;
       let totalMeshes = 0;
+      let extractedBuildingRotation: number | undefined = undefined;
 
-      for (let i = 0; i < allMeshes.length; i += BATCH_SIZE) {
-        const batch = allMeshes.slice(i, i + BATCH_SIZE);
+      const fileSizeMB = typeof batchConfig !== 'number' && batchConfig.fileSizeMB
+        ? batchConfig.fileSizeMB
+        : buffer.length / (1024 * 1024);
+      const wasmBatchSize = fileSizeMB < 10 ? 100 : fileSizeMB < 50 ? 200 : fileSizeMB < 100 ? 300 : fileSizeMB < 300 ? 500 : fileSizeMB < 500 ? 1500 : 3000;
+
+      for await (const item of collector.collectMeshesStreaming(wasmBatchSize)) {
+        if (item && typeof item === 'object' && 'type' in item && (item as StreamingColorUpdateEvent).type === 'colorUpdate') {
+          yield { type: 'colorUpdate', updates: (item as StreamingColorUpdateEvent).updates };
+          continue;
+        }
+        if (item && typeof item === 'object' && 'type' in item && (item as StreamingRtcOffsetEvent).type === 'rtcOffset') {
+          const rtcEvent = item as StreamingRtcOffsetEvent;
+          yield { type: 'rtcOffset', rtcOffset: rtcEvent.rtcOffset, hasRtc: rtcEvent.hasRtc };
+          continue;
+        }
+
+        const batch = item as MeshData[];
         this.coordinateHandler.processMeshesIncremental(batch);
         totalMeshes += batch.length;
         const coordinateInfo = this.coordinateHandler.getCurrentCoordinateInfo();
@@ -309,12 +321,9 @@ export class GeometryProcessor {
           ? { ...coordinateInfo, buildingRotation: extractedBuildingRotation }
           : coordinateInfo;
         yield { type: 'batch', meshes: batch, totalSoFar: totalMeshes, coordinateInfo: coordinateInfoWithRotation || undefined };
-        // Single yield after first batch for immediate render, then no more yields
-        if (i === 0) {
-          await new Promise(resolve => setTimeout(resolve, 0));
-        }
       }
 
+      extractedBuildingRotation = collector.getBuildingRotation();
       const coordinateInfo = this.coordinateHandler.getFinalCoordinateInfo();
       const finalCoordinateInfo = extractedBuildingRotation !== undefined
         ? { ...coordinateInfo, buildingRotation: extractedBuildingRotation }
