@@ -255,6 +255,26 @@ export class IfcAPI {
    */
   parseMeshesAsync(content: string, options: any): Promise<any>;
   /**
+   * Parse a subset of IFC geometry entities by index range.
+   *
+   * Performs the full pre-pass (entity index, combined style/void/brep scan)
+   * but only processes geometry entities whose index (in the combined
+   * simple + complex job list) falls within `[start_idx, end_idx)`.
+   *
+   * This enables Web Worker parallelization: each worker processes a
+   * disjoint slice of the entity list while sharing the same pre-pass data.
+   *
+   * Example:
+   * ```javascript
+   * const api = new IfcAPI();
+   * // Worker 1: entities 0..500
+   * const batch1 = api.parseMeshesSubset(content, 0, 500);
+   * // Worker 2: entities 500..1000
+   * const batch2 = api.parseMeshesSubset(content, 500, 1000);
+   * ```
+   */
+  parseMeshesSubset(content: string, start_idx: number, end_idx: number): MeshCollection;
+  /**
    * Parse IFC file and return GPU-ready geometry for zero-copy upload
    *
    * This method generates geometry that is:
@@ -937,6 +957,7 @@ export interface InitOutput {
   readonly ifcapi_parseMeshesAsync: (a: number, b: number, c: number, d: number) => number;
   readonly ifcapi_parseMeshesInstanced: (a: number, b: number, c: number) => number;
   readonly ifcapi_parseMeshesInstancedAsync: (a: number, b: number, c: number, d: number) => number;
+  readonly ifcapi_parseMeshesSubset: (a: number, b: number, c: number, d: number, e: number) => number;
   readonly ifcapi_parseMeshesWithRtc: (a: number, b: number, c: number) => number;
   readonly ifcapi_parseStreaming: (a: number, b: number, c: number, d: number) => number;
   readonly ifcapi_parseSymbolicRepresentations: (a: number, b: number, c: number) => number;
@@ -1042,9 +1063,9 @@ export interface InitOutput {
   readonly meshcollection_rtcOffsetX: (a: number) => number;
   readonly symboliccircle_expressId: (a: number) => number;
   readonly __wbg_gpuinstancedgeometryref_free: (a: number, b: number) => void;
-  readonly __wasm_bindgen_func_elem_1072: (a: number, b: number, c: number) => void;
-  readonly __wasm_bindgen_func_elem_1071: (a: number, b: number) => void;
-  readonly __wasm_bindgen_func_elem_1112: (a: number, b: number, c: number, d: number) => void;
+  readonly __wasm_bindgen_func_elem_1081: (a: number, b: number, c: number) => void;
+  readonly __wasm_bindgen_func_elem_1080: (a: number, b: number) => void;
+  readonly __wasm_bindgen_func_elem_1121: (a: number, b: number, c: number, d: number) => void;
   readonly __wbindgen_export: (a: number) => void;
   readonly __wbindgen_export2: (a: number, b: number, c: number) => void;
   readonly __wbindgen_export3: (a: number, b: number) => number;

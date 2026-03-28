@@ -443,6 +443,176 @@ export class GeometryProcessor {
   }
 
   /**
+   * Process IFC file in parallel using Web Workers.
+   * Each worker gets its own WASM instance and processes a disjoint slice
+   * of the geometry entity list. Batches are yielded as they arrive from
+   * any worker, enabling progressive rendering while utilizing multiple cores.
+   *
+   * @param buffer IFC file buffer
+   */
+  async *processParallel(
+    buffer: Uint8Array,
+  ): AsyncGenerator<StreamingGeometryEvent> {
+    // Initialize if needed
+    if (!this.bridge?.isInitialized()) {
+      await this.init();
+    }
+
+    this.coordinateHandler.reset();
+
+    const decoder = new TextDecoder();
+    const content = decoder.decode(buffer);
+
+    yield { type: 'start', totalEstimate: buffer.length / 1000 };
+    yield { type: 'model-open', modelID: 0 };
+
+    // Determine total geometry entity count via fast scan
+    const api = this.bridge!.getApi();
+    const geometryEntities = api.scanGeometryEntitiesFast(content);
+    const totalEntities = Array.isArray(geometryEntities) ? geometryEntities.length : 0;
+
+    if (totalEntities === 0) {
+      const coordinateInfo = this.coordinateHandler.getFinalCoordinateInfo();
+      yield { type: 'complete', totalMeshes: 0, coordinateInfo };
+      return;
+    }
+
+    // Determine worker count (cap at 4, min 1)
+    const maxWorkers = 4;
+    const hardwareConcurrency = typeof navigator !== 'undefined' ? (navigator.hardwareConcurrency ?? 2) : 2;
+    const workerCount = Math.min(maxWorkers, hardwareConcurrency, totalEntities);
+
+    // Split entity range across workers
+    const chunkSize = Math.ceil(totalEntities / workerCount);
+
+    // Queue-based async generator: workers push batches, generator yields them
+    const batchQueue: MeshData[][] = [];
+    let resolveWaiting: (() => void) | null = null;
+    let workersCompleted = 0;
+    let totalMeshes = 0;
+    let workerError: Error | null = null;
+
+    const workers: Worker[] = [];
+
+    for (let i = 0; i < workerCount; i++) {
+      const startIdx = i * chunkSize;
+      const endIdx = Math.min((i + 1) * chunkSize, totalEntities);
+      if (startIdx >= endIdx) {
+        workersCompleted++;
+        continue;
+      }
+
+      const worker = new Worker(
+        new URL('./geometry.worker.ts', import.meta.url),
+        { type: 'module' }
+      );
+
+      workers.push(worker);
+
+      worker.onmessage = (e: MessageEvent) => {
+        const msg = e.data;
+
+        if (msg.type === 'batch') {
+          // Convert transferable data back to MeshData[]
+          const meshes: MeshData[] = msg.meshes.map((m: {
+            expressId: number;
+            ifcType?: string;
+            positions: Float32Array;
+            normals: Float32Array;
+            indices: Uint32Array;
+            color: [number, number, number, number];
+          }) => ({
+            expressId: m.expressId,
+            ifcType: m.ifcType,
+            positions: m.positions instanceof Float32Array ? m.positions : new Float32Array(m.positions),
+            normals: m.normals instanceof Float32Array ? m.normals : new Float32Array(m.normals),
+            indices: m.indices instanceof Uint32Array ? m.indices : new Uint32Array(m.indices),
+            color: m.color,
+          }));
+
+          if (meshes.length > 0) {
+            batchQueue.push(meshes);
+            if (resolveWaiting) {
+              resolveWaiting();
+              resolveWaiting = null;
+            }
+          }
+        } else if (msg.type === 'complete') {
+          totalMeshes += msg.totalMeshes;
+          workersCompleted++;
+          worker.terminate();
+          if (resolveWaiting) {
+            resolveWaiting();
+            resolveWaiting = null;
+          }
+        } else if (msg.type === 'error') {
+          workerError = new Error(`Geometry worker error: ${msg.message}`);
+          workersCompleted++;
+          worker.terminate();
+          if (resolveWaiting) {
+            resolveWaiting();
+            resolveWaiting = null;
+          }
+        }
+      };
+
+      worker.onerror = (e) => {
+        workerError = new Error(`Geometry worker failed: ${e.message}`);
+        workersCompleted++;
+        worker.terminate();
+        if (resolveWaiting) {
+          resolveWaiting();
+          resolveWaiting = null;
+        }
+      };
+
+      // Send work to worker
+      const request = {
+        type: 'process' as const,
+        content,
+        startIdx,
+        endIdx,
+        totalEntities,
+      };
+      worker.postMessage(request);
+    }
+
+    // Yield batches as they arrive from any worker
+    while (true) {
+      while (batchQueue.length > 0) {
+        const batch = batchQueue.shift()!;
+        this.coordinateHandler.processMeshesIncremental(batch);
+        const coordinateInfo = this.coordinateHandler.getCurrentCoordinateInfo();
+        yield {
+          type: 'batch',
+          meshes: batch,
+          totalSoFar: totalMeshes,
+          coordinateInfo: coordinateInfo || undefined,
+        };
+      }
+
+      if (workerError) {
+        // Terminate remaining workers
+        for (const w of workers) {
+          try { w.terminate(); } catch { /* ignore */ }
+        }
+        throw workerError;
+      }
+
+      if (workersCompleted >= workerCount && batchQueue.length === 0) {
+        break;
+      }
+
+      await new Promise<void>((resolve) => {
+        resolveWaiting = resolve;
+      });
+    }
+
+    const coordinateInfo = this.coordinateHandler.getFinalCoordinateInfo();
+    yield { type: 'complete', totalMeshes, coordinateInfo };
+  }
+
+  /**
    * Adaptive processing: Choose sync or streaming based on file size
    * Small files (< threshold): Load all at once for instant display
    * Large files (>= threshold): Stream for fast first frame
@@ -513,9 +683,19 @@ export class GeometryProcessor {
 
       yield { type: 'complete', totalMeshes: allMeshes.length, coordinateInfo };
     } else {
-      // Large files: Stream for fast first frame
-      // processStreaming will emit its own start and model-open events
-      yield* this.processStreaming(buffer, options.entityIndex, batchConfig);
+      // Large files: Try parallel Web Worker processing if available,
+      // fall back to single-thread streaming otherwise.
+      const useParallel = !this.isNative
+        && typeof Worker !== 'undefined'
+        && typeof navigator !== 'undefined'
+        && (navigator.hardwareConcurrency ?? 1) > 1;
+
+      if (useParallel) {
+        yield* this.processParallel(buffer);
+      } else {
+        // processStreaming will emit its own start and model-open events
+        yield* this.processStreaming(buffer, options.entityIndex, batchConfig);
+      }
     }
   }
 
