@@ -9,6 +9,7 @@
 //!
 //! # Coverage
 //! - `IfcExtrudedAreaSolid` with any profile type (rectangle, circle, arbitrary)
+//! - `IfcMappedItem` — recurses into representation maps with composed transforms
 //! - Full element placement chain (IfcLocalPlacement hierarchy)
 //! - Direct and nested representations
 //!
@@ -62,7 +63,8 @@ pub struct ExtractedProfile {
 
 /// Extract profiles for every building element in `content`.
 ///
-/// Only `IfcExtrudedAreaSolid` representations are currently extracted.
+/// Extracts `IfcExtrudedAreaSolid` representations, including those nested
+/// inside `IfcMappedItem` chains (up to 3 levels deep).
 /// Returns an empty `Vec` for models with no such elements.
 pub fn extract_profiles(content: &str, model_index: u32) -> Vec<ExtractedProfile> {
     let entity_index = build_entity_index(content);
@@ -159,13 +161,189 @@ pub fn extract_profiles(content: &str, model_index: u32) -> Vec<ExtractedProfile
                             );
                         }
                     }
+                } else if item.ifc_type == IfcType::IfcMappedItem {
+                    extract_mapped_item_profiles(
+                        id,
+                        &ifc_type_name,
+                        item,
+                        &elem_tf,
+                        unit_scale,
+                        &profile_processor,
+                        &mut decoder,
+                        model_index,
+                        0,
+                        &mut results,
+                    );
                 }
-                // TODO: IfcMappedItem — decompose instance transform, then recurse
             }
         }
     }
 
     results
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PRIVATE: MAPPED ITEM EXTRACTION
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Maximum recursion depth for nested IfcMappedItem chains.
+const MAX_MAPPED_DEPTH: usize = 3;
+
+/// Recursively extract profiles from an IfcMappedItem.
+///
+/// IfcMappedItem structure:
+///   attr 0: MappingSource → IfcRepresentationMap
+///     attr 0: MappingOrigin (IfcAxis2Placement) — local coordinate system of shared geometry
+///     attr 1: MappedRepresentation (IfcRepresentation) → items to extract from
+///   attr 1: MappingTarget → IfcCartesianTransformationOperator3D (instance transform)
+///
+/// The composed transform is: `elem_transform * mapping_target`.
+/// Each solid's own Position is applied inside `extract_extruded_solid`.
+fn extract_mapped_item_profiles(
+    element_id: u32,
+    ifc_type: &str,
+    mapped_item: &DecodedEntity,
+    elem_transform: &Matrix4<f64>,
+    unit_scale: f64,
+    profile_processor: &ProfileProcessor,
+    decoder: &mut EntityDecoder,
+    model_index: u32,
+    depth: usize,
+    results: &mut Vec<ExtractedProfile>,
+) {
+    if depth > MAX_MAPPED_DEPTH {
+        #[cfg(feature = "debug_geometry")]
+        eprintln!(
+            "[profile_extractor] #{element_id} ({ifc_type}): max mapped item depth exceeded"
+        );
+        return;
+    }
+
+    // Attr 0: MappingSource → IfcRepresentationMap
+    let source = match mapped_item
+        .get(0)
+        .and_then(|a| if a.is_null() { None } else { Some(a) })
+        .and_then(|a| decoder.resolve_ref(a).ok().flatten())
+    {
+        Some(s) => s,
+        None => return,
+    };
+
+    // Attr 1: MappingTarget → IfcCartesianTransformationOperator3D
+    let target_tf = mapped_item
+        .get(1)
+        .and_then(|a| if a.is_null() { None } else { Some(a) })
+        .and_then(|a| decoder.resolve_ref(a).ok().flatten())
+        .and_then(|e| parse_cartesian_transformation_operator(&e, decoder).ok())
+        .unwrap_or_else(Matrix4::identity);
+
+    // Scale the target transform translation from file units to metres
+    let scaled_target = scale_translation(target_tf, unit_scale);
+    let composed = elem_transform * scaled_target;
+
+    // MappedRepresentation (attr 1 of RepresentationMap) → items
+    let mapped_rep = match source
+        .get(1)
+        .and_then(|a| if a.is_null() { None } else { Some(a) })
+        .and_then(|a| decoder.resolve_ref(a).ok().flatten())
+    {
+        Some(r) => r,
+        None => return,
+    };
+
+    let items = match mapped_rep
+        .get(3)
+        .and_then(|a| decoder.resolve_ref_list(a).ok())
+    {
+        Some(i) => i,
+        None => return,
+    };
+
+    for sub_item in &items {
+        if sub_item.ifc_type == IfcType::IfcExtrudedAreaSolid {
+            match extract_extruded_solid(
+                element_id,
+                ifc_type,
+                sub_item,
+                &composed,
+                unit_scale,
+                profile_processor,
+                decoder,
+                model_index,
+            ) {
+                Ok(entry) => results.push(entry),
+                Err(_e) => {
+                    #[cfg(feature = "debug_geometry")]
+                    eprintln!(
+                        "[profile_extractor] #{element_id} ({ifc_type}) mapped: {_e}"
+                    );
+                }
+            }
+        } else if sub_item.ifc_type == IfcType::IfcMappedItem {
+            extract_mapped_item_profiles(
+                element_id,
+                ifc_type,
+                sub_item,
+                &composed,
+                unit_scale,
+                profile_processor,
+                decoder,
+                model_index,
+                depth + 1,
+                results,
+            );
+        }
+    }
+}
+
+/// Parse IfcCartesianTransformationOperator3D into a Matrix4<f64>.
+///
+/// Attributes:
+///   0: Axis1 (X direction, optional)
+///   1: Axis2 (Y direction, optional)
+///   2: LocalOrigin (IfcCartesianPoint)
+///   3: Scale (f64, default 1.0)
+///   4: Axis3 (Z direction, optional, 3D only)
+fn parse_cartesian_transformation_operator(
+    entity: &DecodedEntity,
+    decoder: &mut EntityDecoder,
+) -> Result<Matrix4<f64>> {
+    // LocalOrigin (attr 2)
+    let origin = parse_cartesian_point(entity, decoder, 2).unwrap_or(Point3::new(0.0, 0.0, 0.0));
+
+    // Scale (attr 3)
+    let scale = entity.get(3).and_then(|v| v.as_float()).unwrap_or(1.0);
+
+    // Axis1 / X direction (attr 0)
+    let x_axis = entity
+        .get(0)
+        .filter(|a| !a.is_null())
+        .and_then(|a| decoder.resolve_ref(a).ok().flatten())
+        .and_then(|e| parse_direction_entity(&e).ok())
+        .unwrap_or_else(|| Vector3::new(1.0, 0.0, 0.0))
+        .normalize();
+
+    // Axis3 / Z direction (attr 4, 3D only)
+    let z_axis = entity
+        .get(4)
+        .filter(|a| !a.is_null())
+        .and_then(|a| decoder.resolve_ref(a).ok().flatten())
+        .and_then(|e| parse_direction_entity(&e).ok())
+        .unwrap_or_else(|| Vector3::new(0.0, 0.0, 1.0))
+        .normalize();
+
+    // Derive orthogonal axes (right-hand system)
+    let y_axis = z_axis.cross(&x_axis).normalize();
+    let x_axis = y_axis.cross(&z_axis).normalize();
+
+    #[rustfmt::skip]
+    let m = Matrix4::new(
+        x_axis.x * scale, y_axis.x * scale, z_axis.x * scale, origin.x,
+        x_axis.y * scale, y_axis.y * scale, z_axis.y * scale, origin.y,
+        x_axis.z * scale, y_axis.z * scale, z_axis.z * scale, origin.z,
+        0.0,              0.0,              0.0,              1.0,
+    );
+    Ok(m)
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

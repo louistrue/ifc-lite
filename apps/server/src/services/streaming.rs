@@ -114,7 +114,7 @@ fn prepare_streaming_data(content: String) -> PreparedData {
         .iter()
         .map(|j| (j.id, j.start, j.end, j.ifc_type))
         .collect();
-    let mut rtc_offset = match router.detect_rtc_offset_from_jobs(&rtc_jobs, &mut decoder) {
+    let rtc_offset = match router.detect_rtc_offset_from_jobs(&rtc_jobs, &mut decoder) {
         Some(offset) => offset,
         None => {
             // No usable translation samples — fall back to full-file coordinate scan
