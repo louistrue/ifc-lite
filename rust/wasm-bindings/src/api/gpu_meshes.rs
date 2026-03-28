@@ -2541,18 +2541,30 @@ impl IfcAPI {
                     }
 
                     if !used_submesh {
-                        if let Ok(mut mesh) = router.process_element(&entity, &mut decoder) {
-                            if !mesh.is_empty() {
-                                if mesh.normals.len() != mesh.positions.len() {
-                                    calculate_normals(&mut mesh);
+                        // Use submesh path even for non-whitelisted types so that
+                        // unsupported representation items are skipped instead of
+                        // aborting the entire element (process_element uses `?`).
+                        if let Ok(sub_meshes) = router.process_element_with_submeshes(&entity, &mut decoder) {
+                            if !sub_meshes.is_empty() {
+                                let default_color = get_default_color_for_type(&ifc_type);
+                                let element_color = element_styles.get(&id).copied();
+                                let mut mat_color_idx = 0usize;
+                                for sub in sub_meshes.sub_meshes {
+                                    let mut mesh = sub.mesh;
+                                    if mesh.is_empty() { continue; }
+                                    if mesh.normals.len() != mesh.positions.len() {
+                                        calculate_normals(&mut mesh);
+                                    }
+                                    let color = resolve_submesh_color(
+                                        sub.geometry_id, &geometry_styles, &mut decoder,
+                                        None, &mut mat_color_idx, element_color, default_color,
+                                    );
+                                    let ifc_type_name = type_name_cache
+                                        .entry(ifc_type)
+                                        .or_insert_with(|| ifc_type.name().to_string())
+                                        .clone();
+                                    mesh_collection.add(MeshDataJs::new(id, ifc_type_name, mesh, color));
                                 }
-                                let color = element_styles.get(&id).copied()
-                                    .unwrap_or_else(|| get_default_color_for_type(&ifc_type));
-                                let ifc_type_name = type_name_cache
-                                    .entry(ifc_type)
-                                    .or_insert_with(|| ifc_type.name().to_string())
-                                    .clone();
-                                mesh_collection.add(MeshDataJs::new(id, ifc_type_name, mesh, color));
                             }
                         }
                     }
