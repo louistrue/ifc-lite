@@ -43,6 +43,10 @@ struct PreparedData {
     unit_scale: f64,
     /// RTC offset for large-coordinate models (preserves precision in f32 output)
     rtc_offset: (f64, f64, f64),
+    /// IfcSite ObjectPlacement as a column-major 4×4 matrix (metres).
+    site_transform: Option<Vec<f64>>,
+    /// IfcBuilding ObjectPlacement as a column-major 4×4 matrix (metres).
+    building_transform: Option<Vec<f64>>,
 }
 
 /// Extract entity references from a list attribute.
@@ -74,6 +78,8 @@ fn prepare_streaming_data(content: String) -> PreparedData {
     let mut jobs: Vec<EntityJob> = Vec::with_capacity(2000);
     let mut schema_version = "IFC2X3".to_string();
     let mut total_entities = 0usize;
+    let mut site_entity_pos: Option<(usize, usize)> = None;
+    let mut building_entity_pos: Option<(usize, usize)> = None;
 
     while let Some((id, type_name, start, end)) = scanner.next_entity() {
         total_entities += 1;
@@ -86,6 +92,10 @@ fn prepare_streaming_data(content: String) -> PreparedData {
                     void_index.entry(host).or_default().push(opening);
                 }
             }
+        } else if type_name == "IFCSITE" && site_entity_pos.is_none() {
+            site_entity_pos = Some((start, end));
+        } else if type_name == "IFCBUILDING" && building_entity_pos.is_none() {
+            building_entity_pos = Some((start, end));
         }
 
         if ifc_lite_core::has_geometry_by_name(type_name) {
@@ -127,6 +137,18 @@ fn prepare_streaming_data(content: String) -> PreparedData {
     if !faceted_brep_ids.is_empty() {
         router.preprocess_faceted_breps(&faceted_brep_ids, &mut decoder);
     }
+    // Resolve site/building placement transforms for cache consistency
+    let site_transform: Option<Vec<f64>> = site_entity_pos.and_then(|(start, end)| {
+        let entity = decoder.decode_at(start, end).ok()?;
+        let matrix = router.resolve_scaled_placement(&entity, &mut decoder).ok()?;
+        Some(matrix.to_vec())
+    });
+    let building_transform: Option<Vec<f64>> = building_entity_pos.and_then(|(start, end)| {
+        let entity = decoder.decode_at(start, end).ok()?;
+        let matrix = router.resolve_scaled_placement(&entity, &mut decoder).ok()?;
+        Some(matrix.to_vec())
+    });
+
     // OPTIMIZATION: Extract unit_scale before dropping router
     // This allows process_batch to use with_scale() instead of with_units() per mesh
     let unit_scale = router.unit_scale();
@@ -145,6 +167,8 @@ fn prepare_streaming_data(content: String) -> PreparedData {
         parse_time_ms,
         unit_scale,
         rtc_offset,
+        site_transform,
+        building_transform,
     }
 }
 
@@ -414,6 +438,9 @@ pub fn process_streaming(
                 },
             },
             cache_key,
+            mesh_coordinate_space: Some("site_local".to_string()),
+            site_transform: prepared.site_transform,
+            building_transform: prepared.building_transform,
         };
     })
 }

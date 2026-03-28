@@ -99,7 +99,7 @@ pub async fn parse_full(
     }
 
     // Generate cache key (include opening filter so different modes get different cache entries)
-    let cache_key = format!("{}-{:?}", DiskCache::generate_key(&data), query.opening_filter);
+    let cache_key = format!("{}-{}", DiskCache::generate_key(&data), query.opening_filter.cache_key_suffix());
 
     // Check cache first
     if let Some(mut cached) = state.cache.get::<ParseResponse>(&cache_key).await? {
@@ -246,7 +246,7 @@ pub async fn parse_parquet_stream(
     }
 
     // Generate cache key before processing (include opening filter)
-    let cache_key = format!("{}-{:?}", DiskCache::generate_key(&data), query.opening_filter);
+    let cache_key = format!("{}-{}", DiskCache::generate_key(&data), query.opening_filter.cache_key_suffix());
     let cache_key_clone = cache_key.clone();
 
     // OPTIMIZATION: Check cache first and fast-path return if available
@@ -355,7 +355,7 @@ pub async fn parse_parquet_stream(
                     }
                 }
             }
-            StreamEvent::Complete { stats, metadata, .. } => {
+            StreamEvent::Complete { stats, metadata, mesh_coordinate_space, site_transform, building_transform, .. } => {
                 // OPTIMIZATION: Use accumulated meshes instead of re-processing
                 // This eliminates duplicate geometry extraction (~1100ms savings for large files)
                 let cache = cache_for_geometry.clone();
@@ -363,6 +363,9 @@ pub async fn parse_parquet_stream(
                 let stats_clone = stats.clone();
                 let metadata_clone = metadata.clone();
                 let meshes_for_cache = accumulated_meshes.clone();
+                let coord_space = mesh_coordinate_space.clone();
+                let site_tf = site_transform.clone();
+                let building_tf = building_transform.clone();
 
                 tokio::spawn(async move {
                     // Take accumulated meshes (moves out of Arc<Mutex>)
@@ -416,9 +419,9 @@ pub async fn parse_parquet_stream(
                             cache_key: key.clone(),
                             metadata: metadata_clone,
                             stats: stats_clone,
-                            mesh_coordinate_space: None,
-                            site_transform: None,
-                            building_transform: None,
+                            mesh_coordinate_space: coord_space,
+                            site_transform: site_tf,
+                            building_transform: building_tf,
                             data_model_stats: None, // Data model cached separately via data model endpoint
                         };
                         if let Ok(metadata_json) = serde_json::to_vec(&metadata_header) {
@@ -582,7 +585,7 @@ pub async fn parse_parquet(
     }
 
     // Generate cache key (include opening filter so different modes get different cache entries)
-    let cache_key = format!("{}-{:?}", DiskCache::generate_key(&data), query.opening_filter);
+    let cache_key = format!("{}-{}", DiskCache::generate_key(&data), query.opening_filter.cache_key_suffix());
 
     // Check cache first (before any processing)
     let parquet_cache_key = format!("{}-parquet-v2", cache_key);
@@ -776,7 +779,7 @@ pub async fn parse_parquet_optimized(
     }
 
     // Generate cache key (include opening filter so different modes get different cache entries)
-    let cache_key = format!("{}-{:?}", DiskCache::generate_key(&data), query.opening_filter);
+    let cache_key = format!("{}-{}", DiskCache::generate_key(&data), query.opening_filter.cache_key_suffix());
 
     tracing::info!(
         cache_key = %cache_key,

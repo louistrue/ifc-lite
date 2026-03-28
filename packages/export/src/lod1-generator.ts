@@ -2,14 +2,13 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-import type { GeometryQuality, MeshData } from '@ifc-lite/geometry';
+import type { GeometryQuality, GeometryResult, MeshData } from '@ifc-lite/geometry';
 import { GeometryProcessor } from '@ifc-lite/geometry';
 import { GLTFExporter } from './gltf-exporter.js';
 import { extractGlbMapping } from './glb.js';
 import { generateLod0 } from './lod0-generator.js';
 import type { GenerateLod1Result, Lod1MetaJson, Lod0Json, Vec3 } from './lod-geometry-types.js';
-
-type IfcInput = ArrayBuffer | Uint8Array | string;
+import { readIfcInput, type IfcInput } from './lod-geometry-utils.js';
 
 export type GenerateLod1Options = {
   quality?: GeometryQuality;
@@ -19,20 +18,6 @@ export type GenerateLod1Options = {
    */
   __forceMeshingErrorForTest?: boolean;
 };
-
-async function readIfcInput(input: IfcInput): Promise<ArrayBuffer> {
-  if (typeof input === 'string') {
-    const fs = await import('node:fs/promises');
-    const buf = await fs.readFile(input);
-    // Copy into tightly-sized buffer (fs.readFile may return a larger underlying ArrayBuffer)
-    return new Uint8Array(buf).buffer as ArrayBuffer;
-  }
-  if (input instanceof ArrayBuffer) return input;
-  if (input.byteOffset === 0 && input.byteLength === input.buffer.byteLength) {
-    return input.buffer as ArrayBuffer;
-  }
-  return input.buffer.slice(input.byteOffset, input.byteOffset + input.byteLength) as ArrayBuffer;
-}
 
 function buildBoxMeshFromAabb(min: Vec3, max: Vec3, expressId: number): MeshData {
   // 24 vertices (4 per face) with correct per-face normals
@@ -147,17 +132,19 @@ export async function generateLod1(input: IfcInput, options: GenerateLod1Options
     notes.push(`Meshing failed; using fallback boxes from LOD0. (${errMsg})`);
 
     const { meshes } = buildFallbackGeometryFromLod0(lod0);
-    const exporter = new GLTFExporter({
+    const zero = { x: 0, y: 0, z: 0 };
+    const fallbackResult: GeometryResult = {
       meshes,
       totalTriangles: meshes.reduce((s, m) => s + m.indices.length / 3, 0),
       totalVertices: meshes.reduce((s, m) => s + m.positions.length / 3, 0),
       coordinateInfo: {
-        originShift: { x: 0, y: 0, z: 0 },
-        originalBounds: { min: { x: 0, y: 0, z: 0 }, max: { x: 0, y: 0, z: 0 } },
-        shiftedBounds: { min: { x: 0, y: 0, z: 0 }, max: { x: 0, y: 0, z: 0 } },
+        originShift: zero,
+        originalBounds: { min: { ...zero }, max: { ...zero } },
+        shiftedBounds: { min: { ...zero }, max: { ...zero } },
         hasLargeCoordinates: false,
       },
-    } as any);
+    };
+    const exporter = new GLTFExporter(fallbackResult);
 
     const glb = exporter.exportGLB({ includeMetadata: true });
     const mapping = extractGlbMapping(glb);

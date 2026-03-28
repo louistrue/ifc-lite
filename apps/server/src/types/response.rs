@@ -62,6 +62,15 @@ pub enum StreamEvent {
         metadata: ModelMetadata,
         /// Cache key for the result.
         cache_key: String,
+        /// Coordinate space of the mesh vertices (e.g. "site_local").
+        #[serde(skip_serializing_if = "Option::is_none")]
+        mesh_coordinate_space: Option<String>,
+        /// IfcSite ObjectPlacement as a column-major 4×4 matrix (metres).
+        #[serde(skip_serializing_if = "Option::is_none")]
+        site_transform: Option<Vec<f64>>,
+        /// IfcBuilding ObjectPlacement as a column-major 4×4 matrix (metres).
+        #[serde(skip_serializing_if = "Option::is_none")]
+        building_transform: Option<Vec<f64>>,
     },
 
     /// Error occurred.

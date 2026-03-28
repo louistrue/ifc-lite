@@ -284,12 +284,12 @@ export class IfcLiteBridge {
    * Performs the full pre-pass but only processes entities in [startIdx, endIdx).
    * Designed for Web Worker parallelization where each worker handles a slice.
    */
-  parseMeshesSubset(content: string, startIdx: number, endIdx: number): MeshCollection {
+  parseMeshesSubset(content: string, startIdx: number, endIdx: number, skipExpensive: boolean = false): MeshCollection {
     if (!this.ifcApi) {
       throw new Error('IFC-Lite not initialized. Call init() first.');
     }
     try {
-      const collection = this.ifcApi.parseMeshesSubset(content, startIdx, endIdx);
+      const collection = this.ifcApi.parseMeshesSubset(content, startIdx, endIdx, skipExpensive);
       log.debug(`Parsed subset [${startIdx}, ${endIdx}) → ${collection.length} meshes`, { operation: 'parseMeshesSubset' });
       return collection;
     } catch (error) {

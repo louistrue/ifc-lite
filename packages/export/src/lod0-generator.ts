@@ -21,25 +21,9 @@ import {
   vec3,
   vec3Cross,
   vec3Normalize,
+  readIfcInput,
+  type IfcInput,
 } from './lod-geometry-utils.js';
-
-type IfcInput = ArrayBuffer | Uint8Array | string;
-
-async function readIfcInput(input: IfcInput): Promise<ArrayBuffer> {
-  if (typeof input === 'string') {
-    // Node-only path reading (dynamic import so browser bundles don't include fs)
-    const fs = await import('node:fs/promises');
-    const buf = await fs.readFile(input);
-    // Copy into tightly-sized buffer (fs.readFile may return a larger underlying ArrayBuffer)
-    return new Uint8Array(buf).buffer as ArrayBuffer;
-  }
-  if (input instanceof ArrayBuffer) return input;
-  // Uint8Array view — avoid copy when already covering the entire buffer
-  if (input.byteOffset === 0 && input.byteLength === input.buffer.byteLength) {
-    return input.buffer as ArrayBuffer;
-  }
-  return input.buffer.slice(input.byteOffset, input.byteOffset + input.byteLength) as ArrayBuffer;
-}
 
 type Index = { byId: Map<number, EntityRef>; byType: Map<string, number[]> };
 

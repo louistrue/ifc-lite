@@ -31,6 +31,18 @@ pub enum OpeningFilterMode {
     IgnoreOpaque = 2,
 }
 
+impl OpeningFilterMode {
+    /// Stable string suffix for disk-cache keys. Unlike `Debug` formatting,
+    /// this is guaranteed not to change across compiler versions.
+    pub fn cache_key_suffix(&self) -> &'static str {
+        match self {
+            Self::Default => "default",
+            Self::IgnoreAll => "ignore_all",
+            Self::IgnoreOpaque => "ignore_opaque",
+        }
+    }
+}
+
 /// Result of processing an IFC file.
 pub struct ProcessingResult {
     pub meshes: Vec<MeshData>,

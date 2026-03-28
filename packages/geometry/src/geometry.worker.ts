@@ -23,7 +23,12 @@ export interface GeometryWorkerProcessMessage {
   styleColors: Uint8Array;
 }
 
-export type GeometryWorkerRequest = GeometryWorkerInitMessage | GeometryWorkerProcessMessage;
+export interface GeometryWorkerPrePassMessage {
+  type: 'prepass' | 'prepass-fast';
+  sharedBuffer: SharedArrayBuffer;
+}
+
+export type GeometryWorkerRequest = GeometryWorkerInitMessage | GeometryWorkerProcessMessage | GeometryWorkerPrePassMessage;
 
 export interface GeometryWorkerBatchMessage {
   type: 'batch';
@@ -54,7 +59,7 @@ export type GeometryWorkerResponse =
 
 let api: IfcAPI | null = null;
 
-self.onmessage = async (e: MessageEvent<GeometryWorkerRequest | { type: 'prepass'; sharedBuffer: SharedArrayBuffer }>) => {
+self.onmessage = async (e: MessageEvent<GeometryWorkerRequest>) => {
   try {
     if (e.data.type === 'prepass' || e.data.type === 'prepass-fast') {
       if (!api) { await init(); api = new IfcAPI(); }
