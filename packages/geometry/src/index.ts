@@ -691,10 +691,8 @@ export class GeometryProcessor {
 
       yield { type: 'complete', totalMeshes: allMeshes.length, coordinateInfo };
     } else {
-      // Large files: Try parallel Web Worker processing if available,
-      // fall back to single-thread streaming otherwise.
-      {
-        const useParallel = typeof SharedArrayBuffer !== 'undefined'
+      // Large files: parallel or streaming
+      const useParallel = typeof SharedArrayBuffer !== 'undefined'
         && typeof Worker !== 'undefined'
         && typeof navigator !== 'undefined'
         && (navigator.hardwareConcurrency ?? 1) > 1;
