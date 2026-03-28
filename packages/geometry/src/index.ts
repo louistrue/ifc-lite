@@ -471,10 +471,7 @@ export class GeometryProcessor {
     // Scans entire file, builds job list + style data + void index.
     // Workers skip this entirely and receive pre-computed results.
     const theApi = this.bridge!.getApi();
-    console.time('[Parallel] prePass');
     const prePassResult = theApi.buildPrePassOnce(buffer);
-    console.timeEnd('[Parallel] prePass');
-    console.warn('[Parallel] prePass result:', prePassResult?.totalJobs, 'jobs,', prePassResult?.voidKeys?.length, 'voids');
 
     if (!prePassResult || !prePassResult.jobs || prePassResult.totalJobs === 0) {
       const coordinateInfo = this.coordinateHandler.getFinalCoordinateInfo();
