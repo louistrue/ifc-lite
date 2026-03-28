@@ -290,54 +290,30 @@ export class GeometryProcessor {
         throw new Error('WASM bridge not initialized');
       }
 
+      // Use synchronous parseMeshes and chunk results.
+      // parseMeshesAsync (which uses spawn_local + queueMicrotask) panics on
+      // large files because wasm-bindgen's queueMicrotask closure management
+      // hits unreachable with panic=abort on wasm32.
       const collector = new IfcLiteMeshCollector(this.bridge.getApi(), content);
+      const allMeshes = collector.collectMeshes();
+      const extractedBuildingRotation = collector.getBuildingRotation();
+
+      // Chunk into batches and yield with browser yields for UI responsiveness
+      const BATCH_SIZE = 1500;
       let totalMeshes = 0;
-      let extractedBuildingRotation: number | undefined = undefined;
 
-      // Determine optimal WASM batch size based on file size
-      // Larger batches = fewer callbacks = faster processing
-      const fileSizeMB = typeof batchConfig !== 'number' && batchConfig.fileSizeMB
-        ? batchConfig.fileSizeMB
-        : buffer.length / (1024 * 1024);
-
-      // Use WASM batches directly - no JS accumulation layer
-      // WASM already prioritizes simple geometry (walls, slabs) for fast first frame
-      // PERF: Larger batches dramatically reduce WASM↔JS boundary crossing overhead.
-      // 487MB file: batch 500→1500 cut WASM wait from 79s to 39s.
-      const wasmBatchSize = fileSizeMB < 10 ? 100 : fileSizeMB < 50 ? 200 : fileSizeMB < 100 ? 300 : fileSizeMB < 300 ? 500 : fileSizeMB < 500 ? 1500 : 3000;
-
-      // Use WASM batches directly for maximum throughput
-      for await (const item of collector.collectMeshesStreaming(wasmBatchSize)) {
-        // Handle color update events
-        if (item && typeof item === 'object' && 'type' in item && (item as StreamingColorUpdateEvent).type === 'colorUpdate') {
-          yield { type: 'colorUpdate', updates: (item as StreamingColorUpdateEvent).updates };
-          continue;
-        }
-
-        // Handle RTC offset events
-        if (item && typeof item === 'object' && 'type' in item && (item as StreamingRtcOffsetEvent).type === 'rtcOffset') {
-          const rtcEvent = item as StreamingRtcOffsetEvent;
-          yield { type: 'rtcOffset', rtcOffset: rtcEvent.rtcOffset, hasRtc: rtcEvent.hasRtc };
-          continue;
-        }
-
-        // Handle mesh batches
-        const batch = item as MeshData[];
-        // Process coordinate shifts incrementally (will accumulate bounds)
+      for (let i = 0; i < allMeshes.length; i += BATCH_SIZE) {
+        const batch = allMeshes.slice(i, i + BATCH_SIZE);
         this.coordinateHandler.processMeshesIncremental(batch);
         totalMeshes += batch.length;
         const coordinateInfo = this.coordinateHandler.getCurrentCoordinateInfo();
-
-        // Merge buildingRotation if we have it
         const coordinateInfoWithRotation = coordinateInfo && extractedBuildingRotation !== undefined
           ? { ...coordinateInfo, buildingRotation: extractedBuildingRotation }
           : coordinateInfo;
-
         yield { type: 'batch', meshes: batch, totalSoFar: totalMeshes, coordinateInfo: coordinateInfoWithRotation || undefined };
+        // Yield to browser for UI updates
+        await new Promise(resolve => setTimeout(resolve, 0));
       }
-
-      // Get building rotation after streaming completes
-      extractedBuildingRotation = collector.getBuildingRotation();
 
       const coordinateInfo = this.coordinateHandler.getFinalCoordinateInfo();
       const finalCoordinateInfo = extractedBuildingRotation !== undefined
