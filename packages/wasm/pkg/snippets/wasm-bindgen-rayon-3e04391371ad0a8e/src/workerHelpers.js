@@ -40,7 +40,7 @@ export async function startWorkers(module, memory, builder) {
       // and browser, ideally we should switch to `import.meta.resolve`
       // once it becomes a standard.
       const worker = new Worker(
-        new URL('./workerHelpers.worker.js', import.meta.url),
+        new URL('./workerHelpers.js', import.meta.url),
         {
           type: 'module'
         }
