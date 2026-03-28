@@ -699,7 +699,7 @@ impl IfcAPI {
                             }
 
                             // Yield to browser
-                            gloo_timers::future::TimeoutFuture::new(0).await;
+                            // no yield — sync for speed
                         }
                     } else {
                         // Defer complex geometry
@@ -745,7 +745,7 @@ impl IfcAPI {
                         let _ = callback.call2(&JsValue::NULL, &js_geometries, &progress);
                     }
 
-                    gloo_timers::future::TimeoutFuture::new(0).await;
+                    // no yield — sync for speed
                 }
 
                 // Process deferred complex geometry
@@ -853,7 +853,7 @@ impl IfcAPI {
                             let _ = callback.call2(&JsValue::NULL, &js_geometries, &progress);
                         }
 
-                        gloo_timers::future::TimeoutFuture::new(0).await;
+                        // no yield — sync for speed
                     }
                 }
 
@@ -1143,7 +1143,7 @@ impl IfcAPI {
                         // After first batch, ramp up batch size for throughput
                         current_batch_size = throughput_batch_size;
 
-                        gloo_timers::future::TimeoutFuture::new(0).await;
+                        // no yield — sync for speed
                         // with panic=abort. Batches are delivered synchronously via callbacks.
                     }
                 }
@@ -1163,7 +1163,7 @@ impl IfcAPI {
                         total_meshes += js_meshes.length() as usize;
                     }
 
-                    gloo_timers::future::TimeoutFuture::new(0).await;
+                    // no yield — sync for speed
                 }
 
                 let total_elements = processed + pre_pass.complex_jobs.len();
@@ -1299,7 +1299,7 @@ impl IfcAPI {
                             total_meshes += js_meshes.length() as usize;
                         }
 
-                        gloo_timers::future::TimeoutFuture::new(0).await;
+                        // no yield — sync for speed
                     }
                 }
 
@@ -1713,7 +1713,7 @@ impl IfcAPI {
                             flush_batch(&mut current_batch, &on_batch, &progress.into());
 
                             // Yield to browser
-                            gloo_timers::future::TimeoutFuture::new(0).await;
+                            // no yield — sync for speed
                         }
                     } else {
                         // Defer complex geometry
@@ -1726,7 +1726,7 @@ impl IfcAPI {
                     let progress = js_sys::Object::new();
                     super::set_js_prop(&progress, "phase", &"simple_complete".into());
                     flush_batch(&mut current_batch, &on_batch, &progress.into());
-                    gloo_timers::future::TimeoutFuture::new(0).await;
+                    // no yield — sync for speed
                 }
 
                 // Process deferred complex geometry
@@ -1774,7 +1774,7 @@ impl IfcAPI {
                         super::set_js_prop(&progress, "phase", &"complex".into());
 
                         flush_batch(&mut current_batch, &on_batch, &progress.into());
-                        gloo_timers::future::TimeoutFuture::new(0).await;
+                        // no yield — sync for speed
                     }
                 }
 
