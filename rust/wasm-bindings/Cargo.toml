@@ -23,7 +23,7 @@ debug_geometry = ["ifc-lite-geometry/debug_geometry"]
 [dependencies]
 console_error_panic_hook = { version = "0.1", optional = true }
 futures-util = "0.3"
-gloo-timers = { version = "0.3", features = ["futures"] }
+# gloo-timers removed — sync processing for speed
 ifc-lite-core.workspace = true
 ifc-lite-geometry.workspace = true
 js-sys = "=0.3.83"

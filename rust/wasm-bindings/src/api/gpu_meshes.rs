@@ -1079,9 +1079,8 @@ impl IfcAPI {
                 // 4ms by browsers after 5 nested calls — with 208K meshes / 25 =
                 // 8300 yields × 4ms = 33s of pure yield overhead!
                 // With 500-mesh batches: 416 yields × 4ms = 1.7s — a ~30s savings.
-                let mut current_batch_size = batch_size; // Start small for fast first frame
-                let throughput_batch_size = batch_size.max(500);
-                let mut first_batch_yielded = false;
+                let mut current_batch_size = batch_size; // Start small (25) for fast first frame
+                let throughput_batch_size = batch_size.max(500); // Ramp up after first batch
 
                 // Cache IFC type name strings: ~30 unique types repeated across 200K+ meshes.
                 let mut type_name_cache: rustc_hash::FxHashMap<ifc_lite_core::IfcType, String> =
@@ -1150,12 +1149,8 @@ impl IfcAPI {
                         // After first batch, ramp up batch size for throughput
                         current_batch_size = throughput_batch_size;
 
-                        // Yield ONCE after first batch for immediate render,
-                        // then process remaining synchronously for max speed.
-                        if !first_batch_yielded {
-                            first_batch_yielded = true;
-                            gloo_timers::future::TimeoutFuture::new(0).await;
-                        }
+                        // Yield to browser
+                        // yield removed — sync for speed
                     }
                 }
 
