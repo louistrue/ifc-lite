@@ -688,16 +688,42 @@ export class GeometryProcessor {
     } else {
       // Large files: Try parallel Web Worker processing if available,
       // fall back to single-thread streaming otherwise.
-      // Use Web Worker parallelism with SharedArrayBuffer (zero-copy file sharing)
-      const useParallel = typeof SharedArrayBuffer !== 'undefined'
-        && typeof Worker !== 'undefined'
-        && typeof navigator !== 'undefined'
-        && (navigator.hardwareConcurrency ?? 1) > 1;
+      {
+        // Fast single-threaded: skip expensive style building (~1.2s) + BREP preprocessing
+        yield { type: 'start', totalEstimate: buffer.length / 1000 };
+        await new Promise(r => setTimeout(r, 0));
+        const content = new TextDecoder().decode(buffer);
+        yield { type: 'model-open', modelID: 0 };
 
-      if (useParallel) {
-        yield* this.processParallel(buffer);
-      } else {
-        yield* this.processStreaming(buffer, options.entityIndex, batchConfig);
+        if (!this.bridge) throw new Error('WASM bridge not initialized');
+        const theApi = this.bridge.getApi()!;
+
+        // Fast scan to get total entity count
+        const entities = theApi.scanGeometryEntitiesFast(content);
+        const total = Array.isArray(entities) ? entities.length : 0;
+
+        // Process ALL entities in one fast WASM call (skip styles + BREP preprocessing)
+        const collection = theApi.parseMeshesSubset(content, 0, total, true);
+
+        const allMeshes: MeshData[] = [];
+        for (let i = 0; i < collection.length; i++) {
+          const m = collection.get(i);
+          if (!m) continue;
+          allMeshes.push({
+            expressId: m.expressId,
+            ifcType: m.ifcType,
+            positions: new Float32Array(m.positions),
+            normals: new Float32Array(m.normals),
+            indices: new Uint32Array(m.indices),
+            color: [m.color[0], m.color[1], m.color[2], m.color[3]],
+          });
+        }
+        collection.free();
+
+        this.coordinateHandler.processMeshesIncremental(allMeshes);
+        const coordinateInfo = this.coordinateHandler.getFinalCoordinateInfo();
+        yield { type: 'batch', meshes: allMeshes, totalSoFar: allMeshes.length, coordinateInfo: coordinateInfo || undefined };
+        yield { type: 'complete', totalMeshes: allMeshes.length, coordinateInfo };
       }
     }
   }
