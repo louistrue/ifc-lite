@@ -531,13 +531,20 @@ impl GeometryRouter {
         self.apply_diagonal_openings(&mut result, &openings, &wall_min, &wall_max);
         web_sys::console::warn_1(&format!("[VOID] #{} diagonal done, cutting {} openings...", eid, openings.len()).into());
 
+        // Track rectangular operations to prevent crashes from excessive clipping
+        let mut rect_operation_count = 0;
+        const MAX_RECT_OPERATIONS: usize = 15;
+
         for (oi, opening) in openings.iter().enumerate() {
             web_sys::console::warn_1(&format!("[VOID] #{} opening {}/{}: {:?}", eid, oi+1, openings.len(),
                 match opening { OpeningType::Rectangular(..) => "Rect", OpeningType::DiagonalRectangular(..) => "DiagRect", OpeningType::NonRectangular(..) => "NonRect" }
             ).into());
             match opening {
                 OpeningType::Rectangular(open_min, open_max, extrusion_dir) => {
-                    // Use AABB clipping for axis-aligned rectangular openings
+                    if rect_operation_count >= MAX_RECT_OPERATIONS {
+                        continue;
+                    }
+                    rect_operation_count += 1;
                     let (final_min, final_max) = if let Some(dir) = extrusion_dir {
                         // Extend along the actual extrusion direction to penetrate multi-layer walls
                         self.extend_opening_along_direction(*open_min, *open_max, wall_min, wall_max, *dir)
