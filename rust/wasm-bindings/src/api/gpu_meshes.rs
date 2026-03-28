@@ -127,6 +127,14 @@ impl IfcAPI {
 
             stats.total += 1;
 
+            // Log every 1000th entity + the exact one being processed
+            if stats.total % 1000 == 0 || stats.total <= 5 {
+                web_sys::console::warn_1(&format!(
+                    "[WASM] Processing entity #{} ({}) [#{} of geom entities]",
+                    id, type_name, stats.total
+                ).into());
+            }
+
             // Decode and process the entity
             if let Ok(entity) = decoder.decode_at_with_id(id, start, end) {
                 // Check if entity actually has representation (attribute index 6 for IfcProduct)
