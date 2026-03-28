@@ -110,4 +110,4 @@ pub use void_analysis::{
     classify_voids_batch, extract_coplanar_voids, extract_nonplanar_voids, VoidAnalyzer,
     VoidClassification,
 };
-pub use void_index::{propagate_voids_to_parts, VoidIndex, VoidStatistics};
+pub use void_index::{VoidIndex, VoidStatistics};

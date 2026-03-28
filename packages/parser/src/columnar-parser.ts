@@ -158,6 +158,11 @@ const QUANTITY_TYPE_MAP: Record<string, QuantityType> = {
 // Types needed for spatial hierarchy (small subset)
 const SPATIAL_TYPES = new Set([
     'IFCPROJECT', 'IFCSITE', 'IFCBUILDING', 'IFCBUILDINGSTOREY', 'IFCSPACE',
+    'IFCFACILITY', 'IFCFACILITYPART',
+    'IFCBRIDGE', 'IFCBRIDGEPART',
+    'IFCROAD', 'IFCROADPART',
+    'IFCRAILWAY', 'IFCRAILWAYPART',
+    'IFCMARINEFACILITY',
 ]);
 
 // Relationship types needed for hierarchy and structural relationships

@@ -35,6 +35,8 @@ export interface BCFSliceState {
   bcfError: string | null;
   /** Default author for new topics/comments */
   bcfAuthor: string;
+  /** Whether 3D overlay markers are shown in the viewport */
+  bcfOverlayVisible: boolean;
 }
 
 export interface BCFSlice extends BCFSliceState {
@@ -65,6 +67,8 @@ export interface BCFSlice extends BCFSliceState {
   setBcfLoading: (loading: boolean) => void;
   setBcfError: (error: string | null) => void;
   setBcfAuthor: (author: string) => void;
+  setBcfOverlayVisible: (visible: boolean) => void;
+  toggleBcfOverlay: () => void;
 
   // Utility getters
   getActiveTopic: () => BCFTopic | null;
@@ -102,6 +106,7 @@ export const createBcfSlice: StateCreator<BCFSlice, [], [], BCFSlice> = (set, ge
   bcfLoading: false,
   bcfError: null,
   bcfAuthor: getDefaultBcfAuthor(),
+  bcfOverlayVisible: false,
 
   // Project actions
   setBcfProject: (bcfProject) => set({
@@ -349,6 +354,10 @@ export const createBcfSlice: StateCreator<BCFSlice, [], [], BCFSlice> = (set, ge
     }
     set({ bcfAuthor });
   },
+
+  setBcfOverlayVisible: (bcfOverlayVisible) => set({ bcfOverlayVisible }),
+
+  toggleBcfOverlay: () => set((state) => ({ bcfOverlayVisible: !state.bcfOverlayVisible })),
 
   // Utility getters
   getActiveTopic: () => {

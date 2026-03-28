@@ -21,6 +21,8 @@ import {
   EntityFlags,
   PropertyValueType,
   QuantityType,
+  isBuildingLikeSpatialType,
+  isStoreyLikeSpatialType,
   type SpatialHierarchy,
   type SpatialNode,
   type EntityTable,
@@ -190,17 +192,17 @@ function buildSpatialHierarchy(
 
   // Build lookup maps from spatial hierarchy data
   for (const node of dataModel.spatialHierarchy.nodes) {
-    const typeUpper = node.type_name.toUpperCase();
-    if (typeUpper === 'IFCBUILDINGSTOREY') {
+    const typeEnum = IfcTypeEnumFromString(node.type_name);
+    if (isStoreyLikeSpatialType(typeEnum)) {
       byStorey.set(node.entity_id, node.element_ids);
       if (node.elevation !== undefined) {
         storeyElevations.set(node.entity_id, node.elevation);
       }
-    } else if (typeUpper === 'IFCBUILDING') {
+    } else if (isBuildingLikeSpatialType(typeEnum)) {
       byBuilding.set(node.entity_id, node.element_ids);
-    } else if (typeUpper === 'IFCSITE') {
+    } else if (typeEnum === IfcTypeEnum.IfcSite) {
       bySite.set(node.entity_id, node.element_ids);
-    } else if (typeUpper === 'IFCSPACE') {
+    } else if (typeEnum === IfcTypeEnum.IfcSpace) {
       bySpace.set(node.entity_id, node.element_ids);
     }
   }
@@ -241,6 +243,20 @@ function buildSpatialHierarchy(
   // Build project node tree
   const projectNode = buildSpatialNodeTree(dataModel.spatialHierarchy.project_id, nodesMap);
 
+  const findPath = (node: SpatialNode, targetId: number, path: SpatialNode[] = []): SpatialNode[] => {
+    const nextPath = [...path, node];
+    if (node.elements.includes(targetId)) {
+      return nextPath;
+    }
+    for (const child of node.children) {
+      const childPath = findPath(child, targetId, nextPath);
+      if (childPath.length > 0) {
+        return childPath;
+      }
+    }
+    return [];
+  };
+
   return {
     project: projectNode,
     byStorey,
@@ -265,35 +281,7 @@ function buildSpatialHierarchy(
       return dataModel.spatialHierarchy.element_to_space.get(elementId) || null;
     },
     getPath: (elementId: number) => {
-      const path: SpatialNode[] = [];
-
-      // Find which spatial node contains this element
-      let containingNodeId: number | undefined;
-      for (const [spatialId, elements] of byStorey) {
-        if (elements.includes(elementId)) {
-          containingNodeId = spatialId;
-          break;
-        }
-      }
-      if (!containingNodeId) {
-        for (const [spatialId, elements] of bySpace) {
-          if (elements.includes(elementId)) {
-            containingNodeId = spatialId;
-            break;
-          }
-        }
-      }
-
-      // Build path from containing node up to project
-      let currentId: number | undefined = containingNodeId;
-      while (currentId) {
-        const node = nodesMap.get(currentId);
-        if (!node) break;
-        path.unshift(buildSpatialNodeTree(currentId, nodesMap));
-        currentId = node.parent_id || undefined;
-      }
-
-      return path;
+      return findPath(projectNode, elementId);
     },
   };
 }

@@ -2,7 +2,15 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-import { IfcTypeEnum, EntityFlags, RelationshipType, type SpatialNode } from '@ifc-lite/data';
+import {
+  IfcTypeEnum,
+  EntityFlags,
+  RelationshipType,
+  isSpaceLikeSpatialType,
+  isSpatialStructureType,
+  isStoreyLikeSpatialType,
+  type SpatialNode,
+} from '@ifc-lite/data';
 import type { IfcDataStore } from '@ifc-lite/parser';
 import { useViewerStore, type FederatedModel } from '@/store';
 import type { TreeNode, NodeType, StoreyData, UnifiedStorey } from './types';
@@ -18,7 +26,16 @@ export function getNodeType(ifcType: IfcTypeEnum): NodeType {
     case IfcTypeEnum.IfcProject: return 'IfcProject';
     case IfcTypeEnum.IfcSite: return 'IfcSite';
     case IfcTypeEnum.IfcBuilding: return 'IfcBuilding';
+    case IfcTypeEnum.IfcFacility: return 'IfcFacility';
+    case IfcTypeEnum.IfcBridge: return 'IfcBridge';
+    case IfcTypeEnum.IfcRoad: return 'IfcRoad';
+    case IfcTypeEnum.IfcRailway: return 'IfcRailway';
+    case IfcTypeEnum.IfcMarineFacility: return 'IfcMarineFacility';
     case IfcTypeEnum.IfcBuildingStorey: return 'IfcBuildingStorey';
+    case IfcTypeEnum.IfcFacilityPart: return 'IfcFacilityPart';
+    case IfcTypeEnum.IfcBridgePart: return 'IfcBridgePart';
+    case IfcTypeEnum.IfcRoadPart: return 'IfcRoadPart';
+    case IfcTypeEnum.IfcRailwayPart: return 'IfcRailwayPart';
     case IfcTypeEnum.IfcSpace: return 'IfcSpace';
     default: return 'element';
   }
@@ -68,8 +85,15 @@ function getSpatialNodeElements(
   nodeType: NodeType,
   descendantSpaceCache: Map<number, Set<number>>
 ): number[] {
-  if (nodeType === 'IfcSpace') {
+  if (isSpaceLikeSpatialType(spatialNode.type)) {
     return (dataStore.spatialHierarchy?.bySpace.get(spatialNode.expressId) as number[]) || [];
+  }
+
+  if (!isStoreyLikeSpatialType(spatialNode.type)) {
+    if (!isSpatialStructureType(spatialNode.type)) {
+      return [];
+    }
+    return spatialNode.elements || [];
   }
 
   if (nodeType !== 'IfcBuildingStorey') {
@@ -177,16 +201,16 @@ function buildSpatialNodes(
   }
 
   const elements = getSpatialNodeElements(spatialNode, dataStore, nodeType, descendantSpaceCache);
+  const hasDirectElements = elements.length > 0;
 
   // Check if has children
   // In stopAtBuilding mode, buildings have no children (storeys shown separately)
   const hasNonStoreyChildren = spatialNode.children?.some(
-    (c: SpatialNode) => getNodeType(c.type) !== 'IfcBuildingStorey'
+    (c: SpatialNode) => !isStoreyLikeSpatialType(c.type)
   );
   const hasChildren = stopAtBuilding
-    ? (nodeType !== 'IfcBuilding' && hasNonStoreyChildren)
-    : (spatialNode.children?.length > 0) ||
-      ((nodeType === 'IfcBuildingStorey' || nodeType === 'IfcSpace') && elements.length > 0);
+    ? Boolean(hasNonStoreyChildren || hasDirectElements)
+    : (spatialNode.children?.length > 0) || hasDirectElements;
 
   nodes.push({
     id: nodeId,
@@ -201,7 +225,7 @@ function buildSpatialNodes(
     hasChildren,
     isExpanded: isNodeExpanded,
     isVisible: true, // Visibility computed lazily during render
-    elementCount: nodeType === 'IfcBuildingStorey' || nodeType === 'IfcSpace' ? elements.length : undefined,
+    elementCount: hasDirectElements ? elements.length : undefined,
     storeyElevation: spatialNode.elevation,
     // Store idOffset for lazy visibility computation
     _idOffset: idOffset,
@@ -209,7 +233,8 @@ function buildSpatialNodes(
 
   if (isNodeExpanded) {
     // Sort storeys by elevation descending
-    const sortedChildren = nodeType === 'IfcBuilding'
+    const shouldSortByElevation = (spatialNode.children || []).some((child) => isStoreyLikeSpatialType(child.type));
+    const sortedChildren = shouldSortByElevation
       ? [...(spatialNode.children || [])].sort((a, b) => (b.elevation || 0) - (a.elevation || 0))
       : spatialNode.children || [];
 
@@ -229,8 +254,8 @@ function buildSpatialNodes(
       );
     }
 
-    // For storeys (single-model only), add elements
-    if (!stopAtBuilding && (nodeType === 'IfcBuildingStorey' || nodeType === 'IfcSpace') && elements.length > 0) {
+    // Add direct spatial children elements for expanded nodes.
+    if (hasDirectElements) {
       for (const elementId of elements) {
         const globalId = resolveTreeGlobalId(modelId, elementId, models);
         const entityType = dataStore.entities?.getTypeName(elementId) || 'Unknown';

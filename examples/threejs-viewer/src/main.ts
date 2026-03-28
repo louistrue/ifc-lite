@@ -767,7 +767,16 @@ function spatialNodeMeta(type: IfcTypeEnum): { icon: string; abbr: string } {
     case IfcTypeEnum.IfcProject:        return { icon: 'icon-project',  abbr: 'PRJ' };
     case IfcTypeEnum.IfcSite:           return { icon: 'icon-site',     abbr: 'SIT' };
     case IfcTypeEnum.IfcBuilding:       return { icon: 'icon-building', abbr: 'BLD' };
+    case IfcTypeEnum.IfcFacility:
+    case IfcTypeEnum.IfcBridge:
+    case IfcTypeEnum.IfcRoad:
+    case IfcTypeEnum.IfcRailway:
+    case IfcTypeEnum.IfcMarineFacility: return { icon: 'icon-building', abbr: 'FAC' };
     case IfcTypeEnum.IfcBuildingStorey: return { icon: 'icon-storey',   abbr: 'STR' };
+    case IfcTypeEnum.IfcFacilityPart:
+    case IfcTypeEnum.IfcBridgePart:
+    case IfcTypeEnum.IfcRoadPart:
+    case IfcTypeEnum.IfcRailwayPart:    return { icon: 'icon-storey',   abbr: 'PRT' };
     case IfcTypeEnum.IfcSpace:          return { icon: 'icon-space',    abbr: 'SPC' };
     default:                            return { icon: 'icon-type',     abbr: '?' };
   }
