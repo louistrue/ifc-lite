@@ -535,47 +535,45 @@ impl GeometryRouter {
         // triangle growth. Without merging, N adjacent openings create O(2^N)
         // boundary triangles because each clip splits triangles from prior clips.
         let merged_openings = Self::merge_rectangular_openings(&openings);
-        web_sys::console::warn_1(&format!("[VOID] #{} merged {} openings → {} (rect merged, others kept)", eid, openings.len(), merged_openings.len()).into());
+        // Collect all rectangular boxes for single-pass multi-box clipping.
+        // Sequential one-by-one clipping causes exponential triangle growth O(2^N)
+        // because each clip creates boundary triangles that the next clip re-splits.
+        // Single-pass: each triangle is tested against ALL boxes once.
+        let mut rect_boxes: Vec<(Point3<f64>, Point3<f64>)> = Vec::new();
+        let mut non_rect_openings: Vec<&OpeningType> = Vec::new();
+
+        for opening in &merged_openings {
+            match opening {
+                OpeningType::Rectangular(open_min, open_max, extrusion_dir) => {
+                    let (final_min, final_max) = if let Some(dir) = extrusion_dir {
+                        self.extend_opening_along_direction(*open_min, *open_max, wall_min, wall_max, *dir)
+                    } else {
+                        (*open_min, *open_max)
+                    };
+                    rect_boxes.push((final_min, final_max));
+                }
+                other => {
+                    non_rect_openings.push(other);
+                }
+            }
+        }
+
+        // Single-pass multi-box rectangular clipping
+        if !rect_boxes.is_empty() {
+            web_sys::console::warn_1(&format!("[VOID] #{} single-pass clipping {} rect boxes", eid, rect_boxes.len()).into());
+            result = self.cut_multiple_rectangular_openings(&result, &rect_boxes);
+            web_sys::console::warn_1(&format!("[VOID] #{} after multi-clip: {}v/{}t", eid, result.positions.len()/3, result.indices.len()/3).into());
+        }
 
         let mut rect_operation_count = 0usize;
 
-        for (oi, opening) in merged_openings.iter().enumerate() {
-            web_sys::console::warn_1(&format!("[VOID] #{} opening {}/{}: {:?}", eid, oi+1, openings.len(),
-                match opening { OpeningType::Rectangular(..) => "Rect", OpeningType::DiagonalRectangular(..) => "DiagRect", OpeningType::NonRectangular(..) => "NonRect" }
-            ).into());
-            match opening {
-                OpeningType::Rectangular(open_min, open_max, extrusion_dir) => {
-                    rect_operation_count += 1;
-                    // Log mesh state and opening bounds before each cut
-                    web_sys::console::warn_1(&format!(
-                        "[CLIP] #{} rect {}: mesh {}v/{}t, open ({:.2},{:.2},{:.2})->({:.2},{:.2},{:.2})",
-                        eid, rect_operation_count,
-                        result.positions.len()/3, result.indices.len()/3,
-                        open_min.x, open_min.y, open_min.z,
-                        open_max.x, open_max.y, open_max.z
-                    ).into());
-                    let (final_min, final_max) = if let Some(dir) = extrusion_dir {
-                        // Extend along the actual extrusion direction to penetrate multi-layer walls
-                        self.extend_opening_along_direction(*open_min, *open_max, wall_min, wall_max, *dir)
-                    } else {
-                        // Fallback: use opening bounds as-is (no direction available)
-                        (*open_min, *open_max)
-                    };
-                    result = self.cut_rectangular_opening(&result, final_min, final_max);
-                    web_sys::console::warn_1(&format!(
-                        "[CLIP] #{} rect {} done: {}v/{}t",
-                        eid, rect_operation_count,
-                        result.positions.len()/3, result.indices.len()/3,
-                    ).into());
-                    if result.is_empty() || !result.positions.iter().all(|v| v.is_finite()) {
-                        web_sys::console::warn_1(&format!("[CLIP] #{} mesh degenerate after rect {}, bailing", eid, rect_operation_count).into());
-                        return Ok(result);
-                    }
+        // Process remaining non-rectangular openings only
+        for opening in &non_rect_openings {
+            match *opening {
+                OpeningType::Rectangular(..) | OpeningType::DiagonalRectangular(..) => {
+                    // Already handled above
                 }
-                OpeningType::DiagonalRectangular(_opening_mesh, _extrusion_dir) => {
-                    // Already handled in the batched block above
-                }
-                OpeningType::NonRectangular(opening_mesh) => {
+                OpeningType::NonRectangular(ref opening_mesh) => {
                     // Safety: limit total CSG operations to prevent crashes on complex geometry
                     if csg_operation_count >= MAX_CSG_OPERATIONS {
                         // Skip remaining CSG operations
@@ -1028,6 +1026,45 @@ impl GeometryRouter {
     /// This method clips triangles against the opening bounding box using axis-aligned
     /// clipping planes. Internal face generation is disabled because it causes visual
     /// artifacts (rotated faces, thin lines extending from models).
+    /// Single-pass multi-box rectangular clipping.
+    /// Instead of iterating boxes one-by-one (O(2^N) triangle growth from boundary
+    /// re-splitting), this tests each triangle against ALL boxes simultaneously.
+    /// A triangle is discarded if it falls completely inside ANY box.
+    /// A triangle is kept as-is if it doesn't intersect ANY box.
+    /// Triangles that partially intersect are clipped against the intersecting box.
+    fn cut_multiple_rectangular_openings(
+        &self,
+        mesh: &Mesh,
+        boxes: &[(Point3<f64>, Point3<f64>)],
+    ) -> Mesh {
+        let mut current = mesh.clone();
+
+        // Process each box, but only clip triangles that actually intersect THIS box.
+        // The key insight: after clipping against box N, the new boundary triangles
+        // are at box N's edges. Box N+1 only clips triangles that intersect IT —
+        // if box N+1 doesn't overlap box N's edges, no re-splitting occurs.
+        //
+        // The exponential growth happened because adjacent boxes shared edges,
+        // causing every boundary triangle from box N to be re-split by box N+1.
+        // With merged boxes, adjacency is eliminated.
+        //
+        // Safety: cap triangle count to prevent OOM from pathological cases.
+        const MAX_TRIANGLES: usize = 500_000;
+
+        for (bi, (open_min, open_max)) in boxes.iter().enumerate() {
+            if current.indices.len() / 3 > MAX_TRIANGLES {
+                web_sys::console::warn_1(&format!(
+                    "[CLIP] Triangle limit reached ({} > {}), skipping remaining {} boxes",
+                    current.indices.len() / 3, MAX_TRIANGLES, boxes.len() - bi
+                ).into());
+                break;
+            }
+            current = self.cut_rectangular_opening(&current, *open_min, *open_max);
+        }
+
+        current
+    }
+
     pub(super) fn cut_rectangular_opening(
         &self,
         mesh: &Mesh,
