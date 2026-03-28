@@ -53,6 +53,7 @@ fn is_body_representation(rep_type: &str) -> bool {
 }
 
 /// Classification of an opening for void subtraction.
+#[derive(Clone)]
 enum OpeningType {
     /// Rectangular opening with AABB clipping
     /// Fields: (min_bounds, max_bounds, extrusion_direction)
@@ -529,11 +530,16 @@ impl GeometryRouter {
 
         web_sys::console::warn_1(&format!("[VOID] #{} applying diagonal openings...", eid).into());
         self.apply_diagonal_openings(&mut result, &openings, &wall_min, &wall_max);
-        web_sys::console::warn_1(&format!("[VOID] #{} diagonal done, cutting {} openings...", eid, openings.len()).into());
+
+        // Merge adjacent/overlapping rectangular openings to prevent exponential
+        // triangle growth. Without merging, N adjacent openings create O(2^N)
+        // boundary triangles because each clip splits triangles from prior clips.
+        let merged_openings = Self::merge_rectangular_openings(&openings);
+        web_sys::console::warn_1(&format!("[VOID] #{} merged {} openings → {} (rect merged, others kept)", eid, openings.len(), merged_openings.len()).into());
 
         let mut rect_operation_count = 0usize;
 
-        for (oi, opening) in openings.iter().enumerate() {
+        for (oi, opening) in merged_openings.iter().enumerate() {
             web_sys::console::warn_1(&format!("[VOID] #{} opening {}/{}: {:?}", eid, oi+1, openings.len(),
                 match opening { OpeningType::Rectangular(..) => "Rect", OpeningType::DiagonalRectangular(..) => "DiagRect", OpeningType::NonRectangular(..) => "NonRect" }
             ).into());
@@ -738,6 +744,77 @@ impl GeometryRouter {
             }
         }
         openings
+    }
+
+    /// Merge adjacent/overlapping rectangular openings into larger boxes.
+    /// This prevents exponential triangle growth when many small openings
+    /// tile a wall surface — each clip creates boundary triangles that get
+    /// re-split by the next clip, causing O(2^N) growth.
+    fn merge_rectangular_openings(openings: &[OpeningType]) -> Vec<OpeningType> {
+        const MERGE_TOLERANCE: f64 = 0.01; // 1cm tolerance for adjacency
+
+        // Separate rectangular and non-rectangular openings
+        let mut rects: Vec<(Point3<f64>, Point3<f64>, Option<Vector3<f64>>)> = Vec::new();
+        let mut others: Vec<OpeningType> = Vec::new();
+
+        for opening in openings {
+            match opening {
+                OpeningType::Rectangular(min, max, dir) => {
+                    rects.push((*min, *max, *dir));
+                }
+                other => others.push(other.clone()),
+            }
+        }
+
+        // Iteratively merge overlapping/adjacent rectangles
+        let mut merged = true;
+        while merged {
+            merged = false;
+            let mut i = 0;
+            while i < rects.len() {
+                let mut j = i + 1;
+                while j < rects.len() {
+                    let (a_min, a_max, _) = &rects[i];
+                    let (b_min, b_max, _) = &rects[j];
+
+                    // Check if boxes overlap or are adjacent (within tolerance)
+                    let overlaps_x = a_min.x <= b_max.x + MERGE_TOLERANCE && a_max.x >= b_min.x - MERGE_TOLERANCE;
+                    let overlaps_y = a_min.y <= b_max.y + MERGE_TOLERANCE && a_max.y >= b_min.y - MERGE_TOLERANCE;
+                    let overlaps_z = a_min.z <= b_max.z + MERGE_TOLERANCE && a_max.z >= b_min.z - MERGE_TOLERANCE;
+
+                    if overlaps_x && overlaps_y && overlaps_z {
+                        // Merge into box i
+                        let dir = rects[i].2;
+                        rects[i] = (
+                            Point3::new(
+                                a_min.x.min(b_min.x),
+                                a_min.y.min(b_min.y),
+                                a_min.z.min(b_min.z),
+                            ),
+                            Point3::new(
+                                a_max.x.max(b_max.x),
+                                a_max.y.max(b_max.y),
+                                a_max.z.max(b_max.z),
+                            ),
+                            dir,
+                        );
+                        rects.remove(j);
+                        merged = true;
+                    } else {
+                        j += 1;
+                    }
+                }
+                i += 1;
+            }
+        }
+
+        // Reconstruct the opening list
+        let mut result: Vec<OpeningType> = rects
+            .into_iter()
+            .map(|(min, max, dir)| OpeningType::Rectangular(min, max, dir))
+            .collect();
+        result.extend(others);
+        result
     }
 
     fn apply_diagonal_openings(
