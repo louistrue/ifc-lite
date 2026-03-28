@@ -81,40 +81,23 @@ export class IfcLiteBridge {
       await init();
       console.warn('[Geometry] [init] WASM module loaded');
 
+      // NOTE: initThreadPool is intentionally DISABLED.
+      //
+      // wasm-bindgen-rayon's initThreadPool creates Web Workers that import
+      // the WASM module via a relative `../../..` path. In Vite production
+      // builds, this path doesn't resolve (Vite rewrites/hashes module URLs),
+      // causing the workers to hang forever. Even with a timeout fallback,
+      // the hung workers corrupt the WASM module's internal closure/Promise
+      // state, making subsequent parseMeshesAsync calls crash with
+      // "RuntimeError: unreachable" on large files.
+      //
+      // Without the thread pool, rayon's par_iter() falls back to sequential
+      // iteration on the main thread, which works correctly. Multi-threading
+      // can be re-enabled once wasm-bindgen-rayon supports Vite's bundled
+      // module resolution (see: https://github.com/nicknisi/wasm-bindgen-rayon/issues)
       if (!wasmModuleInitialized) {
-        if (typeof SharedArrayBuffer !== 'undefined') {
-          console.warn('[Geometry] [init] SharedArrayBuffer available, probing module worker support...');
-          const canUseThreads = await this.probeModuleWorkerSupport();
-          console.warn(`[Geometry] [init] Module worker probe result: ${canUseThreads}`);
-          if (canUseThreads) {
-            try {
-              const threads = navigator.hardwareConcurrency || 4;
-              console.warn(`[Geometry] [init] Calling initThreadPool with ${threads} threads...`);
-              // Race initThreadPool with a timeout — if workers can't load the
-              // WASM module (e.g. Vite rewrites the ../../.. import path), the
-              // Promise.all inside startWorkers hangs forever.
-              const threadPoolResult = await Promise.race([
-                initThreadPool(threads).then(() => 'ok' as const),
-                new Promise<'timeout'>(r => setTimeout(() => r('timeout'), 5000)),
-              ]);
-              if (threadPoolResult === 'ok') {
-                console.warn(`[Geometry] Thread pool initialized with ${threads} threads`);
-              } else {
-                console.warn('[Geometry] initThreadPool timed out after 5s — falling back to single-threaded');
-              }
-            } catch (e) {
-              console.warn('[Geometry] Thread pool init failed, falling back to single-threaded', e);
-            }
-          } else {
-            console.warn('[Geometry] Module workers unavailable — single-threaded mode');
-          }
-        } else {
-          console.warn('[Geometry] SharedArrayBuffer unavailable — single-threaded mode');
-        }
+        console.warn('[Geometry] Thread pool disabled (incompatible with Vite production builds) — using single-threaded mode');
         wasmModuleInitialized = true;
-        console.warn('[Geometry] [init] wasmModuleInitialized = true');
-      } else {
-        console.warn('[Geometry] [init] WASM already initialized (skipping thread pool)');
       }
 
       this.ifcApi = new IfcAPI();
