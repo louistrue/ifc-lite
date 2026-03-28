@@ -290,20 +290,31 @@ export class GeometryProcessor {
         throw new Error('WASM bridge not initialized');
       }
 
-      // Use synchronous parseMeshes and chunk results.
-      // parseMeshesAsync (which uses spawn_local + queueMicrotask) panics on
-      // large files because wasm-bindgen's queueMicrotask closure management
-      // hits unreachable with panic=abort on wasm32.
+      // Use WASM streaming API with per-entity error handling.
+      // gloo_timers yields removed from WASM so this runs synchronously
+      // (no queueMicrotask panics). Per-entity errors are caught in Rust
+      // and logged, not panicking the entire binary.
       const collector = new IfcLiteMeshCollector(this.bridge.getApi(), content);
-      const allMeshes = collector.collectMeshes();
-      const extractedBuildingRotation = collector.getBuildingRotation();
-
-      // Chunk into batches and yield with browser yields for UI responsiveness
-      const BATCH_SIZE = 1500;
       let totalMeshes = 0;
+      let extractedBuildingRotation: number | undefined = undefined;
 
-      for (let i = 0; i < allMeshes.length; i += BATCH_SIZE) {
-        const batch = allMeshes.slice(i, i + BATCH_SIZE);
+      const fileSizeMB = typeof batchConfig !== 'number' && batchConfig.fileSizeMB
+        ? batchConfig.fileSizeMB
+        : buffer.length / (1024 * 1024);
+      const wasmBatchSize = fileSizeMB < 10 ? 100 : fileSizeMB < 50 ? 200 : fileSizeMB < 100 ? 300 : fileSizeMB < 300 ? 500 : fileSizeMB < 500 ? 1500 : 3000;
+
+      for await (const item of collector.collectMeshesStreaming(wasmBatchSize)) {
+        if (item && typeof item === 'object' && 'type' in item && (item as StreamingColorUpdateEvent).type === 'colorUpdate') {
+          yield { type: 'colorUpdate', updates: (item as StreamingColorUpdateEvent).updates };
+          continue;
+        }
+        if (item && typeof item === 'object' && 'type' in item && (item as StreamingRtcOffsetEvent).type === 'rtcOffset') {
+          const rtcEvent = item as StreamingRtcOffsetEvent;
+          yield { type: 'rtcOffset', rtcOffset: rtcEvent.rtcOffset, hasRtc: rtcEvent.hasRtc };
+          continue;
+        }
+
+        const batch = item as MeshData[];
         this.coordinateHandler.processMeshesIncremental(batch);
         totalMeshes += batch.length;
         const coordinateInfo = this.coordinateHandler.getCurrentCoordinateInfo();
@@ -311,10 +322,9 @@ export class GeometryProcessor {
           ? { ...coordinateInfo, buildingRotation: extractedBuildingRotation }
           : coordinateInfo;
         yield { type: 'batch', meshes: batch, totalSoFar: totalMeshes, coordinateInfo: coordinateInfoWithRotation || undefined };
-        // Yield to browser for UI updates
-        await new Promise(resolve => setTimeout(resolve, 0));
       }
 
+      extractedBuildingRotation = collector.getBuildingRotation();
       const coordinateInfo = this.coordinateHandler.getFinalCoordinateInfo();
       const finalCoordinateInfo = extractedBuildingRotation !== undefined
         ? { ...coordinateInfo, buildingRotation: extractedBuildingRotation }
