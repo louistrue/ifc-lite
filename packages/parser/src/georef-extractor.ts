@@ -33,6 +33,20 @@ export interface MapConversion {
   scale?: number;            // Scale factor
 }
 
+/**
+ * Compute angle to grid north from XAxisAbscissa and XAxisOrdinate (in degrees).
+ * Returns the clockwise angle from grid north to the IFC Y-axis.
+ * Uses atan2(abscissa, ordinate) converted to degrees, matching Blender Bonsai convention.
+ */
+export function computeAngleToGridNorth(
+  xAxisAbscissa?: number,
+  xAxisOrdinate?: number
+): number | null {
+  if (xAxisAbscissa === undefined || xAxisOrdinate === undefined) return null;
+  const radians = Math.atan2(xAxisAbscissa, xAxisOrdinate);
+  return radians * (180 / Math.PI);
+}
+
 export interface ProjectedCRS {
   id: number;
   name: string;

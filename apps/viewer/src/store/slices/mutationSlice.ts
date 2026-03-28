@@ -11,6 +11,13 @@ import type { ViewerState } from '../index.js';
 import type { MutablePropertyView } from '@ifc-lite/mutations';
 import type { Mutation, ChangeSet, PropertyValue } from '@ifc-lite/mutations';
 import { PropertyValueType, QuantityType } from '@ifc-lite/data';
+import type { MapConversion, ProjectedCRS } from '@ifc-lite/parser';
+
+/** Tracks georeferencing field mutations per model */
+export interface GeorefMutationData {
+  projectedCRS?: Partial<ProjectedCRS>;
+  mapConversion?: Partial<MapConversion>;
+}
 
 export interface MutationSlice {
   // State
@@ -28,6 +35,20 @@ export interface MutationSlice {
   dirtyModels: Set<string>;
   /** Version counter to trigger re-renders when mutations change */
   mutationVersion: number;
+  /** Georeferencing mutations per model */
+  georefMutations: Map<string, GeorefMutationData>;
+
+  // Actions - Georeferencing Mutations
+  /** Set a georeferencing field value */
+  setGeorefField: (
+    modelId: string,
+    entity: 'projectedCRS' | 'mapConversion',
+    field: string,
+    value: string | number,
+    oldValue?: string | number
+  ) => void;
+  /** Get merged georef mutations for a model */
+  getGeorefMutations: (modelId: string) => GeorefMutationData | undefined;
 
   // Actions - Mutation View Management
   /** Get or create mutation view for a model */
@@ -154,6 +175,50 @@ export const createMutationSlice: StateCreator<
   redoStacks: new Map(),
   dirtyModels: new Set(),
   mutationVersion: 0,
+  georefMutations: new Map(),
+
+  // Georeferencing Mutations
+  setGeorefField: (modelId, entity, field, value, oldValue) => {
+    set((state) => {
+      const newGeorefMuts = new Map(state.georefMutations);
+      const modelMuts = newGeorefMuts.get(modelId) || {};
+      const entityMuts = { ...(modelMuts[entity] || {}) } as Record<string, unknown>;
+      entityMuts[field] = value;
+      newGeorefMuts.set(modelId, { ...modelMuts, [entity]: entityMuts });
+
+      // Track undo
+      const newUndoStacks = new Map(state.undoStacks);
+      const stack = newUndoStacks.get(modelId) || [];
+      const mutation: Mutation = {
+        type: 'UPDATE_ATTRIBUTE',
+        entityId: 0, // georef entities don't map to a specific element
+        attributeName: `georef.${entity}.${field}`,
+        oldValue: oldValue,
+        newValue: value,
+        propName: field,
+        psetName: entity,
+      };
+      newUndoStacks.set(modelId, [...stack, mutation]);
+
+      const newRedoStacks = new Map(state.redoStacks);
+      newRedoStacks.set(modelId, []);
+
+      const newDirty = new Set(state.dirtyModels);
+      newDirty.add(modelId);
+
+      return {
+        georefMutations: newGeorefMuts,
+        undoStacks: newUndoStacks,
+        redoStacks: newRedoStacks,
+        dirtyModels: newDirty,
+        mutationVersion: state.mutationVersion + 1,
+      };
+    });
+  },
+
+  getGeorefMutations: (modelId) => {
+    return get().georefMutations.get(modelId);
+  },
 
   // Mutation View Management
   getMutationView: (modelId) => {
@@ -626,10 +691,14 @@ export const createMutationSlice: StateCreator<
       const newDirty = new Set(state.dirtyModels);
       newDirty.delete(modelId);
 
+      const newGeorefMuts = new Map(state.georefMutations);
+      newGeorefMuts.delete(modelId);
+
       return {
         undoStacks: newUndoStacks,
         redoStacks: newRedoStacks,
         dirtyModels: newDirty,
+        georefMutations: newGeorefMuts,
         mutationVersion: state.mutationVersion + 1,
       };
     });
@@ -644,6 +713,7 @@ export const createMutationSlice: StateCreator<
       undoStacks: new Map(),
       redoStacks: new Map(),
       dirtyModels: new Set(),
+      georefMutations: new Map(),
       mutationVersion: state.mutationVersion + 1,
     }));
   },

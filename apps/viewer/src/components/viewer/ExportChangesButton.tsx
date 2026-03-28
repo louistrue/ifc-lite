@@ -119,11 +119,13 @@ export function ExportChangesButton({ className }: ExportChangesButtonProps) {
                    : 'IFC4';
 
       const exporter = new StepExporter(modelInfo.ifcDataStore, mutationView || undefined);
+      const georefMutations = useViewerStore.getState().georefMutations?.get(modelInfo.id) ?? undefined;
       const result = exporter.export({
         schema: schema as 'IFC2X3' | 'IFC4' | 'IFC4X3',
         includeGeometry: true,
         applyMutations: true,
         deltaOnly: false,
+        georefMutations,
         description: `Exported from ifc-lite with ${mutationCount} modifications`,
         application: 'ifc-lite',
       });

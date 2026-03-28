@@ -354,6 +354,11 @@ export function createExportAdapter(store: StoreApi): ExportBackendMethods {
         model.ifcDataStore,
         options.includeMutations === false ? undefined : getMutationViewForModel(store, modelId) ?? undefined,
       );
+      // Include georeferencing mutations if present
+      const georefMutations = options.includeMutations !== false
+        ? state.georefMutations?.get(modelId) ?? undefined
+        : undefined;
+
       const exportOptions: StepExportOptions = {
         schema: options.schema ?? model.ifcDataStore.schemaVersion,
         includeGeometry: true,
@@ -364,6 +369,7 @@ export function createExportAdapter(store: StoreApi): ExportBackendMethods {
         visibleOnly,
         hiddenEntityIds,
         isolatedEntityIds,
+        georefMutations,
       };
 
       return exporter.export(exportOptions).content;

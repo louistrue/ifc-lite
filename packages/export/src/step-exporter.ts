@@ -17,6 +17,8 @@ import {
   serializeValue,
   ref,
   type StepValue,
+  type MapConversion,
+  type ProjectedCRS,
 } from '@ifc-lite/parser';
 import type { MutablePropertyView } from '@ifc-lite/mutations';
 import type { PropertySet, Property, QuantitySet } from '@ifc-lite/data';
@@ -61,6 +63,12 @@ export interface StepExportOptions {
   hiddenEntityIds?: Set<number>;
   /** Isolated entity IDs (local expressIds, null = no isolation active) */
   isolatedEntityIds?: Set<number> | null;
+
+  /** Georeferencing mutations to apply (IfcProjectedCRS / IfcMapConversion edits) */
+  georefMutations?: {
+    projectedCRS?: Partial<ProjectedCRS>;
+    mapConversion?: Partial<MapConversion>;
+  };
 
   /** Progress callback for async export */
   onProgress?: (progress: StepExportProgress) => void;
@@ -294,6 +302,52 @@ export class StepExporter {
 
       for (const [entityId] of modifiedAttributes) {
         if (!entityPropMutations.has(entityId) && !entityQuantMutations.has(entityId)) {
+          modifiedEntityCount++;
+        }
+      }
+    }
+
+    // Process georeferencing mutations
+    if (options.georefMutations) {
+      const gm = options.georefMutations;
+
+      // Apply IfcProjectedCRS mutations
+      if (gm.projectedCRS) {
+        const crsIds = this.dataStore.entityIndex.byType.get('IFCPROJECTEDCRS');
+        if (crsIds?.length) {
+          const entityId = crsIds[0];
+          if (!modifiedAttributes.has(entityId)) {
+            modifiedAttributes.set(entityId, new Map());
+          }
+          const attrMap = modifiedAttributes.get(entityId)!;
+          const crs = gm.projectedCRS;
+          if (crs.name !== undefined) attrMap.set('Name', String(crs.name));
+          if (crs.description !== undefined) attrMap.set('Description', String(crs.description));
+          if (crs.geodeticDatum !== undefined) attrMap.set('GeodeticDatum', String(crs.geodeticDatum));
+          if (crs.verticalDatum !== undefined) attrMap.set('VerticalDatum', String(crs.verticalDatum));
+          if (crs.mapProjection !== undefined) attrMap.set('MapProjection', String(crs.mapProjection));
+          if (crs.mapZone !== undefined) attrMap.set('MapZone', String(crs.mapZone));
+          if (crs.mapUnit !== undefined) attrMap.set('MapUnit', String(crs.mapUnit));
+          modifiedEntityCount++;
+        }
+      }
+
+      // Apply IfcMapConversion mutations
+      if (gm.mapConversion) {
+        const mcIds = this.dataStore.entityIndex.byType.get('IFCMAPCONVERSION');
+        if (mcIds?.length) {
+          const entityId = mcIds[0];
+          if (!modifiedAttributes.has(entityId)) {
+            modifiedAttributes.set(entityId, new Map());
+          }
+          const attrMap = modifiedAttributes.get(entityId)!;
+          const mc = gm.mapConversion;
+          if (mc.eastings !== undefined) attrMap.set('Eastings', String(mc.eastings));
+          if (mc.northings !== undefined) attrMap.set('Northings', String(mc.northings));
+          if (mc.orthogonalHeight !== undefined) attrMap.set('OrthogonalHeight', String(mc.orthogonalHeight));
+          if (mc.xAxisAbscissa !== undefined) attrMap.set('XAxisAbscissa', String(mc.xAxisAbscissa));
+          if (mc.xAxisOrdinate !== undefined) attrMap.set('XAxisOrdinate', String(mc.xAxisOrdinate));
+          if (mc.scale !== undefined) attrMap.set('Scale', String(mc.scale));
           modifiedEntityCount++;
         }
       }

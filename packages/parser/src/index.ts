@@ -49,7 +49,7 @@ export {
 
 // New extractors with 100% schema coverage
 export { extractMaterials, getMaterialForElement, getMaterialNameForElement, type MaterialsData, type Material, type MaterialLayer, type MaterialLayerSet } from './material-extractor.js';
-export { extractGeoreferencing, transformToWorld, transformToLocal, getCoordinateSystemDescription, type GeoreferenceInfo, type MapConversion, type ProjectedCRS } from './georef-extractor.js';
+export { extractGeoreferencing, transformToWorld, transformToLocal, getCoordinateSystemDescription, computeAngleToGridNorth, type GeoreferenceInfo, type MapConversion, type ProjectedCRS } from './georef-extractor.js';
 export { extractClassifications, getClassificationsForElement, getClassificationCodeForElement, getClassificationPath, groupElementsByClassification, type ClassificationsData, type Classification, type ClassificationReference } from './classification-extractor.js';
 
 // Generated IFC4 schema (100% coverage - 776 entities, 397 types, 207 enums)

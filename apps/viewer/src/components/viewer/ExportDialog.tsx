@@ -465,6 +465,11 @@ export function ExportDialog({ trigger }: ExportDialogProps) {
         const localHidden = visibleOnly ? getLocalHiddenIds(selectedModelId) : undefined;
         const localIsolated = visibleOnly ? getLocalIsolatedIds(selectedModelId) : undefined;
 
+        // Include georeferencing mutations if applying mutations
+        const georefMutations = applyMutations
+          ? useViewerStore.getState().georefMutations?.get(selectedModelId) ?? undefined
+          : undefined;
+
         const result = await exporter.exportAsync({
           schema,
           includeGeometry,
@@ -472,6 +477,7 @@ export function ExportDialog({ trigger }: ExportDialogProps) {
           visibleOnly,
           hiddenEntityIds: localHidden,
           isolatedEntityIds: localIsolated,
+          georefMutations,
           description: `Exported from ifc-lite with ${modifiedCount} modifications`,
           application: 'ifc-lite',
           onProgress: (p: StepExportProgress) => setExportProgress({
