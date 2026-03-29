@@ -308,56 +308,101 @@ export class StepExporter {
     }
 
     // Process georeferencing mutations (only when applyMutations is enabled)
+    const newGeorefLines: string[] = [];
     if (options.applyMutations !== false && options.georefMutations) {
       const gm = options.georefMutations;
+      const existingCrsIds = this.dataStore.entityIndex.byType.get('IFCPROJECTEDCRS');
+      const existingMcIds = this.dataStore.entityIndex.byType.get('IFCMAPCONVERSION');
 
-      // Apply IfcProjectedCRS mutations
-      if (gm.projectedCRS) {
-        const crsIds = this.dataStore.entityIndex.byType.get('IFCPROJECTEDCRS');
-        if (crsIds?.length) {
-          const entityId = crsIds[0];
-          if (!modifiedAttributes.has(entityId)) {
-            modifiedAttributes.set(entityId, new Map());
-          }
-          const attrMap = modifiedAttributes.get(entityId)!;
-          const crs = gm.projectedCRS;
-          let changed = false;
-          if (crs.name !== undefined) { attrMap.set('Name', String(crs.name)); changed = true; }
-          if (crs.description !== undefined) { attrMap.set('Description', String(crs.description)); changed = true; }
-          if (crs.geodeticDatum !== undefined) { attrMap.set('GeodeticDatum', String(crs.geodeticDatum)); changed = true; }
-          if (crs.verticalDatum !== undefined) { attrMap.set('VerticalDatum', String(crs.verticalDatum)); changed = true; }
-          if (crs.mapProjection !== undefined) { attrMap.set('MapProjection', String(crs.mapProjection)); changed = true; }
-          if (crs.mapZone !== undefined) { attrMap.set('MapZone', String(crs.mapZone)); changed = true; }
-          // TODO: MapUnit is an entity reference to IfcNamedUnit, not a string.
-          // Skipping serialization until unit-reference extraction preserves the entity ID.
-          if (changed && !modifiedEntities.has(entityId)) {
-            modifiedEntities.add(entityId);
-            modifiedEntityCount++;
-          }
+      // Modify existing IfcProjectedCRS
+      if (gm.projectedCRS && existingCrsIds?.length) {
+        const entityId = existingCrsIds[0];
+        if (!modifiedAttributes.has(entityId)) {
+          modifiedAttributes.set(entityId, new Map());
+        }
+        const attrMap = modifiedAttributes.get(entityId)!;
+        const crs = gm.projectedCRS;
+        let changed = false;
+        if (crs.name !== undefined) { attrMap.set('Name', String(crs.name)); changed = true; }
+        if (crs.description !== undefined) { attrMap.set('Description', String(crs.description)); changed = true; }
+        if (crs.geodeticDatum !== undefined) { attrMap.set('GeodeticDatum', String(crs.geodeticDatum)); changed = true; }
+        if (crs.verticalDatum !== undefined) { attrMap.set('VerticalDatum', String(crs.verticalDatum)); changed = true; }
+        if (crs.mapProjection !== undefined) { attrMap.set('MapProjection', String(crs.mapProjection)); changed = true; }
+        if (crs.mapZone !== undefined) { attrMap.set('MapZone', String(crs.mapZone)); changed = true; }
+        // TODO: MapUnit is an entity reference to IfcNamedUnit, not a string.
+        if (changed && !modifiedEntities.has(entityId)) {
+          modifiedEntities.add(entityId);
+          modifiedEntityCount++;
         }
       }
 
-      // Apply IfcMapConversion mutations
-      if (gm.mapConversion) {
-        const mcIds = this.dataStore.entityIndex.byType.get('IFCMAPCONVERSION');
-        if (mcIds?.length) {
-          const entityId = mcIds[0];
-          if (!modifiedAttributes.has(entityId)) {
-            modifiedAttributes.set(entityId, new Map());
-          }
-          const attrMap = modifiedAttributes.get(entityId)!;
+      // Modify existing IfcMapConversion
+      if (gm.mapConversion && existingMcIds?.length) {
+        const entityId = existingMcIds[0];
+        if (!modifiedAttributes.has(entityId)) {
+          modifiedAttributes.set(entityId, new Map());
+        }
+        const attrMap = modifiedAttributes.get(entityId)!;
+        const mc = gm.mapConversion;
+        let changed = false;
+        if (mc.eastings !== undefined) { attrMap.set('Eastings', String(mc.eastings)); changed = true; }
+        if (mc.northings !== undefined) { attrMap.set('Northings', String(mc.northings)); changed = true; }
+        if (mc.orthogonalHeight !== undefined) { attrMap.set('OrthogonalHeight', String(mc.orthogonalHeight)); changed = true; }
+        if (mc.xAxisAbscissa !== undefined) { attrMap.set('XAxisAbscissa', String(mc.xAxisAbscissa)); changed = true; }
+        if (mc.xAxisOrdinate !== undefined) { attrMap.set('XAxisOrdinate', String(mc.xAxisOrdinate)); changed = true; }
+        if (mc.scale !== undefined) { attrMap.set('Scale', String(mc.scale)); changed = true; }
+        if (changed && !modifiedEntities.has(entityId)) {
+          modifiedEntities.add(entityId);
+          modifiedEntityCount++;
+        }
+      }
+
+      // CREATE new georef entities when file has none
+      if (gm.projectedCRS && !existingCrsIds?.length) {
+        const crs = gm.projectedCRS;
+        const crsId = this.nextExpressId++;
+        // IfcProjectedCRS(Name, Description, GeodeticDatum, VerticalDatum, MapProjection, MapZone, MapUnit)
+        const name = crs.name ? `'${this.escapeStepString(String(crs.name))}'` : '$';
+        const desc = crs.description ? `'${this.escapeStepString(String(crs.description))}'` : '$';
+        const datum = crs.geodeticDatum ? `'${this.escapeStepString(String(crs.geodeticDatum))}'` : '$';
+        const vDatum = crs.verticalDatum ? `'${this.escapeStepString(String(crs.verticalDatum))}'` : '$';
+        const proj = crs.mapProjection ? `'${this.escapeStepString(String(crs.mapProjection))}'` : '$';
+        const zone = crs.mapZone ? `'${this.escapeStepString(String(crs.mapZone))}'` : '$';
+        newGeorefLines.push(`#${crsId}=IFCPROJECTEDCRS(${name},${desc},${datum},${vDatum},${proj},${zone},$);`);
+        newEntityCount++;
+
+        // Find IfcGeometricRepresentationContext as SourceCRS for MapConversion
+        const contextIds = this.dataStore.entityIndex.byType.get('IFCGEOMETRICREPRESENTATIONCONTEXT');
+        const contextId = contextIds?.[0];
+
+        if (contextId) {
+          const mc = gm.mapConversion || {};
+          const mcId = this.nextExpressId++;
+          const eastings = this.toStepReal(Number(mc.eastings) || 0);
+          const northings = this.toStepReal(Number(mc.northings) || 0);
+          const height = this.toStepReal(Number(mc.orthogonalHeight) || 0);
+          const abscissa = mc.xAxisAbscissa !== undefined ? this.toStepReal(Number(mc.xAxisAbscissa)) : '$';
+          const ordinate = mc.xAxisOrdinate !== undefined ? this.toStepReal(Number(mc.xAxisOrdinate)) : '$';
+          const scale = mc.scale !== undefined ? this.toStepReal(Number(mc.scale)) : '$';
+          // IfcMapConversion(SourceCRS, TargetCRS, Eastings, Northings, OrthogonalHeight, XAxisAbscissa, XAxisOrdinate, Scale)
+          newGeorefLines.push(`#${mcId}=IFCMAPCONVERSION(#${contextId},#${crsId},${eastings},${northings},${height},${abscissa},${ordinate},${scale});`);
+          newEntityCount++;
+        }
+      } else if (gm.mapConversion && !existingMcIds?.length && existingCrsIds?.length) {
+        // CRS exists but no MapConversion — create just the conversion
+        const contextIds = this.dataStore.entityIndex.byType.get('IFCGEOMETRICREPRESENTATIONCONTEXT');
+        const contextId = contextIds?.[0];
+        if (contextId) {
           const mc = gm.mapConversion;
-          let changed = false;
-          if (mc.eastings !== undefined) { attrMap.set('Eastings', String(mc.eastings)); changed = true; }
-          if (mc.northings !== undefined) { attrMap.set('Northings', String(mc.northings)); changed = true; }
-          if (mc.orthogonalHeight !== undefined) { attrMap.set('OrthogonalHeight', String(mc.orthogonalHeight)); changed = true; }
-          if (mc.xAxisAbscissa !== undefined) { attrMap.set('XAxisAbscissa', String(mc.xAxisAbscissa)); changed = true; }
-          if (mc.xAxisOrdinate !== undefined) { attrMap.set('XAxisOrdinate', String(mc.xAxisOrdinate)); changed = true; }
-          if (mc.scale !== undefined) { attrMap.set('Scale', String(mc.scale)); changed = true; }
-          if (changed && !modifiedEntities.has(entityId)) {
-            modifiedEntities.add(entityId);
-            modifiedEntityCount++;
-          }
+          const mcId = this.nextExpressId++;
+          const eastings = this.toStepReal(Number(mc.eastings) || 0);
+          const northings = this.toStepReal(Number(mc.northings) || 0);
+          const height = this.toStepReal(Number(mc.orthogonalHeight) || 0);
+          const abscissa = mc.xAxisAbscissa !== undefined ? this.toStepReal(Number(mc.xAxisAbscissa)) : '$';
+          const ordinate = mc.xAxisOrdinate !== undefined ? this.toStepReal(Number(mc.xAxisOrdinate)) : '$';
+          const scale = mc.scale !== undefined ? this.toStepReal(Number(mc.scale)) : '$';
+          newGeorefLines.push(`#${mcId}=IFCMAPCONVERSION(#${contextId},#${existingCrsIds[0]},${eastings},${northings},${height},${abscissa},${ordinate},${scale});`);
+          newEntityCount++;
         }
       }
     }
@@ -498,6 +543,11 @@ export class StepExporter {
 
     for (const rewrittenLine of rewrittenEntityLines.values()) {
       entities.push(rewrittenLine);
+    }
+
+    // Add new georeferencing entities (IfcProjectedCRS, IfcMapConversion)
+    for (const line of newGeorefLines) {
+      entities.push(line);
     }
 
     // Assemble final file as Uint8Array chunks to avoid V8 string length limit
