@@ -213,11 +213,19 @@ export function useIDS(options: UseIDSOptions = {}): UseIDSResult {
   const setSelectedEntityId = useViewerStore((s) => s.setSelectedEntityId);
   const setSelectedEntity = useViewerStore((s) => s.setSelectedEntity);
   const setIsolatedEntities = useViewerStore((s) => s.setIsolatedEntities);
+  const toGlobalId = useViewerStore((s) => s.toGlobalId);
   const cameraCallbacks = useViewerStore((s) => s.cameraCallbacks);
   const geometryResult = useViewerStore((s) => s.geometryResult);
 
   // Ref to store original colors before IDS color overrides
   const originalColorsRef = useRef<Map<number, ColorTuple>>(new Map());
+
+  const toViewerGlobalId = useCallback((modelId: string, expressId: number): number => {
+    if (modelId === '__legacy__' || modelId === 'legacy' || models.size === 0 || !models.has(modelId)) {
+      return expressId;
+    }
+    return toGlobalId(modelId, expressId);
+  }, [models, toGlobalId]);
 
   // Ref to access geometryResult without creating callback dependencies (prevents infinite loops)
   const geometryResultRef = useRef(geometryResult);
@@ -357,7 +365,7 @@ export function useIDS(options: UseIDSOptions = {}): UseIDSResult {
 
     // Sync to viewer selection
     // Handle legacy mode vs federation mode
-    const isLegacyMode = modelId === '__legacy__' || models.size === 0;
+    const isLegacyMode = modelId === '__legacy__' || modelId === 'legacy' || models.size === 0;
 
     if (isLegacyMode) {
       // Legacy mode: globalId equals expressId, use 'legacy' for selection
@@ -365,9 +373,8 @@ export function useIDS(options: UseIDSOptions = {}): UseIDSResult {
       // Use 'legacy' as the modelId for PropertiesPanel compatibility
       setSelectedEntity({ modelId: 'legacy', expressId });
     } else {
-      // Federation mode: convert to globalId using model offset
-      const model = models.get(modelId);
-      const globalId = model ? expressId + (model.idOffset ?? 0) : expressId;
+      // Federation mode: use the store helper so ID resolution stays centralized.
+      const globalId = toViewerGlobalId(modelId, expressId);
       setSelectedEntityId(globalId);
       setSelectedEntity({ modelId, expressId });
     }
@@ -378,7 +385,7 @@ export function useIDS(options: UseIDSOptions = {}): UseIDSResult {
         cameraCallbacks.frameSelection?.();
       }, 50);
     }
-  }, [setIdsActiveEntity, setSelectedEntityId, setSelectedEntity, models, cameraCallbacks]);
+  }, [setIdsActiveEntity, setSelectedEntityId, setSelectedEntity, models, cameraCallbacks, toViewerGlobalId]);
 
   const clearEntitySelection = useCallback(() => {
     setIdsActiveEntity(null);
@@ -462,15 +469,13 @@ export function useIDS(options: UseIDSOptions = {}): UseIDSResult {
       const modelId = key.substring(0, lastColonIndex);
       const expressIdStr = key.substring(lastColonIndex + 1);
       const expressId = parseInt(expressIdStr, 10);
-      const model = models.get(modelId);
-      const globalId = model ? expressId + (model.idOffset ?? 0) : expressId;
-      failedIds.add(globalId);
+      failedIds.add(toViewerGlobalId(modelId, expressId));
     }
 
     if (failedIds.size > 0) {
       setIsolatedEntities(failedIds);
     }
-  }, [idsFailedEntityIds, models, setIsolatedEntities]);
+  }, [idsFailedEntityIds, setIsolatedEntities, toViewerGlobalId]);
 
   const isolatePassed = useCallback(() => {
     const passedIds = new Set<number>();
@@ -480,15 +485,13 @@ export function useIDS(options: UseIDSOptions = {}): UseIDSResult {
       const modelId = key.substring(0, lastColonIndex);
       const expressIdStr = key.substring(lastColonIndex + 1);
       const expressId = parseInt(expressIdStr, 10);
-      const model = models.get(modelId);
-      const globalId = model ? expressId + (model.idOffset ?? 0) : expressId;
-      passedIds.add(globalId);
+      passedIds.add(toViewerGlobalId(modelId, expressId));
     }
 
     if (passedIds.size > 0) {
       setIsolatedEntities(passedIds);
     }
-  }, [idsPassedEntityIds, models, setIsolatedEntities]);
+  }, [idsPassedEntityIds, setIsolatedEntities, toViewerGlobalId]);
 
   const clearIsolation = useCallback(() => {
     setIsolatedEntities(null);

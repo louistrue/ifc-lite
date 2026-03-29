@@ -644,7 +644,8 @@ export class StepExporter {
         count++;
 
         const valueStr = this.serializePropertyValue(prop.value, prop.type);
-        const unitStr = prop.unit ? ref(this.findUnitId(prop.unit)) : null;
+        const unitId = prop.unit ? this.findUnitId(prop.unit) : null;
+        const unitStr = unitId !== null ? ref(unitId) : null;
 
         // #ID=IFCPROPERTYSINGLEVALUE('Name',$,Value,Unit);
         const line = `#${propId}=IFCPROPERTYSINGLEVALUE('${this.escapeStepString(prop.name)}',$,${valueStr},${unitStr ? serializeValue(unitStr) : '$'});`;
@@ -1035,9 +1036,8 @@ export class StepExporter {
   /**
    * Find a unit entity ID by name (simplified - returns null for now)
    */
-  private findUnitId(_unitName: string): number {
-    // TODO: Implement unit lookup from data store
-    return 0;
+  private findUnitId(unitName: string): number | null {
+    return this.findLengthUnitReference(this.normalizeMapUnitName(unitName));
   }
 
   /**

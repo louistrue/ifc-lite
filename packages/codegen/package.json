@@ -8,7 +8,7 @@
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
-    "test": "vitest",
+    "test": "vitest run",
     "generate": "node dist/cli.js",
     "generate:ifc4": "node dist/cli.js schemas/IFC4.exp -o generated/ifc4",
     "generate:ifc4x3": "node dist/cli.js schemas/IFC4X3.exp -o generated/ifc4x3"

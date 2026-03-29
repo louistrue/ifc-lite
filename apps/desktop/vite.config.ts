@@ -69,9 +69,34 @@ export default defineConfig({
     minify: !process.env.TAURI_ENV_DEBUG ? 'esbuild' : false,
     // produce sourcemaps for debug builds
     sourcemap: !!process.env.TAURI_ENV_DEBUG,
+    chunkSizeWarningLimit: 6000,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('/packages/sandbox/')) return 'sandbox';
+          if (id.includes('/packages/export/')) return 'exporters';
+          if (id.includes('/packages/server-client/')) return 'server-client';
+          if (id.includes('/packages/bcf/')) return 'bcf';
+          if (id.includes('/packages/ids/')) return 'ids';
+          if (id.includes('/packages/lens/')) return 'lens';
+          if (id.includes('/packages/drawing-2d/')) return 'drawing-2d';
+          if (id.includes('/node_modules/jszip/')) return 'zip';
+          if (id.includes('/node_modules/apache-arrow/')) return 'arrow';
+          if (id.includes('/node_modules/parquet-wasm/')) return 'parquet';
+          return undefined;
+        },
+      },
+    },
   },
   optimizeDeps: {
-    exclude: ['@duckdb/duckdb-wasm'],
+    exclude: [
+      '@duckdb/duckdb-wasm',
+      '@ifc-lite/wasm',
+      'parquet-wasm',
+      'quickjs-emscripten',
+      '@jitl/quickjs-wasmfile-release-asyncify',
+      'esbuild-wasm',
+    ],
   },
   assetsInclude: ['**/*.wasm'],
   worker: {

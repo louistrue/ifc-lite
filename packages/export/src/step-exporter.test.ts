@@ -261,4 +261,42 @@ describe('StepExporter', () => {
       },
     })).toThrow(/IFC4 or newer/);
   });
+
+  it('reuses the project length unit when exporting property units', async () => {
+    const parser = new IfcParser();
+    const store = await parser.parseColumnar(new TextEncoder().encode(SIMPLE_TYPE_INHERITANCE_IFC).buffer);
+    const mutations: Mutation[] = [{
+      id: 'mut_unit_1',
+      type: 'CREATE_PROPERTY',
+      timestamp: Date.now(),
+      modelId: 'test-model',
+      entityId: 74,
+      psetName: 'Pset_Custom',
+      propName: 'OffsetDistance',
+      newValue: 12.5,
+      valueType: PropertyValueType.Real,
+    }];
+
+    const mutationView = {
+      getMutations: () => mutations,
+      getForEntity: (entityId: number) => entityId === 74 ? [{
+        name: 'Pset_Custom',
+        globalId: 'test-pset',
+        properties: [{
+          name: 'OffsetDistance',
+          type: PropertyValueType.Real,
+          value: 12.5,
+          unit: 'METRE',
+        }],
+      }] : [],
+      getQuantitiesForEntity: () => [],
+    } as unknown as MutablePropertyView;
+
+    const exporter = new StepExporter(store, mutationView);
+    const result = exporter.export({ schema: 'IFC4', applyMutations: true });
+    const content = decode(result.content);
+
+    expect(content).not.toContain(',#0);');
+    expect(content).toContain("#119=IFCPROPERTYSINGLEVALUE('OffsetDistance',$,IFCREAL(12.5),#2);");
+  });
 });
