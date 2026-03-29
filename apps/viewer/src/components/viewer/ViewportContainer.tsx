@@ -10,6 +10,7 @@ import { Section2DPanel } from './Section2DPanel';
 import { BasketPresentationDock } from './BasketPresentationDock';
 import { BCFOverlay } from './bcf/BCFOverlay';
 import { useViewerStore } from '@/store';
+import { toGlobalIdFromModels } from '@/store/globalId';
 import { collectIfcBuildingStoreyElementsWithIfcSpace } from '@/store/basketVisibleSet';
 import { useIfc } from '@/hooks/useIfc';
 import { useWebGPU } from '@/hooks/useWebGPU';
@@ -265,14 +266,14 @@ export function ViewportContainer() {
         const hierarchy = model.ifcDataStore?.spatialHierarchy;
         if (!hierarchy) continue;
 
-        const offset = model.idOffset ?? 0;
-
         for (const storeyId of selectedStoreys) {
-          const localStoreyId = hierarchy.byStorey.has(storeyId) ? storeyId : storeyId - offset;
+          const localStoreyId = hierarchy.byStorey.has(storeyId)
+            ? storeyId
+            : storeyId - (model.idOffset ?? 0);
           const storeyElementIds = collectIfcBuildingStoreyElementsWithIfcSpace(hierarchy, localStoreyId);
           if (storeyElementIds) {
             for (const originalExpressId of storeyElementIds) {
-              combinedGlobalIds.add(originalExpressId + offset);
+              combinedGlobalIds.add(toGlobalIdFromModels(storeModels, model.id, originalExpressId));
             }
           }
         }

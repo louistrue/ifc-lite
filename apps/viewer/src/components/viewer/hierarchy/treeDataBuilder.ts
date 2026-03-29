@@ -13,6 +13,7 @@ import {
 } from '@ifc-lite/data';
 import type { IfcDataStore } from '@ifc-lite/parser';
 import { useViewerStore, type FederatedModel } from '@/store';
+import { toGlobalIdFromModels } from '@/store/globalId';
 import type { TreeNode, NodeType, StoreyData, UnifiedStorey } from './types';
 
 /** Helper to create elevation key (with 0.5m tolerance for matching) */
@@ -300,7 +301,7 @@ export function buildTreeData(
       nodes.push({
         id: storeyNodeId,
         expressIds: allStoreyIds,
-        globalIds: unified.storeys.map((s) => s.storeyId + (models.get(s.modelId)?.idOffset ?? 0)),
+        globalIds: unified.storeys.map((s) => toGlobalIdFromModels(models, s.modelId, s.storeyId)),
         modelIds: unified.storeys.map(s => s.modelId),
         name: unified.name,
         type: 'unified-storey',

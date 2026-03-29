@@ -51,7 +51,7 @@ export {
   generateUuid,
   isValidIfcGuid,
   isValidUuid,
-} from './guid.js';
+} from '@ifc-lite/encoding';
 
 // Reader
 export { readBCF } from './reader.js';
@@ -103,7 +103,7 @@ export { createBCFFromIDSReport } from './ids-reporter.js';
 // ============================================================================
 
 import type { BCFProject, BCFTopic, BCFComment, BCFViewpoint } from './types.js';
-import { generateIfcGuid, generateUuid } from './guid.js';
+import { generateIfcGuid, generateUuid } from '@ifc-lite/encoding';
 
 /**
  * Create a new empty BCF project

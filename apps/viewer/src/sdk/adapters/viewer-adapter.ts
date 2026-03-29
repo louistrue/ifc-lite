@@ -5,6 +5,7 @@
 import type { EntityRef, SectionPlane, CameraState, ViewerBackendMethods } from '@ifc-lite/sdk';
 import type { StoreApi } from './types.js';
 import { getModelForRef } from './model-compat.js';
+import { toGlobalIdForRef } from '../../store/globalId.js';
 
 const AXIS_TO_STORE: Record<string, 'down' | 'front' | 'side'> = {
   x: 'side',
@@ -25,11 +26,8 @@ export function createViewerAdapter(store: StoreApi): ViewerBackendMethods {
       const existing = state.pendingColorUpdates;
       const colorMap = existing ? new Map(existing) : new Map<number, [number, number, number, number]>();
       for (const ref of refs) {
-        const model = getModelForRef(state, ref.modelId);
-        if (model) {
-          const globalId = ref.expressId + model.idOffset;
-          colorMap.set(globalId, color);
-        }
+        if (!getModelForRef(state, ref.modelId)) continue;
+        colorMap.set(toGlobalIdForRef(state.models, ref), color);
       }
       state.setPendingColorUpdates(colorMap);
       return undefined;
@@ -41,10 +39,8 @@ export function createViewerAdapter(store: StoreApi): ViewerBackendMethods {
       const batchMap = new Map<number, [number, number, number, number]>();
       for (const batch of batches) {
         for (const ref of batch.refs) {
-          const model = getModelForRef(state, ref.modelId);
-          if (model) {
-            batchMap.set(ref.expressId + model.idOffset, batch.color);
-          }
+          if (!getModelForRef(state, ref.modelId)) continue;
+          batchMap.set(toGlobalIdForRef(state.models, ref), batch.color);
         }
       }
       state.setPendingColorUpdates(batchMap);

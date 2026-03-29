@@ -18,6 +18,7 @@ import {
   extractClassificationsOnDemand,
   extractMaterialsOnDemand,
 } from '@ifc-lite/parser';
+import { toGlobalIdFromModels } from '@/store/globalId';
 import type { FederatedModel } from '@/store/types';
 
 interface ModelEntry {
@@ -80,12 +81,13 @@ export function createLensDataProvider(
     },
 
     forEachEntity(callback: (globalId: number, modelId: string) => void): void {
+      const models = new Map(entries.map((entry) => [entry.id, { idOffset: entry.idOffset }]));
       for (const entry of entries) {
         const entities = entry.ifcDataStore.entities;
         if (!entities) continue;
         for (let i = 0; i < entities.count; i++) {
           const expressId = entities.expressId[i];
-          callback(expressId + entry.idOffset, entry.id);
+          callback(toGlobalIdFromModels(models, entry.id, expressId), entry.id);
         }
       }
     },

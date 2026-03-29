@@ -18,6 +18,7 @@ import { ViewportOverlays } from '@/components/viewer/ViewportOverlays';
 import { useIfc } from '@/hooks/useIfc';
 import { useWebGPU } from '@/hooks/useWebGPU';
 import { useViewerStore } from '@/store';
+import { toGlobalIdFromModels } from '@/store/globalId';
 import { parseUrlParams } from '../bridge/urlParams.js';
 import { initBridge, destroyBridge, emitEvent } from '../bridge/handler.js';
 import type { MeshData, CoordinateInfo } from '@ifc-lite/geometry';
@@ -229,7 +230,7 @@ export function EmbedViewer() {
         const offset = model.idOffset ?? 0;
         for (const storeyId of selectedStoreys) {
           const elements = hierarchy.byStorey.get(storeyId) || hierarchy.byStorey.get(storeyId - offset);
-          if (elements) for (const id of elements) combinedGlobalIds.add(id + offset);
+          if (elements) for (const id of elements) combinedGlobalIds.add(toGlobalIdFromModels(storeModels, model.id, id));
         }
       }
       if (combinedGlobalIds.size > 0) return combinedGlobalIds;

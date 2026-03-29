@@ -635,7 +635,7 @@ export function useIDS(options: UseIDSOptions = {}): UseIDSResult {
           // Find matching model geometry
           for (const modelData of allMeshData) {
             if (modelData.modelId === entity.modelId || allMeshData.length === 1) {
-              const globalExpressId = entity.expressId + modelData.idOffset;
+              const globalExpressId = toViewerGlobalId(entity.modelId, entity.expressId);
               const bounds = getEntityBounds(
                 modelData.meshes as Parameters<typeof getEntityBounds>[0],
                 globalExpressId,
@@ -703,8 +703,7 @@ export function useIDS(options: UseIDSOptions = {}): UseIDSResult {
           if (!bounds) continue;
 
           // Find the global expressId for isolation (direct Map lookup)
-          const model = models.get(entity.modelId);
-          const globalExpressId = entity.expressId + (model?.idOffset ?? 0);
+          const globalExpressId = toViewerGlobalId(entity.modelId, entity.expressId);
 
           // Frame the entity bounds directly via camera (properly centers the object)
           // duration=1 (not 0) because the animator skips updates when duration===0,

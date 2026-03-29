@@ -14,6 +14,7 @@ import type { IfcDataStore } from '@ifc-lite/parser';
 import type { EntityRef } from './types.js';
 import { entityRefToString, stringToEntityRef } from './types.js';
 import { useViewerStore } from './index.js';
+import { toGlobalIdFromModels } from './globalId.js';
 
 type ViewerStateSnapshot = ReturnType<typeof useViewerStore.getState>;
 
@@ -159,9 +160,7 @@ function expandRefToElements(state: ViewerStateSnapshot, ref: EntityRef): Entity
 }
 
 function toGlobalId(modelId: string, expressId: number, state: ViewerStateSnapshot): number {
-  if (modelId === 'legacy') return expressId;
-  const model = state.models.get(modelId);
-  return expressId + (model?.idOffset ?? 0);
+  return toGlobalIdFromModels(state.models, modelId, expressId);
 }
 
 function globalIdToRef(state: ViewerStateSnapshot, globalId: number): EntityRef | null {
@@ -318,7 +317,7 @@ function computeStoreyIsolation(state: ViewerStateSnapshot): Set<number> | null 
         const storeyElementIds = collectIfcBuildingStoreyElementsWithIfcSpace(hierarchy, localStoreyId);
         if (!storeyElementIds) continue;
         for (const localId of storeyElementIds) {
-          ids.add(localId + offset);
+          ids.add(toGlobalIdFromModels(state.models, model.id, localId));
         }
       }
     }

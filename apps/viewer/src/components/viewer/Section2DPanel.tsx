@@ -22,6 +22,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useViewerStore } from '@/store';
+import { toGlobalIdFromModels } from '@/store/globalId';
 import { useIfc } from '@/hooks/useIfc';
 import { GraphicOverrideEngine } from '@ifc-lite/drawing-2d';
 import { type GeometryResult } from '@ifc-lite/geometry';
@@ -224,7 +225,7 @@ export function Section2DPanel({
       const model = models.get(modelId);
       if (model && model.idOffset !== undefined) {
         for (const localId of localHiddenIds) {
-          globalHiddenIds.add(localId + model.idOffset);
+          globalHiddenIds.add(toGlobalIdFromModels(models, model.id, localId));
         }
       }
     }
@@ -245,7 +246,7 @@ export function Section2DPanel({
       const model = models.get(modelId);
       if (model && model.idOffset !== undefined) {
         for (const localId of localIsolatedIds) {
-          globalIsolatedIds.add(localId + model.idOffset);
+          globalIsolatedIds.add(toGlobalIdFromModels(models, model.id, localId));
         }
       }
     }

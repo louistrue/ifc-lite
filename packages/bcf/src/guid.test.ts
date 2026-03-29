@@ -10,7 +10,7 @@ import {
   generateUuid,
   isValidIfcGuid,
   isValidUuid,
-} from './guid.js';
+} from '@ifc-lite/encoding';
 
 describe('IFC GUID utilities', () => {
   describe('uuidToIfcGuid', () => {

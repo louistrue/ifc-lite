@@ -7,7 +7,7 @@ import JSZip from 'jszip';
 import { writeBCF } from './writer.js';
 import { readBCF } from './reader.js';
 import type { BCFProject, BCFTopic, BCFViewpoint } from './types.js';
-import { generateUuid } from './guid.js';
+import { generateUuid } from '@ifc-lite/encoding';
 
 // Helper to convert Blob to ArrayBuffer for Node.js environment
 async function blobToArrayBuffer(blob: Blob): Promise<ArrayBuffer> {

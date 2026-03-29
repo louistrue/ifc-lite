@@ -10,6 +10,7 @@
  */
 
 import type { FederatedModel, IfcDataStore } from '@/store/types';
+import { toGlobalIdFromModels } from '@/store/globalId';
 
 export interface IdLookupResult {
   expressId: number;
@@ -29,8 +30,10 @@ export function globalIdToExpressId(
   for (const [modelId, model] of models.entries()) {
     const localExpressId = model.ifcDataStore?.entities?.getExpressIdByGlobalId(globalIdString);
     if (localExpressId !== undefined && localExpressId > 0) {
-      const offset = model.idOffset ?? 0;
-      return { expressId: localExpressId + offset, modelId };
+      return {
+        expressId: toGlobalIdFromModels(models, modelId, localExpressId),
+        modelId,
+      };
     }
   }
   // Single-model fallback

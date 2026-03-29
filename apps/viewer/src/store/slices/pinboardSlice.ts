@@ -20,6 +20,7 @@ import type { StateCreator } from 'zustand';
 import type { Drawing2D } from '@ifc-lite/drawing-2d';
 import type { CameraCallbacks, CameraViewpoint, EntityRef, SectionPlane } from '../types.js';
 import { entityRefToString, stringToEntityRef } from '../types.js';
+import { toGlobalIdForRef } from '../globalId.js';
 
 export type BasketSource = 'selection' | 'visible' | 'hierarchy' | 'manual';
 
@@ -148,17 +149,14 @@ function basketToGlobalIds(
   const globalIds = new Set<number>();
   for (const str of basketEntities) {
     const ref = stringToEntityRef(str);
-    const model = models.get(ref.modelId);
-    const offset = model?.idOffset ?? 0;
-    globalIds.add(ref.expressId + offset);
+    globalIds.add(toGlobalIdForRef(models, ref));
   }
   return globalIds;
 }
 
 /** Compute a single EntityRef's global ID */
 function refToGlobalId(ref: EntityRef, models: Map<string, { idOffset: number }>): number {
-  const model = models.get(ref.modelId);
-  return ref.expressId + (model?.idOffset ?? 0);
+  return toGlobalIdForRef(models, ref);
 }
 
 function refsToEntityKeySet(refs: EntityRef[]): Set<string> {
@@ -195,9 +193,7 @@ function computeBasketVisibility(
   }
   const hiddenEntities = new Set<number>(currentHidden);
   for (const ref of unhideRefs) {
-    const model = models.get(ref.modelId);
-    const offset = model?.idOffset ?? 0;
-    hiddenEntities.delete(ref.expressId + offset);
+    hiddenEntities.delete(toGlobalIdForRef(models, ref));
   }
   return { isolatedEntities, hiddenEntities };
 }

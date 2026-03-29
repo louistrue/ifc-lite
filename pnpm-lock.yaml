@@ -506,6 +506,9 @@ importers:
 
   packages/bcf:
     dependencies:
+      '@ifc-lite/encoding':
+        specifier: workspace:^
+        version: link:../encoding
       jszip:
         specifier: ^3.10.0
         version: 3.10.1

@@ -22,7 +22,7 @@
  */
 
 import type { BCFProject, BCFTopic, BCFComment, BCFViewpoint, BCFPerspectiveCamera } from './types.js';
-import { generateUuid } from './guid.js';
+import { generateUuid } from '@ifc-lite/encoding';
 
 // ============================================================================
 // Internal BCF helpers (avoiding index.js import to prevent jszip dependency)

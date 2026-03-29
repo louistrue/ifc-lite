@@ -23,6 +23,7 @@ import {
 import type { MutablePropertyView } from '@ifc-lite/mutations';
 import type { PropertySet, Property, QuantitySet } from '@ifc-lite/data';
 import { PropertyValueType, QuantityType } from '@ifc-lite/data';
+import { generateIfcGuid } from '@ifc-lite/encoding';
 import { collectReferencedEntityIds, getVisibleEntityIds, collectStyleEntities } from './reference-collector.js';
 import { convertStepLine, needsConversion, type IfcSchemaVersion } from './schema-converter.js';
 
@@ -1014,12 +1015,7 @@ export class StepExporter {
    * Generate a new IFC GlobalId (22 character base64)
    */
   private generateGlobalId(): string {
-    const chars = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_$';
-    let result = '';
-    for (let i = 0; i < 22; i++) {
-      result += chars[Math.floor(Math.random() * 64)];
-    }
-    return result;
+    return generateIfcGuid();
   }
 
   /**

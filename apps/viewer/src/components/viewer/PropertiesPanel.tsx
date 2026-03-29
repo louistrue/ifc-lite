@@ -27,6 +27,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useViewerStore } from '@/store';
+import { toGlobalIdFromModels } from '@/store/globalId';
 import { useIfc } from '@/hooks/useIfc';
 import { configureMutationView } from '@/utils/configureMutationView';
 import { IfcQuery } from '@ifc-lite/query';
@@ -248,7 +249,7 @@ export function PropertiesPanel() {
     if (!geoResult?.meshes?.length) return null;
 
     // In multi-model mode, meshes use globalIds (originalExpressId + idOffset)
-    const targetExpressId = selectedEntity.expressId + (model?.idOffset ?? 0);
+    const targetExpressId = toGlobalIdFromModels(models, selectedEntity.modelId, selectedEntity.expressId);
 
     // Compute bounding box from matching mesh positions
     let minX = Infinity, minY = Infinity, minZ = Infinity;

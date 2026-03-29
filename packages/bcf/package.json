@@ -12,11 +12,13 @@
     }
   },
   "scripts": {
+    "prebuild": "pnpm --filter @ifc-lite/bcf^... build",
     "build": "tsc",
     "dev": "tsc --watch",
     "test": "vitest run"
   },
   "dependencies": {
+    "@ifc-lite/encoding": "workspace:^",
     "jszip": "^3.10.0"
   },
   "devDependencies": {

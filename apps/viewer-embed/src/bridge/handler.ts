@@ -23,6 +23,7 @@ import {
   type SectionAxis,
 } from '@ifc-lite/embed-protocol';
 import type { ViewerState } from '@/store/index.js';
+import { toGlobalIdFromModels } from '@/store/index.js';
 
 /** Reference to the store's getState / setState for imperative access */
 interface BridgeContext {
@@ -169,7 +170,7 @@ async function handleCommand(type: InboundCommandType, data: unknown, requestId?
         for (const guid of payload.guids) {
           const expressId = ds.entities.getExpressIdByGlobalId(guid);
           if (expressId >= 0) {
-            resolved.push(expressId + model.idOffset);
+            resolved.push(toGlobalIdFromModels(state.models, model.id, expressId));
           }
         }
       }

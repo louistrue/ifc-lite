@@ -17,7 +17,7 @@ import type {
   BCFPoint,
   BCFDirection,
 } from './types.js';
-import { generateUuid } from './guid.js';
+import { generateUuid } from '@ifc-lite/encoding';
 
 // ============================================================================
 // Camera State Types (matching ifc-lite viewer)

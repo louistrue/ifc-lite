@@ -26,7 +26,7 @@ import type {
   BCFPoint,
   BCFDirection,
 } from './types.js';
-import { generateUuid } from './guid.js';
+import { generateUuid } from '@ifc-lite/encoding';
 
 /**
  * Write a BCFProject to a .bcfzip file

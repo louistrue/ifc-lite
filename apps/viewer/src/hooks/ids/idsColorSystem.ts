@@ -11,6 +11,7 @@
 
 import type { IDSValidationReport } from '@ifc-lite/ids';
 import type { GeometryResult } from '@ifc-lite/geometry';
+import { toGlobalIdFromModels } from '../../store/globalId.js';
 
 /** RGBA color tuple in 0-1 range */
 export type ColorTuple = [number, number, number, number];
@@ -66,10 +67,7 @@ export function buildValidationColorUpdates(
   const globalIdsToUpdate = new Set<number>();
   for (const specResult of report.specificationResults) {
     for (const entityResult of specResult.entityResults) {
-      const model = models.get(entityResult.modelId);
-      const globalId = model
-        ? entityResult.expressId + (model.idOffset ?? 0)
-        : entityResult.expressId;
+      const globalId = toGlobalIdFromModels(models, entityResult.modelId, entityResult.expressId);
       globalIdsToUpdate.add(globalId);
     }
   }
@@ -86,10 +84,7 @@ export function buildValidationColorUpdates(
   // Process all entity results
   for (const specResult of report.specificationResults) {
     for (const entityResult of specResult.entityResults) {
-      const model = models.get(entityResult.modelId);
-      const globalId = model
-        ? entityResult.expressId + (model.idOffset ?? 0)
-        : entityResult.expressId;
+      const globalId = toGlobalIdFromModels(models, entityResult.modelId, entityResult.expressId);
 
       if (entityResult.passed && displayOptions.highlightPassed) {
         colorUpdates.set(globalId, passedClr);

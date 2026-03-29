@@ -6,6 +6,7 @@ import type { EntityRef, VisibilityBackendMethods } from '@ifc-lite/sdk';
 import type { StoreApi } from './types.js';
 import { getModelForRef, type ModelLike } from './model-compat.js';
 import { collectSpatialSubtreeElementsWithIfcSpace } from '../../store/basketVisibleSet.js';
+import { toGlobalIdForRef, toGlobalIdFromModels } from '../../store/globalId.js';
 import { isSpaceLikeSpatialTypeName, isSpatialStructureTypeName, type SpatialNode } from '@ifc-lite/data';
 
 function findDescendantNode(root: SpatialNode, expressId: number): SpatialNode | null {
@@ -49,10 +50,8 @@ export function createVisibilityAdapter(store: StoreApi): VisibilityBackendMetho
       // hiddenEntities set (global IDs), not hiddenEntitiesByModel.
       const globalIds: number[] = [];
       for (const ref of refs) {
-        const model = getModelForRef(state, ref.modelId);
-        if (model) {
-          globalIds.push(ref.expressId + model.idOffset);
-        }
+        if (!getModelForRef(state, ref.modelId)) continue;
+        globalIds.push(toGlobalIdForRef(state.models, ref));
       }
       if (globalIds.length > 0) {
         state.hideEntities(globalIds);
@@ -63,10 +62,8 @@ export function createVisibilityAdapter(store: StoreApi): VisibilityBackendMetho
       const state = store.getState();
       const globalIds: number[] = [];
       for (const ref of refs) {
-        const model = getModelForRef(state, ref.modelId);
-        if (model) {
-          globalIds.push(ref.expressId + model.idOffset);
-        }
+        if (!getModelForRef(state, ref.modelId)) continue;
+        globalIds.push(toGlobalIdForRef(state.models, ref));
       }
       if (globalIds.length > 0) {
         state.showEntities(globalIds);
@@ -81,7 +78,7 @@ export function createVisibilityAdapter(store: StoreApi): VisibilityBackendMetho
         if (model) {
           const expanded = expandSpatialRef(ref, model);
           for (const id of expanded) {
-            globalIds.push(id + model.idOffset);
+            globalIds.push(toGlobalIdFromModels(state.models, ref.modelId, id));
           }
         }
       }

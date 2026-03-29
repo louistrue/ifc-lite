@@ -16,6 +16,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { useViewerStore, resolveEntityRef } from '@/store';
+import { toGlobalIdFromModels } from '@/store/globalId';
 import { useIfc } from '@/hooks/useIfc';
 
 import type { TreeNode } from './hierarchy/types';
@@ -67,8 +68,9 @@ export function HierarchyPanel() {
     for (const [, model] of models) {
       const gr = model.geometryResult;
       if (!gr?.meshes) continue;
-      const offset = model.idOffset ?? 0;
-      const mesh = gr.meshes.find((m: { expressId: number }) => m.expressId + offset === sampleId);
+      const mesh = gr.meshes.find((m: { expressId: number }) =>
+        toGlobalIdFromModels(models, model.id, m.expressId) === sampleId,
+      );
       if (mesh?.ifcType) return mesh.ifcType;
     }
     if (geometryResult?.meshes) {
@@ -281,8 +283,7 @@ export function HierarchyPanel() {
 
       if (modelId && modelId !== 'legacy') {
         // Multi-model: convert to globalId for renderer, set entity for property panel
-        const model = models.get(modelId);
-        const globalId = entityId + (model?.idOffset ?? 0);
+        const globalId = toGlobalIdFromModels(models, modelId, entityId);
         setSelectedEntityId(globalId);
         setSelectedEntity({ modelId, expressId: entityId });
         setActiveModel(modelId);
@@ -323,8 +324,7 @@ export function HierarchyPanel() {
         const storeyId = storeyIds[0];
         const modelId = node.modelIds[0];
         if (modelId && modelId !== 'legacy') {
-          const model = models.get(modelId);
-          const globalId = storeyId + (model?.idOffset ?? 0);
+          const globalId = toGlobalIdFromModels(models, modelId, storeyId);
           setSelectedEntityId(globalId);
           setSelectedEntity({ modelId, expressId: storeyId });
         } else {

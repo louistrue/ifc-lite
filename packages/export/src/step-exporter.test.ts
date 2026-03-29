@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest';
 import { IfcParser, type IfcDataStore } from '@ifc-lite/parser';
 import type { MutablePropertyView, Mutation } from '@ifc-lite/mutations';
 import { PropertyValueType } from '@ifc-lite/data';
+import { isValidIfcGuid } from '@ifc-lite/encoding';
 import { MutablePropertyView as LiveMutablePropertyView } from '@ifc-lite/mutations';
 import { StepExporter } from './step-exporter.js';
 
@@ -298,5 +299,45 @@ describe('StepExporter', () => {
 
     expect(content).not.toContain(',#0);');
     expect(content).toContain("#119=IFCPROPERTYSINGLEVALUE('OffsetDistance',$,IFCREAL(12.5),#2);");
+  });
+
+  it('generates valid IFC GlobalIds for new STEP entities', async () => {
+    const parser = new IfcParser();
+    const store = await parser.parseColumnar(new TextEncoder().encode(SIMPLE_TYPE_INHERITANCE_IFC).buffer);
+    const mutations: Mutation[] = [{
+      id: 'mut_guid_1',
+      type: 'CREATE_PROPERTY',
+      timestamp: Date.now(),
+      modelId: 'test-model',
+      entityId: 74,
+      psetName: 'Pset_GUID_Check',
+      propName: 'Marker',
+      newValue: 'ok',
+      valueType: PropertyValueType.Label,
+    }];
+
+    const mutationView = {
+      getMutations: () => mutations,
+      getForEntity: (entityId: number) => entityId === 74 ? [{
+        name: 'Pset_GUID_Check',
+        globalId: '',
+        properties: [{
+          name: 'Marker',
+          type: PropertyValueType.Label,
+          value: 'ok',
+        }],
+      }] : [],
+      getQuantitiesForEntity: () => [],
+    } as unknown as MutablePropertyView;
+
+    const exporter = new StepExporter(store, mutationView);
+    const result = exporter.export({ schema: 'IFC4', applyMutations: true });
+    const content = decode(result.content);
+    const guids = Array.from(content.matchAll(/IFC(?:PROPERTYSET|RELDEFINESBYPROPERTIES)\('([^']+)'/g)).map((match) => match[1]);
+
+    expect(guids.length).toBeGreaterThan(0);
+    for (const guid of guids) {
+      expect(isValidIfcGuid(guid)).toBe(true);
+    }
   });
 });
