@@ -74,21 +74,8 @@ export function LocationMap({ mapConversion, projectedCRS, coordinateInfo, geome
     setMapState('loading');
     setError(null);
 
-    // Debug logging for coordinate resolution
-    console.log('[LocationMap] Reprojecting with:', {
-      eastings: mapConversion.eastings,
-      northings: mapConversion.northings,
-      crs: projectedCRS.name,
-      hasCoordinateInfo: !!coordinateInfo,
-      originalBounds: coordinateInfo?.originalBounds,
-      originShift: coordinateInfo?.originShift,
-      wasmRtcOffset: coordinateInfo?.wasmRtcOffset,
-      hasLargeCoordinates: coordinateInfo?.hasLargeCoordinates,
-    });
-
     reprojectToLatLon(mapConversion, projectedCRS, coordinateInfo).then(result => {
       if (cancelled) return;
-      console.log('[LocationMap] Reprojection result:', result);
       if (result) {
         setLatLon(result);
         setMapState('ready');
@@ -160,7 +147,7 @@ export function LocationMap({ mapConversion, projectedCRS, coordinateInfo, geome
 
   const googleMapsUrl = useMemo(() => {
     if (!latLon) return null;
-    return `https://www.google.com/maps/@${latLon.lat},${latLon.lon},17z`;
+    return `https://www.google.com/maps?q=${latLon.lat},${latLon.lon}`;
   }, [latLon]);
 
   const openStreetMapUrl = useMemo(() => {
@@ -251,7 +238,7 @@ export function LocationMap({ mapConversion, projectedCRS, coordinateInfo, geome
         <>
           <div
             ref={containerRef}
-            className="h-[180px] w-full"
+            className="h-[180px] w-full [&_.maplibregl-ctrl-attrib]:!text-[8px] [&_.maplibregl-ctrl-attrib]:!bg-white/60 [&_.maplibregl-ctrl-attrib]:!py-0 [&_.maplibregl-ctrl-attrib]:!px-1 [&_.maplibregl-ctrl-attrib]:!leading-tight [&_.maplibregl-ctrl-attrib.maplibregl-compact]:!min-h-0"
             style={{ minHeight: 180 }}
           />
 
