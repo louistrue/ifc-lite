@@ -11,7 +11,7 @@ npm install @ifc-lite/export
 ## Quick Start
 
 ```typescript
-import { GLTFExporter, ParquetExporter, exportToStep, Ifc5Exporter } from '@ifc-lite/export';
+import { GLTFExporter, ParquetExporter, exportToStep, Ifc5Exporter, generateLod0, generateLod1 } from '@ifc-lite/export';
 
 // Export geometry to GLB
 const gltfExporter = new GLTFExporter();
@@ -28,6 +28,10 @@ const step = exportToStep(dataStore, { schema: 'IFC4' });
 const ifc5 = new Ifc5Exporter(dataStore, geometryResult);
 const result = ifc5.export({ includeGeometry: true });
 // result.content is IFCX JSON, save as .ifcx
+
+// Generate lightweight LOD artifacts from IFC bytes
+const lod0 = await generateLod0(ifcBytes);
+const lod1 = await generateLod1(ifcBytes, { quality: 'medium' });
 ```
 
 ## Features
@@ -37,7 +41,33 @@ const result = ifc5.export({ includeGeometry: true });
 - Apache Arrow in-memory format
 - IFC STEP export with mutations applied
 - **IFC5 IFCX export** with USD geometry and full schema conversion
+- Lightweight LOD0/LOD1 generation from IFC bytes
 - Cross-schema conversion (IFC2X3 ↔ IFC4 ↔ IFC4X3 ↔ IFC5)
+
+## Lightweight LOD Generation
+
+The LOD generators are environment-agnostic. They accept IFC bytes, not file paths,
+so the same API works in Node, browser, and server runtimes.
+
+```typescript
+import { generateLod0, generateLod1 } from '@ifc-lite/export';
+
+const bytes = await file.arrayBuffer();
+
+const lod0 = await generateLod0(bytes);
+// => JSON envelopes, transforms, and world-space bounding boxes
+
+const lod1 = await generateLod1(bytes, { quality: 'medium' });
+// => { glb, meta }
+```
+
+`generateLod0()` returns cheap geometric envelopes for every placeable element.
+
+`generateLod1()` returns:
+- `glb`: binary GLB geometry
+- `meta`: generation status, failed elements, and expressId → node/mesh mapping
+
+If meshing fails, LOD1 degrades gracefully to box geometry derived from LOD0.
 
 ## IFC5 Export
 

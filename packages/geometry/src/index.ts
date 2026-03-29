@@ -23,8 +23,6 @@ export {
   type StreamingProgress,
   type GeometryBatch,
 } from './platform-bridge.js';
-export { WasmBridge } from './wasm-bridge.js';
-export { NativeBridge } from './native-bridge.js';
 
 // Support components
 export { BufferBuilder } from './buffer-builder.js';

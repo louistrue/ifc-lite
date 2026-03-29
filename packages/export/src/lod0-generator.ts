@@ -10,7 +10,7 @@ import {
 } from '@ifc-lite/parser';
 
 import type { EntityRef } from '@ifc-lite/parser';
-import type { Lod0Json, Lod0Element, Vec3 } from './lod-geometry-types.js';
+import type { Lod0Json, Lod0Element, LodInput, Vec3 } from './lod-geometry-types.js';
 import {
   aabbFromPoints,
   mat4FromBasisTranslation,
@@ -21,8 +21,7 @@ import {
   vec3,
   vec3Cross,
   vec3Normalize,
-  readIfcInput,
-  type IfcInput,
+  toIfcArrayBuffer,
 } from './lod-geometry-utils.js';
 
 type Index = { byId: Map<number, EntityRef>; byType: Map<string, number[]> };
@@ -72,8 +71,8 @@ function isCandidateElementType(typeUpper: string): boolean {
   return true;
 }
 
-export async function generateLod0(input: IfcInput): Promise<Lod0Json> {
-  const buffer = await readIfcInput(input);
+export async function generateLod0(input: LodInput): Promise<Lod0Json> {
+  const buffer = toIfcArrayBuffer(input);
   const source = new Uint8Array(buffer);
   const entityIndex = buildEntityIndex(source);
   const unitScale = extractLengthUnitScale(source, entityIndex);
@@ -313,4 +312,3 @@ export async function generateLod0(input: IfcInput): Promise<Lod0Json> {
     elements,
   };
 }
-

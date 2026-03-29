@@ -230,7 +230,7 @@ export default defineConfig({
       '@ifc-lite/server-client': path.resolve(__dirname, '../../packages/server-client/src'),
       '@ifc-lite/spatial': path.resolve(__dirname, '../../packages/spatial/src'),
       '@ifc-lite/data': path.resolve(__dirname, '../../packages/data/src'),
-      '@ifc-lite/export': path.resolve(__dirname, './src/vendor/ifc-lite-export.ts'),
+      '@ifc-lite/export': path.resolve(__dirname, '../../packages/export/src'),
       '@ifc-lite/cache': path.resolve(__dirname, '../../packages/cache/src'),
       '@ifc-lite/ifcx': path.resolve(__dirname, '../../packages/ifcx/src'),
       '@ifc-lite/wasm': path.resolve(__dirname, '../../packages/wasm/pkg/ifc-lite.js'),
@@ -264,11 +264,6 @@ export default defineConfig({
         // For local dev, run `pnpm dev:api` from repo root.
         target: 'http://localhost:3001',
         changeOrigin: true,
-      },
-      '/api/epsg': {
-        target: 'https://epsg.io',
-        changeOrigin: true,
-        rewrite: (p) => p.replace(/^\/api\/epsg/, ''),
       },
       '/api/bsdd': {
         target: 'https://api.bsdd.buildingsmart.org',

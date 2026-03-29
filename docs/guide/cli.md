@@ -48,6 +48,10 @@ ifc-lite validate model.ifc
 
 # Evaluate SDK expressions
 ifc-lite eval model.ifc "bim.query().byType('IfcWall').count()"
+
+# Generate lightweight preview artifacts
+ifc-lite lod model.ifc --level 0 --out model.lod0.json
+ifc-lite lod model.ifc --level 1 --out model.glb --meta model.lod1.json
 ```
 
 ## Commands
@@ -278,6 +282,46 @@ ifc-lite export model.ifc --format csv --out walls.csv
 | `--schema <ver>` | IFC schema for STEP export (`IFC2X3`, `IFC4`, `IFC4X3`) |
 | `--limit <N>` | Limit result count |
 | `--out <file>` | Write to file instead of stdout |
+
+---
+
+### `lod` — Lightweight LOD Artifacts
+
+Generate lightweight geometry artifacts for previews, offline packaging, and
+degraded delivery flows.
+
+```bash
+# LOD0 JSON envelopes
+ifc-lite lod model.ifc --level 0 --out model.lod0.json
+
+# LOD1 GLB + metadata
+ifc-lite lod model.ifc --level 1 --out model.glb --meta model.lod1.json
+
+# Machine-readable summary
+ifc-lite lod model.ifc --level 1 --out model.glb --json
+```
+
+`LOD0` produces JSON with:
+- world-space bounding boxes
+- transforms
+- centroids
+- IFC class and identity metadata
+
+`LOD1` produces:
+- a GLB geometry file
+- a metadata JSON file with generation status and expressId mapping
+
+If meshing fails, LOD1 falls back to box geometry derived from LOD0.
+
+**Flags:**
+
+| Flag | Description |
+|------|-------------|
+| `--level <N>` | `0` for JSON envelopes, `1` for GLB geometry |
+| `--out <file>` | Output file (`required` for LOD1) |
+| `--meta <file>` | Metadata file for LOD1 (default: derived from `--out`) |
+| `--quality <q>` | Geometry quality for LOD1: `low`, `medium`, `high` |
+| `--json` | Machine-readable summary to stdout |
 
 ---
 

@@ -7,8 +7,8 @@ import { GeometryProcessor } from '@ifc-lite/geometry';
 import { GLTFExporter } from './gltf-exporter.js';
 import { extractGlbMapping } from './glb.js';
 import { generateLod0 } from './lod0-generator.js';
-import type { GenerateLod1Result, Lod1MetaJson, Lod0Json, Vec3 } from './lod-geometry-types.js';
-import { readIfcInput, type IfcInput } from './lod-geometry-utils.js';
+import type { GenerateLod1Result, Lod1MetaJson, Lod0Json, LodInput, Vec3 } from './lod-geometry-types.js';
+import { toIfcArrayBuffer } from './lod-geometry-utils.js';
 
 export type GenerateLod1Options = {
   quality?: GeometryQuality;
@@ -84,7 +84,7 @@ function buildFallbackGeometryFromLod0(lod0: Lod0Json): { meshes: MeshData[]; fa
   return { meshes, failed };
 }
 
-export async function generateLod1(input: IfcInput, options: GenerateLod1Options = {}): Promise<GenerateLod1Result> {
+export async function generateLod1(input: LodInput, options: GenerateLod1Options = {}): Promise<GenerateLod1Result> {
   // LOD0 is mandatory and used for degraded detection + fallback.
   const lod0 = await generateLod0(input);
   const allExpress = new Set<number>(lod0.elements.map((e) => e.expressID));
@@ -96,7 +96,7 @@ export async function generateLod1(input: IfcInput, options: GenerateLod1Options
       throw new Error('Forced meshing failure for test');
     }
 
-    const buffer = await readIfcInput(input);
+    const buffer = toIfcArrayBuffer(input);
     const gp = new GeometryProcessor({ quality: options.quality });
     await gp.init();
     const geom = await gp.process(new Uint8Array(buffer));
@@ -162,4 +162,3 @@ export async function generateLod1(input: IfcInput, options: GenerateLod1Options
     return { glb, meta };
   }
 }
-

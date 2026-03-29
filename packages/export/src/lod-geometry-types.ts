@@ -4,6 +4,8 @@
 
 export type Vec3 = [number, number, number];
 
+export type LodInput = ArrayBuffer | Uint8Array;
+
 export type Lod0Element = {
   expressID: number;
   globalId: string | null;
@@ -42,4 +44,3 @@ export type Lod1MetaJson = {
 };
 
 export type GenerateLod1Result = { glb: Uint8Array; meta: Lod1MetaJson };
-
