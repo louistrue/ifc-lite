@@ -146,23 +146,29 @@ function writeRecentCode(code: string): void {
 function getRegionHints(): string[] {
   if (typeof window === 'undefined') return [];
 
-  const hints = new Set<string>();
+  const timeZoneHints: string[] = [];
   const languages = navigator.languages?.length ? navigator.languages : [navigator.language];
+  const languageHints = new Set<string>();
 
   for (const language of languages) {
     const parts = language.replace('_', '-').split('-');
     const region = parts[1]?.toUpperCase();
-    if (region && region in REGIONAL_CODES) hints.add(region);
+    if (region && region in REGIONAL_CODES) languageHints.add(region);
   }
 
   const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   for (const candidate of TIMEZONE_REGION_CODES) {
     if (timeZone.startsWith(candidate.prefix)) {
-      hints.add(candidate.region);
+      timeZoneHints.push(candidate.region);
     }
   }
 
-  return Array.from(hints);
+  const orderedTimeZoneHints = Array.from(new Set(timeZoneHints));
+  if (orderedTimeZoneHints.length > 0) {
+    return orderedTimeZoneHints;
+  }
+
+  return Array.from(languageHints);
 }
 
 async function getStarterResults(): Promise<EpsgResult[]> {
