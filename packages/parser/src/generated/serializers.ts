@@ -161,7 +161,7 @@ export function toStepLine(entity: StepEntity): string {
 
   // Get all attributes in order
   const values: string[] = [];
-  for (const attr of schema.allAttributes) {
+  for (const attr of schema.allAttributes ?? []) {
     const value = entity[attr.name];
     values.push(serializeValue(value as StepValue));
   }

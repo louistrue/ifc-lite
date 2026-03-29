@@ -230,7 +230,7 @@ export default defineConfig({
       '@ifc-lite/server-client': path.resolve(__dirname, '../../packages/server-client/src'),
       '@ifc-lite/spatial': path.resolve(__dirname, '../../packages/spatial/src'),
       '@ifc-lite/data': path.resolve(__dirname, '../../packages/data/src'),
-      '@ifc-lite/export': path.resolve(__dirname, '../../packages/export/src'),
+      '@ifc-lite/export': path.resolve(__dirname, './src/vendor/ifc-lite-export.ts'),
       '@ifc-lite/cache': path.resolve(__dirname, '../../packages/cache/src'),
       '@ifc-lite/ifcx': path.resolve(__dirname, '../../packages/ifcx/src'),
       '@ifc-lite/wasm': path.resolve(__dirname, '../../packages/wasm/pkg/ifc-lite.js'),
@@ -280,6 +280,23 @@ export default defineConfig({
   build: {
     target: 'esnext',
     chunkSizeWarningLimit: 6000,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('/packages/sandbox/')) return 'sandbox';
+          if (id.includes('/packages/export/')) return 'exporters';
+          if (id.includes('/packages/server-client/')) return 'server-client';
+          if (id.includes('/packages/bcf/')) return 'bcf';
+          if (id.includes('/packages/ids/')) return 'ids';
+          if (id.includes('/packages/lens/')) return 'lens';
+          if (id.includes('/packages/drawing-2d/')) return 'drawing-2d';
+          if (id.includes('/node_modules/jszip/')) return 'zip';
+          if (id.includes('/node_modules/apache-arrow/')) return 'arrow';
+          if (id.includes('/node_modules/parquet-wasm/')) return 'parquet';
+          return undefined;
+        },
+      },
+    },
   },
   optimizeDeps: {
     exclude: [

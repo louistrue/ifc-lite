@@ -12,6 +12,7 @@
     }
   },
   "scripts": {
+    "prebuild": "pnpm --filter @ifc-lite/export^... build",
     "build": "tsc",
     "dev": "tsc --watch",
     "test": "vitest run"

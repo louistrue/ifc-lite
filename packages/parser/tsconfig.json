@@ -4,15 +4,7 @@
     "outDir": "./dist",
     "rootDir": "./src",
     "noEmitOnError": false,
-    "skipLibCheck": true,
-    "paths": {
-      "@ifc-lite/ifcx": [
-        "../ifcx/src/index.ts"
-      ],
-      "@ifc-lite/ifcx/*": [
-        "../ifcx/src/*"
-      ]
-    }
+    "skipLibCheck": true
   },
   "include": ["src/**/*"]
 }

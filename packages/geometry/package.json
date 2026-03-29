@@ -12,7 +12,7 @@
     }
   },
   "scripts": {
-    "build": "tsc || true",
+    "build": "tsc",
     "dev": "tsc --watch",
     "test": "vitest run"
   },

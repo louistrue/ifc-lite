@@ -213,7 +213,7 @@ export class StepExporter {
 
         // Get the FULL mutated property sets for this entity (merged base + mutations)
         const allPsets = this.mutationView.getForEntity(entityId);
-        const relevantPsets = allPsets.filter(pset => psetNames.has(pset.name));
+        const relevantPsets = allPsets.filter((pset: PropertySet) => psetNames.has(pset.name));
         const relDefinedPsetNames = new Set<string>();
 
         if (relevantPsets.length > 0) {
@@ -284,7 +284,7 @@ export class StepExporter {
         if (!modifiedPsets.has(entityId)) modifiedEntityCount++;
 
         const allQsets = this.mutationView.getQuantitiesForEntity(entityId);
-        const relevantQsets = allQsets.filter(qset => qsetNames.has(qset.name));
+        const relevantQsets = allQsets.filter((qset: QuantitySet) => qsetNames.has(qset.name));
 
         if (relevantQsets.length > 0) {
           newQuantitySets.push({ entityId, qsets: relevantQsets });

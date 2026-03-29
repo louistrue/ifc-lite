@@ -12,7 +12,6 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { Search, Globe, Loader2 } from 'lucide-react';
 import {
-  loadEpsgIndexDatasetVersion,
   lookupEpsgByCode,
   searchEpsgIndex,
   type EpsgIndexEntry,
@@ -194,11 +193,6 @@ async function getStarterResults(): Promise<EpsgResult[]> {
   }
 
   if (results.length > 0) {
-    console.debug('[EPSG Lookup] Starter results', {
-      recentCodes,
-      regionHints,
-      codes: results.map(result => result.code),
-    });
     return results;
   }
 
@@ -268,16 +262,6 @@ export function EpsgLookupDialog({ onSelect, children }: EpsgLookupDialogProps) 
     setError(null);
 
     try {
-      const datasetVersion = await loadEpsgIndexDatasetVersion();
-      if (controller.signal.aborted) return;
-
-      console.debug('[EPSG Lookup] Search started', {
-        query: trimmed,
-        isCode,
-        datasetVersion,
-        localMatchCount: localMatches.length,
-      });
-
       const resolved = isCode
         ? await lookupEpsgByCode(trimmed, { prefix: true, limit: 25 })
         : await searchEpsgIndex(trimmed, { limit: 25 });
@@ -292,36 +276,18 @@ export function EpsgLookupDialog({ onSelect, children }: EpsgLookupDialogProps) 
       ).slice(0, 25)
         .map(candidate => candidate.result);
 
-      console.debug('[EPSG Lookup] Search finished', {
-        query: trimmed,
-        isCode,
-        resultCount: dedupedResults.length,
-        topResults: dedupedResults.slice(0, 5).map(result => ({
-          code: result.code,
-          name: result.name,
-        })),
-      });
-
       if (dedupedResults.length > 0) {
         setResults(dedupedResults);
         setError(null);
       } else if (localMatches.length === 0) {
         setResults([]);
         setError('No coordinate reference systems found');
-        console.warn('[EPSG Lookup] No matches found', {
-          query: trimmed,
-          isCode,
-          datasetVersion,
-        });
       }
     } catch (err: unknown) {
       if (err instanceof Error && err.name === 'AbortError') return;
-      console.error('[EPSG Lookup] Local search failed', {
-        query: trimmed,
-        error: err,
-      });
+      console.error('[EPSG Lookup] Local search failed', err);
       if (localMatches.length === 0) {
-        setError('Search unavailable — check browser console for EPSG logs');
+        setError('Search unavailable');
       }
     } finally {
       if (!controller.signal.aborted) setLoading(false);
@@ -353,9 +319,8 @@ export function EpsgLookupDialog({ onSelect, children }: EpsgLookupDialogProps) 
         setResults(starterResults);
         setError(null);
       })
-      .catch(error => {
+      .catch(() => {
         if (cancelled) return;
-        console.warn('[EPSG Lookup] Could not load starter results', error);
         setResults(COMMON_CRS.slice(0, MAX_STARTER_RESULTS));
         setError(null);
       });

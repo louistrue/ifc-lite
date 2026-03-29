@@ -16,7 +16,8 @@
     }
   },
   "scripts": {
-    "build": "tsc || true",
+    "prebuild": "pnpm --filter @ifc-lite/parser^... build",
+    "build": "tsc",
     "dev": "tsc --watch",
     "test": "vitest run"
   },
