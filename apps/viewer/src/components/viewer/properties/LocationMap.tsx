@@ -11,7 +11,7 @@
  */
 
 import { useEffect, useRef, useState, useMemo, useCallback } from 'react';
-import { Map as MapIcon, ExternalLink, Loader2, MapPinOff, Globe2, Download } from 'lucide-react';
+import { Map as MapIcon, ExternalLink, Loader2, MapPinOff, Globe2 } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import type { MapConversion, ProjectedCRS } from '@ifc-lite/parser';
 import { GLTFExporter } from '@ifc-lite/export';
@@ -44,15 +44,20 @@ export function LocationMap({ mapConversion, projectedCRS }: LocationMapProps) {
   const [latLon, setLatLon] = useState<LatLon | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // Compute lat/lon from projected coordinates
-  const conversionKey = useMemo(
-    () => mapConversion ? `${mapConversion.eastings},${mapConversion.northings}` : null,
-    [mapConversion],
-  );
-  const crsKey = useMemo(
-    () => projectedCRS ? projectedCRS.name : null,
-    [projectedCRS],
-  );
+  const coordinateInfo = useViewerStore(s => s.geometryResult?.coordinateInfo);
+
+  // Build a stable key that changes when the reprojection inputs change
+  const reprojKey = useMemo(() => {
+    if (!mapConversion || !projectedCRS) return null;
+    const bounds = coordinateInfo?.originalBounds;
+    const rtc = coordinateInfo?.wasmRtcOffset;
+    return [
+      mapConversion.eastings, mapConversion.northings,
+      projectedCRS.name,
+      bounds?.min.x, bounds?.max.x, bounds?.min.z, bounds?.max.z,
+      rtc?.x, rtc?.y,
+    ].join(',');
+  }, [mapConversion, projectedCRS, coordinateInfo]);
 
   useEffect(() => {
     if (!mapConversion || !projectedCRS) {
@@ -65,7 +70,7 @@ export function LocationMap({ mapConversion, projectedCRS }: LocationMapProps) {
     setMapState('loading');
     setError(null);
 
-    reprojectToLatLon(mapConversion, projectedCRS).then(result => {
+    reprojectToLatLon(mapConversion, projectedCRS, coordinateInfo ?? undefined).then(result => {
       if (cancelled) return;
       if (result) {
         setLatLon(result);
@@ -79,7 +84,7 @@ export function LocationMap({ mapConversion, projectedCRS }: LocationMapProps) {
 
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [conversionKey, crsKey]);
+  }, [reprojKey]);
 
   // Initialize/update the map when we have a valid lat/lon
   useEffect(() => {

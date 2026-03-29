@@ -30,12 +30,23 @@ interface GLTFMesh {
     name?: string;
 }
 
+interface GLTFMaterial {
+    pbrMetallicRoughness: {
+        baseColorFactor: [number, number, number, number];
+        metallicFactor: number;
+        roughnessFactor: number;
+    };
+    name?: string;
+    alphaMode?: 'OPAQUE' | 'MASK' | 'BLEND';
+}
+
 interface GLTFPrimitive {
     attributes: {
         POSITION: number;
         NORMAL?: number;
     };
     indices?: number;
+    material?: number;
     mode?: number;
 }
 
@@ -68,6 +79,7 @@ interface GLTFDocument {
     scenes: GLTFScene[];
     nodes: GLTFNode[];
     meshes: GLTFMesh[];
+    materials?: GLTFMaterial[];
     accessors: GLTFAccessor[];
     bufferViews: GLTFBufferView[];
     buffers: GLTFBuffer[];
@@ -127,6 +139,32 @@ export class GLTFExporter {
                 vertexCount: this.geometryResult.totalVertices,
                 triangleCount: this.geometryResult.totalTriangles,
             };
+        }
+
+        // Build materials from mesh colors (deduplicate by rounded RGBA key)
+        const materialMap = new Map<string, number>();
+        const materials: GLTFMaterial[] = [];
+
+        function getOrCreateMaterial(color: [number, number, number, number]): number {
+            // Round to 2 decimals to deduplicate near-identical colors
+            const r = Math.round(color[0] * 100) / 100;
+            const g = Math.round(color[1] * 100) / 100;
+            const b = Math.round(color[2] * 100) / 100;
+            const a = Math.round(color[3] * 100) / 100;
+            const key = `${r},${g},${b},${a}`;
+            const existing = materialMap.get(key);
+            if (existing !== undefined) return existing;
+            const idx = materials.length;
+            materials.push({
+                pbrMetallicRoughness: {
+                    baseColorFactor: [r, g, b, a],
+                    metallicFactor: 0,
+                    roughnessFactor: 0.7,
+                },
+                ...(a < 1 ? { alphaMode: 'BLEND' as const } : {}),
+            });
+            materialMap.set(key, idx);
+            return idx;
         }
 
         // Collect geometry data
@@ -237,7 +275,8 @@ export class GLTFExporter {
                 type: 'SCALAR',
             });
 
-            // Mesh
+            // Mesh — with material from mesh color
+            const materialIdx = mesh.color ? getOrCreateMaterial(mesh.color) : undefined;
             const meshIdx = gltf.meshes.length;
             gltf.meshes.push({
                 primitives: [{
@@ -246,6 +285,7 @@ export class GLTFExporter {
                         NORMAL: normAccessorIdx,
                     },
                     indices: idxAccessorIdx,
+                    ...(materialIdx !== undefined ? { material: materialIdx } : {}),
                 }],
             });
 
@@ -266,6 +306,11 @@ export class GLTFExporter {
         }
 
         gltf.scenes[0].nodes = nodeIndices;
+
+        // Attach materials if any were created
+        if (materials.length > 0) {
+            gltf.materials = materials;
+        }
 
         // Ensure we have data before creating buffers
         if (positions.length === 0 || normals.length === 0 || indices.length === 0) {

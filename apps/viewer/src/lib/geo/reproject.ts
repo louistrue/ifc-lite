@@ -18,6 +18,7 @@
 
 import proj4 from 'proj4';
 import type { MapConversion, ProjectedCRS } from '@ifc-lite/parser';
+import type { CoordinateInfo } from '@ifc-lite/geometry';
 
 export interface LatLon {
   lat: number;
@@ -115,19 +116,84 @@ export async function resolveProjection(crs: ProjectedCRS): Promise<string | nul
 }
 
 /**
- * Reproject an IfcMapConversion origin point from the source CRS to WGS84.
+ * Compute the model center in the projected CRS (easting, northing).
  *
- * Returns { lat, lon } or null if projection cannot be resolved.
+ * The coordinate pipeline is:
+ *   1. WASM extracts IFC positions (Z-up) and may apply RTC offset (wasmRtcOffset, Z-up)
+ *   2. Mesh collector converts Z-up → Y-up: viewerX = ifcX, viewerY = ifcZ, viewerZ = -ifcY
+ *   3. CoordinateHandler may apply originShift (Y-up)
+ *
+ * To recover IFC world coordinates (Z-up) from the viewer bounds:
+ *   world_yup = bounds_center + originShift + wasmRtcOffset_as_yup
+ *   ifc_x = world_yup.x,  ifc_y = -world_yup.z,  ifc_z = world_yup.y
+ *
+ * Then the projected CRS coordinates are:
+ *   easting  = mapConversion.eastings + scale * (cos*ifc_x - sin*ifc_y)
+ *   northing = mapConversion.northings + scale * (sin*ifc_x + cos*ifc_y)
+ */
+function computeProjectedCenter(
+  conversion: MapConversion,
+  coordinateInfo?: CoordinateInfo,
+): { easting: number; northing: number } {
+  let ifcX = 0;
+  let ifcY = 0;
+
+  if (coordinateInfo) {
+    const bounds = coordinateInfo.originalBounds;
+    const shift = coordinateInfo.originShift;
+    const rtc = coordinateInfo.wasmRtcOffset;
+
+    // Convert WASM RTC offset from IFC Z-up to viewer Y-up
+    const rtcYup = rtc
+      ? { x: rtc.x, y: rtc.z, z: -rtc.y }
+      : { x: 0, y: 0, z: 0 };
+
+    // Bounds center in viewer Y-up (scene-local)
+    const cx = (bounds.min.x + bounds.max.x) / 2;
+    const cz = (bounds.min.z + bounds.max.z) / 2;
+
+    // World Y-up = scene_local + originShift + wasmRtcOffset_yup
+    const worldYupX = cx + shift.x + rtcYup.x;
+    const worldYupZ = cz + shift.z + rtcYup.z;
+
+    // Convert Y-up to IFC Z-up: ifc_x = viewer_x, ifc_y = -viewer_z
+    ifcX = worldYupX;
+    ifcY = -worldYupZ;
+  }
+
+  // Apply MapConversion rotation + scale + offset
+  const scale = conversion.scale ?? 1.0;
+  const abscissa = conversion.xAxisAbscissa ?? 1.0;
+  const ordinate = conversion.xAxisOrdinate ?? 0.0;
+
+  const easting = conversion.eastings + scale * (abscissa * ifcX - ordinate * ifcY);
+  const northing = conversion.northings + scale * (ordinate * ifcX + abscissa * ifcY);
+
+  return { easting, northing };
+}
+
+/**
+ * Reproject the model center from the projected CRS to WGS84 lat/lon.
+ *
+ * Uses the model's actual geometry bounds + RTC offset to determine where
+ * the model sits in the projected coordinate system, then reprojects to WGS84.
+ *
+ * @param conversion  IfcMapConversion (offset, rotation, scale)
+ * @param crs         IfcProjectedCRS (EPSG code)
+ * @param coordinateInfo  Geometry coordinate info with bounds and RTC offset
  */
 export async function reprojectToLatLon(
   conversion: MapConversion,
   crs: ProjectedCRS,
+  coordinateInfo?: CoordinateInfo,
 ): Promise<LatLon | null> {
   const projDef = await resolveProjection(crs);
   if (!projDef) return null;
 
+  const { easting, northing } = computeProjectedCenter(conversion, coordinateInfo);
+
   try {
-    const [lon, lat] = proj4(projDef, 'WGS84', [conversion.eastings, conversion.northings]);
+    const [lon, lat] = proj4(projDef, 'WGS84', [easting, northing]);
     if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
     // Sanity-check geographic bounds
     if (lat < -90 || lat > 90 || lon < -180 || lon > 180) return null;
