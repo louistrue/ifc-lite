@@ -41,12 +41,27 @@ function utmProj4String(zone: string): string | null {
   return `+proj=utm +zone=${zoneNum}${isNorth ? '' : ' +south'} +datum=WGS84 +units=m +no_defs`;
 }
 
+// Well-known EPSG codes that proj4 may not have registered by default.
+// This avoids network roundtrips for common CRS codes.
+const WELL_KNOWN_PROJ4: Record<string, string> = {
+  '4326': '+proj=longlat +datum=WGS84 +no_defs +type=crs',
+  '4269': '+proj=longlat +datum=NAD83 +no_defs +type=crs',
+  '4258': '+proj=longlat +ellps=GRS80 +no_defs +type=crs', // ETRS89
+  '3857': '+proj=merc +a=6378137 +b=6378137 +lat_ts=0 +lon_0=0 +x_0=0 +y_0=0 +k=1 +units=m +no_defs',
+};
+
 /**
  * Try to derive a proj4 definition string from structured CRS metadata
  * without hitting the network.
  */
 function tryLocalResolve(crs: ProjectedCRS): string | null {
   const name = crs.name?.toUpperCase() ?? '';
+
+  // Check well-known EPSG codes first
+  const code = extractEpsgCode(crs);
+  if (code && WELL_KNOWN_PROJ4[code]) {
+    return WELL_KNOWN_PROJ4[code];
+  }
 
   // Direct UTM zone from mapZone field
   if (crs.mapZone) {
@@ -195,7 +210,6 @@ export async function reprojectToLatLon(
   try {
     const [lon, lat] = proj4(projDef, 'WGS84', [easting, northing]);
     if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
-    // Sanity-check geographic bounds
     if (lat < -90 || lat > 90 || lon < -180 || lon > 180) return null;
     return { lat, lon };
   } catch {
