@@ -121,9 +121,8 @@ export async function resolveProjection(crs: ProjectedCRS): Promise<string | nul
         projDefCache.set(code, sanitized);
         return sanitized;
       }
-      console.warn(`[reproject] EPSG:${code} found in index but has no proj4 definition`);
-    } catch (err) {
-      console.warn(`[reproject] Failed to load EPSG index for code ${code}:`, err);
+    } catch {
+      // EPSG index not loaded yet, continue to fallbacks
     }
   }
 
@@ -148,19 +147,12 @@ export async function resolveProjection(crs: ProjectedCRS): Promise<string | nul
 
   // 4. Network fallback — fetch from epsg.io
   if (code) {
-    console.log(`[reproject] EPSG:${code} not in bundled index, fetching from epsg.io...`);
     const raw = await fetchProj4Def(code);
     const fetched = raw ? sanitizeProj4(raw) : null;
     projDefCache.set(code, fetched);
-    if (fetched) {
-      console.log(`[reproject] EPSG:${code} resolved from epsg.io`);
-    } else {
-      console.warn(`[reproject] EPSG:${code} could not be resolved from any source`);
-    }
     return fetched;
   }
 
-  console.warn(`[reproject] No EPSG code found in CRS name: "${crs.name}"`);
   return null;
 }
 
@@ -236,30 +228,17 @@ export async function reprojectToLatLon(
   crs: ProjectedCRS,
   coordinateInfo?: CoordinateInfo,
 ): Promise<LatLon | null> {
-  const code = extractEpsgCode(crs);
   const projDef = await resolveProjection(crs);
-  if (!projDef) {
-    console.warn(`[reproject] Cannot resolve projection for ${crs.name}`);
-    return null;
-  }
+  if (!projDef) return null;
 
   const { easting, northing } = computeProjectedCenter(conversion, coordinateInfo);
-  console.log(`[reproject] EPSG:${code ?? '?'} → projected center: (${easting.toFixed(2)}, ${northing.toFixed(2)})`);
 
   try {
     const [lon, lat] = proj4(projDef, 'WGS84', [easting, northing]);
-    if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
-      console.warn(`[reproject] proj4 returned non-finite: lat=${lat}, lon=${lon}`);
-      return null;
-    }
-    if (lat < -90 || lat > 90 || lon < -180 || lon > 180) {
-      console.warn(`[reproject] Coordinates out of range: lat=${lat.toFixed(5)}, lon=${lon.toFixed(5)} — MapConversion values may be inconsistent with CRS`);
-      return null;
-    }
-    console.log(`[reproject] Result: lat=${lat.toFixed(5)}, lon=${lon.toFixed(5)}`);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+    if (lat < -90 || lat > 90 || lon < -180 || lon > 180) return null;
     return { lat, lon };
-  } catch (err) {
-    console.warn(`[reproject] proj4 transform failed for EPSG:${code}:`, err);
+  } catch {
     return null;
   }
 }

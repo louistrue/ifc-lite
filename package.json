@@ -62,8 +62,6 @@
     "pnpm": ">=8.0.0"
   },
   "dependencies": {
-    "@neondatabase/serverless": "^1.0.2",
-    "maplibre-gl": "^5.21.1",
-    "proj4": "^2.20.4"
+    "@neondatabase/serverless": "^1.0.2"
   }
 }

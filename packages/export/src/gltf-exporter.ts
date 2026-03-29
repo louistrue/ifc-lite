@@ -148,23 +148,19 @@ export class GLTFExporter {
         const materials: GLTFMaterial[] = [];
 
         function getOrCreateMaterial(color: [number, number, number, number]): number {
-            // Round to 2 decimals to deduplicate near-identical colors
-            const r = Math.round(color[0] * 100) / 100;
-            const g = Math.round(color[1] * 100) / 100;
-            const b = Math.round(color[2] * 100) / 100;
-            const a = Math.round(color[3] * 100) / 100;
-            const key = `${r},${g},${b},${a}`;
+            // Round to 2 decimals for deduplicate key only — use original values for export
+            const key = `${Math.round(color[0] * 100)},${Math.round(color[1] * 100)},${Math.round(color[2] * 100)},${Math.round(color[3] * 100)}`;
             const existing = materialMap.get(key);
             if (existing !== undefined) return existing;
             const idx = materials.length;
             materials.push({
                 pbrMetallicRoughness: {
-                    baseColorFactor: [r, g, b, a],
+                    baseColorFactor: [color[0], color[1], color[2], color[3]],
                     metallicFactor: 0,
                     roughnessFactor: 1,
                 },
                 extensions: { KHR_materials_unlit: {} },
-                ...(a < 1 ? { alphaMode: 'BLEND' as const } : {}),
+                ...(color[3] < 1 ? { alphaMode: 'BLEND' as const } : {}),
             });
             materialMap.set(key, idx);
             return idx;
@@ -200,6 +196,7 @@ export class GLTFExporter {
 
             if (!mp.length || !mn.length || !mi.length) continue;
             if (mp.length % 3 !== 0 || mn.length % 3 !== 0) continue;
+            if (mp.length !== mn.length) continue;
 
             // Calculate bounds directly from the typed array
             let minX = mp[0], minY = mp[1], minZ = mp[2];
@@ -302,8 +299,10 @@ export class GLTFExporter {
             // Node
             const nodeIdx = gltf.nodes.length;
             const node: GLTFNode = { mesh: meshIdx };
-            if (options.includeMetadata && mesh.expressId) {
-                node.extras = { expressId: mesh.expressId };
+            if (options.includeMetadata && mesh.expressId !== undefined) {
+                node.extras = mesh.modelIndex !== undefined
+                    ? { expressId: mesh.expressId, modelIndex: mesh.modelIndex }
+                    : { expressId: mesh.expressId };
             }
             gltf.nodes.push(node);
             nodeIndices.push(nodeIdx);

@@ -48,21 +48,6 @@ export function LocationMap({ mapConversion, projectedCRS, coordinateInfo, geome
   const [latLon, setLatLon] = useState<LatLon | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // Build a stable key that changes when the reprojection inputs change
-  const reprojKey = useMemo(() => {
-    if (!mapConversion || !projectedCRS) return null;
-    const bounds = coordinateInfo?.originalBounds;
-    const shift = coordinateInfo?.originShift;
-    const rtc = coordinateInfo?.wasmRtcOffset;
-    return [
-      mapConversion.eastings, mapConversion.northings,
-      projectedCRS.name,
-      bounds?.min.x, bounds?.max.x, bounds?.min.z, bounds?.max.z,
-      shift?.x, shift?.y, shift?.z,
-      rtc?.x, rtc?.y, rtc?.z,
-    ].join(',');
-  }, [mapConversion, projectedCRS, coordinateInfo]);
-
   useEffect(() => {
     if (!mapConversion || !projectedCRS) {
       setLatLon(null);
@@ -87,8 +72,7 @@ export function LocationMap({ mapConversion, projectedCRS, coordinateInfo, geome
     });
 
     return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [reprojKey]);
+  }, [mapConversion, projectedCRS, coordinateInfo]);
 
   // Initialize/update the map when we have a valid lat/lon
   useEffect(() => {
