@@ -24,9 +24,6 @@ importers:
       '@types/node':
         specifier: ^20.0.0
         version: 20.19.28
-      '@types/proj4':
-        specifier: ^2.19.0
-        version: 2.19.0
       tsx:
         specifier: ^4.21.0
         version: 4.21.0
