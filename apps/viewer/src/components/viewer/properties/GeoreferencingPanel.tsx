@@ -14,6 +14,7 @@ import { Badge } from '@/components/ui/badge';
 import { computeAngleToGridNorth, type GeoreferenceInfo, type MapConversion, type ProjectedCRS } from '@ifc-lite/parser';
 import { useViewerStore } from '@/store';
 import { EpsgLookupDialog, type EpsgResult } from './EpsgLookupDialog';
+import { LocationMap } from './LocationMap';
 
 // ── Field-specific assistance data ─────────────────────────────────────
 
@@ -577,6 +578,9 @@ export function GeoreferencingPanel({ georef, modelId, enableEditing, schemaVers
           </button>
         </div>
       )}
+
+      {/* Location minimap */}
+      <LocationMap mapConversion={mergedConversion} projectedCRS={mergedCRS} />
     </div>
   );
 }
