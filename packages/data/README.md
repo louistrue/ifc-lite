@@ -36,6 +36,20 @@ const graph: RelationshipGraph = graphBuilder.build();
 - Relationship graph with typed edges
 - IFC type enum for fast type comparisons
 - Spatial hierarchy representation
+- Local EPSG CRS index with exact-code lookup and text search
+
+## EPSG Lookup
+
+```typescript
+import { lookupEpsgByCode, searchEpsgIndex } from '@ifc-lite/data';
+
+const lv95 = await lookupEpsgByCode(2056);
+const search = await searchEpsgIndex('web mercator');
+```
+
+The EPSG search index is generated ahead of time and committed to the repo, so
+normal builds stay offline and fast. Refresh it explicitly with
+`pnpm generate:epsg-index`.
 
 ## API
 

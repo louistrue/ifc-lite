@@ -20,6 +20,14 @@ export * from './types.js';
 export { IfcTypeEnum, PropertyValueType, QuantityType, RelationshipType, EntityFlags } from './types.js';
 export type { SpatialNode, SpatialHierarchy } from './types.js';
 export * from './spatial-types.js';
+export * from './epsg-types.js';
+export {
+  loadEpsgIndex,
+  loadEpsgIndexByCode,
+  loadEpsgIndexDatasetVersion,
+  lookupEpsgByCode,
+  searchEpsgIndex,
+} from './epsg-index.js';
 
 // Entity name mapping (UPPERCASE → PascalCase)
 export { IFC_ENTITY_NAMES } from './ifc-entity-names.js';
