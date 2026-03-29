@@ -5,13 +5,18 @@
 /**
  * EPSG lookup dialog - search by code or name.
  *
- * Uses epsg.io (powered by the EPSG dataset) proxied via /api/epsg
- * to avoid CORS issues. Supports worldwide search by code, name,
- * country, or datum.
+ * Uses the local full EPSG index from @ifc-lite/data so search remains stable
+ * and works offline once the bundle is loaded.
  */
 
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { Search, Globe, Loader2 } from 'lucide-react';
+import {
+  loadEpsgIndexDatasetVersion,
+  lookupEpsgByCode,
+  searchEpsgIndex,
+  type EpsgIndexEntry,
+} from '@ifc-lite/data';
 import {
   Dialog,
   DialogContent,
@@ -32,49 +37,16 @@ export interface EpsgResult {
   projection?: string;
 }
 
-// ── epsg.io API (proxied via /api/epsg) ────────────────────────────────
-
-const EPSG_PROXY = '/api/epsg';
-
-async function searchEpsg(
-  query: string,
-  signal: AbortSignal
-): Promise<EpsgResult[]> {
-  const isCode = /^\d+$/.test(query);
-  const url = isCode
-    ? `${EPSG_PROXY}/${query}.json`
-    : `${EPSG_PROXY}/?q=${encodeURIComponent(query)}&format=json`;
-
-  const res = await fetch(url, { signal });
-  if (!res.ok) return [];
-
-  const data = await res.json();
-  const rawResults = data.results || [];
-
-  return rawResults
-    .filter((r: Record<string, unknown>) =>
-      r.code && r.name && (
-        r.kind === 'CRS-PROJCRS' || r.kind === 'CRS-GEOGCRS' ||
-        r.kind === 'CRS-COMPOUNDCRS' || isCode
-      )
-    )
-    .slice(0, 25)
-    .map((r: Record<string, unknown>): EpsgResult => {
-      let kind: string | undefined;
-      if (r.kind === 'CRS-PROJCRS') kind = 'Projected';
-      else if (r.kind === 'CRS-GEOGCRS') kind = 'Geographic';
-      else if (r.kind === 'CRS-COMPOUNDCRS') kind = 'Compound';
-
-      return {
-        code: String(r.code),
-        name: String(r.name || ''),
-        area: String(r.area || ''),
-        unit: String(r.unit || ''),
-        kind,
-        datum: r.datum ? String(r.datum) : undefined,
-        projection: r.projection ? String(r.projection) : undefined,
-      };
-    });
+function toDialogResult(entry: EpsgIndexEntry): EpsgResult {
+  return {
+    code: entry.code,
+    name: entry.name,
+    area: entry.area,
+    unit: entry.unit,
+    kind: entry.kind,
+    datum: entry.datum || undefined,
+    projection: entry.projection || undefined,
+  };
 }
 
 // ── Bundled offline fallback (common BIM/GIS codes) ────────────────────
@@ -125,7 +97,6 @@ export function EpsgLookupDialog({ onSelect, children }: EpsgLookupDialogProps) 
       return;
     }
 
-    // Show instant local matches while API loads
     const queryLower = trimmed.toLowerCase();
     const isCode = /^\d+$/.test(trimmed);
     const localMatches = localIndex
@@ -136,7 +107,6 @@ export function EpsgLookupDialog({ onSelect, children }: EpsgLookupDialogProps) 
       setResults(localMatches);
     }
 
-    // Then search via proxied API
     if (abortRef.current) abortRef.current.abort();
     const controller = new AbortController();
     abortRef.current = controller;
@@ -144,21 +114,58 @@ export function EpsgLookupDialog({ onSelect, children }: EpsgLookupDialogProps) 
     setError(null);
 
     try {
-      const apiResults = await searchEpsg(trimmed, controller.signal);
+      const datasetVersion = await loadEpsgIndexDatasetVersion();
       if (controller.signal.aborted) return;
 
-      if (apiResults.length > 0) {
-        setResults(apiResults);
+      console.debug('[EPSG Lookup] Search started', {
+        query: trimmed,
+        isCode,
+        datasetVersion,
+        localMatchCount: localMatches.length,
+      });
+
+      const indexResults = isCode
+        ? (() => {
+            const exact = lookupEpsgByCode(trimmed);
+            return exact.then(entry => entry ? [entry] : []);
+          })()
+        : searchEpsgIndex(trimmed, { limit: 25 });
+
+      const resolved = await indexResults;
+      if (controller.signal.aborted) return;
+
+      const mappedResults = resolved.map(toDialogResult);
+
+      console.debug('[EPSG Lookup] Search finished', {
+        query: trimmed,
+        isCode,
+        resultCount: mappedResults.length,
+        topResults: mappedResults.slice(0, 5).map(result => ({
+          code: result.code,
+          name: result.name,
+        })),
+      });
+
+      if (mappedResults.length > 0) {
+        setResults(mappedResults);
         setError(null);
       } else if (localMatches.length === 0) {
         setResults([]);
         setError('No coordinate reference systems found');
+        console.warn('[EPSG Lookup] No matches found', {
+          query: trimmed,
+          isCode,
+          datasetVersion,
+        });
       }
     } catch (err: unknown) {
       if (err instanceof Error && err.name === 'AbortError') return;
-      console.warn('[EPSG Lookup] API search failed:', err);
+      console.error('[EPSG Lookup] Local search failed', {
+        query: trimmed,
+        error: err,
+      });
       if (localMatches.length === 0) {
-        setError('Search unavailable — try entering an EPSG code directly');
+        setError('Search unavailable — check browser console for EPSG logs');
       }
     } finally {
       if (!controller.signal.aborted) setLoading(false);
