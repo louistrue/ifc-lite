@@ -779,6 +779,28 @@ export function PropertiesPanel() {
   }
 
   if (!selectedEntityId || !modelQuery || !entityNode) {
+    // Show model metadata when a single legacy model is loaded and nothing selected
+    if (ifcDataStore && models.size === 0 && geometryResult) {
+      const legacyModel: FederatedModel = {
+        id: '__legacy__',
+        name: 'Model',
+        ifcDataStore: ifcDataStore as IfcDataStore,
+        geometryResult,
+        visible: true,
+        collapsed: false,
+        schemaVersion: ((ifcDataStore as IfcDataStore).schemaVersion ?? 'IFC4') as FederatedModel['schemaVersion'],
+        loadedAt: Date.now(),
+        fileSize: (ifcDataStore as IfcDataStore).fileSize ?? 0,
+        idOffset: 0,
+        maxExpressId: (ifcDataStore as IfcDataStore).entityCount ?? 0,
+      };
+      return <ModelMetadataPanel model={legacyModel} />;
+    }
+    // Show first loaded model's metadata when nothing selected in federated mode
+    if (models.size > 0) {
+      const firstModel = models.values().next().value;
+      if (firstModel) return <ModelMetadataPanel model={firstModel} />;
+    }
     return (
       <div className="h-full flex flex-col border-l-2 border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-black">
         <div className="p-3 border-b-2 border-zinc-200 dark:border-zinc-800 bg-white dark:bg-black">
