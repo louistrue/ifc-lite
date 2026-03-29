@@ -941,19 +941,21 @@ export function PropertiesPanel() {
           </div>
         )}
 
-        {/* Entity Position - teal tint to distinguish from emerald storey bar */}
-        {entityCoordinates && (
+        {/* World coordinates + Georeferencing — single consolidated section */}
+        {(entityCoordinates || georef || editMode) && (
           <Collapsible open={coordOpen} onOpenChange={setCoordOpen}>
             <CollapsibleTrigger className="flex items-center gap-2 w-full text-xs border border-teal-500/30 px-2 py-1.5 text-teal-800 dark:text-teal-400 min-w-0 text-left group/coord">
               <Crosshair className="h-3.5 w-3.5 shrink-0" />
               <span className="font-bold uppercase tracking-wide shrink-0">World</span>
               {!coordOpen && (
                 <>
-                  <span className="font-mono text-[10px] text-teal-600/70 dark:text-teal-500/70 truncate min-w-0 flex-1 tabular-nums">
-                    <CoordVal axis="E" value={entityCoordinates.worldZup.center.x} />{' '}
-                    <CoordVal axis="N" value={entityCoordinates.worldZup.center.y} />{' '}
-                    <CoordVal axis="Z" value={entityCoordinates.worldZup.center.z} />
-                  </span>
+                  {entityCoordinates && (
+                    <span className="font-mono text-[10px] text-teal-600/70 dark:text-teal-500/70 truncate min-w-0 flex-1 tabular-nums">
+                      <CoordVal axis="E" value={entityCoordinates.worldZup.center.x} />{' '}
+                      <CoordVal axis="N" value={entityCoordinates.worldZup.center.y} />{' '}
+                      <CoordVal axis="Z" value={entityCoordinates.worldZup.center.z} />
+                    </span>
+                  )}
                   {georef?.projectedCRS?.name && (
                     <span className="font-mono text-[9px] text-teal-500/60 shrink-0">{georef.projectedCRS.name}</span>
                   )}
@@ -962,56 +964,46 @@ export function PropertiesPanel() {
               )}
             </CollapsibleTrigger>
             <CollapsibleContent>
-              <div className="px-2 py-1.5 space-y-0.5">
-                <CoordRow
-                  label=""
-                  values={[
-                    { axis: 'E', value: entityCoordinates.worldZup.center.x },
-                    { axis: 'N', value: entityCoordinates.worldZup.center.y },
-                    { axis: 'Z', value: entityCoordinates.worldZup.center.z },
-                  ]}
-                  primary
-                  copyLabel="world"
-                  coordCopied={coordCopied}
-                  onCopy={copyCoords}
-                />
-                <CoordRow
-                  label="Local"
-                  values={[
-                    { axis: 'X', value: entityCoordinates.local.center.x },
-                    { axis: 'Y', value: entityCoordinates.local.center.y },
-                    { axis: 'Z', value: entityCoordinates.local.center.z },
-                  ]}
-                  copyLabel="local"
-                  coordCopied={coordCopied}
-                  onCopy={copyCoords}
-                />
-                <div className="flex items-start gap-1.5">
-                  <span className="text-[9px] font-medium text-muted-foreground/50 uppercase tracking-wider w-[34px] shrink-0 pt-px">Size</span>
-                  <span className="font-mono text-[10px] text-muted-foreground/50 tabular-nums">
-                    {(entityCoordinates.local.max.x - entityCoordinates.local.min.x).toFixed(2)} x {(entityCoordinates.local.max.y - entityCoordinates.local.min.y).toFixed(2)} x {(entityCoordinates.local.max.z - entityCoordinates.local.min.z).toFixed(2)}
-                  </span>
+              {entityCoordinates && (
+                <div className="px-2 py-1.5 space-y-0.5">
+                  <CoordRow
+                    label=""
+                    values={[
+                      { axis: 'E', value: entityCoordinates.worldZup.center.x },
+                      { axis: 'N', value: entityCoordinates.worldZup.center.y },
+                      { axis: 'Z', value: entityCoordinates.worldZup.center.z },
+                    ]}
+                    primary
+                    copyLabel="world"
+                    coordCopied={coordCopied}
+                    onCopy={copyCoords}
+                  />
+                  <CoordRow
+                    label="Local"
+                    values={[
+                      { axis: 'X', value: entityCoordinates.local.center.x },
+                      { axis: 'Y', value: entityCoordinates.local.center.y },
+                      { axis: 'Z', value: entityCoordinates.local.center.z },
+                    ]}
+                    copyLabel="local"
+                    coordCopied={coordCopied}
+                    onCopy={copyCoords}
+                  />
+                  <div className="flex items-start gap-1.5">
+                    <span className="text-[9px] font-medium text-muted-foreground/50 uppercase tracking-wider w-[34px] shrink-0 pt-px">Size</span>
+                    <span className="font-mono text-[10px] text-muted-foreground/50 tabular-nums">
+                      {(entityCoordinates.local.max.x - entityCoordinates.local.min.x).toFixed(2)} x {(entityCoordinates.local.max.y - entityCoordinates.local.min.y).toFixed(2)} x {(entityCoordinates.local.max.z - entityCoordinates.local.min.z).toFixed(2)}
+                    </span>
+                  </div>
                 </div>
-              </div>
-              {/* Georeferencing details within coordinates section */}
-              {georef && (
-                <GeoreferencingPanel
-                  georef={georef}
-                  modelId={selectedEntity?.modelId === 'legacy' ? '__legacy__' : (model?.id ?? selectedEntity?.modelId)}
-                  enableEditing
-                />
               )}
+              <GeoreferencingPanel
+                georef={georef}
+                modelId={selectedEntity?.modelId === 'legacy' ? '__legacy__' : (model?.id ?? selectedEntity?.modelId)}
+                enableEditing
+              />
             </CollapsibleContent>
           </Collapsible>
-        )}
-
-        {/* Georeferencing info when no entity coordinates but georef exists */}
-        {!entityCoordinates && georef && (
-          <GeoreferencingPanel
-            georef={georef}
-            modelId={selectedEntity?.modelId === 'legacy' ? '__legacy__' : (model?.id ?? selectedEntity?.modelId)}
-            enableEditing
-          />
         )}
 
         {/* Model Source (when multiple models loaded) - below storey, less prominent */}
