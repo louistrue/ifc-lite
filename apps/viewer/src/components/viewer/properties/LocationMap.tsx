@@ -119,7 +119,7 @@ export function LocationMap({ mapConversion, projectedCRS, coordinateInfo, geome
       });
 
       map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
-      map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right');
+      map.addControl(new maplibregl.AttributionControl({ compact: false }), 'bottom-right');
 
       // Add marker at model location
       const marker = new maplibregl.Marker({ color: '#14b8a6' })
@@ -180,24 +180,25 @@ export function LocationMap({ mapConversion, projectedCRS, coordinateInfo, geome
     }
   }, [latLon, geometryResult, mapConversion]);
 
+  const isDarkRef = useRef(false);
+
   const handleStyleToggle = useCallback(() => {
     if (!mapRef.current) return;
-    const current = mapRef.current.getStyle().name;
-    const isSatellite = current?.includes('satellite') || current?.includes('Satellite');
+    isDarkRef.current = !isDarkRef.current;
     mapRef.current.setStyle(
-      isSatellite
-        ? 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json'
-        : 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json',
+      isDarkRef.current
+        ? 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json'
+        : 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json',
     );
-    // Re-add marker after style change
-    if (markerRef.current && latLon) {
-      mapRef.current.once('styledata', () => {
+    // Re-add marker after style fully loads
+    if (markerRef.current && mapRef.current) {
+      mapRef.current.once('style.load', () => {
         if (markerRef.current && mapRef.current) {
           markerRef.current.addTo(mapRef.current);
         }
       });
     }
-  }, [latLon]);
+  }, []);
 
   // Nothing to show if no georeferencing data
   if (!mapConversion || !projectedCRS) {
@@ -238,7 +239,7 @@ export function LocationMap({ mapConversion, projectedCRS, coordinateInfo, geome
         <>
           <div
             ref={containerRef}
-            className="h-[180px] w-full [&_.maplibregl-ctrl-attrib]:!text-[8px] [&_.maplibregl-ctrl-attrib]:!bg-white/60 [&_.maplibregl-ctrl-attrib]:!py-0 [&_.maplibregl-ctrl-attrib]:!px-1 [&_.maplibregl-ctrl-attrib]:!leading-tight [&_.maplibregl-ctrl-attrib.maplibregl-compact]:!min-h-0"
+            className="h-[180px] w-full [&_.maplibregl-ctrl-attrib]:!text-[7px] [&_.maplibregl-ctrl-attrib]:!bg-transparent [&_.maplibregl-ctrl-attrib]:!py-0 [&_.maplibregl-ctrl-attrib]:!px-1 [&_.maplibregl-ctrl-attrib]:!leading-snug [&_.maplibregl-ctrl-attrib]:!text-zinc-400 [&_.maplibregl-ctrl-attrib]:!shadow-none [&_.maplibregl-compact-show_.maplibregl-ctrl-attrib-button]:!hidden [&_.maplibregl-ctrl-attrib-button]:!hidden [&_.maplibregl-ctrl-attrib.maplibregl-compact]:!bg-transparent [&_.maplibregl-ctrl-attrib.maplibregl-compact-show]:!p-0 [&_.maplibregl-ctrl-attrib_a]:!text-zinc-400"
             style={{ minHeight: 180 }}
           />
 
