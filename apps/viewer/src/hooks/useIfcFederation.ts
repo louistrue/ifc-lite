@@ -38,7 +38,7 @@ export interface IfcxDataStore extends IfcDataStore {
   /** Original buffers for re-composition when adding overlays */
   _federatedBuffers?: Array<{ buffer: ArrayBuffer; name: string }>;
   /** Composition statistics */
-  _compositionStats?: { totalNodes: number; layersUsed: number; inheritanceResolutions: number; crossLayerReferences: number };
+  _compositionStats?: { layersUsed: number; inheritanceResolutions: number; crossLayerReferences: number };
   /** Layer info for display */
   _layerInfo?: Array<{ id: string; name: string; meshCount: number }>;
 }
@@ -630,7 +630,7 @@ export function useIfcFederation() {
           name: b.name,
         })),
         _compositionStats: result.compositionStats,
-      } as IfcxDataStore;
+      } as unknown as IfcxDataStore;
 
       // IfcxDataStore extends IfcDataStore (with schemaVersion: 'IFC5'), so this is safe
       setIfcDataStore(dataStore);

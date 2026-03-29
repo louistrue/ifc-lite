@@ -4,7 +4,7 @@
 
 import type { EntityRef, FederatedModel } from './types.js';
 
-type ForwardModelMapLike = ReadonlyMap<string, Pick<FederatedModel, 'idOffset'>>;
+type ForwardModelMapLike = ReadonlyMap<string, { idOffset?: number }>;
 type ReverseModelMapLike = ReadonlyMap<string, Pick<FederatedModel, 'idOffset' | 'maxExpressId'>>;
 
 /**
@@ -29,7 +29,7 @@ export function toGlobalIdFromModels(
     return expressId;
   }
 
-  return expressId + model.idOffset;
+  return expressId + (model.idOffset ?? 0);
 }
 
 /**

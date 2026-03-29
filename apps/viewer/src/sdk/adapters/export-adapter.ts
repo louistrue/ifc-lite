@@ -119,6 +119,13 @@ function escapeCsv(value: string, sep: string): string {
  * on the same LocalBackend, providing full export support for both
  * direct dispatch calls and SDK namespace usage.
  */
+function toBlobPart(content: string | Uint8Array): BlobPart {
+  if (typeof content === 'string') return content;
+  const bytes = new Uint8Array(content.byteLength);
+  bytes.set(content);
+  return bytes;
+}
+
 export function createExportAdapter(store: StoreApi): ExportBackendMethods {
   /** Resolve entity data via the query subsystem */
   function getEntityData(ref: EntityRef): EntityData | null {
@@ -387,7 +394,7 @@ function triggerDownload(content: string | Uint8Array, filename: string, mimeTyp
   if (typeof document === 'undefined') {
     throw new Error('download() requires a browser environment (document is unavailable)');
   }
-  const blob = new Blob([content], { type: mimeType });
+  const blob = new Blob([toBlobPart(content)], { type: mimeType });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;

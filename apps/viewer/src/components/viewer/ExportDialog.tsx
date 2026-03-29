@@ -63,6 +63,13 @@ interface ExportDialogProps {
   trigger?: React.ReactNode;
 }
 
+function toBlobPart(content: string | Uint8Array): BlobPart {
+  if (typeof content === 'string') return content;
+  const bytes = new Uint8Array(content.byteLength);
+  bytes.set(content);
+  return bytes;
+}
+
 export function ExportDialog({ trigger }: ExportDialogProps) {
   const models = useViewerStore((s) => s.models);
   const dirtyModels = useViewerStore((s) => s.dirtyModels);
@@ -352,7 +359,7 @@ export function ExportDialog({ trigger }: ExportDialogProps) {
 
         setExportProgress(null);
 
-        const blob = new Blob([result.content], { type: 'text/plain' });
+        const blob = new Blob([toBlobPart(result.content)], { type: 'text/plain' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
@@ -418,7 +425,7 @@ export function ExportDialog({ trigger }: ExportDialogProps) {
           author: 'ifc-lite',
         });
 
-        const blob = new Blob([result.content], { type: 'application/json' });
+        const blob = new Blob([toBlobPart(result.content)], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
@@ -492,7 +499,7 @@ export function ExportDialog({ trigger }: ExportDialogProps) {
 
         setExportProgress(null);
 
-        const blob = new Blob([result.content], { type: 'text/plain' });
+        const blob = new Blob([toBlobPart(result.content)], { type: 'text/plain' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;

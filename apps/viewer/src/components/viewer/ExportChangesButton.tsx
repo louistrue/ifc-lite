@@ -24,6 +24,13 @@ interface ExportChangesButtonProps {
   className?: string;
 }
 
+function toBlobPart(content: string | Uint8Array): BlobPart {
+  if (typeof content === 'string') return content;
+  const bytes = new Uint8Array(content.byteLength);
+  bytes.set(content);
+  return bytes;
+}
+
 export function ExportChangesButton({ className }: ExportChangesButtonProps) {
   const models = useViewerStore((s) => s.models);
   const getMutationView = useViewerStore((s) => s.getMutationView);
@@ -137,7 +144,7 @@ export function ExportChangesButton({ className }: ExportChangesButtonProps) {
       });
 
       // Download the file
-      const blob = new Blob([result.content], { type: 'text/plain' });
+      const blob = new Blob([toBlobPart(result.content)], { type: 'text/plain' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
