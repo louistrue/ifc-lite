@@ -7,15 +7,15 @@
  * real-world position derived from IfcMapConversion + IfcProjectedCRS.
  *
  * Renders as a collapsible panel below the georeferencing fields.
- * Includes an "Open in Google Maps" link for external context.
+ * Includes links to Google Maps, OpenStreetMap, and Google Earth (KMZ export).
  */
 
 import { useEffect, useRef, useState, useMemo, useCallback } from 'react';
 import { Map as MapIcon, ExternalLink, Loader2, MapPinOff, Globe2 } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import type { MapConversion, ProjectedCRS } from '@ifc-lite/parser';
+import type { CoordinateInfo, GeometryResult } from '@ifc-lite/geometry';
 import { GLTFExporter } from '@ifc-lite/export';
-import { useViewerStore } from '@/store';
 import { reprojectToLatLon, type LatLon } from '@/lib/geo/reproject';
 import { buildKmz, ifcAngleToKmlHeading } from '@/lib/geo/kmz-exporter';
 
@@ -31,11 +31,15 @@ function loadMaplibre() {
 export interface LocationMapProps {
   mapConversion?: MapConversion;
   projectedCRS?: ProjectedCRS;
+  /** Coordinate info from the model's GeometryResult (includes bounds and RTC offset) */
+  coordinateInfo?: CoordinateInfo;
+  /** Geometry result for KMZ export (optional — KMZ button hidden if not provided) */
+  geometryResult?: GeometryResult | null;
 }
 
 type MapState = 'idle' | 'loading' | 'ready' | 'error';
 
-export function LocationMap({ mapConversion, projectedCRS }: LocationMapProps) {
+export function LocationMap({ mapConversion, projectedCRS, coordinateInfo, geometryResult }: LocationMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<InstanceType<typeof import('maplibre-gl').Map> | null>(null);
   const markerRef = useRef<InstanceType<typeof import('maplibre-gl').Marker> | null>(null);
@@ -44,18 +48,18 @@ export function LocationMap({ mapConversion, projectedCRS }: LocationMapProps) {
   const [latLon, setLatLon] = useState<LatLon | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const coordinateInfo = useViewerStore(s => s.geometryResult?.coordinateInfo);
-
   // Build a stable key that changes when the reprojection inputs change
   const reprojKey = useMemo(() => {
     if (!mapConversion || !projectedCRS) return null;
     const bounds = coordinateInfo?.originalBounds;
+    const shift = coordinateInfo?.originShift;
     const rtc = coordinateInfo?.wasmRtcOffset;
     return [
       mapConversion.eastings, mapConversion.northings,
       projectedCRS.name,
       bounds?.min.x, bounds?.max.x, bounds?.min.z, bounds?.max.z,
-      rtc?.x, rtc?.y,
+      shift?.x, shift?.y, shift?.z,
+      rtc?.x, rtc?.y, rtc?.z,
     ].join(',');
   }, [mapConversion, projectedCRS, coordinateInfo]);
 
@@ -70,8 +74,21 @@ export function LocationMap({ mapConversion, projectedCRS }: LocationMapProps) {
     setMapState('loading');
     setError(null);
 
-    reprojectToLatLon(mapConversion, projectedCRS, coordinateInfo ?? undefined).then(result => {
+    // Debug logging for coordinate resolution
+    console.log('[LocationMap] Reprojecting with:', {
+      eastings: mapConversion.eastings,
+      northings: mapConversion.northings,
+      crs: projectedCRS.name,
+      hasCoordinateInfo: !!coordinateInfo,
+      originalBounds: coordinateInfo?.originalBounds,
+      originShift: coordinateInfo?.originShift,
+      wasmRtcOffset: coordinateInfo?.wasmRtcOffset,
+      hasLargeCoordinates: coordinateInfo?.hasLargeCoordinates,
+    });
+
+    reprojectToLatLon(mapConversion, projectedCRS, coordinateInfo).then(result => {
       if (cancelled) return;
+      console.log('[LocationMap] Reprojection result:', result);
       if (result) {
         setLatLon(result);
         setMapState('ready');
@@ -151,8 +168,6 @@ export function LocationMap({ mapConversion, projectedCRS }: LocationMapProps) {
     return `https://www.openstreetmap.org/?mlat=${latLon.lat}&mlon=${latLon.lon}#map=17/${latLon.lat}/${latLon.lon}`;
   }, [latLon]);
 
-  const geometryResult = useViewerStore(s => s.geometryResult);
-
   const handleExportKmz = useCallback(() => {
     if (!latLon || !geometryResult || !mapConversion) return;
     try {
@@ -189,7 +204,6 @@ export function LocationMap({ mapConversion, projectedCRS }: LocationMapProps) {
     );
     // Re-add marker after style change
     if (markerRef.current && latLon) {
-      const lngLat = markerRef.current.getLngLat();
       mapRef.current.once('styledata', () => {
         if (markerRef.current && mapRef.current) {
           markerRef.current.addTo(mapRef.current);

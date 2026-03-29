@@ -159,6 +159,15 @@ function computeProjectedCenter(
     // Convert Y-up to IFC Z-up: ifc_x = viewer_x, ifc_y = -viewer_z
     ifcX = worldYupX;
     ifcY = -worldYupZ;
+
+    console.log('[reproject] Model center reconstruction:', {
+      boundsCenter: { x: cx, z: cz },
+      originShift: shift,
+      wasmRtcOffset: rtc,
+      rtcYup: rtcYup,
+      worldYup: { x: worldYupX, z: worldYupZ },
+      ifcCenter: { x: ifcX, y: ifcY },
+    });
   }
 
   // Apply MapConversion rotation + scale + offset
@@ -168,6 +177,8 @@ function computeProjectedCenter(
 
   const easting = conversion.eastings + scale * (abscissa * ifcX - ordinate * ifcY);
   const northing = conversion.northings + scale * (ordinate * ifcX + abscissa * ifcY);
+
+  console.log('[reproject] Projected center:', { easting, northing, scale, abscissa, ordinate });
 
   return { easting, northing };
 }

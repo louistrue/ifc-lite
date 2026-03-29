@@ -212,7 +212,7 @@ export function ModelMetadataPanel({ model }: { model: FederatedModel }) {
         </div>
 
         {/* Georeferencing */}
-        <GeoreferencingPanel georef={georef} modelId={model.id} enableEditing schemaVersion={model.schemaVersion} />
+        <GeoreferencingPanel georef={georef} modelId={model.id} enableEditing schemaVersion={model.schemaVersion} coordinateInfo={model.geometryResult?.coordinateInfo} geometryResult={model.geometryResult} />
 
         {/* IfcProject Data */}
         {projectData && (

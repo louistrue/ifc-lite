@@ -1020,6 +1020,8 @@ export function PropertiesPanel() {
                 modelId={selectedEntity?.modelId === 'legacy' ? '__legacy__' : (model?.id ?? selectedEntity?.modelId)}
                 enableEditing
                 schemaVersion={activeDataStore?.schemaVersion}
+                coordinateInfo={(model?.geometryResult ?? geometryResult)?.coordinateInfo}
+                geometryResult={model?.geometryResult ?? geometryResult}
               />
             </CollapsibleContent>
           </Collapsible>
