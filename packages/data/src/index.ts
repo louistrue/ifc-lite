@@ -26,6 +26,7 @@ export {
   loadEpsgIndexByCode,
   loadEpsgIndexDatasetVersion,
   lookupEpsgByCode,
+  lookupProj4,
   searchEpsgIndex,
 } from './epsg-index.js';
 

@@ -15,7 +15,8 @@
     "build": "tsc",
     "dev": "tsc --watch",
     "test": "vitest run",
-    "generate:epsg-index": "tsx ../../scripts/generate-epsg-index.ts"
+    "generate:epsg-index": "tsx ../../scripts/generate-epsg-index.ts",
+    "augment:epsg-proj4": "tsx ../../scripts/augment-epsg-proj4.ts"
   },
   "devDependencies": {
     "typescript": "^5.3.0",

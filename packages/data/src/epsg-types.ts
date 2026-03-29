@@ -24,6 +24,8 @@ export interface EpsgIndexEntry {
   deprecated: boolean;
   aliases: string[];
   searchText: string;
+  /** proj4 definition string for coordinate reprojection (optional, populated by generator) */
+  proj4?: string;
 }
 
 export interface SearchEpsgIndexOptions {

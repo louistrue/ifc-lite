@@ -115,6 +115,15 @@ export async function lookupEpsgByCode(
   return byCode.get(key);
 }
 
+/**
+ * Look up a proj4 definition string by EPSG code.
+ * Returns the proj4 string from the bundled index, or undefined if not found.
+ */
+export async function lookupProj4(code: string | number): Promise<string | undefined> {
+  const entry = await lookupEpsgByCode(String(code).trim());
+  return entry?.proj4;
+}
+
 export async function searchEpsgIndex(
   query: string,
   options: SearchEpsgIndexOptions = {},

@@ -83,6 +83,7 @@ type EpsgIndexEntry = {
   deprecated: boolean;
   aliases: string[];
   searchText: string;
+  proj4?: string;
 };
 
 type CliOptions = {
@@ -273,6 +274,63 @@ async function fetchEntries(summaries: RegistrySummary[], concurrency: number): 
   return output;
 }
 
+/**
+ * Fetch proj4 definition strings from epsg.io for all entries.
+ * Uses concurrent workers with retries. Entries without a valid
+ * proj4 definition are left with proj4=undefined.
+ */
+async function fetchProj4Definitions(entries: EpsgIndexEntry[], concurrency: number): Promise<void> {
+  const queue = [...entries];
+  let resolved = 0;
+  let failed = 0;
+
+  async function fetchProj4WithRetry(code: string, attempts = 3): Promise<string | null> {
+    let lastError: unknown;
+    for (let attempt = 1; attempt <= attempts; attempt += 1) {
+      try {
+        const response = await fetch(`https://epsg.io/${code}.proj4`, {
+          headers: { 'User-Agent': 'ifc-lite-epsg-generator/1.0' },
+        });
+        if (!response.ok) return null;
+        const text = (await response.text()).trim();
+        // Validate: proj4 strings start with +proj= or +title=
+        if (!text || text.startsWith('<') || text.startsWith('{') || !text.includes('+')) {
+          return null;
+        }
+        return text;
+      } catch (error) {
+        lastError = error;
+        if (attempt < attempts) {
+          await new Promise(resolve => setTimeout(resolve, 200 * attempt));
+        }
+      }
+    }
+    return null;
+  }
+
+  async function worker(): Promise<void> {
+    while (queue.length > 0) {
+      const entry = queue.shift();
+      if (!entry) return;
+      const proj4Def = await fetchProj4WithRetry(entry.code);
+      if (proj4Def) {
+        entry.proj4 = proj4Def;
+        resolved++;
+      } else {
+        failed++;
+      }
+      const total = resolved + failed;
+      if (total % 500 === 0) {
+        console.log(`  proj4: ${total}/${entries.length} (${resolved} resolved, ${failed} missing)`);
+      }
+    }
+  }
+
+  console.log(`Fetching proj4 definitions from epsg.io for ${entries.length} entries...`);
+  await Promise.all(Array.from({ length: concurrency }, () => worker()));
+  console.log(`proj4 fetch complete: ${resolved} resolved, ${failed} missing out of ${entries.length}`);
+}
+
 function renderModule(entries: EpsgIndexEntry[]): string {
   const json = JSON.stringify(entries);
   const stringLiteral = JSON.stringify(json);
@@ -315,6 +373,7 @@ async function main(): Promise<void> {
   const summaries = await fetchAllSummaries(options.pageSize);
   const selected = options.limit == null ? summaries : summaries.slice(0, options.limit);
   const entries = await fetchEntries(selected, options.concurrency);
+  await fetchProj4Definitions(entries, options.concurrency);
   const moduleSource = renderModule(entries);
 
   if (options.stdout) {

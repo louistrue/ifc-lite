@@ -9,28 +9,35 @@
  * IfcMapConversion + IfcProjectedCRS pair into WGS84 longitude/latitude
  * so they can be displayed on a web map.
  *
- * Uses proj4js for the heavy lifting. Projection definitions are resolved
- * in order:
- *   1. proj4 built-in (WGS84, etc.)
- *   2. Programmatically constructed (UTM zones)
- *   3. Fetched from epsg.io at runtime (arbitrary codes)
+ * proj4 definitions are resolved from:
+ *   1. The bundled EPSG index (@ifc-lite/data) — covers all 7000+ codes
+ *   2. Programmatically constructed (UTM zones, well-known codes)
+ *   3. Fetched from epsg.io at runtime as last resort
  */
 
 import proj4 from 'proj4';
 import type { MapConversion, ProjectedCRS } from '@ifc-lite/parser';
 import type { CoordinateInfo } from '@ifc-lite/geometry';
+import { lookupProj4 } from '@ifc-lite/data';
 
 export interface LatLon {
   lat: number;
   lon: number;
 }
 
-// Cache fetched projection definitions so we only hit epsg.io once per code.
+// Cache resolved projection definitions (from any source).
 const projDefCache = new Map<string, string | null>();
 
 /**
+ * Extract EPSG numeric code from a CRS name like "EPSG:32632" or "EPSG 2056".
+ */
+function extractEpsgCode(crs: ProjectedCRS): string | null {
+  const match = crs.name?.match(/EPSG[:\s]*(\d+)/i);
+  return match ? match[1] : null;
+}
+
+/**
  * Build a proj4 definition string for a UTM zone.
- * Handles zones like "32N", "10S", "60N", etc.
  */
 function utmProj4String(zone: string): string | null {
   const match = zone.match(/^(\d{1,2})([NS])$/i);
@@ -41,91 +48,78 @@ function utmProj4String(zone: string): string | null {
   return `+proj=utm +zone=${zoneNum}${isNorth ? '' : ' +south'} +datum=WGS84 +units=m +no_defs`;
 }
 
-// Well-known EPSG codes that proj4 may not have registered by default.
-// This avoids network roundtrips for common CRS codes.
-const WELL_KNOWN_PROJ4: Record<string, string> = {
-  '4326': '+proj=longlat +datum=WGS84 +no_defs +type=crs',
-  '4269': '+proj=longlat +datum=NAD83 +no_defs +type=crs',
-  '4258': '+proj=longlat +ellps=GRS80 +no_defs +type=crs', // ETRS89
-  '3857': '+proj=merc +a=6378137 +b=6378137 +lat_ts=0 +lon_0=0 +x_0=0 +y_0=0 +k=1 +units=m +no_defs',
-};
-
 /**
- * Try to derive a proj4 definition string from structured CRS metadata
- * without hitting the network.
- */
-function tryLocalResolve(crs: ProjectedCRS): string | null {
-  const name = crs.name?.toUpperCase() ?? '';
-
-  // Check well-known EPSG codes first
-  const code = extractEpsgCode(crs);
-  if (code && WELL_KNOWN_PROJ4[code]) {
-    return WELL_KNOWN_PROJ4[code];
-  }
-
-  // Direct UTM zone from mapZone field
-  if (crs.mapZone) {
-    const def = utmProj4String(crs.mapZone);
-    if (def) return def;
-  }
-
-  // Try to extract UTM zone from description / name (e.g. "WGS 84 / UTM zone 32N")
-  const utmMatch = name.match(/UTM\s+ZONE\s+(\d{1,2}[NS])/i)
-    ?? crs.description?.match(/UTM\s+zone\s+(\d{1,2}[NS])/i);
-  if (utmMatch) {
-    const def = utmProj4String(utmMatch[1]);
-    if (def) return def;
-  }
-
-  return null;
-}
-
-/**
- * Fetch a proj4 definition string from epsg.io for an EPSG code.
+ * Fetch a proj4 definition string from epsg.io (last-resort fallback).
  */
 async function fetchProj4Def(epsgCode: string): Promise<string | null> {
-  if (projDefCache.has(epsgCode)) return projDefCache.get(epsgCode) ?? null;
-
   try {
     const resp = await fetch(`https://epsg.io/${epsgCode}.proj4`);
-    if (!resp.ok) {
-      projDefCache.set(epsgCode, null);
-      return null;
-    }
+    if (!resp.ok) return null;
     const text = (await resp.text()).trim();
-    if (!text || text.startsWith('<') || text.startsWith('{')) {
-      // Got HTML or JSON error page instead of a proj4 string
-      projDefCache.set(epsgCode, null);
+    if (!text || text.startsWith('<') || text.startsWith('{') || !text.includes('+')) {
       return null;
     }
-    projDefCache.set(epsgCode, text);
     return text;
   } catch {
-    projDefCache.set(epsgCode, null);
     return null;
   }
 }
 
 /**
- * Extract EPSG numeric code from a CRS name like "EPSG:32632".
- */
-function extractEpsgCode(crs: ProjectedCRS): string | null {
-  const match = crs.name?.match(/EPSG[:\s]*(\d+)/i);
-  return match ? match[1] : null;
-}
-
-/**
  * Resolve a proj4 definition for the given ProjectedCRS.
- * Tries local heuristics first, then falls back to epsg.io.
+ *
+ * Resolution order:
+ *   1. Cache hit
+ *   2. Bundled EPSG index (7000+ codes with proj4 strings)
+ *   3. UTM zone heuristic (from CRS metadata)
+ *   4. Fetch from epsg.io (network fallback)
  */
 export async function resolveProjection(crs: ProjectedCRS): Promise<string | null> {
-  // 1. Try local heuristic (UTM zones)
-  const local = tryLocalResolve(crs);
-  if (local) return local;
-
-  // 2. Fetch from epsg.io
   const code = extractEpsgCode(crs);
-  if (code) return fetchProj4Def(code);
+
+  // 1. Check cache
+  if (code && projDefCache.has(code)) {
+    return projDefCache.get(code) ?? null;
+  }
+
+  // 2. Bundled EPSG index (primary source — all 7000+ codes)
+  if (code) {
+    try {
+      const bundled = await lookupProj4(code);
+      if (bundled) {
+        projDefCache.set(code, bundled);
+        return bundled;
+      }
+    } catch {
+      // Index not loaded yet, continue to fallbacks
+    }
+  }
+
+  // 3. UTM zone heuristic
+  if (crs.mapZone) {
+    const def = utmProj4String(crs.mapZone);
+    if (def) {
+      if (code) projDefCache.set(code, def);
+      return def;
+    }
+  }
+  const name = crs.name?.toUpperCase() ?? '';
+  const utmMatch = name.match(/UTM\s+ZONE\s+(\d{1,2}[NS])/i)
+    ?? crs.description?.match(/UTM\s+zone\s+(\d{1,2}[NS])/i);
+  if (utmMatch) {
+    const def = utmProj4String(utmMatch[1]);
+    if (def) {
+      if (code) projDefCache.set(code, def);
+      return def;
+    }
+  }
+
+  // 4. Network fallback — fetch from epsg.io
+  if (code) {
+    const fetched = await fetchProj4Def(code);
+    projDefCache.set(code, fetched);
+    return fetched;
+  }
 
   return null;
 }
