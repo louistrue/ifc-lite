@@ -180,17 +180,19 @@ async function getStarterResults(): Promise<EpsgResult[]> {
   ];
 
   const seen = new Set<string>();
-  const results: EpsgResult[] = [];
+  const dedupedCodes: string[] = [];
 
   for (const code of candidateCodes) {
     if (seen.has(code)) continue;
     seen.add(code);
-    const entry = await lookupEpsgByCode(code);
-    if (entry) {
-      results.push(toDialogResult(entry));
-    }
-    if (results.length >= MAX_STARTER_RESULTS) break;
+    dedupedCodes.push(code);
+    if (dedupedCodes.length >= MAX_STARTER_RESULTS) break;
   }
+
+  const entries = await Promise.all(dedupedCodes.map(code => lookupEpsgByCode(code)));
+  const results = entries
+    .filter((entry): entry is EpsgIndexEntry => Boolean(entry))
+    .map(entry => toDialogResult(entry));
 
   if (results.length > 0) {
     return results;
@@ -268,13 +270,17 @@ export function EpsgLookupDialog({ onSelect, children }: EpsgLookupDialogProps) 
       if (controller.signal.aborted) return;
 
       const authoritativeMatches = Array.isArray(resolved) ? resolved : resolved ? [resolved] : [];
-      const dedupedResults = [
+      const dedupedResults: EpsgResult[] = [];
+      const seenCodes = new Set<string>();
+      for (const candidate of [
         ...localMatches.map(result => ({ code: result.code, result })),
         ...authoritativeMatches.map(entry => ({ code: entry.code, result: toDialogResult(entry) })),
-      ].filter((candidate, index, candidates) =>
-        candidates.findIndex(other => other.code === candidate.code) === index,
-      ).slice(0, 25)
-        .map(candidate => candidate.result);
+      ]) {
+        if (seenCodes.has(candidate.code)) continue;
+        seenCodes.add(candidate.code);
+        dedupedResults.push(candidate.result);
+        if (dedupedResults.length >= 25) break;
+      }
 
       if (dedupedResults.length > 0) {
         setResults(dedupedResults);

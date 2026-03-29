@@ -727,6 +727,7 @@ Use `ifc-lite` CLI for BIM/IFC file operations:
 - `ifc-lite query <file> --type <T> --all --json` — full entity data
 - `ifc-lite props <file> --id <N>` — single entity details
 - `ifc-lite export <file> --format csv --type <T>` — export data
+- `ifc-lite lod <file> --level 0|1 --out <file>` — generate LOD0/LOD1 artifacts
 - `ifc-lite create <type> --out <file>` — create IFC elements (30+ types)
 - `ifc-lite merge <files...> --out <file>` — merge IFC files
 - `ifc-lite convert <file> --schema <VER> --out <file>` — convert schema
@@ -762,6 +763,7 @@ Run `ifc-lite schema` to see the full API before writing eval expressions.
 | `query` | Query entities by type/properties with full data access |
 | `props` | All properties for a single entity |
 | `export` | Export to CSV, JSON, or IFC STEP |
+| `lod` | Generate lightweight LOD0/LOD1 artifacts |
 | `ids` | Validate against IDS rules |
 | `bcf` | BCF collaboration (create, list, add-comment) |
 | `create` | Create IFC elements (30+ types with properties/materials/colors) |

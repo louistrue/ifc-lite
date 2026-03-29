@@ -326,7 +326,7 @@ describe('StepExporter', () => {
     const content = decode(result.content);
 
     expect(content).not.toContain(',#0);');
-    expect(content).toContain("#119=IFCPROPERTYSINGLEVALUE('OffsetDistance',$,IFCREAL(12.5),#2);");
+    expect(content).toMatch(/#\d+=IFCPROPERTYSINGLEVALUE\('OffsetDistance',\$,IFCREAL\(12\.5\),#\d+\);/);
   });
 
   it('generates valid IFC GlobalIds for new STEP entities', async () => {

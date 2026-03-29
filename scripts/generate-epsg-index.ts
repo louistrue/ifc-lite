@@ -237,15 +237,34 @@ async function fetchEntries(summaries: RegistrySummary[], concurrency: number): 
   const queue = [...summaries];
   const output: EpsgIndexEntry[] = [];
 
+  async function fetchJsonWithRetry<T>(url: string, attempts = 3): Promise<T> {
+    let lastError: unknown;
+    for (let attempt = 1; attempt <= attempts; attempt += 1) {
+      try {
+        return await fetchJson<T>(url);
+      } catch (error) {
+        lastError = error;
+        if (attempt < attempts) {
+          await new Promise(resolve => setTimeout(resolve, 250 * attempt));
+        }
+      }
+    }
+    throw lastError;
+  }
+
   async function worker(): Promise<void> {
     while (queue.length > 0) {
       const summary = queue.shift();
       if (!summary) return;
-      const detailUrl =
-        summary.Links?.find(link => link.rel === 'result')?.href ??
-        `${API_BASE_URL}/CoordRefSystem/${summary.Code}`;
-      const detail = await fetchJson<RegistryDetail>(detailUrl);
-      output.push(summarizeEntry(summary, detail));
+      try {
+        const detailUrl =
+          summary.Links?.find(link => link.rel === 'result')?.href ??
+          `${API_BASE_URL}/CoordRefSystem/${summary.Code}`;
+        const detail = await fetchJsonWithRetry<RegistryDetail>(detailUrl);
+        output.push(summarizeEntry(summary, detail));
+      } catch (error) {
+        console.warn(`Skipping EPSG:${summary.Code} after repeated detail fetch failures`, error);
+      }
     }
   }
 

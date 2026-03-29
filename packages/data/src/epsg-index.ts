@@ -16,6 +16,12 @@ function normalizeQuery(query: string): string {
   return query.trim().toLowerCase();
 }
 
+function normalizeLimit(limit: number | undefined, fallback = 25): number {
+  const numericLimit = typeof limit === 'number' ? limit : Number(limit);
+  if (!Number.isFinite(numericLimit)) return fallback;
+  return Math.max(1, Math.floor(numericLimit));
+}
+
 function scoreEntry(entry: EpsgIndexEntry, query: string): number {
   if (!query) return 0;
 
@@ -50,7 +56,10 @@ export async function loadEpsgIndex(): Promise<readonly EpsgIndexEntry[]> {
   if (!epsgIndexPromise) {
     epsgIndexPromise = import('./generated/epsg-index.generated.js').then(
       module => module.EPSG_INDEX,
-    );
+    ).catch(error => {
+      epsgIndexPromise = null;
+      throw error;
+    });
   }
   return epsgIndexPromise;
 }
@@ -59,7 +68,10 @@ export async function loadEpsgIndexDatasetVersion(): Promise<string> {
   if (!epsgDatasetVersionPromise) {
     epsgDatasetVersionPromise = import('./generated/epsg-index.generated.js').then(
       module => module.EPSG_INDEX_DATASET_VERSION,
-    );
+    ).catch(error => {
+      epsgDatasetVersionPromise = null;
+      throw error;
+    });
   }
   return epsgDatasetVersionPromise;
 }
@@ -68,7 +80,10 @@ export async function loadEpsgIndexByCode(): Promise<ReadonlyMap<string, EpsgInd
   if (!epsgByCodePromise) {
     epsgByCodePromise = loadEpsgIndex().then(entries =>
       new Map(entries.map(entry => [entry.code, entry])),
-    );
+    ).catch(error => {
+      epsgByCodePromise = null;
+      throw error;
+    });
   }
   return epsgByCodePromise;
 }
@@ -86,7 +101,7 @@ export async function lookupEpsgByCode(
   if (!key) return undefined;
 
   if (options.prefix) {
-    const limit = options.limit ?? 25;
+    const limit = normalizeLimit(options.limit, 25);
     const includeDeprecated = options.includeDeprecated ?? false;
     const entries = await loadEpsgIndex();
     return entries
@@ -107,7 +122,7 @@ export async function searchEpsgIndex(
   const normalized = normalizeQuery(query);
   if (!normalized) return [];
 
-  const limit = options.limit ?? 25;
+  const limit = normalizeLimit(options.limit, 25);
   const includeDeprecated = options.includeDeprecated ?? false;
   const entries = await loadEpsgIndex();
 

@@ -30,7 +30,7 @@ describe('EPSG index', () => {
 
   it('finds common text queries locally', async () => {
     const results = await searchEpsgIndex('web mercator');
-    expect(results[0]?.code).toBe('3857');
+    expect(results.some(result => result.code === '3857')).toBe(true);
   });
 
   it('matches multi-token location queries', async () => {

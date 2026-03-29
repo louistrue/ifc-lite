@@ -9,8 +9,9 @@
  * accounting for multi-model federation offsets and single-model fallback.
  */
 
-import type { FederatedModel, IfcDataStore } from '@/store/types';
-import { toGlobalIdFromModels } from '@/store/globalId';
+import type { FederatedModel } from '@/store/types';
+import type { IfcDataStore } from '@ifc-lite/parser';
+import { fromGlobalIdFromModels, toGlobalIdFromModels } from '@/store/globalId';
 
 export interface IdLookupResult {
   expressId: number;
@@ -55,14 +56,12 @@ export function expressIdToGlobalId(
   models: Map<string, FederatedModel>,
   ifcDataStore: IfcDataStore | null | undefined,
 ): string | null {
-  // Multi-model path: search federated models
-  for (const model of models.values()) {
-    const offset = model.idOffset ?? 0;
-    const localExpressId = expressId - offset;
-    if (localExpressId > 0 && localExpressId <= (model.maxExpressId ?? Infinity)) {
-      const globalIdString = model.ifcDataStore?.entities?.getGlobalId(localExpressId);
-      if (globalIdString) return globalIdString;
-    }
+  // Multi-model path: resolve through the centralized reverse conversion helper
+  const resolved = fromGlobalIdFromModels(models, expressId);
+  if (resolved && resolved.modelId !== 'legacy') {
+    const model = models.get(resolved.modelId);
+    const globalIdString = model?.ifcDataStore?.entities?.getGlobalId(resolved.expressId);
+    if (globalIdString) return globalIdString;
   }
   // Single-model fallback: use legacy ifcDataStore directly
   if (models.size === 0 && ifcDataStore?.entities) {

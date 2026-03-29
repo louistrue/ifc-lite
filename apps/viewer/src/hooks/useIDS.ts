@@ -220,9 +220,17 @@ export function useIDS(options: UseIDSOptions = {}): UseIDSResult {
   // Ref to store original colors before IDS color overrides
   const originalColorsRef = useRef<Map<number, ColorTuple>>(new Map());
 
-  const toViewerGlobalId = useCallback((modelId: string, expressId: number): number => {
-    if (modelId === '__legacy__' || modelId === 'legacy' || models.size === 0 || !models.has(modelId)) {
+  const toViewerGlobalId = useCallback((modelId: string, expressId: number): number | undefined => {
+    if (
+      modelId === '__legacy__'
+      || modelId === 'legacy'
+      || models.size === 0
+      || (models.size === 1 && !models.has(modelId))
+    ) {
       return expressId;
+    }
+    if (!models.has(modelId)) {
+      return undefined;
     }
     return toGlobalId(modelId, expressId);
   }, [models, toGlobalId]);
@@ -375,6 +383,7 @@ export function useIDS(options: UseIDSOptions = {}): UseIDSResult {
     } else {
       // Federation mode: use the store helper so ID resolution stays centralized.
       const globalId = toViewerGlobalId(modelId, expressId);
+      if (globalId == null) return;
       setSelectedEntityId(globalId);
       setSelectedEntity({ modelId, expressId });
     }
@@ -469,7 +478,8 @@ export function useIDS(options: UseIDSOptions = {}): UseIDSResult {
       const modelId = key.substring(0, lastColonIndex);
       const expressIdStr = key.substring(lastColonIndex + 1);
       const expressId = parseInt(expressIdStr, 10);
-      failedIds.add(toViewerGlobalId(modelId, expressId));
+      const globalId = toViewerGlobalId(modelId, expressId);
+      if (globalId != null) failedIds.add(globalId);
     }
 
     if (failedIds.size > 0) {
@@ -485,7 +495,8 @@ export function useIDS(options: UseIDSOptions = {}): UseIDSResult {
       const modelId = key.substring(0, lastColonIndex);
       const expressIdStr = key.substring(lastColonIndex + 1);
       const expressId = parseInt(expressIdStr, 10);
-      passedIds.add(toViewerGlobalId(modelId, expressId));
+      const globalId = toViewerGlobalId(modelId, expressId);
+      if (globalId != null) passedIds.add(globalId);
     }
 
     if (passedIds.size > 0) {
@@ -636,6 +647,7 @@ export function useIDS(options: UseIDSOptions = {}): UseIDSResult {
           for (const modelData of allMeshData) {
             if (modelData.modelId === entity.modelId || allMeshData.length === 1) {
               const globalExpressId = toViewerGlobalId(entity.modelId, entity.expressId);
+              if (globalExpressId == null) break;
               const bounds = getEntityBounds(
                 modelData.meshes as Parameters<typeof getEntityBounds>[0],
                 globalExpressId,
@@ -704,6 +716,7 @@ export function useIDS(options: UseIDSOptions = {}): UseIDSResult {
 
           // Find the global expressId for isolation (direct Map lookup)
           const globalExpressId = toViewerGlobalId(entity.modelId, entity.expressId);
+          if (globalExpressId == null) continue;
 
           // Frame the entity bounds directly via camera (properly centers the object)
           // duration=1 (not 0) because the animator skips updates when duration===0,

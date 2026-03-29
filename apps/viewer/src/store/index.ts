@@ -48,7 +48,7 @@ export { entityRefToString, stringToEntityRef, entityRefEquals, isIfcxDataStore 
 
 // Re-export single source of truth for globalId → EntityRef resolution
 export { resolveEntityRef } from './resolveEntityRef.js';
-export { toGlobalIdFromModels, toGlobalIdForRef } from './globalId.js';
+export { fromGlobalIdFromModels, toGlobalIdFromModels, toGlobalIdForRef } from './globalId.js';
 
 // Re-export Drawing2D types
 export type { Drawing2DState, Drawing2DStatus, Annotation2DTool, PolygonArea2DResult, TextAnnotation2D, CloudAnnotation2D, SelectedAnnotation2D } from './slices/drawing2DSlice.js';

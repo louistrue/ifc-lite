@@ -4,7 +4,8 @@
 
 import type { EntityRef, FederatedModel } from './types.js';
 
-type ModelMapLike = ReadonlyMap<string, Pick<FederatedModel, 'idOffset'>>;
+type ForwardModelMapLike = ReadonlyMap<string, Pick<FederatedModel, 'idOffset'>>;
+type ReverseModelMapLike = ReadonlyMap<string, Pick<FederatedModel, 'idOffset' | 'maxExpressId'>>;
 
 /**
  * Convert a local expressId to the renderer/global ID space.
@@ -15,7 +16,7 @@ type ModelMapLike = ReadonlyMap<string, Pick<FederatedModel, 'idOffset'>>;
  * entry exists.
  */
 export function toGlobalIdFromModels(
-  models: ModelMapLike,
+  models: ForwardModelMapLike,
   modelId: string,
   expressId: number,
 ): number {
@@ -32,10 +33,46 @@ export function toGlobalIdFromModels(
 }
 
 /**
+ * Resolve a renderer/global ID back to the source model and local expressId.
+ *
+ * This mirrors toGlobalIdFromModels and preserves legacy single-model behavior.
+ */
+export function fromGlobalIdFromModels(
+  models: ReverseModelMapLike,
+  globalId: number,
+): EntityRef | undefined {
+  if (models.size <= 1) {
+    const firstModelId = models.keys().next().value;
+    if (firstModelId) {
+      return {
+        modelId: firstModelId,
+        expressId: globalId,
+      };
+    }
+    return {
+      modelId: 'legacy',
+      expressId: globalId,
+    };
+  }
+
+  for (const [modelId, model] of models.entries()) {
+    const localExpressId = globalId - model.idOffset;
+    if (localExpressId > 0 && localExpressId <= model.maxExpressId) {
+      return {
+        modelId,
+        expressId: localExpressId,
+      };
+    }
+  }
+
+  return undefined;
+}
+
+/**
  * Convert an EntityRef to the renderer/global ID space.
  */
 export function toGlobalIdForRef(
-  models: ModelMapLike,
+  models: ForwardModelMapLike,
   ref: EntityRef,
 ): number {
   return toGlobalIdFromModels(models, ref.modelId, ref.expressId);

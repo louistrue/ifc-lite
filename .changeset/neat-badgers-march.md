@@ -1,3 +1,4 @@
+'@ifc-lite/data': patch
 '@ifc-lite/export': patch
 '@ifc-lite/geometry': patch
 '@ifc-lite/parser': patch

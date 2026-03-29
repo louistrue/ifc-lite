@@ -203,7 +203,10 @@ describe('Georeferencing Extractor', () => {
   it('computes angle from XAxisAbscissa/XAxisOrdinate using cos/sin semantics', () => {
     expect(computeAngleToGridNorth(1, 0)).toBeCloseTo(0);
     expect(computeAngleToGridNorth(0, 1)).toBeCloseTo(90);
+    expect(computeAngleToGridNorth(1, -1)).toBeCloseTo(-45);
+    expect(computeAngleToGridNorth(-1, 0)).toBeCloseTo(180);
     expect(computeAngleToGridNorth(undefined, 1)).toBeNull();
+    expect(computeAngleToGridNorth(undefined, undefined)).toBeNull();
   });
 
   it('should get coordinate system description', () => {

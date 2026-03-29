@@ -315,6 +315,7 @@ export interface GeoreferencingPanelProps {
 export function GeoreferencingPanel({ georef, modelId, enableEditing, schemaVersion }: GeoreferencingPanelProps) {
   const georefMutations = useViewerStore(s => s.georefMutations);
   const setGeorefField = useViewerStore(s => s.setGeorefField);
+  const setGeorefFields = useViewerStore(s => s.setGeorefFields);
   const [crsOpen, setCrsOpen] = useState(false);
   const [conversionOpen, setConversionOpen] = useState(false);
 
@@ -360,6 +361,14 @@ export function GeoreferencingPanel({ georef, modelId, enableEditing, schemaVers
     return computeAngleToGridNorth(mergedConversion?.xAxisAbscissa, mergedConversion?.xAxisOrdinate);
   }, [mergedConversion]);
 
+  const mapUnitSuffix = useMemo(() => {
+    const mapUnit = mergedCRS?.mapUnit?.toUpperCase();
+    if (!mapUnit) return 'm';
+    if (mapUnit.includes('US') && mapUnit.includes('FOOT')) return 'ftUS';
+    if (mapUnit.includes('FOOT') || mapUnit.includes('FEET')) return 'ft';
+    return 'm';
+  }, [mergedCRS?.mapUnit]);
+
   const isMutated = useCallback((entity: 'projectedCRS' | 'mapConversion', field: string): boolean => {
     if (!mutations) return false;
     const entityMuts = mutations[entity];
@@ -377,34 +386,40 @@ export function GeoreferencingPanel({ georef, modelId, enableEditing, schemaVers
 
   // Handle angle edit: compute and set both XAxisAbscissa and XAxisOrdinate
   const handleAngleChange = useCallback((abscissa: number, ordinate: number) => {
-    if (!modelId || !setGeorefField) return;
-    setGeorefField(modelId, 'mapConversion', 'xAxisAbscissa', abscissa, georef?.mapConversion?.xAxisAbscissa);
-    setGeorefField(modelId, 'mapConversion', 'xAxisOrdinate', ordinate, georef?.mapConversion?.xAxisOrdinate);
-  }, [modelId, setGeorefField, georef]);
+    if (!modelId || !setGeorefFields) return;
+    setGeorefFields(modelId, 'mapConversion', [
+      { field: 'xAxisAbscissa', value: abscissa, oldValue: georef?.mapConversion?.xAxisAbscissa },
+      { field: 'xAxisOrdinate', value: ordinate, oldValue: georef?.mapConversion?.xAxisOrdinate },
+    ]);
+  }, [modelId, setGeorefFields, georef]);
 
   const initializeMapConversionDefaults = useCallback(() => {
-    if (!modelId || !setGeorefField) return;
-    setGeorefField(modelId, 'mapConversion', 'eastings', georef?.mapConversion?.eastings ?? 0, georef?.mapConversion?.eastings);
-    setGeorefField(modelId, 'mapConversion', 'northings', georef?.mapConversion?.northings ?? 0, georef?.mapConversion?.northings);
-    setGeorefField(modelId, 'mapConversion', 'orthogonalHeight', georef?.mapConversion?.orthogonalHeight ?? 0, georef?.mapConversion?.orthogonalHeight);
-    setGeorefField(modelId, 'mapConversion', 'xAxisAbscissa', georef?.mapConversion?.xAxisAbscissa ?? 1, georef?.mapConversion?.xAxisAbscissa);
-    setGeorefField(modelId, 'mapConversion', 'xAxisOrdinate', georef?.mapConversion?.xAxisOrdinate ?? 0, georef?.mapConversion?.xAxisOrdinate);
-    setGeorefField(modelId, 'mapConversion', 'scale', georef?.mapConversion?.scale ?? 1, georef?.mapConversion?.scale);
+    if (!modelId || !setGeorefFields) return;
+    setGeorefFields(modelId, 'mapConversion', [
+      { field: 'eastings', value: georef?.mapConversion?.eastings ?? 0, oldValue: georef?.mapConversion?.eastings },
+      { field: 'northings', value: georef?.mapConversion?.northings ?? 0, oldValue: georef?.mapConversion?.northings },
+      { field: 'orthogonalHeight', value: georef?.mapConversion?.orthogonalHeight ?? 0, oldValue: georef?.mapConversion?.orthogonalHeight },
+      { field: 'xAxisAbscissa', value: georef?.mapConversion?.xAxisAbscissa ?? 1, oldValue: georef?.mapConversion?.xAxisAbscissa },
+      { field: 'xAxisOrdinate', value: georef?.mapConversion?.xAxisOrdinate ?? 0, oldValue: georef?.mapConversion?.xAxisOrdinate },
+      { field: 'scale', value: georef?.mapConversion?.scale ?? 1, oldValue: georef?.mapConversion?.scale },
+    ]);
     setConversionOpen(true);
-  }, [modelId, setGeorefField, georef]);
+  }, [modelId, setGeorefFields, georef]);
 
   const handleEpsgSelect = useCallback((result: EpsgResult) => {
-    if (!modelId || !setGeorefField) return;
+    if (!modelId || !setGeorefFields) return;
     const epsgName = `EPSG:${result.code}`;
-    setGeorefField(modelId, 'projectedCRS', 'name', epsgName, georef?.projectedCRS?.name);
+    const fieldUpdates: Array<{ field: string; value: string | number; oldValue?: string | number }> = [
+      { field: 'name', value: epsgName, oldValue: georef?.projectedCRS?.name },
+    ];
     if (result.name) {
-      setGeorefField(modelId, 'projectedCRS', 'description', result.name, georef?.projectedCRS?.description);
+      fieldUpdates.push({ field: 'description', value: result.name, oldValue: georef?.projectedCRS?.description });
     }
     if (result.datum) {
-      setGeorefField(modelId, 'projectedCRS', 'geodeticDatum', result.datum, georef?.projectedCRS?.geodeticDatum);
+      fieldUpdates.push({ field: 'geodeticDatum', value: result.datum, oldValue: georef?.projectedCRS?.geodeticDatum });
     }
     if (result.projection) {
-      setGeorefField(modelId, 'projectedCRS', 'mapProjection', result.projection, georef?.projectedCRS?.mapProjection);
+      fieldUpdates.push({ field: 'mapProjection', value: result.projection, oldValue: georef?.projectedCRS?.mapProjection });
     }
     if (result.unit) {
       const unitUpper = result.unit.toUpperCase();
@@ -415,13 +430,14 @@ export function GeoreferencingPanel({ georef, modelId, enableEditing, schemaVers
           : unitUpper.includes('FOOT') || unitUpper.includes('FEET')
             ? 'FOOT'
             : result.unit;
-      setGeorefField(modelId, 'projectedCRS', 'mapUnit', mapUnit, georef?.projectedCRS?.mapUnit);
+      fieldUpdates.push({ field: 'mapUnit', value: mapUnit, oldValue: georef?.projectedCRS?.mapUnit });
     }
+    setGeorefFields(modelId, 'projectedCRS', fieldUpdates);
     if (!georef?.mapConversion && !mutations?.mapConversion) {
       initializeMapConversionDefaults();
     }
     setCrsOpen(true);
-  }, [modelId, setGeorefField, georef, mutations, initializeMapConversionDefaults]);
+  }, [modelId, setGeorefFields, georef, mutations, initializeMapConversionDefaults]);
 
   const hasData = mergedCRS || mergedConversion;
   const editable = enableEditing && !!modelId && supportsStandardGeoreferencing;
@@ -537,9 +553,9 @@ export function GeoreferencingPanel({ georef, modelId, enableEditing, schemaVers
           {conversionOpen && (
             <div className="divide-y divide-zinc-100 dark:divide-zinc-900">
               <GeorefRow label="Type" value="IfcMapConversion" />
-              <GeorefRow label="Eastings" value={mergedConversion.eastings} suffix="m" isNumber editable={editable} isMutated={isMutated('mapConversion', 'eastings')} fieldEntity="mapConversion" fieldName="eastings" onSave={v => handleSave('mapConversion', 'eastings', v)} />
-              <GeorefRow label="Northings" value={mergedConversion.northings} suffix="m" isNumber editable={editable} isMutated={isMutated('mapConversion', 'northings')} fieldEntity="mapConversion" fieldName="northings" onSave={v => handleSave('mapConversion', 'northings', v)} />
-              <GeorefRow label="OrthogonalHeight" value={mergedConversion.orthogonalHeight} suffix="m" isNumber editable={editable} isMutated={isMutated('mapConversion', 'orthogonalHeight')} fieldEntity="mapConversion" fieldName="orthogonalHeight" onSave={v => handleSave('mapConversion', 'orthogonalHeight', v)} />
+              <GeorefRow label="Eastings" value={mergedConversion.eastings} suffix={mapUnitSuffix} isNumber editable={editable} isMutated={isMutated('mapConversion', 'eastings')} fieldEntity="mapConversion" fieldName="eastings" onSave={v => handleSave('mapConversion', 'eastings', v)} />
+              <GeorefRow label="Northings" value={mergedConversion.northings} suffix={mapUnitSuffix} isNumber editable={editable} isMutated={isMutated('mapConversion', 'northings')} fieldEntity="mapConversion" fieldName="northings" onSave={v => handleSave('mapConversion', 'northings', v)} />
+              <GeorefRow label="OrthogonalHeight" value={mergedConversion.orthogonalHeight} suffix={mapUnitSuffix} isNumber editable={editable} isMutated={isMutated('mapConversion', 'orthogonalHeight')} fieldEntity="mapConversion" fieldName="orthogonalHeight" onSave={v => handleSave('mapConversion', 'orthogonalHeight', v)} />
               <GeorefRow label="XAxisAbscissa" value={mergedConversion.xAxisAbscissa} isNumber editable={editable} isMutated={isMutated('mapConversion', 'xAxisAbscissa')} fieldEntity="mapConversion" fieldName="xAxisAbscissa" onSave={v => handleSave('mapConversion', 'xAxisAbscissa', v)} />
               <GeorefRow label="XAxisOrdinate" value={mergedConversion.xAxisOrdinate} isNumber editable={editable} isMutated={isMutated('mapConversion', 'xAxisOrdinate')} fieldEntity="mapConversion" fieldName="xAxisOrdinate" onSave={v => handleSave('mapConversion', 'xAxisOrdinate', v)} />
               <AngleRow angle={angleToGridNorth} editable={editable} onAngleChange={handleAngleChange} />

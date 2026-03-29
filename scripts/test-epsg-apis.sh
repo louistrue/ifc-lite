@@ -90,7 +90,7 @@ n = d.get('number_result', 0)
 results = d.get('results', [])
 print(f'  Results: {n} total, showing first 5')
 for r in results[:5]:
-    print(f'    {r.get(\"code\",\"?\")} | {r.get(\"name\",\"?\")} | {r.get(\"kind\",\"?\")} | {r.get(\"area\",\"?\")[:40]}')
+    print(f'    {r.get(\"code\",\"?\")} | {r.get(\"name\",\"?\")} | {r.get(\"kind\",\"?\")} | {(r.get(\"area\") or \"?\")[:40]}')
 " 2>/dev/null || fail "Could not parse JSON"
     CORS=$(head_with_origin "$URL" | grep -i "access-control-allow-origin" || echo "")
     [ -n "$CORS" ] && pass "CORS: $CORS" || fail "No CORS header"

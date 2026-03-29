@@ -31,10 +31,11 @@ function parseLevel(value: string | undefined): LodLevel {
 
 function parseQuality(value: string | undefined): GenerateLod1Options['quality'] {
   if (!value) return undefined;
-  if (value === 'low') return 'fast' as GenerateLod1Options['quality'];
-  if (value === 'medium') return 'balanced' as GenerateLod1Options['quality'];
+  // Keep the CLI's user-facing quality vocabulary while accepting the generator terms too.
+  if (value === 'low' || value === 'fast') return 'fast' as GenerateLod1Options['quality'];
+  if (value === 'medium' || value === 'balanced') return 'balanced' as GenerateLod1Options['quality'];
   if (value === 'high') return 'high' as GenerateLod1Options['quality'];
-  fatal(`Invalid --quality "${value}". Supported values: low, medium, high`);
+  fatal(`Invalid --quality "${value}". Supported values: low, medium, high, fast, balanced`);
 }
 
 export async function lodCommand(args: string[]): Promise<void> {

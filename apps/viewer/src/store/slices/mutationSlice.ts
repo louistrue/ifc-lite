@@ -47,6 +47,12 @@ export interface MutationSlice {
     value: string | number,
     oldValue?: string | number
   ) => void;
+  /** Set multiple georeferencing field values atomically */
+  setGeorefFields: (
+    modelId: string,
+    entity: 'projectedCRS' | 'mapConversion',
+    fields: Array<{ field: string; value: string | number; oldValue?: string | number }>
+  ) => void;
   /** Get merged georef mutations for a model */
   getGeorefMutations: (modelId: string) => GeorefMutationData | undefined;
 
@@ -179,26 +185,36 @@ export const createMutationSlice: StateCreator<
 
   // Georeferencing Mutations
   setGeorefField: (modelId, entity, field, value, oldValue) => {
+    get().setGeorefFields(modelId, entity, [{ field, value, oldValue }]);
+  },
+
+  setGeorefFields: (modelId, entity, fields) => {
+    if (fields.length === 0) return;
     set((state) => {
       const newGeorefMuts = new Map(state.georefMutations);
-      const modelMuts = newGeorefMuts.get(modelId) || {};
+      const modelMuts = { ...(newGeorefMuts.get(modelId) || {}) };
       const entityMuts = { ...(modelMuts[entity] || {}) } as Record<string, unknown>;
-      entityMuts[field] = value;
+      for (const entry of fields) {
+        entityMuts[entry.field] = entry.value;
+      }
       newGeorefMuts.set(modelId, { ...modelMuts, [entity]: entityMuts });
 
       // Track undo
       const newUndoStacks = new Map(state.undoStacks);
       const stack = newUndoStacks.get(modelId) || [];
-      const mutation: Mutation = {
+      const nextMutations: Mutation[] = fields.map(entry => ({
+        id: `mut_georef_${entity}_${entry.field}_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
         type: 'UPDATE_ATTRIBUTE',
+        timestamp: Date.now(),
+        modelId,
         entityId: 0, // georef entities don't map to a specific element
-        attributeName: `georef.${entity}.${field}`,
-        oldValue: oldValue,
-        newValue: value,
-        propName: field,
+        attributeName: `georef.${entity}.${entry.field}`,
+        oldValue: entry.oldValue,
+        newValue: entry.value,
+        propName: entry.field,
         psetName: entity,
-      };
-      newUndoStacks.set(modelId, [...stack, mutation]);
+      }));
+      newUndoStacks.set(modelId, [...stack, ...nextMutations]);
 
       const newRedoStacks = new Map(state.redoStacks);
       newRedoStacks.set(modelId, []);
@@ -473,7 +489,11 @@ export const createMutationSlice: StateCreator<
         } else {
           modelMuts[entity] = entityMuts as typeof modelMuts[typeof entity];
         }
-        newGeorefMuts.set(modelId, modelMuts);
+        if (Object.keys(modelMuts).length === 0) {
+          newGeorefMuts.delete(modelId);
+        } else {
+          newGeorefMuts.set(modelId, modelMuts);
+        }
 
         const newUndoStacks = new Map(s.undoStacks);
         newUndoStacks.set(modelId, undoStack.slice(0, -1));
@@ -583,8 +603,16 @@ export const createMutationSlice: StateCreator<
         } else {
           delete entityMuts[field];
         }
-        modelMuts[entity] = entityMuts as typeof modelMuts[typeof entity];
-        newGeorefMuts.set(modelId, modelMuts);
+        if (Object.keys(entityMuts).length === 0) {
+          delete modelMuts[entity];
+        } else {
+          modelMuts[entity] = entityMuts as typeof modelMuts[typeof entity];
+        }
+        if (Object.keys(modelMuts).length === 0) {
+          newGeorefMuts.delete(modelId);
+        } else {
+          newGeorefMuts.set(modelId, modelMuts);
+        }
 
         const newRedoStacks = new Map(s.redoStacks);
         newRedoStacks.set(modelId, redoStack.slice(0, -1));
