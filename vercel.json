@@ -7,7 +7,7 @@
   "rewrites": [
     {
       "source": "/api/epsg/:path*",
-      "destination": "https://apps.epsg.org/:path*"
+      "destination": "https://epsg.io/:path*"
     },
     {
       "source": "/api/bsdd/:path*",

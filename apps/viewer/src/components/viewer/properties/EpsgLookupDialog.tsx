@@ -5,9 +5,9 @@
 /**
  * EPSG lookup dialog - search by code or name.
  *
- * Uses the EPSG.org Registry API (apps.epsg.org) as the authoritative
- * source, proxied via /api/epsg to avoid CORS issues. Falls back to a
- * bundled database of common CRS codes for instant offline results.
+ * Uses epsg.io (powered by the EPSG dataset) proxied via /api/epsg
+ * to avoid CORS issues. Supports worldwide search by code, name,
+ * country, or datum.
  */
 
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
@@ -32,89 +32,66 @@ export interface EpsgResult {
   projection?: string;
 }
 
-// ── EPSG.org Registry API (proxied) ────────────────────────────────────
+// ── epsg.io API (proxied via /api/epsg) ────────────────────────────────
 
-const EPSG_API = '/api/epsg/api/v1';
+const EPSG_PROXY = '/api/epsg';
 
-async function searchEpsgRegistry(
+async function searchEpsg(
   query: string,
   signal: AbortSignal
 ): Promise<EpsgResult[]> {
   const isCode = /^\d+$/.test(query);
+  const url = isCode
+    ? `${EPSG_PROXY}/${query}.json`
+    : `${EPSG_PROXY}/?q=${encodeURIComponent(query)}&format=json`;
 
-  if (isCode) {
-    const res = await fetch(`${EPSG_API}/CoordRefSystem/${query}`, {
-      signal,
+  const res = await fetch(url, { signal });
+  if (!res.ok) return [];
+
+  const data = await res.json();
+  const rawResults = data.results || [];
+
+  return rawResults
+    .filter((r: Record<string, unknown>) =>
+      r.code && r.name && (
+        r.kind === 'CRS-PROJCRS' || r.kind === 'CRS-GEOGCRS' ||
+        r.kind === 'CRS-COMPOUNDCRS' || isCode
+      )
+    )
+    .slice(0, 25)
+    .map((r: Record<string, unknown>): EpsgResult => {
+      let kind: string | undefined;
+      if (r.kind === 'CRS-PROJCRS') kind = 'Projected';
+      else if (r.kind === 'CRS-GEOGCRS') kind = 'Geographic';
+      else if (r.kind === 'CRS-COMPOUNDCRS') kind = 'Compound';
+
+      return {
+        code: String(r.code),
+        name: String(r.name || ''),
+        area: String(r.area || ''),
+        unit: String(r.unit || ''),
+        kind,
+        datum: r.datum ? String(r.datum) : undefined,
+        projection: r.projection ? String(r.projection) : undefined,
+      };
     });
-    if (!res.ok) return [];
-    const data = await res.json();
-    if (!data?.Code) return [];
-    return [mapRegistryResult(data)];
-  }
-
-  // Text search — try multiple endpoint patterns
-  // The EPSG.org API may return an array directly or a paginated { Results: [] } wrapper
-  for (const endpoint of [
-    `${EPSG_API}/CoordRefSystem?searchText=${encodeURIComponent(query)}&pageSize=25&includeDeprecated=false`,
-    `${EPSG_API}/CoordRefSystem?name=${encodeURIComponent(query)}&pageSize=25`,
-  ]) {
-    try {
-      const res = await fetch(endpoint, { signal });
-      if (!res.ok) continue;
-      const data = await res.json();
-      const items = Array.isArray(data) ? data : (data?.Results ?? data?.results ?? []);
-      if (!Array.isArray(items) || items.length === 0) continue;
-      return items.filter((r: Record<string, unknown>) => r.Code && r.Name).map(mapRegistryResult);
-    } catch (err: unknown) {
-      if (err instanceof Error && err.name === 'AbortError') throw err;
-      continue;
-    }
-  }
-  return [];
-}
-
-function mapRegistryResult(r: Record<string, unknown>): EpsgResult {
-  const areaOfUse = r.AreaOfUse as Record<string, unknown> | undefined;
-  const datum = r.Datum as Record<string, unknown> | undefined;
-  const projection = r.Projection as Record<string, unknown> | undefined;
-  const coordSys = r.CoordSys as Record<string, unknown> | undefined;
-  const axes = (coordSys?.CoordinateAxis as Array<Record<string, unknown>>) ?? [];
-  const uom = (axes[0]?.Uom as Record<string, unknown>) ?? {};
-
-  let kind: string | undefined;
-  const rawKind = String(r.Kind ?? r.Type ?? '');
-  if (rawKind.toLowerCase().includes('projected')) kind = 'Projected';
-  else if (rawKind.toLowerCase().includes('geographic')) kind = 'Geographic';
-  else if (rawKind.toLowerCase().includes('compound')) kind = 'Compound';
-  else if (rawKind.toLowerCase().includes('engineering')) kind = 'Engineering';
-  else if (rawKind) kind = rawKind;
-
-  return {
-    code: String(r.Code),
-    name: String(r.Name ?? ''),
-    area: areaOfUse?.Name ? String(areaOfUse.Name) : '',
-    unit: uom?.Name ? String(uom.Name) : '',
-    kind,
-    datum: datum?.Name ? String(datum.Name) : undefined,
-    projection: projection?.Name ? String(projection.Name) : undefined,
-  };
 }
 
 // ── Bundled offline fallback (common BIM/GIS codes) ────────────────────
 
 const COMMON_CRS: EpsgResult[] = [
   { code: '4326', name: 'WGS 84', area: 'World', unit: 'degree', kind: 'Geographic', datum: 'WGS84' },
-  { code: '3857', name: 'WGS 84 / Pseudo-Mercator', area: 'World', unit: 'metre', kind: 'Projected', datum: 'WGS84', projection: 'Pseudo-Mercator' },
+  { code: '3857', name: 'WGS 84 / Pseudo-Mercator', area: 'World', unit: 'metre', kind: 'Projected', datum: 'WGS84' },
   { code: '4258', name: 'ETRS89', area: 'Europe', unit: 'degree', kind: 'Geographic', datum: 'ETRS89' },
   { code: '2056', name: 'CH1903+ / LV95', area: 'Switzerland', unit: 'metre', kind: 'Projected', datum: 'CH1903+' },
   { code: '21781', name: 'CH1903 / LV03', area: 'Switzerland', unit: 'metre', kind: 'Projected', datum: 'CH1903' },
-  { code: '25832', name: 'ETRS89 / UTM zone 32N', area: 'Europe 6°-12°E', unit: 'metre', kind: 'Projected', datum: 'ETRS89', projection: 'UTM' },
-  { code: '25833', name: 'ETRS89 / UTM zone 33N', area: 'Europe 12°-18°E', unit: 'metre', kind: 'Projected', datum: 'ETRS89', projection: 'UTM' },
+  { code: '25832', name: 'ETRS89 / UTM zone 32N', area: 'Europe 6°-12°E', unit: 'metre', kind: 'Projected', datum: 'ETRS89' },
+  { code: '25833', name: 'ETRS89 / UTM zone 33N', area: 'Europe 12°-18°E', unit: 'metre', kind: 'Projected', datum: 'ETRS89' },
   { code: '27700', name: 'OSGB 1936 / British National Grid', area: 'United Kingdom', unit: 'metre', kind: 'Projected', datum: 'OSGB 1936' },
   { code: '2154', name: 'RGF93 v1 / Lambert-93', area: 'France', unit: 'metre', kind: 'Projected', datum: 'RGF93 v1' },
   { code: '28992', name: 'Amersfoort / RD New', area: 'Netherlands', unit: 'metre', kind: 'Projected', datum: 'Amersfoort' },
-  { code: '32632', name: 'WGS 84 / UTM zone 32N', area: 'World 6°-12°E', unit: 'metre', kind: 'Projected', datum: 'WGS84', projection: 'UTM' },
-  { code: '32633', name: 'WGS 84 / UTM zone 33N', area: 'World 12°-18°E', unit: 'metre', kind: 'Projected', datum: 'WGS84', projection: 'UTM' },
+  { code: '32632', name: 'WGS 84 / UTM zone 32N', area: 'World 6°-12°E', unit: 'metre', kind: 'Projected', datum: 'WGS84' },
+  { code: '32633', name: 'WGS 84 / UTM zone 33N', area: 'World 12°-18°E', unit: 'metre', kind: 'Projected', datum: 'WGS84' },
 ];
 
 // ── Dialog component ───────────────────────────────────────────────────
@@ -159,7 +136,7 @@ export function EpsgLookupDialog({ onSelect, children }: EpsgLookupDialogProps) 
       setResults(localMatches);
     }
 
-    // Then search the authoritative API
+    // Then search via proxied API
     if (abortRef.current) abortRef.current.abort();
     const controller = new AbortController();
     abortRef.current = controller;
@@ -167,7 +144,7 @@ export function EpsgLookupDialog({ onSelect, children }: EpsgLookupDialogProps) 
     setError(null);
 
     try {
-      const apiResults = await searchEpsgRegistry(trimmed, controller.signal);
+      const apiResults = await searchEpsg(trimmed, controller.signal);
       if (controller.signal.aborted) return;
 
       if (apiResults.length > 0) {
@@ -180,7 +157,6 @@ export function EpsgLookupDialog({ onSelect, children }: EpsgLookupDialogProps) 
     } catch (err: unknown) {
       if (err instanceof Error && err.name === 'AbortError') return;
       console.warn('[EPSG Lookup] API search failed:', err);
-      // Keep local results if API fails
       if (localMatches.length === 0) {
         setError('Search unavailable — try entering an EPSG code directly');
       }
@@ -234,13 +210,13 @@ export function EpsgLookupDialog({ onSelect, children }: EpsgLookupDialogProps) 
             EPSG Lookup
           </DialogTitle>
           <DialogDescription className="text-[11px] text-muted-foreground">
-            Search the IOGP EPSG registry by code, name, country, or datum
+            Search by code, name, country, or datum
           </DialogDescription>
         </DialogHeader>
 
         <div className="px-4 pb-3">
           <Input
-            placeholder="e.g. 2056, UTM, Switzerland, WGS84..."
+            placeholder="e.g. 2056, UTM, Switzerland, Tokyo..."
             value={query}
             onChange={handleInputChange}
             leftIcon={loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Search className="h-3.5 w-3.5" />}

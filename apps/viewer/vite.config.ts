@@ -266,7 +266,7 @@ export default defineConfig({
         changeOrigin: true,
       },
       '/api/epsg': {
-        target: 'https://apps.epsg.org',
+        target: 'https://epsg.io',
         changeOrigin: true,
         rewrite: (p) => p.replace(/^\/api\/epsg/, ''),
       },

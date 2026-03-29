@@ -796,11 +796,6 @@ export function PropertiesPanel() {
       };
       return <ModelMetadataPanel model={legacyModel} />;
     }
-    // Show first loaded model's metadata when nothing selected in federated mode
-    if (models.size > 0) {
-      const firstModel = models.values().next().value;
-      if (firstModel) return <ModelMetadataPanel model={firstModel} />;
-    }
     return (
       <div className="h-full flex flex-col border-l-2 border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-black">
         <div className="p-3 border-b-2 border-zinc-200 dark:border-zinc-800 bg-white dark:bg-black">
@@ -812,7 +807,7 @@ export function PropertiesPanel() {
           </div>
           <p className="font-bold uppercase text-zinc-900 dark:text-zinc-100 mb-2">No Selection</p>
           <p className="text-xs font-mono text-zinc-500 dark:text-zinc-400 max-w-[150px]">
-            Select an element to view details
+            {models.size > 1 ? 'Select a model or element to view details' : 'Select an element to view details'}
           </p>
         </div>
       </div>
