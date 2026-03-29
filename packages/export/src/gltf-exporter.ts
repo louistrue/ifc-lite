@@ -36,6 +36,7 @@ interface GLTFMaterial {
         metallicFactor: number;
         roughnessFactor: number;
     };
+    extensions?: Record<string, Record<string, never>>;
     name?: string;
     alphaMode?: 'OPAQUE' | 'MASK' | 'BLEND';
 }
@@ -83,6 +84,7 @@ interface GLTFDocument {
     accessors: GLTFAccessor[];
     bufferViews: GLTFBufferView[];
     buffers: GLTFBuffer[];
+    extensionsUsed?: string[];
 }
 
 export interface GLTFExportOptions {
@@ -159,8 +161,9 @@ export class GLTFExporter {
                 pbrMetallicRoughness: {
                     baseColorFactor: [r, g, b, a],
                     metallicFactor: 0,
-                    roughnessFactor: 0.7,
+                    roughnessFactor: 1,
                 },
+                extensions: { KHR_materials_unlit: {} },
                 ...(a < 1 ? { alphaMode: 'BLEND' as const } : {}),
             });
             materialMap.set(key, idx);
@@ -311,6 +314,7 @@ export class GLTFExporter {
         // Attach materials if any were created
         if (materials.length > 0) {
             gltf.materials = materials;
+            gltf.extensionsUsed = ['KHR_materials_unlit'];
         }
 
         // Buffer views
