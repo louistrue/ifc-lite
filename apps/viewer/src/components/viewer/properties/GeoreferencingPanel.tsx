@@ -403,9 +403,26 @@ export function GeoreferencingPanel({ georef, modelId, enableEditing }: Georefer
   }, [modelId, setGeorefField, georef]);
 
   const hasData = mergedCRS || mergedConversion;
-  if (!hasData && !georef?.hasGeoreference) return null;
-
   const editable = enableEditing && !!modelId;
+
+  // When no georef data exists, show "Add Georeferencing" in edit mode
+  if (!hasData && !georef?.hasGeoreference) {
+    if (!editable) return null;
+    return (
+      <div className="border-t border-zinc-200 dark:border-zinc-800">
+        <div className="px-2.5 py-2 bg-teal-50/50 dark:bg-teal-950/20 flex items-center gap-2">
+          <Globe className="h-3.5 w-3.5 text-teal-600 dark:text-teal-400" />
+          <span className="text-[11px] text-zinc-500 dark:text-zinc-400 flex-1">No georeferencing</span>
+          <EpsgLookupDialog onSelect={handleEpsgSelect}>
+            <button className="flex items-center gap-1 text-[10px] font-medium text-teal-600 dark:text-teal-400 hover:text-teal-800 dark:hover:text-teal-300 transition-colors px-2 py-1 border border-teal-300/50 dark:border-teal-700/50 hover:bg-teal-50 dark:hover:bg-teal-950/50">
+              <Globe className="h-3 w-3" />
+              Add Georeferencing
+            </button>
+          </EpsgLookupDialog>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="border-t border-zinc-200 dark:border-zinc-800">
