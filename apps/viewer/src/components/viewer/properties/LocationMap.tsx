@@ -239,7 +239,7 @@ export function LocationMap({ mapConversion, projectedCRS, coordinateInfo, geome
         <>
           <div
             ref={containerRef}
-            className="h-[180px] w-full [&_.maplibregl-ctrl-attrib]:!text-[7px] [&_.maplibregl-ctrl-attrib]:!bg-transparent [&_.maplibregl-ctrl-attrib]:!py-0 [&_.maplibregl-ctrl-attrib]:!px-1 [&_.maplibregl-ctrl-attrib]:!leading-snug [&_.maplibregl-ctrl-attrib]:!text-zinc-400 [&_.maplibregl-ctrl-attrib]:!shadow-none [&_.maplibregl-compact-show_.maplibregl-ctrl-attrib-button]:!hidden [&_.maplibregl-ctrl-attrib-button]:!hidden [&_.maplibregl-ctrl-attrib.maplibregl-compact]:!bg-transparent [&_.maplibregl-ctrl-attrib.maplibregl-compact-show]:!p-0 [&_.maplibregl-ctrl-attrib_a]:!text-zinc-400"
+            className="h-[180px] w-full [&_.maplibregl-ctrl-attrib]:!text-[7px] [&_.maplibregl-ctrl-attrib]:!bg-white/40 [&_.maplibregl-ctrl-attrib]:dark:!bg-black/30 [&_.maplibregl-ctrl-attrib]:!py-0 [&_.maplibregl-ctrl-attrib]:!px-1 [&_.maplibregl-ctrl-attrib]:!shadow-none [&_.maplibregl-ctrl-attrib]:!text-zinc-400/70 [&_.maplibregl-ctrl-attrib_a]:!text-zinc-400/70 [&_.maplibregl-ctrl-attrib]:!leading-normal"
             style={{ minHeight: 180 }}
           />
 

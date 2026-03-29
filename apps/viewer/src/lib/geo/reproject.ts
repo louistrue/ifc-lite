@@ -49,6 +49,36 @@ function utmProj4String(zone: string): string | null {
 }
 
 /**
+ * Well-known +towgs84 approximations for datums that normally use grid files.
+ * These are accurate to ~1-5m, which is sufficient for map display.
+ * Grid files (like OSTN15_NTv2_OSGBtoETRS.gsb) cannot run in the browser.
+ */
+const DATUM_TOWGS84: Record<string, string> = {
+  'airy': '+towgs84=446.448,-125.157,542.06,0.15,0.247,0.842,-20.489',      // OSGB36 (UK)
+  'clrk66': '+towgs84=-8,160,176,0,0,0,0',                                   // NAD27 (approx)
+  'GRS80': '+towgs84=0,0,0,0,0,0,0',                                          // GRS80-based (NAD83≈WGS84)
+  'bessel': '+towgs84=598.1,73.7,418.2,0.202,0.045,-2.455,6.7',              // DHDN (Germany)
+  'intl': '+towgs84=-87,-98,-121,0,0,0,0',                                    // NZGD49 (NZ)
+  'aust_SA': '+towgs84=-134,-48,149,0,0,0,0',                                 // AGD84 (Australia)
+};
+
+/**
+ * Strip +nadgrids=... from a proj4 string and add a +towgs84 approximation
+ * based on the ellipsoid. Grid files cannot be loaded in the browser.
+ */
+function sanitizeProj4(def: string): string {
+  if (!def.includes('+nadgrids') || def.includes('+nadgrids=@null')) return def;
+
+  // Extract the ellipsoid to find the right towgs84 approximation
+  const ellpsMatch = def.match(/\+ellps=(\S+)/);
+  const ellps = ellpsMatch?.[1] ?? '';
+  const towgs84 = DATUM_TOWGS84[ellps] ?? '+towgs84=0,0,0,0,0,0,0';
+
+  // Remove +nadgrids=... and add +towgs84
+  return def.replace(/\+nadgrids=\S+/g, '').replace(/\s+/g, ' ').trim() + ' ' + towgs84;
+}
+
+/**
  * Fetch a proj4 definition string from epsg.io (last-resort fallback).
  */
 async function fetchProj4Def(epsgCode: string): Promise<string | null> {
@@ -87,8 +117,9 @@ export async function resolveProjection(crs: ProjectedCRS): Promise<string | nul
     try {
       const bundled = await lookupProj4(code);
       if (bundled) {
-        projDefCache.set(code, bundled);
-        return bundled;
+        const sanitized = sanitizeProj4(bundled);
+        projDefCache.set(code, sanitized);
+        return sanitized;
       }
       console.warn(`[reproject] EPSG:${code} found in index but has no proj4 definition`);
     } catch (err) {
@@ -118,7 +149,8 @@ export async function resolveProjection(crs: ProjectedCRS): Promise<string | nul
   // 4. Network fallback — fetch from epsg.io
   if (code) {
     console.log(`[reproject] EPSG:${code} not in bundled index, fetching from epsg.io...`);
-    const fetched = await fetchProj4Def(code);
+    const raw = await fetchProj4Def(code);
+    const fetched = raw ? sanitizeProj4(raw) : null;
     projDefCache.set(code, fetched);
     if (fetched) {
       console.log(`[reproject] EPSG:${code} resolved from epsg.io`);
