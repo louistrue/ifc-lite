@@ -7,7 +7,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { extractGeoreferencing, transformToWorld, transformToLocal, getCoordinateSystemDescription } from '../src/georef-extractor';
+import { extractGeoreferencing, transformToWorld, transformToLocal, getCoordinateSystemDescription, computeAngleToGridNorth } from '../src/georef-extractor';
 import type { IfcEntity } from '../src/entity-extractor';
 
 describe('Georeferencing Extractor', () => {
@@ -198,6 +198,12 @@ describe('Georeferencing Extractor', () => {
     expect(worldPoint![0]).toBeCloseTo(0.0, 5);  // Should rotate to Y axis
     expect(worldPoint![1]).toBeCloseTo(1.0, 5);
     expect(worldPoint![2]).toBeCloseTo(0.0, 5);
+  });
+
+  it('computes angle from XAxisAbscissa/XAxisOrdinate using cos/sin semantics', () => {
+    expect(computeAngleToGridNorth(1, 0)).toBeCloseTo(0);
+    expect(computeAngleToGridNorth(0, 1)).toBeCloseTo(90);
+    expect(computeAngleToGridNorth(undefined, 1)).toBeNull();
   });
 
   it('should get coordinate system description', () => {

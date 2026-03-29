@@ -387,8 +387,8 @@ export function GeoreferencingPanel({ georef, modelId, enableEditing, schemaVers
     setGeorefField(modelId, 'mapConversion', 'eastings', georef?.mapConversion?.eastings ?? 0, georef?.mapConversion?.eastings);
     setGeorefField(modelId, 'mapConversion', 'northings', georef?.mapConversion?.northings ?? 0, georef?.mapConversion?.northings);
     setGeorefField(modelId, 'mapConversion', 'orthogonalHeight', georef?.mapConversion?.orthogonalHeight ?? 0, georef?.mapConversion?.orthogonalHeight);
-    setGeorefField(modelId, 'mapConversion', 'xAxisAbscissa', georef?.mapConversion?.xAxisAbscissa ?? 0, georef?.mapConversion?.xAxisAbscissa);
-    setGeorefField(modelId, 'mapConversion', 'xAxisOrdinate', georef?.mapConversion?.xAxisOrdinate ?? 1, georef?.mapConversion?.xAxisOrdinate);
+    setGeorefField(modelId, 'mapConversion', 'xAxisAbscissa', georef?.mapConversion?.xAxisAbscissa ?? 1, georef?.mapConversion?.xAxisAbscissa);
+    setGeorefField(modelId, 'mapConversion', 'xAxisOrdinate', georef?.mapConversion?.xAxisOrdinate ?? 0, georef?.mapConversion?.xAxisOrdinate);
     setGeorefField(modelId, 'mapConversion', 'scale', georef?.mapConversion?.scale ?? 1, georef?.mapConversion?.scale);
     setConversionOpen(true);
   }, [modelId, setGeorefField, georef]);

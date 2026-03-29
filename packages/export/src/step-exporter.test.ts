@@ -249,6 +249,34 @@ describe('StepExporter', () => {
     expect(content).toContain('IFCSIUNIT(*,.LENGTHUNIT.,$,.METRE.)');
   });
 
+  it('prefers the 3D model representation context when creating IfcMapConversion', () => {
+    const dataStore = buildMockDataStore([
+      [1, 'IFCPROJECT', "#1=IFCPROJECT('g',$,'Project',$,$,$,$,(#10,#20),#30);"],
+      [10, 'IFCGEOMETRICREPRESENTATIONCONTEXT', "#10=IFCGEOMETRICREPRESENTATIONCONTEXT($,'Plan',2,1.E-05,#11,$);"],
+      [11, 'IFCAXIS2PLACEMENT2D', "#11=IFCAXIS2PLACEMENT2D(#12,#13);"],
+      [12, 'IFCCARTESIANPOINT', '#12=IFCCARTESIANPOINT((0.,0.));'],
+      [13, 'IFCDIRECTION', '#13=IFCDIRECTION((1.,0.));'],
+      [20, 'IFCGEOMETRICREPRESENTATIONCONTEXT', "#20=IFCGEOMETRICREPRESENTATIONCONTEXT($,'Model',3,1.E-05,#21,$);"],
+      [21, 'IFCAXIS2PLACEMENT3D', "#21=IFCAXIS2PLACEMENT3D(#22,#23,#24);"],
+      [22, 'IFCCARTESIANPOINT', '#22=IFCCARTESIANPOINT((0.,0.,0.));'],
+      [23, 'IFCDIRECTION', '#23=IFCDIRECTION((0.,0.,1.));'],
+      [24, 'IFCDIRECTION', '#24=IFCDIRECTION((1.,0.,0.));'],
+      [30, 'IFCUNITASSIGNMENT', '#30=IFCUNITASSIGNMENT(());'],
+    ]);
+
+    const exporter = new StepExporter(dataStore);
+    const result = exporter.export({
+      schema: 'IFC4',
+      applyMutations: true,
+      georefMutations: {
+        projectedCRS: { name: 'EPSG:2056', mapUnit: 'METRE' },
+        mapConversion: { eastings: 2600000, northings: 1200000, orthogonalHeight: 500, xAxisAbscissa: 1, xAxisOrdinate: 0, scale: 1 },
+      },
+    });
+
+    expect(decode(result.content)).toMatch(/IFCMAPCONVERSION\(#20,#\d+,2600000\.,1200000\.,500\.,1\.,0\.,1\.\);/);
+  });
+
   it('rejects georeferencing edits for IFC2X3 export', async () => {
     const parser = new IfcParser();
     const store = await parser.parseColumnar(new TextEncoder().encode(SIMPLE_TYPE_INHERITANCE_IFC).buffer);

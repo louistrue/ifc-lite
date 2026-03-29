@@ -35,15 +35,17 @@ export interface MapConversion {
 
 /**
  * Compute angle to grid north from XAxisAbscissa and XAxisOrdinate (in degrees).
- * Returns the clockwise angle from grid north to the IFC Y-axis.
- * Uses atan2(abscissa, ordinate) converted to degrees, matching Blender Bonsai convention.
+ * Returns the counterclockwise angle from map X to the IFC local X-axis.
+ * With IfcMapConversion this is represented as cos/sin, so:
+ * - XAxisAbscissa = cos(angle)
+ * - XAxisOrdinate = sin(angle)
  */
 export function computeAngleToGridNorth(
   xAxisAbscissa?: number,
   xAxisOrdinate?: number
 ): number | null {
   if (xAxisAbscissa === undefined || xAxisOrdinate === undefined) return null;
-  const radians = Math.atan2(xAxisAbscissa, xAxisOrdinate);
+  const radians = Math.atan2(xAxisOrdinate, xAxisAbscissa);
   return radians * (180 / Math.PI);
 }
 
@@ -275,4 +277,3 @@ export function getCoordinateSystemDescription(georef: GeoreferenceInfo): string
 
   return parts.join(' ');
 }
-

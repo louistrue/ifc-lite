@@ -392,8 +392,7 @@ export class StepExporter {
         newEntityCount++;
 
         // Find IfcGeometricRepresentationContext as SourceCRS for MapConversion
-        const contextIds = this.dataStore.entityIndex.byType.get('IFCGEOMETRICREPRESENTATIONCONTEXT');
-        const contextId = contextIds?.[0];
+        const contextId = this.findPreferredGeometricRepresentationContextId();
 
         if (contextId) {
           const mc = gm.mapConversion || {};
@@ -412,8 +411,7 @@ export class StepExporter {
         }
       } else if (gm.mapConversion && !existingMcIds?.length && existingCrsIds?.length) {
         // CRS exists but no MapConversion — create just the conversion
-        const contextIds = this.dataStore.entityIndex.byType.get('IFCGEOMETRICREPRESENTATIONCONTEXT');
-        const contextId = contextIds?.[0];
+        const contextId = this.findPreferredGeometricRepresentationContextId();
         if (contextId) {
           const mc = gm.mapConversion;
           const mcId = this.nextExpressId++;
@@ -990,6 +988,33 @@ export class StepExporter {
     }
 
     return null;
+  }
+
+  private findPreferredGeometricRepresentationContextId(): number | null {
+    if (!this.entityExtractor) return null;
+
+    const contextIds = this.dataStore.entityIndex.byType.get('IFCGEOMETRICREPRESENTATIONCONTEXT') ?? [];
+    let first3dContext: number | null = null;
+
+    for (const contextId of contextIds) {
+      const contextRef = this.dataStore.entityIndex.byId.get(contextId);
+      const context = contextRef ? this.entityExtractor.extractEntity(contextRef) : null;
+      if (!context) continue;
+
+      const attrs = context.attributes ?? [];
+      const contextType = typeof attrs[1] === 'string' ? attrs[1].trim().toUpperCase() : '';
+      const dimension = typeof attrs[2] === 'number' ? attrs[2] : null;
+
+      if (dimension === 3 && first3dContext === null) {
+        first3dContext = contextId;
+      }
+
+      if (contextType === 'MODEL' && dimension === 3) {
+        return contextId;
+      }
+    }
+
+    return first3dContext ?? contextIds[0] ?? null;
   }
 
   /**
