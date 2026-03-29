@@ -1,5 +1,13 @@
 # @ifc-lite/lists
 
+## 1.14.8
+
+### Patch Changes
+
+- Updated dependencies [[`6ce40dd`](https://github.com/louistrue/ifc-lite/commit/6ce40ddb0cace5f83c2438d2d4c4bd47703468f7), [`6ce40dd`](https://github.com/louistrue/ifc-lite/commit/6ce40ddb0cace5f83c2438d2d4c4bd47703468f7)]:
+  - @ifc-lite/data@1.15.0
+  - @ifc-lite/encoding@1.14.5
+
 ## 1.14.7
 
 ### Patch Changes
