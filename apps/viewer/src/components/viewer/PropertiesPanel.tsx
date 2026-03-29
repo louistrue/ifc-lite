@@ -1018,6 +1018,7 @@ export function PropertiesPanel() {
                 georef={georef}
                 modelId={selectedEntity?.modelId === 'legacy' ? '__legacy__' : (model?.id ?? selectedEntity?.modelId)}
                 enableEditing
+                schemaVersion={activeDataStore?.schemaVersion}
               />
             </CollapsibleContent>
           </Collapsible>

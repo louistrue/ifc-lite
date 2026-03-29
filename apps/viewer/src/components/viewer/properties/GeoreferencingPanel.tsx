@@ -309,9 +309,10 @@ export interface GeoreferencingPanelProps {
   georef: GeoreferenceInfo | null;
   modelId?: string;
   enableEditing?: boolean;
+  schemaVersion?: string;
 }
 
-export function GeoreferencingPanel({ georef, modelId, enableEditing }: GeoreferencingPanelProps) {
+export function GeoreferencingPanel({ georef, modelId, enableEditing, schemaVersion }: GeoreferencingPanelProps) {
   const georefMutations = useViewerStore(s => s.georefMutations);
   const setGeorefField = useViewerStore(s => s.setGeorefField);
   const [crsOpen, setCrsOpen] = useState(false);
@@ -320,6 +321,7 @@ export function GeoreferencingPanel({ georef, modelId, enableEditing }: Georefer
   useViewerStore(s => s.mutationVersion);
 
   const mutations = modelId ? georefMutations?.get(modelId) : undefined;
+  const supportsStandardGeoreferencing = !schemaVersion?.toUpperCase().includes('2X3');
 
   const mergedCRS = useMemo((): ProjectedCRS | undefined => {
     const base = georef?.projectedCRS;
@@ -380,6 +382,17 @@ export function GeoreferencingPanel({ georef, modelId, enableEditing }: Georefer
     setGeorefField(modelId, 'mapConversion', 'xAxisOrdinate', ordinate, georef?.mapConversion?.xAxisOrdinate);
   }, [modelId, setGeorefField, georef]);
 
+  const initializeMapConversionDefaults = useCallback(() => {
+    if (!modelId || !setGeorefField) return;
+    setGeorefField(modelId, 'mapConversion', 'eastings', georef?.mapConversion?.eastings ?? 0, georef?.mapConversion?.eastings);
+    setGeorefField(modelId, 'mapConversion', 'northings', georef?.mapConversion?.northings ?? 0, georef?.mapConversion?.northings);
+    setGeorefField(modelId, 'mapConversion', 'orthogonalHeight', georef?.mapConversion?.orthogonalHeight ?? 0, georef?.mapConversion?.orthogonalHeight);
+    setGeorefField(modelId, 'mapConversion', 'xAxisAbscissa', georef?.mapConversion?.xAxisAbscissa ?? 0, georef?.mapConversion?.xAxisAbscissa);
+    setGeorefField(modelId, 'mapConversion', 'xAxisOrdinate', georef?.mapConversion?.xAxisOrdinate ?? 1, georef?.mapConversion?.xAxisOrdinate);
+    setGeorefField(modelId, 'mapConversion', 'scale', georef?.mapConversion?.scale ?? 1, georef?.mapConversion?.scale);
+    setConversionOpen(true);
+  }, [modelId, setGeorefField, georef]);
+
   const handleEpsgSelect = useCallback((result: EpsgResult) => {
     if (!modelId || !setGeorefField) return;
     const epsgName = `EPSG:${result.code}`;
@@ -400,10 +413,25 @@ export function GeoreferencingPanel({ georef, modelId, enableEditing }: Georefer
         : result.unit;
       setGeorefField(modelId, 'projectedCRS', 'mapUnit', mapUnit, georef?.projectedCRS?.mapUnit);
     }
-  }, [modelId, setGeorefField, georef]);
+    if (!georef?.mapConversion && !mutations?.mapConversion) {
+      initializeMapConversionDefaults();
+    }
+    setCrsOpen(true);
+  }, [modelId, setGeorefField, georef, mutations, initializeMapConversionDefaults]);
 
   const hasData = mergedCRS || mergedConversion;
-  const editable = enableEditing && !!modelId;
+  const editable = enableEditing && !!modelId && supportsStandardGeoreferencing;
+
+  if (enableEditing && !supportsStandardGeoreferencing) {
+    return (
+      <div className="px-2 py-1.5 flex items-center gap-2">
+        <Globe className="h-3 w-3 text-zinc-400" />
+        <span className="text-[10px] text-zinc-500 dark:text-zinc-400">
+          Georeferencing editing requires IFC4 or newer. IFC2X3 does not support IfcProjectedCRS or IfcMapConversion.
+        </span>
+      </div>
+    );
+  }
 
   // When no georef data exists, show "Add Georeferencing" in edit mode
   if (!hasData && !georef?.hasGeoreference) {
@@ -415,7 +443,7 @@ export function GeoreferencingPanel({ georef, modelId, enableEditing }: Georefer
         <EpsgLookupDialog onSelect={handleEpsgSelect}>
           <button className="flex items-center gap-1 text-[10px] text-teal-600 dark:text-teal-400 hover:text-teal-800 dark:hover:text-teal-300 transition-colors px-1.5 py-0.5 border border-teal-300/50 dark:border-teal-700/50 hover:bg-teal-50 dark:hover:bg-teal-950/50">
             <Globe className="h-2.5 w-2.5" />
-            Add CRS
+            Add Georeferencing
           </button>
         </EpsgLookupDialog>
       </div>
@@ -429,6 +457,9 @@ export function GeoreferencingPanel({ georef, modelId, enableEditing }: Georefer
         <Globe className="h-3 w-3 text-teal-500 shrink-0" />
         {mergedCRS?.name && (
           <span className="text-[10px] font-mono font-semibold text-teal-600 dark:text-teal-400">{mergedCRS.name}</span>
+        )}
+        {!mergedCRS?.name && (
+          <span className="text-[10px] text-zinc-500 dark:text-zinc-400">No projected CRS</span>
         )}
         {mergedCRS?.description && (
           <span className="text-[10px] font-mono text-teal-500/60 truncate">{mergedCRS.description}</span>
@@ -471,6 +502,18 @@ export function GeoreferencingPanel({ georef, modelId, enableEditing }: Georefer
         </div>
       )}
 
+      {!mergedCRS && editable && mergedConversion && (
+        <div className="px-3 py-2 border-b border-zinc-100 dark:border-zinc-900 flex items-center gap-2">
+          <span className="text-[10px] text-zinc-500 dark:text-zinc-400 flex-1">Coordinate operation exists, but projected CRS is missing.</span>
+          <EpsgLookupDialog onSelect={handleEpsgSelect}>
+            <button className="flex items-center gap-1 text-[9px] text-teal-500 hover:text-teal-700 dark:hover:text-teal-300 transition-colors shrink-0">
+              <Search className="h-2.5 w-2.5" />
+              Add CRS
+            </button>
+          </EpsgLookupDialog>
+        </div>
+      )}
+
       {/* IfcMapConversion */}
       {mergedConversion && (
         <div>
@@ -499,6 +542,19 @@ export function GeoreferencingPanel({ georef, modelId, enableEditing }: Georefer
               <GeorefRow label="Scale" value={mergedConversion.scale} isNumber editable={editable} isMutated={isMutated('mapConversion', 'scale')} fieldEntity="mapConversion" fieldName="scale" onSave={v => handleSave('mapConversion', 'scale', v)} />
             </div>
           )}
+        </div>
+      )}
+
+      {!mergedConversion && editable && mergedCRS && (
+        <div className="px-3 py-2 border-b border-zinc-100 dark:border-zinc-900 flex items-center gap-2">
+          <span className="text-[10px] text-zinc-500 dark:text-zinc-400 flex-1">No coordinate operation. Add map coordinates, angle to grid north, and scale.</span>
+          <button
+            onClick={initializeMapConversionDefaults}
+            className="flex items-center gap-1 text-[9px] text-teal-500 hover:text-teal-700 dark:hover:text-teal-300 transition-colors shrink-0"
+          >
+            <MapPin className="h-2.5 w-2.5" />
+            Add Coordinates
+          </button>
         </div>
       )}
     </div>

@@ -214,4 +214,51 @@ describe('StepExporter', () => {
     expect(decode(result.content)).not.toMatch(/IFCRELDEFINESBYPROPERTIES\([^;]*\(#67\),#/);
     expect(decode(result.content)).toMatch(/#67=IFCWALLTYPE\([^;]*\(#72,#\d+\)[^;]*\);/);
   });
+
+  it('creates IfcProjectedCRS and IfcMapConversion from scratch when georeferencing is added', async () => {
+    const parser = new IfcParser();
+    const store = await parser.parseColumnar(new TextEncoder().encode(SIMPLE_TYPE_INHERITANCE_IFC).buffer);
+    const exporter = new StepExporter(store);
+
+    const result = exporter.export({
+      schema: 'IFC4',
+      applyMutations: true,
+      georefMutations: {
+        projectedCRS: {
+          name: 'EPSG:2056',
+          description: 'CH1903+ / LV95',
+          geodeticDatum: 'CH1903+',
+          mapProjection: 'Swiss Oblique Mercator 1995',
+          mapUnit: 'METRE',
+        },
+        mapConversion: {
+          eastings: 2600000,
+          northings: 1200000,
+          orthogonalHeight: 500,
+          xAxisAbscissa: 0,
+          xAxisOrdinate: 1,
+          scale: 1,
+        },
+      },
+    });
+
+    const content = decode(result.content);
+    expect(content).toContain("IFCPROJECTEDCRS('EPSG:2056','CH1903+ / LV95','CH1903+',$,'Swiss Oblique Mercator 1995',$,#");
+    expect(content).toMatch(/IFCMAPCONVERSION\(#14,#\d+,2600000\.,1200000\.,500\.,0\.,1\.,1\.\);/);
+    expect(content).toContain('IFCSIUNIT(*,.LENGTHUNIT.,$,.METRE.)');
+  });
+
+  it('rejects georeferencing edits for IFC2X3 export', async () => {
+    const parser = new IfcParser();
+    const store = await parser.parseColumnar(new TextEncoder().encode(SIMPLE_TYPE_INHERITANCE_IFC).buffer);
+    const exporter = new StepExporter(store);
+
+    expect(() => exporter.export({
+      schema: 'IFC2X3',
+      applyMutations: true,
+      georefMutations: {
+        projectedCRS: { name: 'EPSG:2056' },
+      },
+    })).toThrow(/IFC4 or newer/);
+  });
 });

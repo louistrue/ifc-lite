@@ -137,6 +137,18 @@ export class StepExporter {
     const sourceSchema = (this.dataStore.schemaVersion as IfcSchemaVersion) || 'IFC4';
     const converting = needsConversion(sourceSchema, schema);
 
+    if (
+      schema === 'IFC2X3' &&
+      options.applyMutations !== false &&
+      options.georefMutations &&
+      (
+        Object.keys(options.georefMutations.projectedCRS ?? {}).length > 0 ||
+        Object.keys(options.georefMutations.mapConversion ?? {}).length > 0
+      )
+    ) {
+      throw new Error('Georeferencing creation and editing requires IFC4 or newer. IFC2X3 does not support IfcProjectedCRS or IfcMapConversion.');
+    }
+
     // Generate header
     const header = generateHeader({
       schema,
@@ -329,7 +341,11 @@ export class StepExporter {
         if (crs.verticalDatum !== undefined) { attrMap.set('VerticalDatum', String(crs.verticalDatum)); changed = true; }
         if (crs.mapProjection !== undefined) { attrMap.set('MapProjection', String(crs.mapProjection)); changed = true; }
         if (crs.mapZone !== undefined) { attrMap.set('MapZone', String(crs.mapZone)); changed = true; }
-        // TODO: MapUnit is an entity reference to IfcNamedUnit, not a string.
+        if (crs.mapUnit !== undefined) {
+          const mapUnitRef = this.resolveMapUnitReference(String(crs.mapUnit), newGeorefLines);
+          attrMap.set('MapUnit', `#${mapUnitRef}`);
+          changed = true;
+        }
         if (changed && !modifiedEntities.has(entityId)) {
           modifiedEntities.add(entityId);
           modifiedEntityCount++;
@@ -368,7 +384,10 @@ export class StepExporter {
         const vDatum = crs.verticalDatum ? `'${this.escapeStepString(String(crs.verticalDatum))}'` : '$';
         const proj = crs.mapProjection ? `'${this.escapeStepString(String(crs.mapProjection))}'` : '$';
         const zone = crs.mapZone ? `'${this.escapeStepString(String(crs.mapZone))}'` : '$';
-        newGeorefLines.push(`#${crsId}=IFCPROJECTEDCRS(${name},${desc},${datum},${vDatum},${proj},${zone},$);`);
+        const mapUnitRef = crs.mapUnit
+          ? `#${this.resolveMapUnitReference(String(crs.mapUnit), newGeorefLines)}`
+          : '$';
+        newGeorefLines.push(`#${crsId}=IFCPROJECTEDCRS(${name},${desc},${datum},${vDatum},${proj},${zone},${mapUnitRef});`);
         newEntityCount++;
 
         // Find IfcGeometricRepresentationContext as SourceCRS for MapConversion
@@ -880,6 +899,91 @@ export class StepExporter {
     }
 
     return parts;
+  }
+
+  private resolveMapUnitReference(unitName: string, newGeorefLines: string[]): number {
+    const normalized = this.normalizeMapUnitName(unitName);
+    const existing = this.findLengthUnitReference(normalized);
+    if (existing !== null) {
+      return existing;
+    }
+
+    if (normalized === 'METRE') {
+      const unitId = this.nextExpressId++;
+      newGeorefLines.push(`#${unitId}=IFCSIUNIT(*,.LENGTHUNIT.,$,.METRE.);`);
+      return unitId;
+    }
+
+    if (normalized === 'FOOT' || normalized === 'US SURVEY FOOT') {
+      const dimId = this.nextExpressId++;
+      const siUnitId = this.nextExpressId++;
+      const measureId = this.nextExpressId++;
+      const convUnitId = this.nextExpressId++;
+      const factor = normalized === 'US SURVEY FOOT' ? 1200 / 3937 : 0.3048;
+      const name = normalized === 'US SURVEY FOOT' ? 'US SURVEY FOOT' : 'FOOT';
+      newGeorefLines.push(`#${dimId}=IFCDIMENSIONALEXPONENTS(1,0,0,0,0,0,0);`);
+      newGeorefLines.push(`#${siUnitId}=IFCSIUNIT(*,.LENGTHUNIT.,$,.METRE.);`);
+      newGeorefLines.push(`#${measureId}=IFCMEASUREWITHUNIT(IFCLENGTHMEASURE(${this.toStepReal(factor)}),#${siUnitId});`);
+      newGeorefLines.push(`#${convUnitId}=IFCCONVERSIONBASEDUNIT(#${dimId},.LENGTHUNIT.,'${name}',#${measureId});`);
+      return convUnitId;
+    }
+
+    const fallbackId = this.nextExpressId++;
+    newGeorefLines.push(`#${fallbackId}=IFCSIUNIT(*,.LENGTHUNIT.,$,.METRE.);`);
+    return fallbackId;
+  }
+
+  private normalizeMapUnitName(unitName: string): string {
+    const normalized = unitName.trim().toUpperCase().replace(/\s+/g, ' ');
+    if (normalized.includes('US SURVEY FOOT')) return 'US SURVEY FOOT';
+    if (normalized.includes('METER') || normalized.includes('METRE')) return 'METRE';
+    if (normalized.includes('FOOT') || normalized.includes('FEET')) return 'FOOT';
+    return normalized;
+  }
+
+  private findLengthUnitReference(preferredUnitName: string): number | null {
+    if (!this.entityExtractor) return null;
+
+    const projectIds = this.dataStore.entityIndex.byType.get('IFCPROJECT') ?? [];
+    const projectRef = projectIds[0] ? this.dataStore.entityIndex.byId.get(projectIds[0]) : undefined;
+    const project = projectRef ? this.entityExtractor.extractEntity(projectRef) : null;
+    const unitAssignmentId = project?.attributes?.[8];
+    if (typeof unitAssignmentId !== 'number') return null;
+
+    const unitAssignmentRef = this.dataStore.entityIndex.byId.get(unitAssignmentId);
+    const unitAssignment = unitAssignmentRef ? this.entityExtractor.extractEntity(unitAssignmentRef) : null;
+    const units = unitAssignment?.attributes?.[0];
+    if (!Array.isArray(units)) return null;
+
+    for (const unitId of units) {
+      if (typeof unitId !== 'number') continue;
+      const unitRef = this.dataStore.entityIndex.byId.get(unitId);
+      const unit = unitRef ? this.entityExtractor.extractEntity(unitRef) : null;
+      if (!unit) continue;
+
+      const typeName = unit.type.toUpperCase();
+      const attrs = unit.attributes ?? [];
+      const unitType = typeof attrs[1] === 'string' ? attrs[1].replace(/\./g, '').toUpperCase() : '';
+      if (unitType !== 'LENGTHUNIT') continue;
+
+      if (typeName === 'IFCSIUNIT') {
+        const prefix = typeof attrs[2] === 'string' ? attrs[2].replace(/\./g, '').toUpperCase() : '';
+        const name = typeof attrs[3] === 'string' ? attrs[3].replace(/\./g, '').toUpperCase() : '';
+        const combined = prefix ? `${prefix}${name}` : name;
+        if (preferredUnitName === 'METRE' && (combined === 'METRE' || combined === 'METER')) {
+          return unitId;
+        }
+      }
+
+      if (typeName === 'IFCCONVERSIONBASEDUNIT') {
+        const name = typeof attrs[2] === 'string' ? this.normalizeMapUnitName(attrs[2]) : '';
+        if (name === preferredUnitName) {
+          return unitId;
+        }
+      }
+    }
+
+    return null;
   }
 
   /**
