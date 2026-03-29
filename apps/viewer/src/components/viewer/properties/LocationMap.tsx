@@ -11,10 +11,13 @@
  */
 
 import { useEffect, useRef, useState, useMemo, useCallback } from 'react';
-import { Map as MapIcon, ExternalLink, Loader2, MapPinOff } from 'lucide-react';
+import { Map as MapIcon, ExternalLink, Loader2, MapPinOff, Globe2, Download } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import type { MapConversion, ProjectedCRS } from '@ifc-lite/parser';
+import { GLTFExporter } from '@ifc-lite/export';
+import { useViewerStore } from '@/store';
 import { reprojectToLatLon, type LatLon } from '@/lib/geo/reproject';
+import { buildKmz, ifcAngleToKmlHeading } from '@/lib/geo/kmz-exporter';
 
 // Lazy-load maplibre-gl to avoid bloating the initial bundle
 let maplibrePromise: Promise<typeof import('maplibre-gl')> | null = null;
@@ -143,6 +146,33 @@ export function LocationMap({ mapConversion, projectedCRS }: LocationMapProps) {
     return `https://www.openstreetmap.org/?mlat=${latLon.lat}&mlon=${latLon.lon}#map=17/${latLon.lat}/${latLon.lon}`;
   }, [latLon]);
 
+  const geometryResult = useViewerStore(s => s.geometryResult);
+
+  const handleExportKmz = useCallback(() => {
+    if (!latLon || !geometryResult || !mapConversion) return;
+    try {
+      const exporter = new GLTFExporter(geometryResult);
+      const glb = new Uint8Array(exporter.exportGLB({ includeMetadata: true }));
+      const heading = ifcAngleToKmlHeading(mapConversion.xAxisAbscissa, mapConversion.xAxisOrdinate);
+      const kmz = buildKmz({
+        latLon,
+        altitude: mapConversion.orthogonalHeight,
+        heading,
+        glb,
+        name: 'IFC Model',
+      });
+      const blob = new Blob([kmz], { type: 'application/vnd.google-earth.kmz' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'model.kmz';
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('KMZ export failed:', err);
+    }
+  }, [latLon, geometryResult, mapConversion]);
+
   const handleStyleToggle = useCallback(() => {
     if (!mapRef.current) return;
     const current = mapRef.current.getStyle().name;
@@ -238,6 +268,20 @@ export function LocationMap({ mapConversion, projectedCRS }: LocationMapProps) {
                   </a>
                 </TooltipTrigger>
                 <TooltipContent>Open model location in OpenStreetMap</TooltipContent>
+              </Tooltip>
+            )}
+            {geometryResult && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={handleExportKmz}
+                    className="flex items-center gap-1 text-[10px] text-teal-600 dark:text-teal-400 hover:text-teal-800 dark:hover:text-teal-300 transition-colors"
+                  >
+                    <Globe2 className="h-2.5 w-2.5" />
+                    Google Earth
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>Download KMZ to open in Google Earth with model at correct position</TooltipContent>
               </Tooltip>
             )}
             <button
