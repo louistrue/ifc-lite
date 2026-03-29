@@ -221,6 +221,21 @@ export function EpsgLookupDialog({ onSelect, children }: EpsgLookupDialogProps) 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
+  const resetSearchState = useCallback(() => {
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current);
+      debounceRef.current = null;
+    }
+    if (abortRef.current) {
+      abortRef.current.abort();
+      abortRef.current = null;
+    }
+    setQuery('');
+    setResults([]);
+    setLoading(false);
+    setError(null);
+  }, []);
+
   const localIndex = useMemo(() => {
     return COMMON_CRS.map(crs => ({
       ...crs,
@@ -263,30 +278,32 @@ export function EpsgLookupDialog({ onSelect, children }: EpsgLookupDialogProps) 
         localMatchCount: localMatches.length,
       });
 
-      const indexResults = isCode
-        ? (() => {
-            const exact = lookupEpsgByCode(trimmed);
-            return exact.then(entry => entry ? [entry] : []);
-          })()
-        : searchEpsgIndex(trimmed, { limit: 25 });
-
-      const resolved = await indexResults;
+      const resolved = isCode
+        ? await lookupEpsgByCode(trimmed, { prefix: true, limit: 25 })
+        : await searchEpsgIndex(trimmed, { limit: 25 });
       if (controller.signal.aborted) return;
 
-      const mappedResults = resolved.map(toDialogResult);
+      const authoritativeMatches = Array.isArray(resolved) ? resolved : resolved ? [resolved] : [];
+      const dedupedResults = [
+        ...localMatches.map(result => ({ code: result.code, result })),
+        ...authoritativeMatches.map(entry => ({ code: entry.code, result: toDialogResult(entry) })),
+      ].filter((candidate, index, candidates) =>
+        candidates.findIndex(other => other.code === candidate.code) === index,
+      ).slice(0, 25)
+        .map(candidate => candidate.result);
 
       console.debug('[EPSG Lookup] Search finished', {
         query: trimmed,
         isCode,
-        resultCount: mappedResults.length,
-        topResults: mappedResults.slice(0, 5).map(result => ({
+        resultCount: dedupedResults.length,
+        topResults: dedupedResults.slice(0, 5).map(result => ({
           code: result.code,
           name: result.name,
         })),
       });
 
-      if (mappedResults.length > 0) {
-        setResults(mappedResults);
+      if (dedupedResults.length > 0) {
+        setResults(dedupedResults);
         setError(null);
       } else if (localMatches.length === 0) {
         setResults([]);
@@ -322,9 +339,8 @@ export function EpsgLookupDialog({ onSelect, children }: EpsgLookupDialogProps) 
     writeRecentCode(result.code);
     onSelect(result);
     setOpen(false);
-    setQuery('');
-    setResults([]);
-  }, [onSelect]);
+    resetSearchState();
+  }, [onSelect, resetSearchState]);
 
   useEffect(() => {
     if (!open || query) return;
@@ -357,10 +373,19 @@ export function EpsgLookupDialog({ onSelect, children }: EpsgLookupDialogProps) 
   }, []);
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        setOpen(nextOpen);
+        if (!nextOpen) resetSearchState();
+      }}
+    >
       <DialogTrigger asChild>
         {children || (
-          <button className="flex items-center gap-1 text-[10px] font-mono text-teal-600 dark:text-teal-400 hover:text-teal-800 dark:hover:text-teal-300 transition-colors px-1.5 py-0.5 border border-teal-300/50 dark:border-teal-700/50 hover:bg-teal-50 dark:hover:bg-teal-950/50">
+          <button
+            type="button"
+            className="flex items-center gap-1 text-[10px] font-mono text-teal-600 dark:text-teal-400 hover:text-teal-800 dark:hover:text-teal-300 transition-colors px-1.5 py-0.5 border border-teal-300/50 dark:border-teal-700/50 hover:bg-teal-50 dark:hover:bg-teal-950/50"
+          >
             <Search className="h-2.5 w-2.5" />
             EPSG
           </button>

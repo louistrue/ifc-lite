@@ -406,6 +406,8 @@ export class StepExporter {
           // IfcMapConversion(SourceCRS, TargetCRS, Eastings, Northings, OrthogonalHeight, XAxisAbscissa, XAxisOrdinate, Scale)
           newGeorefLines.push(`#${mcId}=IFCMAPCONVERSION(#${contextId},#${crsId},${eastings},${northings},${height},${abscissa},${ordinate},${scale});`);
           newEntityCount++;
+        } else {
+          console.warn('[StepExporter] Cannot create IfcMapConversion: no IfcGeometricRepresentationContext found in source file');
         }
       } else if (gm.mapConversion && !existingMcIds?.length && existingCrsIds?.length) {
         // CRS exists but no MapConversion — create just the conversion
@@ -422,6 +424,8 @@ export class StepExporter {
           const scale = mc.scale !== undefined ? this.toStepReal(Number(mc.scale)) : '$';
           newGeorefLines.push(`#${mcId}=IFCMAPCONVERSION(#${contextId},#${existingCrsIds[0]},${eastings},${northings},${height},${abscissa},${ordinate},${scale});`);
           newEntityCount++;
+        } else {
+          console.warn('[StepExporter] Cannot create IfcMapConversion: no IfcGeometricRepresentationContext found in source file');
         }
       }
     }

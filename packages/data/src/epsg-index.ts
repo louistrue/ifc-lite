@@ -2,7 +2,11 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-import type { EpsgIndexEntry, SearchEpsgIndexOptions } from './epsg-types.js';
+import type {
+  EpsgIndexEntry,
+  LookupEpsgByCodeOptions,
+  SearchEpsgIndexOptions,
+} from './epsg-types.js';
 
 let epsgIndexPromise: Promise<readonly EpsgIndexEntry[]> | null = null;
 let epsgByCodePromise: Promise<ReadonlyMap<string, EpsgIndexEntry>> | null = null;
@@ -69,9 +73,29 @@ export async function loadEpsgIndexByCode(): Promise<ReadonlyMap<string, EpsgInd
   return epsgByCodePromise;
 }
 
-export async function lookupEpsgByCode(code: string | number): Promise<EpsgIndexEntry | undefined> {
+export async function lookupEpsgByCode(code: string | number): Promise<EpsgIndexEntry | undefined>;
+export async function lookupEpsgByCode(
+  code: string | number,
+  options: LookupEpsgByCodeOptions & { prefix: true },
+): Promise<EpsgIndexEntry[]>;
+export async function lookupEpsgByCode(
+  code: string | number,
+  options: LookupEpsgByCodeOptions = {},
+): Promise<EpsgIndexEntry | EpsgIndexEntry[] | undefined> {
   const key = String(code).trim();
   if (!key) return undefined;
+
+  if (options.prefix) {
+    const limit = options.limit ?? 25;
+    const includeDeprecated = options.includeDeprecated ?? false;
+    const entries = await loadEpsgIndex();
+    return entries
+      .filter(entry => entry.code.startsWith(key))
+      .filter(entry => includeDeprecated || !entry.deprecated)
+      .sort((left, right) => Number(left.code) - Number(right.code))
+      .slice(0, limit);
+  }
+
   const byCode = await loadEpsgIndexByCode();
   return byCode.get(key);
 }

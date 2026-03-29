@@ -240,7 +240,7 @@ function AngleRow({ angle, editable, onAngleChange }: AngleRowProps) {
     const deg = parseFloat(editValue.trim());
     if (!Number.isFinite(deg)) return;
     const rad = deg * (Math.PI / 180);
-    onAngleChange(Math.sin(rad), Math.cos(rad));
+    onAngleChange(Math.cos(rad), Math.sin(rad));
     setEditing(false);
   }, [editValue, onAngleChange]);
 
@@ -285,7 +285,7 @@ function AngleRow({ angle, editable, onAngleChange }: AngleRowProps) {
                 <X className="h-3 w-3" />
               </button>
             </div>
-            <span className="text-[9px] text-zinc-400 dark:text-zinc-500">Sets XAxisAbscissa = sin(angle), XAxisOrdinate = cos(angle)</span>
+            <span className="text-[9px] text-zinc-400 dark:text-zinc-500">Sets XAxisAbscissa = cos(angle), XAxisOrdinate = sin(angle)</span>
           </div>
         ) : (
           <>
@@ -408,9 +408,13 @@ export function GeoreferencingPanel({ georef, modelId, enableEditing, schemaVers
     }
     if (result.unit) {
       const unitUpper = result.unit.toUpperCase();
-      const mapUnit = unitUpper.includes('METRE') || unitUpper.includes('METER') ? 'METRE'
-        : unitUpper.includes('FOOT') || unitUpper.includes('FEET') ? 'FOOT'
-        : result.unit;
+      const mapUnit = unitUpper.includes('US') && (unitUpper.includes('SURVEY') || unitUpper.includes('FTUS'))
+        ? 'US SURVEY FOOT'
+        : unitUpper.includes('METRE') || unitUpper.includes('METER')
+          ? 'METRE'
+          : unitUpper.includes('FOOT') || unitUpper.includes('FEET')
+            ? 'FOOT'
+            : result.unit;
       setGeorefField(modelId, 'projectedCRS', 'mapUnit', mapUnit, georef?.projectedCRS?.mapUnit);
     }
     if (!georef?.mapConversion && !mutations?.mapConversion) {

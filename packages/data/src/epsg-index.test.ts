@@ -22,6 +22,12 @@ describe('EPSG index', () => {
     expect(entry?.kind).toBe('Projected');
   });
 
+  it('supports numeric prefix lookup across the full index', async () => {
+    const entries = await lookupEpsgByCode('205', { prefix: true, limit: 10 });
+    expect(entries.length).toBeGreaterThan(0);
+    expect(entries.some(entry => entry.code === '2056')).toBe(true);
+  });
+
   it('finds common text queries locally', async () => {
     const results = await searchEpsgIndex('web mercator');
     expect(results[0]?.code).toBe('3857');

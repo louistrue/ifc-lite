@@ -30,3 +30,9 @@ export interface SearchEpsgIndexOptions {
   includeDeprecated?: boolean;
   limit?: number;
 }
+
+export interface LookupEpsgByCodeOptions {
+  prefix?: boolean;
+  includeDeprecated?: boolean;
+  limit?: number;
+}

@@ -18,17 +18,34 @@ fail() { echo -e "  ${RED}✗${NC} $1"; }
 info() { echo -e "  ${YELLOW}→${NC} $1"; }
 header() { echo -e "\n${CYAN}━━━ $1 ━━━${NC}"; }
 
+need_cmd() {
+  if ! command -v "$1" >/dev/null 2>&1; then
+    echo "Missing required dependency: $1" >&2
+    exit 1
+  fi
+}
+
+need_cmd curl
+need_cmd python3
+
+TMP_DIR="$(mktemp -d)"
+trap 'rm -rf "$TMP_DIR"' EXIT
+
+head_with_origin() {
+  curl -sI -H "Origin: https://ifc-lite.local" "$1" 2>/dev/null
+}
+
 # ── epsg.io ─────────────────────────────────────────────────────────────
 
 header "epsg.io — Direct code lookup"
 
 echo "  GET https://epsg.io/4326.json"
-HTTP=$(curl -s -o /tmp/epsg-4326.json -w "%{http_code}" "https://epsg.io/4326.json" 2>/dev/null || echo "000")
+HTTP=$(curl -s -o "$TMP_DIR/epsg-4326.json" -w "%{http_code}" "https://epsg.io/4326.json" 2>/dev/null || echo "000")
 if [ "$HTTP" = "200" ]; then
   pass "HTTP $HTTP"
-  NAME=$(python3 -c "import json; d=json.load(open('/tmp/epsg-4326.json')); print(d.get('results',[{}])[0].get('name','?'))" 2>/dev/null || echo "?")
+  NAME=$(python3 -c "import json; d=json.load(open('$TMP_DIR/epsg-4326.json')); print(d.get('name', d.get('results',[{}])[0].get('name','?')))" 2>/dev/null || echo "?")
   info "Name: $NAME"
-  CORS=$(curl -sI "https://epsg.io/4326.json" 2>/dev/null | grep -i "access-control-allow-origin" || echo "")
+  CORS=$(head_with_origin "https://epsg.io/4326.json" | grep -i "access-control-allow-origin" || echo "")
   [ -n "$CORS" ] && pass "CORS: $CORS" || fail "No CORS header"
 else
   fail "HTTP $HTTP"
@@ -36,13 +53,15 @@ fi
 
 echo ""
 echo "  GET https://epsg.io/2056.json (Swiss CRS)"
-HTTP=$(curl -s -o /tmp/epsg-2056.json -w "%{http_code}" "https://epsg.io/2056.json" 2>/dev/null || echo "000")
+HTTP=$(curl -s -o "$TMP_DIR/epsg-2056.json" -w "%{http_code}" "https://epsg.io/2056.json" 2>/dev/null || echo "000")
 if [ "$HTTP" = "200" ]; then
   pass "HTTP $HTTP"
   python3 -c "
 import json
-d = json.load(open('/tmp/epsg-2056.json'))
+d = json.load(open('$TMP_DIR/epsg-2056.json'))
 r = d.get('results',[{}])[0]
+if 'name' in d:
+    r = d
 print(f'  Name: {r.get(\"name\",\"?\")}')
 print(f'  Kind: {r.get(\"kind\",\"?\")}')
 print(f'  Area: {r.get(\"area\",\"?\")}')
@@ -61,23 +80,23 @@ for QUERY in "tokyo" "switzerland" "web+mercator" "UTM+zone+32N" "abidjan"; do
   echo ""
   URL="https://epsg.io/?q=${QUERY}&format=json"
   echo "  GET $URL"
-  HTTP=$(curl -s -o /tmp/epsg-search.json -w "%{http_code}" "$URL" 2>/dev/null || echo "000")
+  HTTP=$(curl -s -o "$TMP_DIR/epsg-search.json" -w "%{http_code}" "$URL" 2>/dev/null || echo "000")
   if [ "$HTTP" = "200" ]; then
     pass "HTTP $HTTP"
     python3 -c "
 import json
-d = json.load(open('/tmp/epsg-search.json'))
+d = json.load(open('$TMP_DIR/epsg-search.json'))
 n = d.get('number_result', 0)
 results = d.get('results', [])
 print(f'  Results: {n} total, showing first 5')
 for r in results[:5]:
     print(f'    {r.get(\"code\",\"?\")} | {r.get(\"name\",\"?\")} | {r.get(\"kind\",\"?\")} | {r.get(\"area\",\"?\")[:40]}')
 " 2>/dev/null || fail "Could not parse JSON"
-    CORS=$(curl -sI "$URL" 2>/dev/null | grep -i "access-control-allow-origin" || echo "")
+    CORS=$(head_with_origin "$URL" | grep -i "access-control-allow-origin" || echo "")
     [ -n "$CORS" ] && pass "CORS: $CORS" || fail "No CORS header"
   elif [ "$HTTP" = "301" ] || [ "$HTTP" = "302" ]; then
     fail "HTTP $HTTP (redirect — search may have moved)"
-    LOCATION=$(curl -sI "$URL" 2>/dev/null | grep -i "^location:" || echo "  No location header")
+    LOCATION=$(head_with_origin "$URL" | grep -i "^location:" || echo "  No location header")
     info "$LOCATION"
   else
     fail "HTTP $HTTP"
@@ -93,12 +112,12 @@ for URL in \
   "https://epsg.io/?q=tokyo&format=json&trans=0"; do
   echo ""
   echo "  GET $URL"
-  HTTP=$(curl -s -o /tmp/epsg-alt.json -w "%{http_code}" "$URL" 2>/dev/null || echo "000")
+  HTTP=$(curl -s -o "$TMP_DIR/epsg-alt.json" -w "%{http_code}" "$URL" 2>/dev/null || echo "000")
   if [ "$HTTP" = "200" ]; then
     pass "HTTP $HTTP"
     python3 -c "
 import json
-d = json.load(open('/tmp/epsg-alt.json'))
+d = json.load(open('$TMP_DIR/epsg-alt.json'))
 n = d.get('number_result', len(d.get('results', [])))
 print(f'  Results: {n}')
 for r in d.get('results', [])[:3]:
@@ -114,12 +133,12 @@ done
 header "apps.epsg.org — Direct code lookup"
 
 echo "  GET https://apps.epsg.org/api/v1/CoordRefSystem/4326"
-HTTP=$(curl -s -o /tmp/epsg-org-4326.json -w "%{http_code}" -H "Accept: application/json" "https://apps.epsg.org/api/v1/CoordRefSystem/4326" 2>/dev/null || echo "000")
+HTTP=$(curl -s -o "$TMP_DIR/epsg-org-4326.json" -w "%{http_code}" -H "Accept: application/json" "https://apps.epsg.org/api/v1/CoordRefSystem/4326" 2>/dev/null || echo "000")
 if [ "$HTTP" = "200" ]; then
   pass "HTTP $HTTP"
   python3 -c "
 import json
-d = json.load(open('/tmp/epsg-org-4326.json'))
+d = json.load(open('$TMP_DIR/epsg-org-4326.json'))
 print(f'  Code: {d.get(\"Code\",\"?\")}')
 print(f'  Name: {d.get(\"Name\",\"?\")}')
 print(f'  Kind: {d.get(\"Kind\",\"?\")}')
@@ -129,7 +148,7 @@ print(f'  AreaOfUse: {ao.get(\"Name\",\"?\")}')
 da = d.get('Datum', {})
 print(f'  Datum: {da.get(\"Name\",\"?\")}')
 " 2>/dev/null || fail "Could not parse JSON"
-  CORS=$(curl -sI -H "Accept: application/json" "https://apps.epsg.org/api/v1/CoordRefSystem/4326" 2>/dev/null | grep -i "access-control-allow-origin" || echo "")
+  CORS=$(head_with_origin "https://apps.epsg.org/api/v1/CoordRefSystem/4326" | grep -i "access-control-allow-origin" || echo "")
   [ -n "$CORS" ] && pass "CORS: $CORS" || fail "No CORS header (browser requests will fail)"
 else
   fail "HTTP $HTTP"
@@ -144,12 +163,12 @@ for URL in \
   "https://apps.epsg.org/api/v1/ProjectedCoordRefSystem?searchText=tokyo&pageSize=5"; do
   echo ""
   echo "  GET $URL"
-  HTTP=$(curl -s -o /tmp/epsg-org-search.json -w "%{http_code}" -H "Accept: application/json" "$URL" 2>/dev/null || echo "000")
+  HTTP=$(curl -s -o "$TMP_DIR/epsg-org-search.json" -w "%{http_code}" -H "Accept: application/json" "$URL" 2>/dev/null || echo "000")
   if [ "$HTTP" = "200" ]; then
     pass "HTTP $HTTP"
     python3 -c "
 import json
-d = json.load(open('/tmp/epsg-org-search.json'))
+d = json.load(open('$TMP_DIR/epsg-org-search.json'))
 if isinstance(d, list):
     print(f'  Array response: {len(d)} items')
     for r in d[:3]:
@@ -169,12 +188,34 @@ elif isinstance(d, dict):
   fi
 done
 
+header "apps.epsg.org — Pagination endpoint"
+
+PAGINATION_URL="https://apps.epsg.org/api/v1/CoordRefSystem?pageSize=5&page=0"
+echo ""
+echo "  GET $PAGINATION_URL"
+HTTP=$(curl -s -o "$TMP_DIR/epsg-org-page.json" -w "%{http_code}" -H "Accept: application/json" "$PAGINATION_URL" 2>/dev/null || echo "000")
+if [ "$HTTP" = "200" ]; then
+  pass "HTTP $HTTP"
+  python3 -c "
+import json
+d = json.load(open('$TMP_DIR/epsg-org-page.json'))
+print(f'  Keys: {list(d.keys())[:10]}')
+print(f'  TotalResults: {d.get(\"TotalResults\", \"?\")}')
+results = d.get('Results', [])
+print(f'  Results: {len(results)} items')
+for r in results[:3]:
+    print(f'    {r.get(\"Code\",\"?\")} | {r.get(\"Name\",\"?\")}')
+" 2>/dev/null || fail "Could not parse JSON"
+else
+  fail "HTTP $HTTP"
+fi
+
 # ── MapTiler Coordinates API (successor to epsg.io search) ──────────────
 
 header "MapTiler Coordinates API (requires key)"
 
 echo "  GET https://api.maptiler.com/coordinates/search/tokyo.json (no key)"
-HTTP=$(curl -s -o /tmp/maptiler.json -w "%{http_code}" "https://api.maptiler.com/coordinates/search/tokyo.json" 2>/dev/null || echo "000")
+HTTP=$(curl -s -o "$TMP_DIR/maptiler.json" -w "%{http_code}" "https://api.maptiler.com/coordinates/search/tokyo.json" 2>/dev/null || echo "000")
 if [ "$HTTP" = "200" ]; then
   pass "HTTP $HTTP (works without key?)"
 elif [ "$HTTP" = "401" ] || [ "$HTTP" = "403" ]; then
@@ -197,8 +238,3 @@ echo "  2. Does epsg.io search have CORS headers?"
 echo "  3. Does apps.epsg.org search actually filter or just dump alphabetically?"
 echo "  4. Does MapTiler work without a key?"
 echo ""
-
-# Cleanup
-rm -f /tmp/epsg-4326.json /tmp/epsg-2056.json /tmp/epsg-search.json \
-      /tmp/epsg-alt.json /tmp/epsg-org-4326.json /tmp/epsg-org-search.json \
-      /tmp/maptiler.json
