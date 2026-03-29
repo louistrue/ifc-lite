@@ -426,19 +426,35 @@ export function GeoreferencingPanel({ georef, modelId, enableEditing }: Georefer
 
   return (
     <div className="border-t border-zinc-200 dark:border-zinc-800">
-      {/* Header */}
-      <div className="px-2.5 py-1.5 bg-teal-50/50 dark:bg-teal-950/20 flex items-center gap-2">
-        <Globe className="h-3.5 w-3.5 text-teal-600 dark:text-teal-400" />
-        <span className="font-bold text-xs uppercase tracking-wide text-teal-700 dark:text-teal-300 flex-1">
-          Georeferencing
-        </span>
-        {editable && (
-          <EpsgLookupDialog onSelect={handleEpsgSelect}>
-            <button className="flex items-center gap-1 text-[10px] font-mono text-teal-600 dark:text-teal-400 hover:text-teal-800 dark:hover:text-teal-300 transition-colors px-1.5 py-0.5 border border-teal-300/50 dark:border-teal-700/50 hover:bg-teal-50 dark:hover:bg-teal-950/50">
-              <Search className="h-2.5 w-2.5" />
-              EPSG
-            </button>
-          </EpsgLookupDialog>
+      {/* Header with CRS summary always visible */}
+      <div className="px-2.5 py-1.5 bg-teal-50/50 dark:bg-teal-950/20">
+        <div className="flex items-center gap-2">
+          <Globe className="h-3.5 w-3.5 text-teal-600 dark:text-teal-400" />
+          <span className="font-bold text-xs uppercase tracking-wide text-teal-700 dark:text-teal-300 flex-1">
+            Georeferencing
+          </span>
+          {editable && (
+            <EpsgLookupDialog onSelect={handleEpsgSelect}>
+              <button className="flex items-center gap-1 text-[10px] font-mono text-teal-600 dark:text-teal-400 hover:text-teal-800 dark:hover:text-teal-300 transition-colors px-1.5 py-0.5 border border-teal-300/50 dark:border-teal-700/50 hover:bg-teal-50 dark:hover:bg-teal-950/50">
+                <Search className="h-2.5 w-2.5" />
+                EPSG
+              </button>
+            </EpsgLookupDialog>
+          )}
+        </div>
+        {/* Always-visible summary */}
+        {mergedCRS?.name && (
+          <div className="flex items-center gap-2 mt-1 text-[11px] font-mono text-teal-600 dark:text-teal-400">
+            <span className="font-semibold">{mergedCRS.name}</span>
+            {mergedCRS.description && <span className="text-teal-500/60 truncate">{mergedCRS.description}</span>}
+          </div>
+        )}
+        {mergedConversion && (
+          <div className="flex items-center gap-3 mt-0.5 text-[10px] font-mono text-teal-500/70 dark:text-teal-500/50">
+            <span>E {mergedConversion.eastings}</span>
+            <span>N {mergedConversion.northings}</span>
+            <span>H {mergedConversion.orthogonalHeight}</span>
+          </div>
         )}
       </div>
 
