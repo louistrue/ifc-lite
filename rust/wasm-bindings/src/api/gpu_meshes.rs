@@ -41,6 +41,9 @@ fn new_gpu_batch(batch_size: usize) -> GpuGeometry {
     GpuGeometry::with_capacity(estimated_vertices.saturating_mul(7), estimated_indices)
 }
 
+const MAX_ZERO_COPY_VERTEX_BUFFER_BYTES: usize = 128 * 1024 * 1024;
+const MAX_ZERO_COPY_INDEX_BUFFER_BYTES: usize = 64 * 1024 * 1024;
+
 #[wasm_bindgen]
 impl IfcAPI {
     /// Parse IFC file and return individual meshes with express IDs and colors
@@ -1938,6 +1941,41 @@ impl IfcAPI {
                                         total_triangles += mesh.indices.len() / 3;
 
                                         let bucket_key = color_bucket_key(color);
+                                        let next_vertex_bytes =
+                                            (mesh.positions.len() / 3).saturating_mul(7 * 4);
+                                        let next_index_bytes = mesh.indices.len().saturating_mul(4);
+                                        let should_flush = current_batches
+                                            .get(&bucket_key)
+                                            .map(|batch| {
+                                                batch.mesh_count() > 0
+                                                    && (batch
+                                                        .vertex_data_byte_length()
+                                                        .saturating_add(next_vertex_bytes)
+                                                        > MAX_ZERO_COPY_VERTEX_BUFFER_BYTES
+                                                        || batch
+                                                            .indices_byte_length()
+                                                            .saturating_add(next_index_bytes)
+                                                            > MAX_ZERO_COPY_INDEX_BUFFER_BYTES)
+                                            })
+                                            .unwrap_or(false);
+
+                                        if should_flush {
+                                            let progress = js_sys::Object::new();
+                                            super::set_js_prop(&progress, "percent", &0u32.into());
+                                            super::set_js_prop(
+                                                &progress,
+                                                "processed",
+                                                &(processed as f64).into(),
+                                            );
+                                            super::set_js_prop(&progress, "phase", &"simple".into());
+                                            flush_bucket(
+                                                bucket_key,
+                                                &mut current_batches,
+                                                &on_batch,
+                                                &progress.into(),
+                                            );
+                                        }
+
                                         let batch = current_batches
                                             .entry(bucket_key)
                                             .or_insert_with(|| new_gpu_batch(batch_size));
@@ -1953,7 +1991,12 @@ impl IfcAPI {
                                         processed += 1;
                                         total_meshes += 1;
 
-                                        if batch.mesh_count() >= batch_size {
+                                        if batch.mesh_count() >= batch_size
+                                            || batch.vertex_data_byte_length()
+                                                >= MAX_ZERO_COPY_VERTEX_BUFFER_BYTES
+                                            || batch.indices_byte_length()
+                                                >= MAX_ZERO_COPY_INDEX_BUFFER_BYTES
+                                        {
                                             let progress = js_sys::Object::new();
                                             super::set_js_prop(&progress, "percent", &0u32.into());
                                             super::set_js_prop(&progress, "processed", &(processed as f64).into());
@@ -1999,6 +2042,48 @@ impl IfcAPI {
                                 total_triangles += mesh.indices.len() / 3;
 
                                 let bucket_key = color_bucket_key(color);
+                                let next_vertex_bytes =
+                                    (mesh.positions.len() / 3).saturating_mul(7 * 4);
+                                let next_index_bytes = mesh.indices.len().saturating_mul(4);
+                                let should_flush = current_batches
+                                    .get(&bucket_key)
+                                    .map(|batch| {
+                                        batch.mesh_count() > 0
+                                            && (batch
+                                                .vertex_data_byte_length()
+                                                .saturating_add(next_vertex_bytes)
+                                                > MAX_ZERO_COPY_VERTEX_BUFFER_BYTES
+                                                || batch
+                                                    .indices_byte_length()
+                                                    .saturating_add(next_index_bytes)
+                                                    > MAX_ZERO_COPY_INDEX_BUFFER_BYTES)
+                                    })
+                                    .unwrap_or(false);
+
+                                if should_flush {
+                                    let progress = js_sys::Object::new();
+                                    let percent =
+                                        (processed as f64 / total_elements as f64 * 100.0) as u32;
+                                    super::set_js_prop(&progress, "percent", &percent.into());
+                                    super::set_js_prop(
+                                        &progress,
+                                        "processed",
+                                        &(processed as f64).into(),
+                                    );
+                                    super::set_js_prop(
+                                        &progress,
+                                        "total",
+                                        &(total_elements as f64).into(),
+                                    );
+                                    super::set_js_prop(&progress, "phase", &"complex".into());
+                                    flush_bucket(
+                                        bucket_key,
+                                        &mut current_batches,
+                                        &on_batch,
+                                        &progress.into(),
+                                    );
+                                }
+
                                 let batch = current_batches
                                     .entry(bucket_key)
                                     .or_insert_with(|| new_gpu_batch(batch_size));
@@ -2013,7 +2098,12 @@ impl IfcAPI {
                                 );
                                 total_meshes += 1;
 
-                                if batch.mesh_count() >= batch_size {
+                                if batch.mesh_count() >= batch_size
+                                    || batch.vertex_data_byte_length()
+                                        >= MAX_ZERO_COPY_VERTEX_BUFFER_BYTES
+                                    || batch.indices_byte_length()
+                                        >= MAX_ZERO_COPY_INDEX_BUFFER_BYTES
+                                {
                                     let progress = js_sys::Object::new();
                                     let percent = (processed as f64 / total_elements as f64 * 100.0) as u32;
                                     super::set_js_prop(&progress, "percent", &percent.into());

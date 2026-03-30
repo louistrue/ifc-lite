@@ -567,6 +567,15 @@ export class Scene {
       return;
     }
 
+    const maxBufferSize = Number(device.limits.maxBufferSize);
+    if (batch.vertexByteLength > maxBufferSize || batch.indexByteLength > maxBufferSize) {
+      batch.free();
+      throw new Error(
+        `[Renderer] Zero-copy batch exceeds maxBufferSize (${maxBufferSize}): ` +
+        `vertex=${batch.vertexByteLength}, index=${batch.indexByteLength}`
+      );
+    }
+
     const batchId = this.nextMetadataBatchId++;
     const vertexBuffer = device.createBuffer({
       size: batch.vertexByteLength,
