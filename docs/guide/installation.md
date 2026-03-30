@@ -170,6 +170,15 @@ docker run -p 3001:8080 \
   ghcr.io/louistrue/ifc-lite-server
 ```
 
+!!! warning "Registry Authentication"
+    If you get `denied` or `unauthorized` when pulling the image, authenticate with the GitHub Container Registry first:
+
+    ```bash
+    echo YOUR_GITHUB_PAT | docker login ghcr.io -u YOUR_GITHUB_USERNAME --password-stdin
+    ```
+
+    You need a [Personal Access Token](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry#authenticating-to-the-container-registry) with `read:packages` scope.
+
 ### Option 2: Native Binary
 
 ```bash

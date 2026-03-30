@@ -74,3 +74,14 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           platforms: linux/amd64
+
+      - name: Set package visibility to public
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api \
+            --method PATCH \
+            /users/${{ github.repository_owner }}/packages/container/ifc-lite-server \
+            -f visibility=public \
+            2>/dev/null || echo "Package visibility update skipped (may require manual configuration)"

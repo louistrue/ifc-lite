@@ -218,6 +218,9 @@ docker run -p 3001:8080 ghcr.io/louistrue/ifc-lite-server
 npx @ifc-lite/server-bin
 ```
 
+!!! note "Docker Authentication"
+    If the Docker pull fails with `denied`, see the [Installation Guide](installation.md#option-1-docker-recommended-for-production) for authentication instructions.
+
 ### 2. Connect from Client
 
 ```bash
