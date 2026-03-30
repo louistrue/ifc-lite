@@ -1860,6 +1860,9 @@ impl IfcAPI {
                 let mut total_triangles = 0;
                 let mut deferred_complex: Vec<(u32, usize, usize, ifc_lite_core::IfcType)> =
                     Vec::new();
+                let first_batch_size = batch_size.min(128).max(64);
+                let throughput_batch_size = batch_size.max(1024);
+                let mut current_batch_size = first_batch_size;
 
                 // Helper to flush current batch (captures RTC offset for each batch)
                 let flush_bucket = |key: u64,
@@ -1991,7 +1994,7 @@ impl IfcAPI {
                                         processed += 1;
                                         total_meshes += 1;
 
-                                        if batch.mesh_count() >= batch_size
+                                        if batch.mesh_count() >= current_batch_size
                                             || batch.vertex_data_byte_length()
                                                 >= MAX_ZERO_COPY_VERTEX_BUFFER_BYTES
                                             || batch.indices_byte_length()
@@ -2002,6 +2005,7 @@ impl IfcAPI {
                                             super::set_js_prop(&progress, "processed", &(processed as f64).into());
                                             super::set_js_prop(&progress, "phase", &"simple".into());
                                             flush_bucket(bucket_key, &mut current_batches, &on_batch, &progress.into());
+                                            current_batch_size = throughput_batch_size;
                                             let _ = JsFuture::from(js_sys::Promise::resolve(&JsValue::UNDEFINED)).await;
                                         }
                                     }
@@ -2099,7 +2103,7 @@ impl IfcAPI {
                                 );
                                 total_meshes += 1;
 
-                                if batch.mesh_count() >= batch_size
+                                if batch.mesh_count() >= current_batch_size
                                     || batch.vertex_data_byte_length()
                                         >= MAX_ZERO_COPY_VERTEX_BUFFER_BYTES
                                     || batch.indices_byte_length()
@@ -2112,6 +2116,7 @@ impl IfcAPI {
                                     super::set_js_prop(&progress, "total", &(total_elements as f64).into());
                                     super::set_js_prop(&progress, "phase", &"complex".into());
                                     flush_bucket(bucket_key, &mut current_batches, &on_batch, &progress.into());
+                                    current_batch_size = throughput_batch_size;
                                     let _ = JsFuture::from(js_sys::Promise::resolve(&JsValue::UNDEFINED)).await;
                                 }
                             }
