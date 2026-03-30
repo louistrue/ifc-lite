@@ -155,7 +155,7 @@ export function ClashPanel({ onClose }: ClashPanelProps) {
       switch (clashSortField) {
         case 'distance': return (a.distance - b.distance) * dir;
         case 'typeA': return a.a.type.localeCompare(b.a.type) * dir;
-        case 'typeB': return b.b.type.localeCompare(b.b.type) * dir;
+        case 'typeB': return a.b.type.localeCompare(b.b.type) * dir;
         case 'nameA': return a.a.name.localeCompare(b.a.name) * dir;
         case 'nameB': return a.b.name.localeCompare(b.b.name) * dir;
         default: return 0;

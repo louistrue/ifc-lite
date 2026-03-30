@@ -255,6 +255,9 @@ export function DiffPanel({ onClose }: DiffPanelProps) {
     for (const e of diffResult.added) {
       colorMap.set(e.expressId, DIFF_COLORS.added as [number, number, number, number]);
     }
+    for (const e of diffResult.deleted) {
+      colorMap.set(e.expressId, DIFF_COLORS.deleted as [number, number, number, number]);
+    }
     for (const e of diffResult.changed) {
       colorMap.set(e.expressId2, DIFF_COLORS.changed as [number, number, number, number]);
     }

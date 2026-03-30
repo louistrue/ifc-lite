@@ -307,6 +307,8 @@ export function ViewerLayout() {
                       setRightPanelCollapsed(true);
                       if (scriptPanelVisible) setScriptPanelVisible(false);
                       if (listPanelVisible) setListPanelVisible(false);
+                      if (diffPanelVisible) setDiffPanelVisible(false);
+                      if (clashPanelVisible) setClashPanelVisible(false);
                       if (bcfPanelVisible) setBcfPanelVisible(false);
                       if (lensPanelVisible) setLensPanelVisible(false);
                       if (idsPanelVisible) setIdsPanelVisible(false);
@@ -323,6 +325,10 @@ export function ViewerLayout() {
                     <ScriptPanel onClose={() => setScriptPanelVisible(false)} />
                   ) : listPanelVisible ? (
                     <ListPanel onClose={() => setListPanelVisible(false)} />
+                  ) : diffPanelVisible ? (
+                    <DiffPanel onClose={() => setDiffPanelVisible(false)} />
+                  ) : clashPanelVisible ? (
+                    <ClashPanel onClose={() => setClashPanelVisible(false)} />
                   ) : lensPanelVisible ? (
                     <LensPanel onClose={() => setLensPanelVisible(false)} />
                   ) : idsPanelVisible ? (

@@ -282,6 +282,27 @@ export const useViewerStore = create<ViewerState>()((...args) => ({
       idsActiveEntityId: null,
       // Keep idsDocument, idsValidationReport, idsLocale - user's work
 
+      // Diff - reset all state
+      diffPanelVisible: false,
+      diffResult: null,
+      diffLoading: false,
+      diffError: null,
+      diffFilterMode: 'all' as const,
+      diffSearchQuery: '',
+      diffSelectedGlobalId: null,
+      diffFile1Name: null,
+      diffFile2Name: null,
+
+      // Clash - reset all state
+      clashPanelVisible: false,
+      clashResult: null,
+      clashLoading: false,
+      clashError: null,
+      clashFilterMode: 'all' as const,
+      clashFilterValue: null,
+      clashSearchQuery: '',
+      clashSelectedIndex: null,
+
       // Lists - reset result but keep definitions (user's saved lists)
       listPanelVisible: false,
       activeListId: null,

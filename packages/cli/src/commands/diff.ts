@@ -20,7 +20,6 @@
 
 import { loadIfcFile, createStreamingContext } from '../loader.js';
 import { hasFlag, fatal, printJson, formatTable, getFlag, validateViewerPort } from '../output.js';
-import { EntityNode } from '@ifc-lite/query';
 import { IFC_ENTITY_NAMES } from '@ifc-lite/data';
 import { computeDiff, DIFF_COLORS } from '@ifc-lite/diff';
 import type { DiffResult } from '@ifc-lite/diff';
@@ -137,7 +136,7 @@ async function sendVisualDiff(
   process.stderr.write(`Sending visual diff to viewer on port ${viewerPort}...\n`);
 
   try {
-    const { bim } = await createStreamingContext(file2, viewerPort);
+    await createStreamingContext(file2, viewerPort);
 
     const batches: Array<{ refs: number[]; color: [number, number, number, number] }> = [];
 
@@ -202,15 +201,13 @@ function printLegacyDiff(
   const globalIds2 = new Set<string>();
   for (const [, ids] of store1.entityIndex.byType) {
     for (const id of ids) {
-      const node = new EntityNode(store1, id);
-      const gid = node.globalId;
+      const gid = store1.entities.getGlobalId(id);
       if (gid) globalIds1.add(gid);
     }
   }
   for (const [, ids] of store2.entityIndex.byType) {
     for (const id of ids) {
-      const node = new EntityNode(store2, id);
-      const gid = node.globalId;
+      const gid = store2.entities.getGlobalId(id);
       if (gid) globalIds2.add(gid);
     }
   }

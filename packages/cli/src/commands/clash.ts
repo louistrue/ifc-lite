@@ -48,10 +48,16 @@ export async function clashCommand(args: string[]): Promise<void> {
   const toleranceStr = getFlag(args, '--tolerance');
   const clearanceStr = getFlag(args, '--clearance');
 
+  const parseNumericFlag = (value: string, flag: string): number => {
+    const n = parseFloat(value);
+    if (isNaN(n)) fatal(`Invalid ${flag} value: "${value}" (must be a number)`);
+    return n;
+  };
+
   const settings: ClashSettings = {
     mode: modeStr as ClashMode,
-    tolerance: toleranceStr ? parseFloat(toleranceStr) : undefined,
-    clearance: clearanceStr ? parseFloat(clearanceStr) : undefined,
+    tolerance: toleranceStr ? parseNumericFlag(toleranceStr, '--tolerance') : undefined,
+    clearance: clearanceStr ? parseNumericFlag(clearanceStr, '--clearance') : undefined,
     allowTouching: hasFlag(args, '--allow-touching'),
     checkAll: !hasFlag(args, '--first-only'),
   };
@@ -83,8 +89,12 @@ export async function clashCommand(args: string[]): Promise<void> {
   let clashSets: ClashSet[];
 
   if (configFile) {
-    const configData = await readFile(configFile, 'utf-8');
-    clashSets = JSON.parse(configData) as ClashSet[];
+    try {
+      const configData = await readFile(configFile, 'utf-8');
+      clashSets = JSON.parse(configData) as ClashSet[];
+    } catch (err: any) {
+      fatal(`Failed to load config file ${configFile}: ${err.message}`);
+    }
   } else if (positional.length === 1) {
     clashSets = [{
       name: 'Self-clash',

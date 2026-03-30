@@ -96,14 +96,15 @@ function buildGlobalIdMap(store: IfcDataStore): Map<string, EntityInfo> {
   for (const [typeName, ids] of store.entityIndex.byType) {
     const displayName = IFC_ENTITY_NAMES[typeName] ?? typeName;
     for (const id of ids) {
-      const node = new EntityNode(store, id);
-      const gid = node.globalId;
+      // Use cached store accessors (fast path) to avoid EntityNode overhead in loops
+      const gid = store.entities.getGlobalId(id);
       if (gid) {
+        const name = store.entities.getName(id);
         map.set(gid, {
           expressId: id,
           globalId: gid,
           type: displayName,
-          name: node.name || '',
+          name: name || '',
         });
       }
     }
@@ -122,6 +123,10 @@ function compareEntities(
   const attributeChanges: AttributeChange[] = [];
   const propertyChanges: PropertyChange[] = [];
   const quantityChanges: QuantityChange[] = [];
+
+  // Create EntityNodes once and reuse for properties + quantities
+  const oldNode = new EntityNode(oldStore, oldInfo.expressId);
+  const newNode = new EntityNode(newStore, newInfo.expressId);
 
   // Compare attributes
   if (opts.attributes) {
@@ -143,9 +148,6 @@ function compareEntities(
 
   // Compare properties
   if (opts.properties) {
-    const oldNode = new EntityNode(oldStore, oldInfo.expressId);
-    const newNode = new EntityNode(newStore, newInfo.expressId);
-
     const oldProps = oldNode.properties();
     const newProps = newNode.properties();
 
@@ -190,9 +192,6 @@ function compareEntities(
 
   // Compare quantities
   if (opts.quantities) {
-    const oldNode = new EntityNode(oldStore, oldInfo.expressId);
-    const newNode = new EntityNode(newStore, newInfo.expressId);
-
     const oldQsets = oldNode.quantities();
     const newQsets = newNode.quantities();
 
