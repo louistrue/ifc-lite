@@ -4,6 +4,8 @@
 
 import init, { initSync, IfcAPI } from '@ifc-lite/wasm';
 
+const TRANSFER_MESH_BATCH_SIZE = 4096;
+
 export interface GeometryWorkerInitMessage {
   type: 'init';
   wasmModule?: WebAssembly.Module;
@@ -41,6 +43,7 @@ export type GeometryWorkerRequest =
 
 export interface GeometryWorkerBatchMessage {
   type: 'batch';
+  batchMeshCount: number;
   meshes: {
     expressId: number;
     ifcType?: string;
@@ -161,16 +164,31 @@ self.onmessage = async (e: MessageEvent<GeometryWorkerRequest>) => {
         styleIds, styleColors,
       ));
 
-      const meshes: GeometryWorkerBatchMessage['meshes'] = [];
-      const transferBuffers: ArrayBuffer[] = [];
+      let meshes: GeometryWorkerBatchMessage['meshes'] = [];
+      let transferBuffers: Transferable[] = [];
+      let totalMeshes = 0;
+
+      const flushBatch = () => {
+        if (meshes.length === 0) return;
+        (self as unknown as Worker).postMessage(
+          {
+            type: 'batch',
+            batchMeshCount: meshes.length,
+            meshes,
+          } as GeometryWorkerBatchMessage,
+          transferBuffers,
+        );
+        meshes = [];
+        transferBuffers = [];
+      };
 
       for (let i = 0; i < collection.length; i++) {
         const mesh = collection.get(i);
         if (!mesh) continue;
 
-        const positions = new Float32Array(mesh.positions);
-        const normals = new Float32Array(mesh.normals);
-        const indices = new Uint32Array(mesh.indices);
+        const positions = mesh.positions;
+        const normals = mesh.normals;
+        const indices = mesh.indices;
 
         meshes.push({
           expressId: mesh.expressId,
@@ -179,17 +197,23 @@ self.onmessage = async (e: MessageEvent<GeometryWorkerRequest>) => {
           color: [mesh.color[0], mesh.color[1], mesh.color[2], mesh.color[3]],
         });
 
-        transferBuffers.push(positions.buffer, normals.buffer, indices.buffer);
+        transferBuffers.push(
+          positions.buffer as ArrayBuffer,
+          normals.buffer as ArrayBuffer,
+          indices.buffer as ArrayBuffer,
+        );
+        totalMeshes++;
         mesh.free();
+
+        if (meshes.length >= TRANSFER_MESH_BATCH_SIZE) {
+          flushBatch();
+        }
       }
       collection.free();
 
+      flushBatch();
       (self as unknown as Worker).postMessage(
-        { type: 'batch', meshes } as GeometryWorkerBatchMessage,
-        transferBuffers,
-      );
-      (self as unknown as Worker).postMessage(
-        { type: 'complete', totalMeshes: meshes.length } as GeometryWorkerCompleteMessage,
+        { type: 'complete', totalMeshes } as GeometryWorkerCompleteMessage,
       );
     }
   } catch (err) {

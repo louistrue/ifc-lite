@@ -11,6 +11,8 @@ import type { IfcDataStore } from '@ifc-lite/parser';
 import type { GeometryResult, CoordinateInfo } from '@ifc-lite/geometry';
 import { DATA_DEFAULTS } from '../constants.js';
 
+const IN_PLACE_COLOR_UPDATE_THRESHOLD = 50_000;
+
 export interface DataSlice {
   // State
   ifcDataStore: IfcDataStore | null;
@@ -110,15 +112,28 @@ export const createDataSlice: StateCreator<DataSlice, [], [], DataSlice> = (set)
       return { pendingMeshColorUpdates: clonedUpdates };
     }
 
-    // New array reference so useGeometryStreaming's useEffect detects the change.
-    // Only runs once at 'complete' (not per-batch), so O(n) .map() is fine.
-    const updatedMeshes = state.geometryResult.meshes.map(mesh => {
-      const newColor = clonedUpdates.get(mesh.expressId);
-      if (newColor) {
-        return { ...mesh, color: newColor };
+    const existingMeshes = state.geometryResult.meshes;
+    const shouldMutateInPlace = existingMeshes.length >= IN_PLACE_COLOR_UPDATE_THRESHOLD;
+
+    const updatedMeshes = shouldMutateInPlace
+      ? existingMeshes
+      : existingMeshes.map(mesh => {
+          const newColor = clonedUpdates.get(mesh.expressId);
+          if (newColor) {
+            return { ...mesh, color: newColor };
+          }
+          return mesh;
+        });
+
+    if (shouldMutateInPlace) {
+      for (let i = 0; i < existingMeshes.length; i++) {
+        const newColor = clonedUpdates.get(existingMeshes[i].expressId);
+        if (newColor) {
+          existingMeshes[i].color = newColor;
+        }
       }
-      return mesh;
-    });
+    }
+
     return {
       geometryResult: {
         ...state.geometryResult,

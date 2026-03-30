@@ -642,24 +642,12 @@ export class GeometryProcessor {
         const msg = e.data;
 
         if (msg.type === 'batch') {
-          // Convert transferable data back to MeshData[]
-          const meshes: MeshData[] = msg.meshes.map((m: {
-            expressId: number;
-            ifcType?: string;
-            positions: Float32Array;
-            normals: Float32Array;
-            indices: Uint32Array;
-            color: [number, number, number, number];
-          }) => ({
-            expressId: m.expressId,
-            ifcType: m.ifcType,
-            positions: m.positions instanceof Float32Array ? m.positions : new Float32Array(m.positions),
-            normals: m.normals instanceof Float32Array ? m.normals : new Float32Array(m.normals),
-            indices: m.indices instanceof Uint32Array ? m.indices : new Uint32Array(m.indices),
-            color: m.color,
-          }));
+          const meshes = msg.meshes as MeshData[];
 
           if (meshes.length > 0) {
+            if (useFastPrePass && !stylePassStarted) {
+              startStylePass();
+            }
             totalMeshes += meshes.length;
             batchQueue.push({ meshes, totalSoFar: totalMeshes });
             if (resolveWaiting) {

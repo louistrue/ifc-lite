@@ -186,6 +186,20 @@ describe('DataSlice', () => {
       assert.deepStrictEqual(state.geometryResult?.meshes[0].color, [0, 1, 0, 1]);
       assert.deepStrictEqual(state.geometryResult?.meshes[1].color, [0, 0, 1, 1]);
     });
+
+    it('should mutate large mesh arrays in place to avoid full clones', () => {
+      const meshes = Array.from({ length: 50_001 }, (_, index) => createMockMesh(index + 1));
+      state.appendGeometryBatch(meshes as any);
+
+      const previousMeshes = state.geometryResult?.meshes;
+      const updates = new Map<number, [number, number, number, number]>();
+      updates.set(50_001, [0, 1, 0, 1]);
+
+      state.updateMeshColors(updates);
+
+      assert.strictEqual(state.geometryResult?.meshes, previousMeshes);
+      assert.deepStrictEqual(state.geometryResult?.meshes[50_000].color, [0, 1, 0, 1]);
+    });
   });
 
   describe('clearPendingColorUpdates', () => {
