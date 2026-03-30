@@ -14,7 +14,7 @@ import { useCallback, useRef } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useViewerStore } from '../store.js';
 import { IfcParser, detectFormat, parseIfcx, type IfcDataStore } from '@ifc-lite/parser';
-import { GeometryProcessor, GeometryQuality, type CoordinateInfo, type HugeGeometryStats, type MeshData } from '@ifc-lite/geometry';
+import { GeometryProcessor, GeometryQuality, type CoordinateInfo, type HugeGeometryChunk, type HugeGeometryStats, type MeshData } from '@ifc-lite/geometry';
 import { buildSpatialIndexGuarded } from '../utils/loadingUtils.js';
 import { type GeometryData, loadGLBToMeshData } from '@ifc-lite/cache';
 
@@ -62,6 +62,53 @@ function computeFastFingerprint(buffer: ArrayBuffer): string {
     }
   }
   return (hash >>> 0).toString(16);
+}
+
+function reconstructMeshesFromHugeChunks(chunks: HugeGeometryChunk[]): MeshData[] {
+  const meshes: MeshData[] = [];
+
+  for (const chunk of chunks) {
+    const stride = chunk.vertexStrideFloats;
+    const indices = chunk.indexData;
+    const vertices = chunk.vertexData;
+
+    for (const element of chunk.elements) {
+      const vertexCount = element.vertexCount;
+      const indexCount = element.indexCount;
+      const positions = new Float32Array(vertexCount * 3);
+      const normals = new Float32Array(vertexCount * 3);
+      const elementIndices = new Uint32Array(indexCount);
+      const vertexStart = element.vertexOffset;
+      const indexStart = element.indexOffset;
+
+      for (let i = 0; i < vertexCount; i++) {
+        const srcBase = (vertexStart + i) * stride;
+        const dstBase = i * 3;
+        positions[dstBase] = vertices[srcBase];
+        positions[dstBase + 1] = vertices[srcBase + 1];
+        positions[dstBase + 2] = vertices[srcBase + 2];
+        normals[dstBase] = vertices[srcBase + 3];
+        normals[dstBase + 1] = vertices[srcBase + 4];
+        normals[dstBase + 2] = vertices[srcBase + 5];
+      }
+
+      for (let i = 0; i < indexCount; i++) {
+        elementIndices[i] = indices[indexStart + i] - vertexStart;
+      }
+
+      meshes.push({
+        expressId: element.expressId,
+        ifcType: element.ifcType,
+        modelIndex: element.modelIndex,
+        color: element.color,
+        positions,
+        normals,
+        indices: elementIndices,
+      });
+    }
+  }
+
+  return meshes;
 }
 
 /**
@@ -123,11 +170,11 @@ export function useIfcLoader() {
       const buffer = await file.arrayBuffer();
       const fileReadMs = performance.now() - fileReadStart;
       const fileSizeMB = buffer.byteLength / (1024 * 1024);
-      const preferHugeBatches = buffer.byteLength >= 512 * 1024 * 1024;
       console.log(`[useIfc] File: ${file.name}, size: ${fileSizeMB.toFixed(2)}MB, read in ${fileReadMs.toFixed(0)}ms`);
 
       // Detect file format (IFCX/IFC5 vs IFC4 STEP vs GLB)
       const format = detectFormat(buffer);
+      const preferHugeBatches = format === 'ifc' || format === 'unknown';
 
       // IFCX files must be parsed client-side (server only supports IFC4 STEP)
       if (format === 'ifcx') {
@@ -364,6 +411,8 @@ export function useIfcLoader() {
       let finalCoordinateInfo: CoordinateInfo | null = null;
       let finalHugeStats: HugeGeometryStats | null = null;
       let usedHugeStreaming = false;
+      const retainHugeChunksForFallback = preferHugeBatches && buffer.byteLength <= CACHE_MAX_SOURCE_SIZE;
+      const retainedHugeChunks: HugeGeometryChunk[] = [];
       // Capture RTC offset from WASM for proper multi-model alignment
       let capturedRtcOffset: { x: number; y: number; z: number } | null = null;
       // Track all deferred style updates so cache data always uses final colors.
@@ -491,7 +540,7 @@ export function useIfcLoader() {
               if (batchCount === 1) {
                 firstGeometryTime = performance.now() - totalStartTime;
                 console.log(
-                  `[useIfc] Batch #1: ${event.chunks[0]?.elements.length ?? 0} chunk elements, ` +
+                  `[useIfc] Batch #1: ${event.chunks[0]?.elements.length ?? 0} meshes, ` +
                   `wait: ${firstGeometryTime.toFixed(0)}ms`
                 );
               }
@@ -500,6 +549,9 @@ export function useIfcLoader() {
               finalHugeStats = event.stats;
               totalMeshes = event.totalSoFar;
               lastTotalMeshes = event.totalSoFar;
+              if (retainHugeChunksForFallback) {
+                retainedHugeChunks.push(...event.chunks);
+              }
 
               appendHugeGeometryChunks(event.chunks, event.stats);
               if (event.coordinateInfo) {
@@ -599,6 +651,29 @@ export function useIfcLoader() {
                 `[useIfc] Geometry streaming complete: ${event.stats.totalBatches} huge batches, ` +
                 `${event.stats.totalElements} elements`
               );
+
+              dataStorePromise.then(dataStore => {
+                if (loadSessionRef.current !== currentSession) return;
+                if (!retainHugeChunksForFallback || retainedHugeChunks.length === 0 || !finalCoordinateInfo) {
+                  return;
+                }
+
+                const reconstructedMeshes = reconstructMeshesFromHugeChunks(retainedHugeChunks);
+                applyColorUpdatesToMeshes(reconstructedMeshes, cumulativeColorUpdates);
+                buildSpatialIndexGuarded(reconstructedMeshes, dataStore, setIfcDataStore);
+
+                if (buffer.byteLength >= CACHE_SIZE_THRESHOLD && buffer.byteLength <= CACHE_MAX_SOURCE_SIZE) {
+                  const geometryData: GeometryData = {
+                    meshes: reconstructedMeshes,
+                    totalVertices: reconstructedMeshes.reduce((sum, mesh) => sum + (mesh.positions.length / 3), 0),
+                    totalTriangles: reconstructedMeshes.reduce((sum, mesh) => sum + (mesh.indices.length / 3), 0),
+                    coordinateInfo: finalCoordinateInfo,
+                  };
+                  saveToCache(cacheKey, dataStore, geometryData, buffer, file.name);
+                }
+              }).catch(err => {
+                console.warn('[useIfc] Skipping spatial index/cache - data model unavailable:', err);
+              });
               break;
           }
 

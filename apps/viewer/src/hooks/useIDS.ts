@@ -31,8 +31,8 @@ import type { IfcDataStore } from '@ifc-lite/parser';
 import { createBCFFromIDSReport, writeBCF } from '@ifc-lite/bcf';
 import type { EntityBoundsInput, IDSBCFExportOptions } from '@ifc-lite/bcf';
 import type { IDSBCFExportSettings, IDSExportProgress } from '@/components/viewer/IDSExportDialog';
-import { getEntityBounds } from '@/utils/viewportUtils';
 import { getGlobalRenderer } from '@/hooks/useBCF';
+import { getGeometryEntityBounds } from '@/utils/geometrySummary';
 
 import { createDataAccessor } from './ids/idsDataAccessor';
 import {
@@ -617,23 +617,26 @@ export function useIDS(options: UseIDSOptions = {}): UseIDSResult {
       entityBounds = new Map();
       const geomResult = geometryResultRef.current;
 
-      // Collect geometry from all models
-      const allMeshData: Array<{ meshes: unknown[]; idOffset: number; modelId: string }> = [];
+      const allGeometrySources: Array<{
+        geometryResult: typeof geomResult;
+        hugeGeometryEntities?: typeof hugeGeometryEntities;
+        modelId: string;
+      }> = [];
       for (const [modelId, model] of models.entries()) {
-        if (model.geometryResult?.meshes) {
-          allMeshData.push({
-            meshes: model.geometryResult.meshes,
-            idOffset: model.idOffset ?? 0,
+        if (model.geometryResult?.meshes || model.hugeGeometryEntities?.size) {
+          allGeometrySources.push({
+            geometryResult: model.geometryResult,
+            hugeGeometryEntities: model.hugeGeometryEntities,
             modelId,
           });
         }
       }
 
       // Also include legacy single-model geometry
-      if (geomResult?.meshes && allMeshData.length === 0) {
-        allMeshData.push({
-          meshes: geomResult.meshes,
-          idOffset: 0,
+      if ((geomResult?.meshes || hugeGeometryEntities.size > 0) && allGeometrySources.length === 0) {
+        allGeometrySources.push({
+          geometryResult: geomResult,
+          hugeGeometryEntities,
           modelId: 'default',
         });
       }
@@ -646,13 +649,14 @@ export function useIDS(options: UseIDSOptions = {}): UseIDSResult {
           if (entityBounds.has(boundsKey)) continue;
 
           // Find matching model geometry
-          for (const modelData of allMeshData) {
-            if (modelData.modelId === entity.modelId || allMeshData.length === 1) {
+          for (const modelData of allGeometrySources) {
+            if (modelData.modelId === entity.modelId || allGeometrySources.length === 1) {
               const globalExpressId = toViewerGlobalId(entity.modelId, entity.expressId);
               if (globalExpressId == null) break;
-              const bounds = getEntityBounds(
-                modelData.meshes as Parameters<typeof getEntityBounds>[0],
+              const bounds = getGeometryEntityBounds(
                 globalExpressId,
+                modelData.geometryResult,
+                modelData.hugeGeometryEntities,
               );
               if (bounds) {
                 entityBounds.set(boundsKey, bounds);

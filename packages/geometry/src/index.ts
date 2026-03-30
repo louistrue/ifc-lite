@@ -60,6 +60,7 @@ import { IfcLiteMeshCollector } from './ifc-lite-mesh-collector.js';
 import { BufferBuilder } from './buffer-builder.js';
 import { CoordinateHandler } from './coordinate-handler.js';
 import { GeometryQuality } from './progressive-loader.js';
+import { buildHugeGeometryChunks } from './huge-chunk-builder.js';
 import { createPlatformBridge, isTauri, type IPlatformBridge } from './platform-bridge.js';
 import type { CoordinateInfo, GeometryResult, HugeGeometryChunk, HugeGeometryStats, MeshData } from './types.js';
 
@@ -611,7 +612,7 @@ export class GeometryProcessor {
       totalVertices: 0,
       totalTriangles: 0,
     };
-    const emitHugeBatches = options.preferHugeBatches === true && useFastPrePass;
+    const emitHugeBatches = options.preferHugeBatches === true;
 
     const workers: Worker[] = [];
 
@@ -862,6 +863,49 @@ export class GeometryProcessor {
       // Process coordinate shifts
       this.coordinateHandler.processMeshesIncremental(allMeshes);
       const coordinateInfo = this.coordinateHandler.getFinalCoordinateInfo();
+
+      if (options.preferHugeBatches) {
+        const { chunks } = buildHugeGeometryChunks(allMeshes, 0, options.targetChunkBytes);
+        let hugeBounds: ChunkBounds | null = null;
+        let hugeStats: HugeGeometryStats = {
+          totalBatches: 0,
+          totalElements: 0,
+          totalVertices: 0,
+          totalTriangles: 0,
+        };
+
+        for (const chunk of chunks) {
+          hugeBounds = updateChunkBounds(hugeBounds, chunk);
+          hugeStats = {
+            totalBatches: hugeStats.totalBatches + 1,
+            totalElements: hugeStats.totalElements + chunk.elements.length,
+            totalVertices: hugeStats.totalVertices + (chunk.vertexData.length / chunk.vertexStrideFloats),
+            totalTriangles: hugeStats.totalTriangles + (chunk.indexCount / 3),
+          };
+        }
+
+        const hugeCoordinateInfo = createCoordinateInfoFromChunkBounds(
+          hugeBounds,
+          coordinateInfo.wasmRtcOffset,
+          coordinateInfo.hasLargeCoordinates,
+        );
+
+        yield {
+          type: 'huge-batch',
+          chunks,
+          totalSoFar: hugeStats.totalElements,
+          stats: hugeStats,
+          coordinateInfo: hugeCoordinateInfo,
+        };
+
+        yield {
+          type: 'huge-complete',
+          totalMeshes: hugeStats.totalElements,
+          stats: hugeStats,
+          coordinateInfo: hugeCoordinateInfo,
+        };
+        return;
+      }
 
       // Emit as single batch for immediate rendering
       yield {

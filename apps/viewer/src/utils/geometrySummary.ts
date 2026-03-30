@@ -5,6 +5,11 @@
 import type { GeometryResult, HugeGeometryEntityInfo, HugeGeometryStats } from '@ifc-lite/geometry';
 import type { FederatedModel } from '../store/types.js';
 
+export interface GeometryEntityBounds {
+  min: { x: number; y: number; z: number };
+  max: { x: number; y: number; z: number };
+}
+
 export function getGeometryElementCount(
   geometryResult: GeometryResult | null | undefined,
   hugeGeometryStats?: HugeGeometryStats | null,
@@ -73,6 +78,67 @@ export function getGeometryEntityInfo(
     color: mesh.color,
     boundsMin: [0, 0, 0],
     boundsMax: [0, 0, 0],
+  };
+}
+
+export function getGeometryEntityBounds(
+  expressId: number,
+  geometryResult: GeometryResult | null | undefined,
+  hugeGeometryEntities?: Map<number, HugeGeometryEntityInfo> | null,
+): GeometryEntityBounds | null {
+  const hugeEntry = hugeGeometryEntities?.get(expressId);
+  if (hugeEntry) {
+    return {
+      min: {
+        x: hugeEntry.boundsMin[0],
+        y: hugeEntry.boundsMin[1],
+        z: hugeEntry.boundsMin[2],
+      },
+      max: {
+        x: hugeEntry.boundsMax[0],
+        y: hugeEntry.boundsMax[1],
+        z: hugeEntry.boundsMax[2],
+      },
+    };
+  }
+
+  const meshes = geometryResult?.meshes.filter((entry) => entry.expressId === expressId);
+  if (!meshes || meshes.length === 0) {
+    return null;
+  }
+
+  let minX = Infinity;
+  let minY = Infinity;
+  let minZ = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  let maxZ = -Infinity;
+
+  for (const mesh of meshes) {
+    const positions = mesh.positions;
+    for (let i = 0; i < positions.length; i += 3) {
+      const x = positions[i];
+      const y = positions[i + 1];
+      const z = positions[i + 2];
+      if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) {
+        continue;
+      }
+      minX = Math.min(minX, x);
+      minY = Math.min(minY, y);
+      minZ = Math.min(minZ, z);
+      maxX = Math.max(maxX, x);
+      maxY = Math.max(maxY, y);
+      maxZ = Math.max(maxZ, z);
+    }
+  }
+
+  if (!Number.isFinite(minX) || !Number.isFinite(maxX)) {
+    return null;
+  }
+
+  return {
+    min: { x: minX, y: minY, z: minZ },
+    max: { x: maxX, y: maxY, z: maxZ },
   };
 }
 
