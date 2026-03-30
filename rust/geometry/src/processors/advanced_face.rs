@@ -308,16 +308,231 @@ fn parse_knot_vectors(bspline: &DecodedEntity) -> Result<(Vec<f64>, Vec<f64>)> {
 
 // ---------- Surface-type-specific processors ----------
 
-/// Process a planar face (IfcPlane surface)
+/// Extract a CartesianPoint's coordinates from a VertexPoint entity.
+fn extract_vertex_coords(vertex: &DecodedEntity, decoder: &mut EntityDecoder) -> Option<Point3<f64>> {
+    let point_attr = vertex.get(0)?;
+    let point = decoder.resolve_ref(point_attr).ok().flatten()?;
+    let coords = point.get(0).and_then(|v| v.as_list())?;
+    let x = coords.first().and_then(|v| v.as_float()).unwrap_or(0.0);
+    let y = coords.get(1).and_then(|v| v.as_float()).unwrap_or(0.0);
+    let z = coords.get(2).and_then(|v| v.as_float()).unwrap_or(0.0);
+    Some(Point3::new(x, y, z))
+}
+
+/// Evaluate a B-spline CURVE at parameter t (1D, not surface).
+fn evaluate_bspline_curve(
+    t: f64,
+    degree: usize,
+    control_points: &[Point3<f64>],
+    knots: &[f64],
+) -> Point3<f64> {
+    let mut result = Point3::new(0.0, 0.0, 0.0);
+    for (i, cp) in control_points.iter().enumerate() {
+        let basis = bspline_basis(i, degree, t, knots);
+        if basis.abs() > 1e-10 {
+            result.x += basis * cp.x;
+            result.y += basis * cp.y;
+            result.z += basis * cp.z;
+        }
+    }
+    result
+}
+
+/// Sample intermediate points from a B-spline curve edge.
+/// Returns points along the curve (excluding start vertex, including end vertex
+/// is handled by the next edge's start vertex in the loop).
+fn sample_bspline_edge_curve(
+    curve: &DecodedEntity,
+    start: &Point3<f64>,
+    end: &Point3<f64>,
+    same_sense: bool,
+    decoder: &mut EntityDecoder,
+) -> Vec<Point3<f64>> {
+    // Parse B-spline curve: degree(0), control_points(1), ..., knot_mults(6), knots(7)
+    let degree = curve.get_float(0).unwrap_or(3.0) as usize;
+
+    // Parse control points (attribute 1: LIST of IfcCartesianPoint)
+    let cp_list = match curve.get(1).and_then(|a| a.as_list()) {
+        Some(list) => list,
+        None => return vec![*start],
+    };
+    let control_points: Vec<Point3<f64>> = cp_list
+        .iter()
+        .filter_map(|ref_val| {
+            let id = ref_val.as_entity_ref()?;
+            let pt = decoder.decode_by_id(id).ok()?;
+            let coords = pt.get(0)?.as_list()?;
+            let x = coords.first()?.as_float().unwrap_or(0.0);
+            let y = coords.get(1).and_then(|v| v.as_float()).unwrap_or(0.0);
+            let z = coords.get(2).and_then(|v| v.as_float()).unwrap_or(0.0);
+            Some(Point3::new(x, y, z))
+        })
+        .collect();
+
+    if control_points.len() <= degree {
+        return vec![*start];
+    }
+
+    // Parse knot multiplicities (attribute 6) and knot values (attribute 7)
+    let mults: Vec<i64> = curve
+        .get(6)
+        .and_then(|a| a.as_list())
+        .map(|l| l.iter().filter_map(|v| v.as_int()).collect())
+        .unwrap_or_default();
+    let knot_values: Vec<f64> = curve
+        .get(7)
+        .and_then(|a| a.as_list())
+        .map(|l| l.iter().filter_map(|v| v.as_float()).collect())
+        .unwrap_or_default();
+
+    if mults.is_empty() || knot_values.is_empty() {
+        return vec![*start];
+    }
+
+    let knots = expand_knots(&knot_values, &mults);
+    let t_min = knots[degree];
+    let t_max = knots[knots.len() - degree - 1];
+
+    // Adaptive segment count based on control point density
+    let n_segments = (control_points.len() * 2).clamp(4, 16);
+
+    let mut points = Vec::with_capacity(n_segments + 1);
+    // Add the start vertex first
+    points.push(*start);
+
+    // Sample intermediate points (skip first=start, skip last=next edge's start)
+    for i in 1..n_segments {
+        let frac = i as f64 / n_segments as f64;
+        let t = if same_sense {
+            t_min + (t_max - t_min) * frac
+        } else {
+            t_max - (t_max - t_min) * frac
+        };
+        let t_clamped = t.min(t_max - 1e-6).max(t_min);
+        let pt = evaluate_bspline_curve(t_clamped, degree, &control_points, &knots);
+        // Skip degenerate points (too close to previous)
+        if let Some(prev) = points.last() {
+            let dist_sq = (pt.x - prev.x).powi(2) + (pt.y - prev.y).powi(2) + (pt.z - prev.z).powi(2);
+            if dist_sq < 1e-12 {
+                continue;
+            }
+        }
+        points.push(pt);
+    }
+
+    points
+}
+
+/// Extract polygon points from an edge loop, sampling B-spline curve edges
+/// for intermediate points to preserve curvature.
+fn extract_edge_loop_points(
+    loop_entity: &DecodedEntity,
+    decoder: &mut EntityDecoder,
+) -> Vec<Point3<f64>> {
+    let edges = match loop_entity.get(0).and_then(|a| a.as_list()) {
+        Some(e) => e,
+        None => return Vec::new(),
+    };
+
+    let mut polygon_points = Vec::new();
+
+    for edge_ref in edges {
+        let edge_id = match edge_ref.as_entity_ref() {
+            Some(id) => id,
+            None => continue,
+        };
+        let oriented_edge = match decoder.decode_by_id(edge_id) {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+
+        // IfcOrientedEdge: EdgeStart(0), EdgeEnd(1), EdgeElement(2), Orientation(3)
+        let orientation = oriented_edge
+            .get(3)
+            .and_then(|a| a.as_enum())
+            .map(|e| e == "T" || e == "TRUE")
+            .unwrap_or(true);
+
+        // Get the EdgeElement (IfcEdgeCurve)
+        let edge_curve = match oriented_edge
+            .get(2)
+            .and_then(|attr| decoder.resolve_ref(attr).ok().flatten())
+        {
+            Some(ec) => ec,
+            None => {
+                // Fallback: extract start vertex only
+                let vertex = oriented_edge
+                    .get(0)
+                    .and_then(|attr| decoder.resolve_ref(attr).ok().flatten());
+                if let Some(v) = vertex {
+                    if let Some(pt) = extract_vertex_coords(&v, decoder) {
+                        polygon_points.push(pt);
+                    }
+                }
+                continue;
+            }
+        };
+
+        // IfcEdgeCurve: EdgeStart(0), EdgeEnd(1), EdgeGeometry(2), SameSense(3)
+        let edge_same_sense = edge_curve.get(3).and_then(|a| a.as_enum())
+            .map(|e| e == "T" || e == "TRUE").unwrap_or(true);
+        let same_sense = orientation == edge_same_sense;
+
+        // Get start and end vertices from EdgeCurve
+        let start_vertex = edge_curve
+            .get(0)
+            .and_then(|attr| decoder.resolve_ref(attr).ok().flatten());
+        let end_vertex = edge_curve
+            .get(1)
+            .and_then(|attr| decoder.resolve_ref(attr).ok().flatten());
+
+        let start_pt = start_vertex.as_ref().and_then(|v| extract_vertex_coords(v, decoder));
+        let end_pt = end_vertex.as_ref().and_then(|v| extract_vertex_coords(v, decoder));
+
+        // Determine actual start/end based on orientation
+        let (actual_start, actual_end) = if same_sense {
+            (start_pt, end_pt)
+        } else {
+            (end_pt, start_pt)
+        };
+
+        // Get the edge geometry to check if it's a curve
+        let edge_geometry = edge_curve
+            .get(2)
+            .and_then(|attr| decoder.resolve_ref(attr).ok().flatten());
+
+        if let Some(geom) = edge_geometry {
+            let geom_type = geom.ifc_type.as_str().to_uppercase();
+            if geom_type == "IFCBSPLINECURVEWITHKNOTS" {
+                // Sample B-spline curve for intermediate points
+                let s = actual_start.unwrap_or(Point3::new(0.0, 0.0, 0.0));
+                let e = actual_end.unwrap_or(Point3::new(0.0, 0.0, 0.0));
+                let sampled = sample_bspline_edge_curve(&geom, &s, &e, same_sense, decoder);
+                polygon_points.extend(sampled);
+                continue;
+            }
+            // For IfcLine, IfcCircle, etc.: just use start vertex
+        }
+
+        // Default: add start vertex only
+        if let Some(pt) = actual_start {
+            polygon_points.push(pt);
+        }
+    }
+
+    polygon_points
+}
+
+/// Process a planar or boundary-represented face.
+/// Extracts edge loop boundary points (with B-spline curve sampling)
+/// and triangulates with robust ear-cutting.
 fn process_planar_face(
     face: &DecodedEntity,
     decoder: &mut EntityDecoder,
 ) -> Result<(Vec<f32>, Vec<u32>)> {
-    // Get bounds from face (attribute 0)
     let bounds_attr = face
         .get(0)
         .ok_or_else(|| Error::geometry("AdvancedFace missing Bounds".to_string()))?;
-
     let bounds = bounds_attr
         .as_list()
         .ok_or_else(|| Error::geometry("Expected bounds list".to_string()))?;
@@ -329,7 +544,6 @@ fn process_planar_face(
         if let Some(bound_id) = bound.as_entity_ref() {
             let bound_entity = decoder.decode_by_id(bound_id)?;
 
-            // Get the loop (attribute 0: Bound)
             let loop_attr = bound_entity
                 .get(0)
                 .ok_or_else(|| Error::geometry("FaceBound missing Bound".to_string()))?;
@@ -338,107 +552,38 @@ fn process_planar_face(
                 .resolve_ref(loop_attr)?
                 .ok_or_else(|| Error::geometry("Failed to resolve loop".to_string()))?;
 
-            // Get oriented edges from edge loop
-            if loop_entity
-                .ifc_type
-                .as_str()
-                .eq_ignore_ascii_case("IFCEDGELOOP")
-            {
-                let edges_attr = loop_entity
-                    .get(0)
-                    .ok_or_else(|| Error::geometry("EdgeLoop missing EdgeList".to_string()))?;
+            if !loop_entity.ifc_type.as_str().eq_ignore_ascii_case("IFCEDGELOOP") {
+                continue;
+            }
 
-                let edges = edges_attr
-                    .as_list()
-                    .ok_or_else(|| Error::geometry("Expected edge list".to_string()))?;
+            // Extract polygon points with B-spline curve sampling
+            let polygon_points = extract_edge_loop_points(&loop_entity, decoder);
 
-                let mut polygon_points = Vec::new();
+            if polygon_points.len() >= 3 {
+                let base_idx = (positions.len() / 3) as u32;
 
-                for edge_ref in edges {
-                    if let Some(edge_id) = edge_ref.as_entity_ref() {
-                        let oriented_edge = decoder.decode_by_id(edge_id)?;
-
-                        // IfcOrientedEdge: EdgeStart(0), EdgeEnd(1), EdgeElement(2), Orientation(3)
-                        // EdgeStart/EdgeEnd can be * (derived), get from EdgeElement if needed
-
-                        // Try to get start vertex from OrientedEdge first
-                        let vertex = oriented_edge
-                            .get(0)
-                            .and_then(|attr| decoder.resolve_ref(attr).ok().flatten())
-                            .or_else(|| {
-                                // If EdgeStart is *, get from EdgeElement (IfcEdgeCurve)
-                                oriented_edge
-                                    .get(2)
-                                    .and_then(|attr| decoder.resolve_ref(attr).ok().flatten())
-                                    .and_then(|edge_curve| {
-                                        // IfcEdgeCurve: EdgeStart(0), EdgeEnd(1), EdgeGeometry(2)
-                                        edge_curve
-                                            .get(0)
-                                            .and_then(|attr| {
-                                                decoder.resolve_ref(attr).ok().flatten()
-                                            })
-                                    })
-                            });
-
-                        if let Some(vertex) = vertex {
-                            // IfcVertexPoint has VertexGeometry (IfcCartesianPoint)
-                            if let Some(point_attr) = vertex.get(0) {
-                                if let Some(point) =
-                                    decoder.resolve_ref(point_attr).ok().flatten()
-                                {
-                                    if let Some(coords) =
-                                        point.get(0).and_then(|v| v.as_list())
-                                    {
-                                        let x = coords
-                                            .first()
-                                            .and_then(|v| v.as_float())
-                                            .unwrap_or(0.0);
-                                        let y = coords
-                                            .get(1)
-                                            .and_then(|v| v.as_float())
-                                            .unwrap_or(0.0);
-                                        let z = coords
-                                            .get(2)
-                                            .and_then(|v| v.as_float())
-                                            .unwrap_or(0.0);
-
-                                        polygon_points.push(Point3::new(x, y, z));
-                                    }
-                                }
-                            }
-                        }
-                    }
+                for point in &polygon_points {
+                    positions.push(point.x as f32);
+                    positions.push(point.y as f32);
+                    positions.push(point.z as f32);
                 }
 
-                // Triangulate the polygon using robust ear-cutting
-                // (fan triangulation fails on non-convex polygons like ramp edges)
-                if polygon_points.len() >= 3 {
-                    let base_idx = (positions.len() / 3) as u32;
+                // Project 3D polygon to 2D for robust ear-cutting triangulation
+                let normal = calculate_polygon_normal(&polygon_points);
+                let (points_2d, _, _, _) = project_to_2d(&polygon_points, &normal);
 
-                    for point in &polygon_points {
-                        positions.push(point.x as f32);
-                        positions.push(point.y as f32);
-                        positions.push(point.z as f32);
-                    }
-
-                    // Project 3D polygon to 2D for robust triangulation
-                    let normal = calculate_polygon_normal(&polygon_points);
-                    let (points_2d, _, _, _) =
-                        project_to_2d(&polygon_points, &normal);
-
-                    match triangulate_polygon(&points_2d) {
-                        Ok(tri_indices) => {
-                            for idx in tri_indices {
-                                indices.push(base_idx + idx as u32);
-                            }
+                match triangulate_polygon(&points_2d) {
+                    Ok(tri_indices) => {
+                        for idx in tri_indices {
+                            indices.push(base_idx + idx as u32);
                         }
-                        Err(_) => {
-                            // Fallback to fan triangulation if earcutr fails
-                            for i in 1..polygon_points.len() - 1 {
-                                indices.push(base_idx);
-                                indices.push(base_idx + i as u32);
-                                indices.push(base_idx + i as u32 + 1);
-                            }
+                    }
+                    Err(_) => {
+                        // Fallback to fan triangulation
+                        for i in 1..polygon_points.len() - 1 {
+                            indices.push(base_idx);
+                            indices.push(base_idx + i as u32);
+                            indices.push(base_idx + i as u32 + 1);
                         }
                     }
                 }
