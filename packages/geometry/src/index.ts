@@ -518,7 +518,7 @@ export class GeometryProcessor {
     if (cores >= 16 && deviceMemoryGB >= 16) {
       maxWorkers = useFastPrePass ? Math.min(6, Math.floor(cores / 2)) : Math.min(8, Math.floor(cores / 2));
     } else if (cores >= 8 && deviceMemoryGB >= 8) {
-      maxWorkers = useFastPrePass ? 5 : fileSizeGB > 0.5 ? 2 : 3;
+      maxWorkers = useFastPrePass ? 4 : fileSizeGB > 0.5 ? 2 : 3;
     } else {
       maxWorkers = Math.max(1, Math.min(2, Math.floor(cores / 2)));
     }
