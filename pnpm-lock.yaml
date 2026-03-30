@@ -199,9 +199,15 @@ importers:
       '@ifc-lite/cache':
         specifier: workspace:^
         version: link:../../packages/cache
+      '@ifc-lite/clash':
+        specifier: workspace:^
+        version: link:../../packages/clash
       '@ifc-lite/data':
         specifier: workspace:^
         version: link:../../packages/data
+      '@ifc-lite/diff':
+        specifier: workspace:^
+        version: link:../../packages/diff
       '@ifc-lite/drawing-2d':
         specifier: workspace:^
         version: link:../../packages/drawing-2d

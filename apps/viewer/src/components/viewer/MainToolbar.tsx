@@ -59,7 +59,7 @@ import { executeBasketIsolate } from '@/store/basket/basketCommands';
 import { useIfc } from '@/hooks/useIfc';
 import { cn } from '@/lib/utils';
 import { GLTFExporter, CSVExporter } from '@ifc-lite/export';
-import { FileSpreadsheet, FileJson, FileText, Filter, Upload, Pencil } from 'lucide-react';
+import { FileSpreadsheet, FileJson, FileText, Filter, Upload, Pencil, Zap, GitCompareArrows } from 'lucide-react';
 import { ExportDialog } from './ExportDialog';
 import { BulkPropertyEditor } from './BulkPropertyEditor';
 import { DataConnector } from './DataConnector';
@@ -70,7 +70,7 @@ import { ThemeSwitch } from './ThemeSwitch';
 import { toast } from '@/components/ui/toast';
 
 type Tool = 'select' | 'walk' | 'measure' | 'section';
-type WorkspacePanel = 'script' | 'list' | 'bcf' | 'ids' | 'lens';
+type WorkspacePanel = 'script' | 'list' | 'bcf' | 'ids' | 'lens' | 'diff' | 'clash';
 
 // #region FIX: Move ToolButton OUTSIDE MainToolbar to prevent recreation on every render
 // This fixes Radix UI Tooltip's asChild prop becoming stale during re-renders
@@ -195,6 +195,10 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
   const setLensPanelVisible = useViewerStore((state) => state.setLensPanelVisible);
   const scriptPanelVisible = useViewerStore((state) => state.scriptPanelVisible);
   const setScriptPanelVisible = useViewerStore((state) => state.setScriptPanelVisible);
+  const diffPanelVisible = useViewerStore((state) => state.diffPanelVisible);
+  const setDiffPanelVisible = useViewerStore((state) => state.setDiffPanelVisible);
+  const clashPanelVisible = useViewerStore((state) => state.clashPanelVisible);
+  const setClashPanelVisible = useViewerStore((state) => state.setClashPanelVisible);
 
   // Check which type geometries exist across ALL loaded models (federation-aware).
   // PERF: Use meshes.length as dep proxy instead of full geometryResult, and
@@ -374,25 +378,33 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
     }
   }, [listPanelVisible, scriptPanelVisible, setListPanelVisible, setRightPanelCollapsed, setScriptPanelVisible]);
 
-  const handleToggleRightPanel = useCallback((panel: 'bcf' | 'ids' | 'lens') => {
+  const handleToggleRightPanel = useCallback((panel: 'bcf' | 'ids' | 'lens' | 'diff' | 'clash') => {
     const nextBcfVisible = panel === 'bcf' ? !bcfPanelVisible : false;
     const nextIdsVisible = panel === 'ids' ? !idsPanelVisible : false;
     const nextLensVisible = panel === 'lens' ? !lensPanelVisible : false;
+    const nextDiffVisible = panel === 'diff' ? !diffPanelVisible : false;
+    const nextClashVisible = panel === 'clash' ? !clashPanelVisible : false;
 
     setBcfPanelVisible(nextBcfVisible);
     setIdsPanelVisible(nextIdsVisible);
     setLensPanelVisible(nextLensVisible);
+    setDiffPanelVisible(nextDiffVisible);
+    setClashPanelVisible(nextClashVisible);
 
-    if (nextBcfVisible || nextIdsVisible || nextLensVisible) {
+    if (nextBcfVisible || nextIdsVisible || nextLensVisible || nextDiffVisible || nextClashVisible) {
       setRightPanelCollapsed(false);
     }
   }, [
     bcfPanelVisible,
     idsPanelVisible,
     lensPanelVisible,
+    diffPanelVisible,
+    clashPanelVisible,
     setBcfPanelVisible,
     setIdsPanelVisible,
     setLensPanelVisible,
+    setDiffPanelVisible,
+    setClashPanelVisible,
     setRightPanelCollapsed,
   ]);
 
@@ -403,8 +415,10 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
     if (bcfPanelVisible) panels.add('bcf');
     if (idsPanelVisible) panels.add('ids');
     if (lensPanelVisible) panels.add('lens');
+    if (diffPanelVisible) panels.add('diff');
+    if (clashPanelVisible) panels.add('clash');
     return panels;
-  }, [bcfPanelVisible, idsPanelVisible, lensPanelVisible, listPanelVisible, scriptPanelVisible]);
+  }, [bcfPanelVisible, idsPanelVisible, lensPanelVisible, listPanelVisible, scriptPanelVisible, diffPanelVisible, clashPanelVisible]);
 
   const workspacePanelLabel = useMemo(() => {
     if (activeWorkspacePanels.size === 0) return null;
@@ -413,6 +427,8 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
     if (activeWorkspacePanels.has('list')) return 'Lists';
     if (activeWorkspacePanels.has('bcf')) return 'BCF Issues';
     if (activeWorkspacePanels.has('ids')) return 'IDS Validation';
+    if (activeWorkspacePanels.has('diff')) return 'Diff';
+    if (activeWorkspacePanels.has('clash')) return 'Clash Detection';
     return 'Lens Rules';
   }, [activeWorkspacePanels]);
 
@@ -731,6 +747,21 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
           >
             <Palette className="h-4 w-4 mr-2" />
             Lens Rules
+          </DropdownMenuCheckboxItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuCheckboxItem
+            checked={activeWorkspacePanels.has('diff')}
+            onCheckedChange={() => handleToggleRightPanel('diff')}
+          >
+            <GitCompareArrows className="h-4 w-4 mr-2" />
+            Diff
+          </DropdownMenuCheckboxItem>
+          <DropdownMenuCheckboxItem
+            checked={activeWorkspacePanels.has('clash')}
+            onCheckedChange={() => handleToggleRightPanel('clash')}
+          >
+            <Zap className="h-4 w-4 mr-2" />
+            Clash Detection
           </DropdownMenuCheckboxItem>
         </DropdownMenuContent>
       </DropdownMenu>

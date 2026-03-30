@@ -21,6 +21,8 @@ import { IDSPanel } from './IDSPanel';
 import { LensPanel } from './LensPanel';
 import { ListPanel } from './lists/ListPanel';
 import { ScriptPanel } from './ScriptPanel';
+import { DiffPanel } from './DiffPanel';
+import { ClashPanel } from './ClashPanel';
 import { CommandPalette } from './CommandPalette';
 
 const BOTTOM_PANEL_MIN_HEIGHT = 120;
@@ -65,6 +67,10 @@ export function ViewerLayout() {
   const setLensPanelVisible = useViewerStore((s) => s.setLensPanelVisible);
   const scriptPanelVisible = useViewerStore((s) => s.scriptPanelVisible);
   const setScriptPanelVisible = useViewerStore((s) => s.setScriptPanelVisible);
+  const diffPanelVisible = useViewerStore((s) => s.diffPanelVisible);
+  const setDiffPanelVisible = useViewerStore((s) => s.setDiffPanelVisible);
+  const clashPanelVisible = useViewerStore((s) => s.clashPanelVisible);
+  const setClashPanelVisible = useViewerStore((s) => s.setClashPanelVisible);
 
   // Panel refs for programmatic collapse/expand (command palette, keyboard shortcuts)
   const leftPanelRef = useRef<PanelImperativeHandle>(null);
@@ -221,7 +227,11 @@ export function ViewerLayout() {
                   }}
                 >
                   <div className="h-full w-full overflow-hidden panel-container">
-                    {lensPanelVisible ? (
+                    {diffPanelVisible ? (
+                      <DiffPanel onClose={() => setDiffPanelVisible(false)} />
+                    ) : clashPanelVisible ? (
+                      <ClashPanel onClose={() => setClashPanelVisible(false)} />
+                    ) : lensPanelVisible ? (
                       <LensPanel onClose={() => setLensPanelVisible(false)} />
                     ) : idsPanelVisible ? (
                       <IDSPanel onClose={() => setIdsPanelVisible(false)} />
@@ -289,7 +299,7 @@ export function ViewerLayout() {
               <div className="absolute inset-x-0 bottom-0 h-[50vh] bg-background border-t rounded-t-xl shadow-xl z-40 animate-in slide-in-from-bottom">
                 <div className="flex items-center justify-between p-2 border-b">
                   <span className="font-medium text-sm">
-                    {scriptPanelVisible ? 'Script' : listPanelVisible ? 'Lists' : lensPanelVisible ? 'Lens' : idsPanelVisible ? 'IDS Validation' : bcfPanelVisible ? 'BCF Issues' : 'Properties'}
+                    {scriptPanelVisible ? 'Script' : listPanelVisible ? 'Lists' : diffPanelVisible ? 'Diff' : clashPanelVisible ? 'Clash Detection' : lensPanelVisible ? 'Lens' : idsPanelVisible ? 'IDS Validation' : bcfPanelVisible ? 'BCF Issues' : 'Properties'}
                   </span>
                   <button
                     className="p-1 hover:bg-muted rounded"

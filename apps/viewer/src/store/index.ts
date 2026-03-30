@@ -32,6 +32,8 @@ import { createPinboardSlice, type PinboardSlice } from './slices/pinboardSlice.
 import { createLensSlice, type LensSlice } from './slices/lensSlice.js';
 import { createScriptSlice, type ScriptSlice } from './slices/scriptSlice.js';
 import { createChatSlice, type ChatSlice } from './slices/chatSlice.js';
+import { createDiffSlice, type DiffSlice } from './slices/diffSlice.js';
+import { createClashSlice, type ClashSlice } from './slices/clashSlice.js';
 import { invalidateVisibleBasketCache } from './basketVisibleSet.js';
 
 // Import constants for reset function
@@ -77,6 +79,12 @@ export type { ScriptSlice } from './slices/scriptSlice.js';
 // Re-export Chat types
 export type { ChatSlice } from './slices/chatSlice.js';
 
+// Re-export Diff types
+export type { DiffSlice, DiffFilterMode, DiffSortField, DiffSortDir } from './slices/diffSlice.js';
+
+// Re-export Clash types
+export type { ClashSlice, ClashFilterMode, ClashSortField, ClashSortDir } from './slices/clashSlice.js';
+
 // Combined store type
 export type ViewerState = LoadingSlice &
   SelectionSlice &
@@ -97,7 +105,9 @@ export type ViewerState = LoadingSlice &
   PinboardSlice &
   LensSlice &
   ScriptSlice &
-  ChatSlice & {
+  ChatSlice &
+  DiffSlice &
+  ClashSlice & {
     resetViewerState: () => void;
   };
 
@@ -126,6 +136,8 @@ export const useViewerStore = create<ViewerState>()((...args) => ({
   ...createLensSlice(...args),
   ...createScriptSlice(...args),
   ...createChatSlice(...args),
+  ...createDiffSlice(...args),
+  ...createClashSlice(...args),
 
   // Reset all viewer state when loading new file
   // Note: Does NOT clear models - use clearAllModels() for that
