@@ -38,6 +38,7 @@ import {
 import { useViewerStore } from '@/store';
 import type { DiffFilterMode, DiffSortField } from '@/store/slices/diffSlice';
 import { toGlobalIdFromModels } from '@/store/globalId';
+import { useDiff } from '@/hooks/useDiff';
 import { DIFF_COLORS } from '@ifc-lite/diff';
 import type { DiffResult, EntityChange } from '@ifc-lite/diff';
 import { cn } from '@/lib/utils';
@@ -155,6 +156,17 @@ export function DiffPanel({ onClose }: DiffPanelProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
+  // Hook for lifecycle actions
+  const {
+    loadAndDiff,
+    diffModels,
+    applyDiffColors,
+    selectEntity: selectDiffEntity,
+    isolateChanged,
+    clearIsolation,
+    clearColors,
+  } = useDiff();
+
   // Store state
   const diffResult = useViewerStore((s) => s.diffResult);
   const diffLoading = useViewerStore((s) => s.diffLoading);
@@ -175,13 +187,6 @@ export function DiffPanel({ onClose }: DiffPanelProps) {
   const clearDiff = useViewerStore((s) => s.clearDiff);
   const diffOldModelId = useViewerStore((s) => s.diffOldModelId);
   const diffNewModelId = useViewerStore((s) => s.diffNewModelId);
-
-  // Viewer interaction (federation-aware)
-  const setSelectedEntityId = useViewerStore((s) => s.setSelectedEntityId);
-  const setSelectedEntity = useViewerStore((s) => s.setSelectedEntity);
-  const selectedEntityId = useViewerStore((s) => s.selectedEntityId);
-  const cameraCallbacks = useViewerStore((s) => s.cameraCallbacks);
-  const setPendingColorUpdates = useViewerStore((s) => s.setPendingColorUpdates);
   const models = useViewerStore((s) => s.models);
 
   // Resolve which model IDs to use (fallback to 'legacy' for single-model)
@@ -267,15 +272,8 @@ export function DiffPanel({ onClose }: DiffPanelProps) {
   // Handlers
   const handleRowClick = useCallback((row: DiffRow) => {
     setDiffSelectedGlobalId(row.ifcGlobalId);
-    // Federation-aware selection: convert to renderer globalId
-    const rendererGlobalId = toGlobalIdFromModels(models, row.modelId, row.expressId);
-    setSelectedEntityId(rendererGlobalId);
-    setSelectedEntity({ modelId: row.modelId, expressId: row.expressId });
-    // Frame the element
-    requestAnimationFrame(() => {
-      cameraCallbacks.frameSelection?.();
-    });
-  }, [setDiffSelectedGlobalId, setSelectedEntityId, setSelectedEntity, cameraCallbacks, models]);
+    selectDiffEntity(row.modelId, row.expressId);
+  }, [setDiffSelectedGlobalId, selectDiffEntity]);
 
   const handleSort = useCallback((field: DiffSortField) => {
     if (diffSortField === field) {
@@ -287,23 +285,8 @@ export function DiffPanel({ onClose }: DiffPanelProps) {
   }, [diffSortField, diffSortDir, setDiffSortField, setDiffSortDir]);
 
   const handleApplyColors = useCallback(() => {
-    if (!diffResult) return;
-    // Map keyed by renderer globalId (expressId + model idOffset)
-    const colorMap = new Map<number, [number, number, number, number]>();
-    for (const e of diffResult.added) {
-      const gid = toGlobalIdFromModels(models, newModelId, e.expressId);
-      colorMap.set(gid, DIFF_COLORS.added as [number, number, number, number]);
-    }
-    for (const e of diffResult.deleted) {
-      const gid = toGlobalIdFromModels(models, oldModelId, e.expressId);
-      colorMap.set(gid, DIFF_COLORS.deleted as [number, number, number, number]);
-    }
-    for (const e of diffResult.changed) {
-      const gid = toGlobalIdFromModels(models, newModelId, e.expressId2);
-      colorMap.set(gid, DIFF_COLORS.changed as [number, number, number, number]);
-    }
-    setPendingColorUpdates(colorMap);
-  }, [diffResult, setPendingColorUpdates, models, oldModelId, newModelId]);
+    applyDiffColors();
+  }, [applyDiffColors]);
 
   const handleExportJSON = useCallback(() => {
     if (!diffResult) return;
@@ -317,6 +300,18 @@ export function DiffPanel({ onClose }: DiffPanelProps) {
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }, [diffResult]);
 
+  // File upload handler
+  const handleFileSelect = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      await loadAndDiff(file);
+    }
+    e.target.value = '';
+  }, [loadAndDiff]);
+
+  // Available federated models for model-to-model diff
+  const modelEntries = useMemo(() => Array.from(models.entries()), [models]);
+
   // ── Empty state ──
   if (!diffResult && !diffLoading) {
     return (
@@ -324,15 +319,47 @@ export function DiffPanel({ onClose }: DiffPanelProps) {
         <PanelHeader onClose={onClose} />
         <div className="flex flex-col items-center justify-center flex-1 p-6 text-center">
           <FileText className="h-12 w-12 text-muted-foreground mb-4" />
-          <h3 className="font-medium text-sm mb-2">No Diff Loaded</h3>
+          <h3 className="font-medium text-sm mb-2">Compare Models</h3>
           <p className="text-xs text-muted-foreground mb-4">
             Load a second IFC file to compare against the active model.
             Differences in attributes, properties, and quantities will be detected.
           </p>
-          <p className="text-xs text-muted-foreground mb-4">
-            Use <code className="bg-muted px-1 rounded">ifc-lite diff</code> from the CLI
-            or load a comparison file via the toolbar.
-          </p>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".ifc"
+            className="hidden"
+            onChange={handleFileSelect}
+          />
+          <Button onClick={() => fileInputRef.current?.click()}>
+            <Upload className="h-4 w-4 mr-2" />
+            Load Comparison File
+          </Button>
+          {modelEntries.length >= 2 && (
+            <>
+              <Separator className="my-4 w-full" />
+              <p className="text-xs text-muted-foreground mb-2">Or compare two loaded models:</p>
+              <div className="flex gap-2">
+                <Select onValueChange={(v) => {
+                  const [oldId, newId] = v.split('|');
+                  if (oldId && newId) diffModels(oldId, newId);
+                }}>
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue placeholder="Select pair..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {modelEntries.map(([idA, modelA], i) =>
+                      modelEntries.slice(i + 1).map(([idB, modelB]) => (
+                        <SelectItem key={`${idA}|${idB}`} value={`${idA}|${idB}`}>
+                          {modelA.name} vs {modelB.name}
+                        </SelectItem>
+                      ))
+                    )}
+                  </SelectContent>
+                </Select>
+              </div>
+            </>
+          )}
         </div>
       </div>
     );
@@ -439,6 +466,15 @@ export function DiffPanel({ onClose }: DiffPanelProps) {
             </Button>
           </TooltipTrigger>
           <TooltipContent>Apply diff colors to 3D view</TooltipContent>
+        </Tooltip>
+
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button variant="ghost" size="icon-sm" className="h-6 w-6" onClick={isolateChanged}>
+              <Focus className="h-3.5 w-3.5" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Isolate changed elements</TooltipContent>
         </Tooltip>
 
         <Tooltip>

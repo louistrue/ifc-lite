@@ -36,9 +36,9 @@ import {
 } from '@/components/ui/collapsible';
 import { useViewerStore } from '@/store';
 import type { ClashFilterMode, ClashSortField } from '@/store/slices/clashSlice';
-import { toGlobalIdFromModels } from '@/store/globalId';
 import { CLASH_COLORS } from '@ifc-lite/clash';
 import type { ClashResult, Clash } from '@ifc-lite/clash';
+import { useClash } from '@/hooks/useClash';
 import { cn } from '@/lib/utils';
 
 interface ClashPanelProps {
@@ -74,6 +74,20 @@ function DistanceBadge({ distance }: { distance: number }) {
 export function ClashPanel({ onClose }: ClashPanelProps) {
   const listRef = useRef<HTMLDivElement>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [typeA, setTypeA] = useState('');
+  const [typeB, setTypeB] = useState('');
+
+  // Hook for lifecycle actions
+  const {
+    runSelfClash,
+    runCrossModelClash,
+    applyClashColors: applyClashColorsHook,
+    selectClashElement,
+    isolateClashing,
+    clearIsolation,
+    clearColors,
+    getAvailableTypes,
+  } = useClash();
 
   // Store state
   const clashResult = useViewerStore((s) => s.clashResult);
@@ -99,19 +113,6 @@ export function ClashPanel({ onClose }: ClashPanelProps) {
   const setClashTolerance = useViewerStore((s) => s.setClashTolerance);
   const setClashClearance = useViewerStore((s) => s.setClashClearance);
   const clearClash = useViewerStore((s) => s.clearClash);
-  const clashFileToModelId = useViewerStore((s) => s.clashFileToModelId);
-
-  // Viewer interaction (federation-aware)
-  const setSelectedEntityId = useViewerStore((s) => s.setSelectedEntityId);
-  const setSelectedEntity = useViewerStore((s) => s.setSelectedEntity);
-  const cameraCallbacks = useViewerStore((s) => s.cameraCallbacks);
-  const setPendingColorUpdates = useViewerStore((s) => s.setPendingColorUpdates);
-  const models = useViewerStore((s) => s.models);
-
-  /** Resolve a clash element's file path to its viewer modelId */
-  const resolveModelId = useCallback((file: string): string => {
-    return clashFileToModelId.get(file) ?? 'legacy';
-  }, [clashFileToModelId]);
 
   // Build filter options
   const clashSetOptions = useMemo(() => {
@@ -183,15 +184,8 @@ export function ClashPanel({ onClose }: ClashPanelProps) {
   // Handlers
   const handleClashClick = useCallback((clash: Clash, index: number) => {
     setClashSelectedIndex(index);
-    // Federation-aware selection: resolve file → modelId, then convert to renderer globalId
-    const modelId = resolveModelId(clash.a.file);
-    const rendererGlobalId = toGlobalIdFromModels(models, modelId, clash.a.expressId);
-    setSelectedEntityId(rendererGlobalId);
-    setSelectedEntity({ modelId, expressId: clash.a.expressId });
-    requestAnimationFrame(() => {
-      cameraCallbacks.frameSelection?.();
-    });
-  }, [setClashSelectedIndex, setSelectedEntityId, setSelectedEntity, cameraCallbacks, models, resolveModelId]);
+    selectClashElement(clash.a.file, clash.a.expressId);
+  }, [setClashSelectedIndex, selectClashElement]);
 
   const handleSort = useCallback((field: ClashSortField) => {
     if (clashSortField === field) {
@@ -203,19 +197,8 @@ export function ClashPanel({ onClose }: ClashPanelProps) {
   }, [clashSortField, clashSortDir, setClashSortField, setClashSortDir]);
 
   const handleApplyColors = useCallback(() => {
-    if (!clashResult) return;
-    // Map keyed by renderer globalId (expressId + model idOffset)
-    const colorMap = new Map<number, [number, number, number, number]>();
-    for (const clash of clashResult.clashes) {
-      const modelIdA = resolveModelId(clash.a.file);
-      const modelIdB = resolveModelId(clash.b.file);
-      const gidA = toGlobalIdFromModels(models, modelIdA, clash.a.expressId);
-      const gidB = toGlobalIdFromModels(models, modelIdB, clash.b.expressId);
-      colorMap.set(gidA, CLASH_COLORS.clashA as [number, number, number, number]);
-      colorMap.set(gidB, CLASH_COLORS.clashB as [number, number, number, number]);
-    }
-    setPendingColorUpdates(colorMap);
-  }, [clashResult, setPendingColorUpdates, models, resolveModelId]);
+    applyClashColorsHook();
+  }, [applyClashColorsHook]);
 
   const handleExportJSON = useCallback(() => {
     if (!clashResult) return;
@@ -229,22 +212,107 @@ export function ClashPanel({ onClose }: ClashPanelProps) {
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }, [clashResult]);
 
+  // Available IFC types for pickers
+  const availableTypes = useMemo(() => getAvailableTypes(), [getAvailableTypes]);
+  const hasModel = availableTypes.length > 0;
+
+  const handleRunClash = useCallback(() => {
+    const typesA = typeA ? typeA.split(',').map(t => t.trim()).filter(Boolean) : undefined;
+    const typesB = typeB ? typeB.split(',').map(t => t.trim()).filter(Boolean) : undefined;
+    runSelfClash(typesA, typesB);
+  }, [typeA, typeB, runSelfClash]);
+
   // ── Empty state ──
   if (!clashResult && !clashLoading) {
     return (
       <div className="h-full flex flex-col bg-background">
-        <PanelHeader onClose={onClose} />
+        <PanelHeader onClose={onClose} onSettings={() => setSettingsOpen(!settingsOpen)} />
+
+        {/* Settings (always available in empty state) */}
+        <Collapsible open={settingsOpen} onOpenChange={setSettingsOpen}>
+          <CollapsibleContent>
+            <div className="p-3 border-b bg-muted/20 space-y-2 text-xs">
+              <div className="flex items-center gap-2">
+                <span className="w-20 text-muted-foreground">Mode:</span>
+                <Select value={clashMode} onValueChange={(v) => setClashMode(v as any)}>
+                  <SelectTrigger className="h-7 flex-1 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="collision">Collision</SelectItem>
+                    <SelectItem value="clearance">Clearance</SelectItem>
+                    <SelectItem value="intersection">Intersection</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="w-20 text-muted-foreground">Tolerance:</span>
+                <Input
+                  type="number" step="0.001" value={clashTolerance}
+                  onChange={e => setClashTolerance(parseFloat(e.target.value) || 0)}
+                  className="h-7 flex-1 text-xs"
+                />
+                <span className="text-muted-foreground">m</span>
+              </div>
+              {clashMode === 'clearance' && (
+                <div className="flex items-center gap-2">
+                  <span className="w-20 text-muted-foreground">Clearance:</span>
+                  <Input
+                    type="number" step="0.01" value={clashClearance}
+                    onChange={e => setClashClearance(parseFloat(e.target.value) || 0)}
+                    className="h-7 flex-1 text-xs"
+                  />
+                  <span className="text-muted-foreground">m</span>
+                </div>
+              )}
+            </div>
+          </CollapsibleContent>
+        </Collapsible>
+
         <div className="flex flex-col items-center justify-center flex-1 p-6 text-center">
           <Zap className="h-12 w-12 text-muted-foreground mb-4" />
-          <h3 className="font-medium text-sm mb-2">No Clash Detection Results</h3>
-          <p className="text-xs text-muted-foreground mb-4">
-            Run clash detection to find collisions, intersections, or clearance violations
-            between IFC elements.
-          </p>
-          <p className="text-xs text-muted-foreground mb-4">
-            Use <code className="bg-muted px-1 rounded">ifc-lite clash</code> from the CLI
-            or run detection from a script.
-          </p>
+          <h3 className="font-medium text-sm mb-2">Clash Detection</h3>
+          {!hasModel ? (
+            <p className="text-xs text-muted-foreground mb-4">Load an IFC model to run clash detection.</p>
+          ) : (
+            <>
+              <p className="text-xs text-muted-foreground mb-4">
+                Select element types to check for collisions, clearance violations, or intersections.
+              </p>
+              <div className="w-full max-w-xs space-y-2 mb-4">
+                <div className="flex items-center gap-2 text-xs">
+                  <span className="w-16 text-muted-foreground text-right">Group A:</span>
+                  <Input
+                    placeholder="e.g. IfcBeam (or leave empty for all)"
+                    value={typeA}
+                    onChange={e => setTypeA(e.target.value)}
+                    className="h-7 text-xs flex-1"
+                    list="clash-types-a"
+                  />
+                  <datalist id="clash-types-a">
+                    {availableTypes.map(t => <option key={t} value={t} />)}
+                  </datalist>
+                </div>
+                <div className="flex items-center gap-2 text-xs">
+                  <span className="w-16 text-muted-foreground text-right">Group B:</span>
+                  <Input
+                    placeholder="e.g. IfcPipeSegment (optional)"
+                    value={typeB}
+                    onChange={e => setTypeB(e.target.value)}
+                    className="h-7 text-xs flex-1"
+                    list="clash-types-b"
+                  />
+                  <datalist id="clash-types-b">
+                    {availableTypes.map(t => <option key={t} value={t} />)}
+                  </datalist>
+                </div>
+              </div>
+              <Button onClick={handleRunClash}>
+                <Zap className="h-4 w-4 mr-2" />
+                Run Clash Detection
+              </Button>
+            </>
+          )}
         </div>
       </div>
     );
@@ -422,6 +490,15 @@ export function ClashPanel({ onClose }: ClashPanelProps) {
             </Button>
           </TooltipTrigger>
           <TooltipContent>Apply clash colors to 3D view</TooltipContent>
+        </Tooltip>
+
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button variant="ghost" size="icon-sm" className="h-6 w-6" onClick={isolateClashing}>
+              <Focus className="h-3.5 w-3.5" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Isolate clashing elements</TooltipContent>
         </Tooltip>
 
         <Tooltip>
