@@ -26,6 +26,10 @@ export interface DiffSlice {
   diffSelectedGlobalId: string | null;
   diffFile1Name: string | null;
   diffFile2Name: string | null;
+  /** Model ID of the old (source) model in the diff */
+  diffOldModelId: string | null;
+  /** Model ID of the new (target) model in the diff */
+  diffNewModelId: string | null;
 
   // Actions
   setDiffPanelVisible: (visible: boolean) => void;
@@ -38,6 +42,7 @@ export interface DiffSlice {
   setDiffSortDir: (dir: DiffSortDir) => void;
   setDiffSelectedGlobalId: (globalId: string | null) => void;
   setDiffFileNames: (file1: string, file2: string) => void;
+  setDiffModelIds: (oldModelId: string, newModelId: string) => void;
   clearDiff: () => void;
 }
 
@@ -54,6 +59,8 @@ export const createDiffSlice: StateCreator<DiffSlice, [], [], DiffSlice> = (set)
   diffSelectedGlobalId: null,
   diffFile1Name: null,
   diffFile2Name: null,
+  diffOldModelId: null,
+  diffNewModelId: null,
 
   // Actions
   setDiffPanelVisible: (diffPanelVisible) => set({ diffPanelVisible }),
@@ -66,6 +73,7 @@ export const createDiffSlice: StateCreator<DiffSlice, [], [], DiffSlice> = (set)
   setDiffSortDir: (diffSortDir) => set({ diffSortDir }),
   setDiffSelectedGlobalId: (diffSelectedGlobalId) => set({ diffSelectedGlobalId }),
   setDiffFileNames: (diffFile1Name, diffFile2Name) => set({ diffFile1Name, diffFile2Name }),
+  setDiffModelIds: (diffOldModelId, diffNewModelId) => set({ diffOldModelId, diffNewModelId }),
   clearDiff: () => set({
     diffResult: null,
     diffLoading: false,
@@ -75,5 +83,7 @@ export const createDiffSlice: StateCreator<DiffSlice, [], [], DiffSlice> = (set)
     diffSelectedGlobalId: null,
     diffFile1Name: null,
     diffFile2Name: null,
+    diffOldModelId: null,
+    diffNewModelId: null,
   }),
 });

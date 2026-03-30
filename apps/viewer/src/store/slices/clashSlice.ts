@@ -28,6 +28,8 @@ export interface ClashSlice {
   clashMode: ClashMode;
   clashTolerance: number;
   clashClearance: number;
+  /** Maps file path → modelId for federation-aware clash results */
+  clashFileToModelId: Map<string, string>;
 
   // Actions
   setClashPanelVisible: (visible: boolean) => void;
@@ -43,6 +45,7 @@ export interface ClashSlice {
   setClashMode: (mode: ClashMode) => void;
   setClashTolerance: (tolerance: number) => void;
   setClashClearance: (clearance: number) => void;
+  setClashFileToModelId: (mapping: Map<string, string>) => void;
   clearClash: () => void;
 }
 
@@ -61,6 +64,7 @@ export const createClashSlice: StateCreator<ClashSlice, [], [], ClashSlice> = (s
   clashMode: 'collision',
   clashTolerance: 0.002,
   clashClearance: 0.05,
+  clashFileToModelId: new Map(),
 
   // Actions
   setClashPanelVisible: (clashPanelVisible) => set({ clashPanelVisible }),
@@ -76,6 +80,7 @@ export const createClashSlice: StateCreator<ClashSlice, [], [], ClashSlice> = (s
   setClashMode: (clashMode) => set({ clashMode }),
   setClashTolerance: (clashTolerance) => set({ clashTolerance }),
   setClashClearance: (clashClearance) => set({ clashClearance }),
+  setClashFileToModelId: (clashFileToModelId) => set({ clashFileToModelId }),
   clearClash: () => set({
     clashResult: null,
     clashLoading: false,

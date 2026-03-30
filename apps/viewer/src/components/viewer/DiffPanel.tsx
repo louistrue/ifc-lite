@@ -37,6 +37,7 @@ import {
 } from '@/components/ui/collapsible';
 import { useViewerStore } from '@/store';
 import type { DiffFilterMode, DiffSortField } from '@/store/slices/diffSlice';
+import { toGlobalIdFromModels } from '@/store/globalId';
 import { DIFF_COLORS } from '@ifc-lite/diff';
 import type { DiffResult, EntityChange } from '@ifc-lite/diff';
 import { cn } from '@/lib/utils';
@@ -45,10 +46,26 @@ interface DiffPanelProps {
   onClose?: () => void;
 }
 
-// Unified row type for the results list
+/**
+ * Unified row type for the results list.
+ *
+ * Federation-aware: carries both expressId (for property lookup) and modelId
+ * (to resolve the correct renderer globalId via toGlobalIdFromModels).
+ *
+ * - added: exists only in new model (modelId = diffNewModelId)
+ * - deleted: exists only in old model (modelId = diffOldModelId)
+ * - changed: exists in both; expressId1 is old, expressId2 is new
+ */
 interface DiffRow {
-  globalId: string;
+  ifcGlobalId: string;
+  /** expressId in the model this row targets for selection */
   expressId: number;
+  /** expressId in old model (for deleted/changed rows) */
+  expressId1?: number;
+  /** expressId in new model (for added/changed rows) */
+  expressId2?: number;
+  /** Which loaded model this row belongs to for selection */
+  modelId: string;
   type: string;
   name: string;
   category: 'added' | 'deleted' | 'changed';
@@ -156,29 +173,47 @@ export function DiffPanel({ onClose }: DiffPanelProps) {
   const setDiffSortDir = useViewerStore((s) => s.setDiffSortDir);
   const setDiffSelectedGlobalId = useViewerStore((s) => s.setDiffSelectedGlobalId);
   const clearDiff = useViewerStore((s) => s.clearDiff);
+  const diffOldModelId = useViewerStore((s) => s.diffOldModelId);
+  const diffNewModelId = useViewerStore((s) => s.diffNewModelId);
 
-  // Viewer interaction
+  // Viewer interaction (federation-aware)
   const setSelectedEntityId = useViewerStore((s) => s.setSelectedEntityId);
   const setSelectedEntity = useViewerStore((s) => s.setSelectedEntity);
   const selectedEntityId = useViewerStore((s) => s.selectedEntityId);
   const cameraCallbacks = useViewerStore((s) => s.cameraCallbacks);
   const setPendingColorUpdates = useViewerStore((s) => s.setPendingColorUpdates);
+  const models = useViewerStore((s) => s.models);
 
-  // Build unified row list
+  // Resolve which model IDs to use (fallback to 'legacy' for single-model)
+  const oldModelId = diffOldModelId ?? 'legacy';
+  const newModelId = diffNewModelId ?? 'legacy';
+
+  // Build unified row list with federation context
   const allRows = useMemo((): DiffRow[] => {
     if (!diffResult) return [];
     const rows: DiffRow[] = [];
     for (const e of diffResult.added) {
-      rows.push({ globalId: e.globalId, expressId: e.expressId, type: e.type, name: e.name, category: 'added' });
+      rows.push({
+        ifcGlobalId: e.globalId, expressId: e.expressId, expressId2: e.expressId,
+        modelId: newModelId, type: e.type, name: e.name, category: 'added',
+      });
     }
     for (const e of diffResult.deleted) {
-      rows.push({ globalId: e.globalId, expressId: e.expressId, type: e.type, name: e.name, category: 'deleted' });
+      rows.push({
+        ifcGlobalId: e.globalId, expressId: e.expressId, expressId1: e.expressId,
+        modelId: oldModelId, type: e.type, name: e.name, category: 'deleted',
+      });
     }
     for (const e of diffResult.changed) {
-      rows.push({ globalId: e.globalId, expressId: e.expressId2, type: e.type, name: e.name, category: 'changed', change: e });
+      // Changed elements: select in new model for viewing, but carry both IDs
+      rows.push({
+        ifcGlobalId: e.globalId, expressId: e.expressId2,
+        expressId1: e.expressId1, expressId2: e.expressId2,
+        modelId: newModelId, type: e.type, name: e.name, category: 'changed', change: e,
+      });
     }
     return rows;
-  }, [diffResult]);
+  }, [diffResult, oldModelId, newModelId]);
 
   // Filter
   const filteredRows = useMemo(() => {
@@ -191,7 +226,7 @@ export function DiffPanel({ onClose }: DiffPanelProps) {
       rows = rows.filter(r =>
         r.type.toLowerCase().includes(q) ||
         r.name.toLowerCase().includes(q) ||
-        r.globalId.toLowerCase().includes(q)
+        r.ifcGlobalId.toLowerCase().includes(q)
       );
     }
     return rows;
@@ -205,7 +240,7 @@ export function DiffPanel({ onClose }: DiffPanelProps) {
       switch (diffSortField) {
         case 'type': return a.type.localeCompare(b.type) * dir;
         case 'name': return a.name.localeCompare(b.name) * dir;
-        case 'globalId': return a.globalId.localeCompare(b.globalId) * dir;
+        case 'globalId': return a.ifcGlobalId.localeCompare(b.ifcGlobalId) * dir;
         case 'changes': {
           const ca = a.change
             ? a.change.attributeChanges.length + a.change.propertyChanges.length + a.change.quantityChanges.length
@@ -231,14 +266,16 @@ export function DiffPanel({ onClose }: DiffPanelProps) {
 
   // Handlers
   const handleRowClick = useCallback((row: DiffRow) => {
-    setDiffSelectedGlobalId(row.globalId);
-    setSelectedEntityId(row.expressId);
-    setSelectedEntity({ modelId: 'legacy', expressId: row.expressId });
+    setDiffSelectedGlobalId(row.ifcGlobalId);
+    // Federation-aware selection: convert to renderer globalId
+    const rendererGlobalId = toGlobalIdFromModels(models, row.modelId, row.expressId);
+    setSelectedEntityId(rendererGlobalId);
+    setSelectedEntity({ modelId: row.modelId, expressId: row.expressId });
     // Frame the element
     requestAnimationFrame(() => {
       cameraCallbacks.frameSelection?.();
     });
-  }, [setDiffSelectedGlobalId, setSelectedEntityId, setSelectedEntity, cameraCallbacks]);
+  }, [setDiffSelectedGlobalId, setSelectedEntityId, setSelectedEntity, cameraCallbacks, models]);
 
   const handleSort = useCallback((field: DiffSortField) => {
     if (diffSortField === field) {
@@ -251,18 +288,22 @@ export function DiffPanel({ onClose }: DiffPanelProps) {
 
   const handleApplyColors = useCallback(() => {
     if (!diffResult) return;
+    // Map keyed by renderer globalId (expressId + model idOffset)
     const colorMap = new Map<number, [number, number, number, number]>();
     for (const e of diffResult.added) {
-      colorMap.set(e.expressId, DIFF_COLORS.added as [number, number, number, number]);
+      const gid = toGlobalIdFromModels(models, newModelId, e.expressId);
+      colorMap.set(gid, DIFF_COLORS.added as [number, number, number, number]);
     }
     for (const e of diffResult.deleted) {
-      colorMap.set(e.expressId, DIFF_COLORS.deleted as [number, number, number, number]);
+      const gid = toGlobalIdFromModels(models, oldModelId, e.expressId);
+      colorMap.set(gid, DIFF_COLORS.deleted as [number, number, number, number]);
     }
     for (const e of diffResult.changed) {
-      colorMap.set(e.expressId2, DIFF_COLORS.changed as [number, number, number, number]);
+      const gid = toGlobalIdFromModels(models, newModelId, e.expressId2);
+      colorMap.set(gid, DIFF_COLORS.changed as [number, number, number, number]);
     }
     setPendingColorUpdates(colorMap);
-  }, [diffResult, setPendingColorUpdates]);
+  }, [diffResult, setPendingColorUpdates, models, oldModelId, newModelId]);
 
   const handleExportJSON = useCallback(() => {
     if (!diffResult) return;
@@ -425,7 +466,7 @@ export function DiffPanel({ onClose }: DiffPanelProps) {
         >
           {virtualizer.getVirtualItems().map(virtualRow => {
             const row = sortedRows[virtualRow.index];
-            const isSelected = row.globalId === diffSelectedGlobalId;
+            const isSelected = row.ifcGlobalId === diffSelectedGlobalId;
 
             return (
               <div
@@ -446,7 +487,7 @@ export function DiffPanel({ onClose }: DiffPanelProps) {
                   <div className="w-[120px] shrink-0 text-xs truncate">{row.type}</div>
                   <div className="flex-1 min-w-0 text-xs truncate">{row.name || '(unnamed)'}</div>
                   <div className="w-[90px] shrink-0 text-xs text-muted-foreground truncate font-mono">
-                    {row.globalId.slice(0, 8)}...
+                    {row.ifcGlobalId.slice(0, 8)}...
                   </div>
                 </div>
                 {row.change && <ChangeDetailSection change={row.change} />}

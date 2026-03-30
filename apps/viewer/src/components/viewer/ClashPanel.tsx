@@ -36,6 +36,7 @@ import {
 } from '@/components/ui/collapsible';
 import { useViewerStore } from '@/store';
 import type { ClashFilterMode, ClashSortField } from '@/store/slices/clashSlice';
+import { toGlobalIdFromModels } from '@/store/globalId';
 import { CLASH_COLORS } from '@ifc-lite/clash';
 import type { ClashResult, Clash } from '@ifc-lite/clash';
 import { cn } from '@/lib/utils';
@@ -98,12 +99,19 @@ export function ClashPanel({ onClose }: ClashPanelProps) {
   const setClashTolerance = useViewerStore((s) => s.setClashTolerance);
   const setClashClearance = useViewerStore((s) => s.setClashClearance);
   const clearClash = useViewerStore((s) => s.clearClash);
+  const clashFileToModelId = useViewerStore((s) => s.clashFileToModelId);
 
-  // Viewer interaction
+  // Viewer interaction (federation-aware)
   const setSelectedEntityId = useViewerStore((s) => s.setSelectedEntityId);
   const setSelectedEntity = useViewerStore((s) => s.setSelectedEntity);
   const cameraCallbacks = useViewerStore((s) => s.cameraCallbacks);
   const setPendingColorUpdates = useViewerStore((s) => s.setPendingColorUpdates);
+  const models = useViewerStore((s) => s.models);
+
+  /** Resolve a clash element's file path to its viewer modelId */
+  const resolveModelId = useCallback((file: string): string => {
+    return clashFileToModelId.get(file) ?? 'legacy';
+  }, [clashFileToModelId]);
 
   // Build filter options
   const clashSetOptions = useMemo(() => {
@@ -175,13 +183,15 @@ export function ClashPanel({ onClose }: ClashPanelProps) {
   // Handlers
   const handleClashClick = useCallback((clash: Clash, index: number) => {
     setClashSelectedIndex(index);
-    // Select element A and frame
-    setSelectedEntityId(clash.a.expressId);
-    setSelectedEntity({ modelId: 'legacy', expressId: clash.a.expressId });
+    // Federation-aware selection: resolve file → modelId, then convert to renderer globalId
+    const modelId = resolveModelId(clash.a.file);
+    const rendererGlobalId = toGlobalIdFromModels(models, modelId, clash.a.expressId);
+    setSelectedEntityId(rendererGlobalId);
+    setSelectedEntity({ modelId, expressId: clash.a.expressId });
     requestAnimationFrame(() => {
       cameraCallbacks.frameSelection?.();
     });
-  }, [setClashSelectedIndex, setSelectedEntityId, setSelectedEntity, cameraCallbacks]);
+  }, [setClashSelectedIndex, setSelectedEntityId, setSelectedEntity, cameraCallbacks, models, resolveModelId]);
 
   const handleSort = useCallback((field: ClashSortField) => {
     if (clashSortField === field) {
@@ -194,13 +204,18 @@ export function ClashPanel({ onClose }: ClashPanelProps) {
 
   const handleApplyColors = useCallback(() => {
     if (!clashResult) return;
+    // Map keyed by renderer globalId (expressId + model idOffset)
     const colorMap = new Map<number, [number, number, number, number]>();
     for (const clash of clashResult.clashes) {
-      colorMap.set(clash.a.expressId, CLASH_COLORS.clashA as [number, number, number, number]);
-      colorMap.set(clash.b.expressId, CLASH_COLORS.clashB as [number, number, number, number]);
+      const modelIdA = resolveModelId(clash.a.file);
+      const modelIdB = resolveModelId(clash.b.file);
+      const gidA = toGlobalIdFromModels(models, modelIdA, clash.a.expressId);
+      const gidB = toGlobalIdFromModels(models, modelIdB, clash.b.expressId);
+      colorMap.set(gidA, CLASH_COLORS.clashA as [number, number, number, number]);
+      colorMap.set(gidB, CLASH_COLORS.clashB as [number, number, number, number]);
     }
     setPendingColorUpdates(colorMap);
-  }, [clashResult, setPendingColorUpdates]);
+  }, [clashResult, setPendingColorUpdates, models, resolveModelId]);
 
   const handleExportJSON = useCallback(() => {
     if (!clashResult) return;

@@ -292,6 +292,8 @@ export const useViewerStore = create<ViewerState>()((...args) => ({
       diffSelectedGlobalId: null,
       diffFile1Name: null,
       diffFile2Name: null,
+      diffOldModelId: null,
+      diffNewModelId: null,
 
       // Clash - reset all state
       clashPanelVisible: false,
@@ -302,6 +304,7 @@ export const useViewerStore = create<ViewerState>()((...args) => ({
       clashFilterValue: null,
       clashSearchQuery: '',
       clashSelectedIndex: null,
+      clashFileToModelId: new Map(),
 
       // Lists - reset result but keep definitions (user's saved lists)
       listPanelVisible: false,
