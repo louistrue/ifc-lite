@@ -38,12 +38,20 @@ pub(super) fn process_advanced_face(
 
     let surface_type = surface.ifc_type.as_str().to_uppercase();
 
-    if surface_type == "IFCPLANE" {
+    // Read SameSense (attribute 2) - when false, triangle winding must be flipped
+    let same_sense = face
+        .get(2)
+        .and_then(|a| a.as_enum())
+        .map(|e| e == "T" || e == "TRUE")
+        .unwrap_or(true);
+
+    let result = if surface_type == "IFCPLANE" {
         process_planar_face(face, decoder)
-    } else if surface_type == "IFCBSPLINESURFACEWITHKNOTS"
-        || surface_type == "IFCRATIONALBSPLINESURFACEWITHKNOTS"
-    {
-        process_bspline_face(&surface, decoder)
+    } else if surface_type == "IFCBSPLINESURFACEWITHKNOTS" {
+        process_bspline_face(&surface, decoder, None)
+    } else if surface_type == "IFCRATIONALBSPLINESURFACEWITHKNOTS" {
+        let weights = parse_rational_weights(&surface);
+        process_bspline_face(&surface, decoder, weights.as_deref())
     } else if surface_type == "IFCCYLINDRICALSURFACE" {
         process_cylindrical_face(face, &surface, decoder)
     } else if surface_type == "IFCSURFACEOFLINEAREXTRUSION"
@@ -60,6 +68,18 @@ pub(super) fn process_advanced_face(
     } else {
         // Unsupported surface type - return empty geometry
         Ok((Vec::new(), Vec::new()))
+    };
+
+    // When SameSense is false, flip triangle winding to correct face orientation
+    if !same_sense {
+        result.map(|(positions, mut indices)| {
+            for tri in indices.chunks_exact_mut(3) {
+                tri.swap(0, 2);
+            }
+            (positions, indices)
+        })
+    } else {
+        result
     }
 }
 
@@ -95,7 +115,9 @@ fn bspline_basis(i: usize, p: usize, u: f64, knots: &[f64]) -> f64 {
     }
 }
 
-/// Evaluate a B-spline surface at parameter (u, v)
+/// Evaluate a B-spline surface at parameter (u, v).
+/// When `weights` is `None` this is a standard (non-rational) evaluation.
+/// When `weights` is `Some`, rational (NURBS) normalization is applied.
 fn evaluate_bspline_surface(
     u: f64,
     v: f64,
@@ -104,37 +126,75 @@ fn evaluate_bspline_surface(
     control_points: &[Vec<Point3<f64>>],
     u_knots: &[f64],
     v_knots: &[f64],
+    weights: Option<&[Vec<f64>]>,
 ) -> Point3<f64> {
     let mut result = Point3::new(0.0, 0.0, 0.0);
+    let mut weight_sum = 0.0;
 
     for (i, row) in control_points.iter().enumerate() {
         let n_i = bspline_basis(i, u_degree, u, u_knots);
         for (j, cp) in row.iter().enumerate() {
             let n_j = bspline_basis(j, v_degree, v, v_knots);
-            let weight = n_i * n_j;
-            if weight.abs() > 1e-10 {
-                result.x += weight * cp.x;
-                result.y += weight * cp.y;
-                result.z += weight * cp.z;
+            let basis = n_i * n_j;
+            if basis.abs() > 1e-10 {
+                let w = weights
+                    .and_then(|ws| ws.get(i))
+                    .and_then(|row_w| row_w.get(j))
+                    .copied()
+                    .unwrap_or(1.0);
+                let weighted_basis = basis * w;
+                result.x += weighted_basis * cp.x;
+                result.y += weighted_basis * cp.y;
+                result.z += weighted_basis * cp.z;
+                weight_sum += weighted_basis;
             }
         }
+    }
+
+    // Rational normalization: divide by sum of weighted basis functions
+    if weights.is_some() && weight_sum.abs() > 1e-10 {
+        result.x /= weight_sum;
+        result.y /= weight_sum;
+        result.z /= weight_sum;
     }
 
     result
 }
 
-/// Tessellate a B-spline surface into triangles
+/// Tessellate a B-spline surface into triangles.
+/// Returns `None` if the knot data is inconsistent (prevents index panics).
 fn tessellate_bspline_surface(
     u_degree: usize,
     v_degree: usize,
     control_points: &[Vec<Point3<f64>>],
     u_knots: &[f64],
     v_knots: &[f64],
+    weights: Option<&[Vec<f64>]>,
     u_segments: usize,
     v_segments: usize,
-) -> (Vec<f32>, Vec<u32>) {
+) -> Option<(Vec<f32>, Vec<u32>)> {
     let mut positions = Vec::new();
     let mut indices = Vec::new();
+
+    // Validate knot vector lengths: expanded knot vector must have at least
+    // (num_control_points + degree + 1) entries. At minimum we need to be
+    // able to index [degree] and [len - degree - 1] safely.
+    let n_u = control_points.len();
+    let n_v = control_points.first().map_or(0, |r| r.len());
+    let min_u_knots = n_u + u_degree + 1;
+    let min_v_knots = n_v + v_degree + 1;
+
+    if u_knots.len() < min_u_knots || v_knots.len() < min_v_knots {
+        return None;
+    }
+    if u_degree >= u_knots.len() || v_degree >= v_knots.len() {
+        return None;
+    }
+    if u_knots.len() - u_degree - 1 >= u_knots.len()
+        || v_knots.len() - v_degree - 1 >= v_knots.len()
+    {
+        return None;
+    }
 
     // Get parameter domain
     let u_min = u_knots[u_degree];
@@ -160,6 +220,7 @@ fn tessellate_bspline_surface(
                 control_points,
                 u_knots,
                 v_knots,
+                weights,
             );
 
             positions.push(point.x as f32);
@@ -183,7 +244,24 @@ fn tessellate_bspline_surface(
         }
     }
 
-    (positions, indices)
+    Some((positions, indices))
+}
+
+/// Parse rational weights from IfcRationalBSplineSurfaceWithKnots.
+/// Attribute 12: WeightsData (LIST of LIST of REAL).
+fn parse_rational_weights(bspline: &DecodedEntity) -> Option<Vec<Vec<f64>>> {
+    let weights_attr = bspline.get(12)?;
+    let rows = weights_attr.as_list()?;
+    let mut result = Vec::with_capacity(rows.len());
+    for row in rows {
+        let cols = row.as_list()?;
+        let row_weights: Vec<f64> = cols.iter().filter_map(|v| v.as_float()).collect();
+        if row_weights.is_empty() {
+            return None;
+        }
+        result.push(row_weights);
+    }
+    Some(result)
 }
 
 /// Parse control points from B-spline surface entity
@@ -602,10 +680,12 @@ fn process_planar_face(
     Ok((positions, indices))
 }
 
-/// Process a B-spline surface face
+/// Process a B-spline surface face.
+/// When `weights` is `Some`, rational (NURBS) evaluation is used.
 fn process_bspline_face(
     bspline: &DecodedEntity,
     decoder: &mut EntityDecoder,
+    weights: Option<&[Vec<f64>]>,
 ) -> Result<(Vec<f32>, Vec<u32>)> {
     // Get degrees
     let u_degree = bspline.get_float(0).unwrap_or(3.0) as usize;
@@ -625,18 +705,20 @@ fn process_bspline_face(
         4
     };
 
-    // Tessellate the surface
-    let (positions, indices) = tessellate_bspline_surface(
+    // Tessellate the surface (returns None if knot data is inconsistent)
+    match tessellate_bspline_surface(
         u_degree,
         v_degree,
         &control_points,
         &u_knots,
         &v_knots,
+        weights,
         u_segments,
         v_segments,
-    );
-
-    Ok((positions, indices))
+    ) {
+        Some((positions, indices)) => Ok((positions, indices)),
+        None => Ok((Vec::new(), Vec::new())),
+    }
 }
 
 /// Process a cylindrical surface face
