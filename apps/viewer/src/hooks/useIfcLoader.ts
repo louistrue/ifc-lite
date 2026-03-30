@@ -37,6 +37,9 @@ import { useIfcServer } from './useIfcServer.js';
 // Import IfcxDataStore type from federation hook
 import type { IfcxDataStore } from './useIfcFederation.js';
 
+const DEFER_PARSE_MIN_FILE_SIZE_MB = 200;
+const DEFER_PARSE_MAX_FILE_SIZE_MB = 512;
+
 /**
  * Compute a fast content fingerprint from the first and last 4KB of a buffer.
  * Uses FNV-1a hash for speed — no crypto overhead, sufficient to distinguish
@@ -311,8 +314,15 @@ export function useIfcLoader() {
         resolveDataStore = resolve;
         rejectDataStore = reject;
       });
+      let dataModelParsingStarted = false;
+      const deferDataModelParsing =
+        format === 'ifc' &&
+        fileSizeMB >= DEFER_PARSE_MIN_FILE_SIZE_MB &&
+        fileSizeMB < DEFER_PARSE_MAX_FILE_SIZE_MB;
 
       const startDataModelParsing = () => {
+        if (dataModelParsingStarted) return;
+        dataModelParsingStarted = true;
         const parser = new IfcParser();
         // wasmApi as fallback if Web Worker unavailable
         const wasmApi = geometryProcessor.getApi();
@@ -349,10 +359,17 @@ export function useIfcLoader() {
         });
       };
 
-      // Start data model parsing IMMEDIATELY — runs in parallel with geometry.
-      // Entity scan uses Web Worker (off main thread), columnar parse yields
-      // every ~4ms to maintain 60fps navigation during geometry streaming.
-      setTimeout(startDataModelParsing, 0);
+      if (deferDataModelParsing) {
+        console.log(
+          `[useIfc] Mid-size local IFC (${fileSizeMB.toFixed(0)}MB): delaying data model parsing ` +
+          'until geometry completes to prioritize first render.'
+        );
+      } else {
+        // Start data model parsing IMMEDIATELY — runs in parallel with geometry.
+        // Entity scan uses Web Worker (off main thread), columnar parse yields
+        // every ~4ms to maintain 60fps navigation during geometry streaming.
+        setTimeout(startDataModelParsing, 0);
+      }
 
       // Use adaptive processing: sync for small files, streaming for large files
       let estimatedTotal = 0;
@@ -474,8 +491,9 @@ export function useIfcLoader() {
 
               finalCoordinateInfo = event.coordinateInfo ?? null;
 
-              // Data model parsing already started in parallel (see above).
-              // No need to start it here — it runs concurrently with geometry.
+              if (deferDataModelParsing) {
+                setTimeout(startDataModelParsing, 0);
+              }
 
               // Apply all accumulated color updates in a single store update
               // instead of one updateMeshColors() call per colorUpdate event.
