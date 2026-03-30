@@ -108,6 +108,7 @@ function buildChunk(
     }
 
     elements.push({
+      batchId,
       expressId: mesh.expressId,
       ifcType: mesh.ifcType,
       modelIndex: mesh.modelIndex,

@@ -95,6 +95,7 @@ export interface HugeGeometryEntityInfo {
  * Row describing where an entity lives inside a pre-batched geometry chunk.
  */
 export interface HugeGeometryElementRow extends HugeGeometryEntityInfo {
+  batchId: number;
   vertexOffset: number;
   vertexCount: number;
   indexOffset: number;

@@ -31,6 +31,7 @@ const createMockHugeChunk = (batchId: number, expressId: number) => ({
   boundsMin: [0, 0, 0] as [number, number, number],
   boundsMax: [1, 1, 0] as [number, number, number],
   elements: [{
+    batchId,
     expressId,
     ifcType: 'IfcWall',
     color: [0.4, 0.6, 0.8, 1] as [number, number, number, number],

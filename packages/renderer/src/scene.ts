@@ -78,6 +78,7 @@ export class Scene {
   // ─── Metadata-first huge geometry mode ────────────────────────────────
   private hugeGeometryMode: boolean = false;
   private hugeBatchMap: Map<number, BatchedMesh> = new Map();
+  private hugeChunkData: Map<number, HugeGeometryChunk> = new Map();
   private hugeEntityRows: Map<number, HugeGeometryElementRow[]> = new Map();
   private hugeEntityInfo: Map<number, HugeGeometryEntityInfo> = new Map();
   private hugeEntityBatchIds: Map<number, number[]> = new Map();
@@ -146,14 +147,8 @@ export class Scene {
    * @param modelIndex - Optional modelIndex to filter by (for multi-model support)
    */
   getMeshData(expressId: number, modelIndex?: number): MeshData | undefined {
-    let pieces = this.meshDataMap.get(expressId);
+    let pieces = this.getMeshDataPieces(expressId, modelIndex);
     if (!pieces || pieces.length === 0) return undefined;
-
-    // Filter by modelIndex if provided (for multi-model support)
-    if (modelIndex !== undefined) {
-      pieces = pieces.filter(p => p.modelIndex === modelIndex);
-      if (pieces.length === 0) return undefined;
-    }
 
     if (pieces.length === 1) return pieces[0];
 
@@ -227,11 +222,9 @@ export class Scene {
    * @param modelIndex - Optional modelIndex to filter by (for multi-model support)
    */
   hasMeshData(expressId: number, modelIndex?: number): boolean {
-    const pieces = this.meshDataMap.get(expressId);
+    const pieces = this.getMeshDataPieces(expressId, modelIndex);
     if (!pieces || pieces.length === 0) return false;
-    if (modelIndex === undefined) return true;
-    // Check if any piece matches the modelIndex
-    return pieces.some(p => p.modelIndex === modelIndex);
+    return true;
   }
 
   /**
@@ -240,10 +233,57 @@ export class Scene {
    */
   getMeshDataPieces(expressId: number, modelIndex?: number): MeshData[] | undefined {
     const pieces = this.meshDataMap.get(expressId);
-    if (!pieces || pieces.length === 0) return undefined;
-    if (modelIndex === undefined) return pieces;
-    const filtered = pieces.filter((p) => p.modelIndex === modelIndex);
-    return filtered.length > 0 ? filtered : undefined;
+    if (pieces && pieces.length > 0) {
+      if (modelIndex === undefined) return pieces;
+      const filtered = pieces.filter((p) => p.modelIndex === modelIndex);
+      return filtered.length > 0 ? filtered : undefined;
+    }
+
+    const hugeRows = this.hugeEntityRows.get(expressId);
+    if (!hugeRows || hugeRows.length === 0) return undefined;
+
+    const filteredRows = modelIndex === undefined
+      ? hugeRows
+      : hugeRows.filter((row) => row.modelIndex === modelIndex);
+    if (filteredRows.length === 0) return undefined;
+
+    return filteredRows
+      .map((row) => this.reconstructHugeMeshPiece(row))
+      .filter((piece): piece is MeshData => piece !== null);
+  }
+
+  private reconstructHugeMeshPiece(row: HugeGeometryElementRow): MeshData | null {
+    const chunk = this.hugeChunkData.get(row.batchId);
+    if (!chunk) return null;
+
+    const positions = new Float32Array(row.vertexCount * 3);
+    const normals = new Float32Array(row.vertexCount * 3);
+    const indices = new Uint32Array(row.indexCount);
+
+    for (let i = 0; i < row.vertexCount; i++) {
+      const srcBase = (row.vertexOffset + i) * chunk.vertexStrideFloats;
+      const dstBase = i * 3;
+      positions[dstBase] = chunk.vertexData[srcBase];
+      positions[dstBase + 1] = chunk.vertexData[srcBase + 1];
+      positions[dstBase + 2] = chunk.vertexData[srcBase + 2];
+      normals[dstBase] = chunk.vertexData[srcBase + 3];
+      normals[dstBase + 1] = chunk.vertexData[srcBase + 4];
+      normals[dstBase + 2] = chunk.vertexData[srcBase + 5];
+    }
+
+    for (let i = 0; i < row.indexCount; i++) {
+      indices[i] = chunk.indexData[row.indexOffset + i] - row.vertexOffset;
+    }
+
+    return {
+      expressId: row.expressId,
+      ifcType: row.ifcType,
+      modelIndex: row.modelIndex,
+      positions,
+      normals,
+      indices,
+      color: row.color,
+    };
   }
 
   /**
@@ -458,6 +498,7 @@ export class Scene {
 
     this.hugeGeometryMode = true;
     this.hugeBatchMap.set(chunk.batchId, batchedMesh);
+    this.hugeChunkData.set(chunk.batchId, chunk);
     this.batchedMeshes.push(batchedMesh);
 
     for (const element of chunk.elements) {
@@ -1496,6 +1537,7 @@ export class Scene {
     this.geometryReleased = false;
     this.hugeGeometryMode = false;
     this.hugeBatchMap.clear();
+    this.hugeChunkData.clear();
     this.hugeEntityRows.clear();
     this.hugeEntityInfo.clear();
     this.hugeEntityBatchIds.clear();
