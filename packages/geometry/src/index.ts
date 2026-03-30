@@ -516,9 +516,9 @@ export class GeometryProcessor {
     // - Large files need more memory per worker, so fewer workers
     let maxWorkers: number;
     if (cores >= 16 && deviceMemoryGB >= 16) {
-      maxWorkers = useFastPrePass ? Math.min(4, Math.floor(cores / 2)) : Math.min(8, Math.floor(cores / 2));
+      maxWorkers = useFastPrePass ? Math.min(6, Math.floor(cores / 2)) : Math.min(8, Math.floor(cores / 2));
     } else if (cores >= 8 && deviceMemoryGB >= 8) {
-      maxWorkers = useFastPrePass ? 3 : fileSizeGB > 0.5 ? 2 : 3;
+      maxWorkers = useFastPrePass ? 4 : fileSizeGB > 0.5 ? 2 : 3;
     } else {
       maxWorkers = Math.max(1, Math.min(2, Math.floor(cores / 2)));
     }
@@ -531,7 +531,9 @@ export class GeometryProcessor {
     }
 
     const workerCount = Math.min(maxWorkers, totalJobs);
-    const taskRanges = planParallelTaskRanges(totalJobs, workerCount, buffer.byteLength);
+    const taskRanges = planParallelTaskRanges(totalJobs, workerCount, buffer.byteLength, {
+      preferThroughput: useFastPrePass,
+    });
     console.log(
       `[GeometryProcessor] parallel tasks: ${taskRanges.length} slices ` +
       `across ${workerCount} workers for ${totalJobs} jobs`

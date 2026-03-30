@@ -152,6 +152,18 @@ describe('planParallelTaskRanges', () => {
     expect(ranges[1][1] - ranges[1][0]).toBeGreaterThan(40_000);
     expect(ranges[2][1]).toBe(105_393);
   });
+
+  it('should use even large chunks when throughput is preferred', () => {
+    const ranges = planParallelTaskRanges(105_393, 4, 986 * 1024 * 1024, {
+      preferThroughput: true,
+    });
+
+    expect(ranges).toHaveLength(4);
+    expect(ranges[0]).toEqual([0, 26_349]);
+    expect(ranges[1]).toEqual([26_349, 52_698]);
+    expect(ranges[2]).toEqual([52_698, 79_047]);
+    expect(ranges[3]).toEqual([79_047, 105_393]);
+  });
 });
 
 describe('CoordinateHandler', () => {

@@ -13,7 +13,10 @@ function clamp(value: number, min: number, max: number): number {
 export function planParallelTaskRanges(
   totalJobs: number,
   workerCount: number,
-  fileSizeBytes: number
+  fileSizeBytes: number,
+  options?: {
+    preferThroughput?: boolean;
+  }
 ): Array<[start: number, end: number]> {
   if (totalJobs <= 0 || workerCount <= 0) return [];
 
@@ -29,11 +32,20 @@ export function planParallelTaskRanges(
   const baselineChunkSize = Math.ceil(totalJobs / workerCount);
   const fileSizeGB = fileSizeBytes / (1024 * 1024 * 1024);
   const isHugeWorkload = fileSizeGB >= 0.5 || totalJobs >= 50_000;
+  const preferThroughput = options?.preferThroughput === true;
 
   // Large browser workloads pay a steep fixed cost per processGeometryBatch()
   // call, so excessive slicing destroys throughput. For these inputs, use a
   // single warm-up slice plus one near-baseline chunk per worker.
   if (isHugeWorkload) {
+    if (preferThroughput) {
+      const ranges: Array<[number, number]> = [];
+      for (let start = 0; start < totalJobs; start += baselineChunkSize) {
+        ranges.push([start, Math.min(totalJobs, start + baselineChunkSize)]);
+      }
+      return ranges;
+    }
+
     const warmupTaskSize = clamp(
       Math.ceil(baselineChunkSize * (workerCount >= 4 ? 0.08 : 0.12)),
       4_000,
