@@ -513,6 +513,61 @@ export class Scene {
     return this.hugeEntityRows.get(expressId);
   }
 
+  updateHugeMeshColors(
+    updates: Map<number, [number, number, number, number]>,
+  ): void {
+    if (updates.size === 0 || this.hugeBatchMap.size === 0) return;
+
+    const affectedBatchIds = new Set<number>();
+
+    for (const [expressId, color] of updates) {
+      const entity = this.hugeEntityInfo.get(expressId);
+      if (!entity) continue;
+      entity.color = color;
+
+      const rows = this.hugeEntityRows.get(expressId);
+      if (rows) {
+        for (const row of rows) {
+          row.color = color;
+        }
+      }
+
+      const batchIds = this.hugeEntityBatchIds.get(expressId);
+      if (batchIds) {
+        for (const batchId of batchIds) affectedBatchIds.add(batchId);
+      }
+    }
+
+    for (const batchId of affectedBatchIds) {
+      const batch = this.hugeBatchMap.get(batchId);
+      if (!batch) continue;
+
+      let uniformColor: [number, number, number, number] | null = null;
+      let mixedColors = false;
+      for (const expressId of batch.expressIds) {
+        const entity = this.hugeEntityInfo.get(expressId);
+        if (!entity) continue;
+        if (!uniformColor) {
+          uniformColor = [...entity.color] as [number, number, number, number];
+          continue;
+        }
+        if (
+          uniformColor[0] !== entity.color[0] ||
+          uniformColor[1] !== entity.color[1] ||
+          uniformColor[2] !== entity.color[2] ||
+          uniformColor[3] !== entity.color[3]
+        ) {
+          mixedColors = true;
+          break;
+        }
+      }
+
+      if (!mixedColors && uniformColor) {
+        batch.color = uniformColor;
+      }
+    }
+  }
+
   /**
    * Create lightweight fragment batches from a single streaming batch.
    * Fragments are grouped by color and added to batchedMeshes for immediate

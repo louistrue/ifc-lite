@@ -17,6 +17,32 @@ const createMockMesh = (expressId: number, color: [number, number, number, numbe
   ifcType: 'IfcWall',
 });
 
+const createMockHugeChunk = (batchId: number, expressId: number) => ({
+  batchId,
+  color: [0.4, 0.6, 0.8, 1] as [number, number, number, number],
+  vertexData: new Float32Array([
+    0, 0, 0, 0, 0, 1, 0,
+    1, 0, 0, 0, 0, 1, 0,
+    0, 1, 0, 0, 0, 1, 0,
+  ]),
+  indexData: new Uint32Array([0, 1, 2]),
+  vertexStrideFloats: 7,
+  indexCount: 3,
+  boundsMin: [0, 0, 0] as [number, number, number],
+  boundsMax: [1, 1, 0] as [number, number, number],
+  elements: [{
+    expressId,
+    ifcType: 'IfcWall',
+    color: [0.4, 0.6, 0.8, 1] as [number, number, number, number],
+    boundsMin: [0, 0, 0] as [number, number, number],
+    boundsMax: [1, 1, 0] as [number, number, number],
+    vertexOffset: 0,
+    vertexCount: 3,
+    indexOffset: 0,
+    indexCount: 3,
+  }],
+});
+
 describe('DataSlice', () => {
   let state: DataSlice;
   let setState: (partial: Partial<DataSlice> | ((state: DataSlice) => Partial<DataSlice>)) => void;
@@ -125,6 +151,38 @@ describe('DataSlice', () => {
       assert.strictEqual(state.hugeGeometryStats?.totalBatches, 2);
       assert.strictEqual(state.hugeGeometryEntities.size, 1);
       assert.strictEqual(state.hugeGeometryEntities.get(7)?.ifcType, 'IfcSlab');
+    });
+  });
+
+  describe('appendHugeGeometryChunks', () => {
+    it('should queue huge chunks and update huge geometry metadata', () => {
+      state.appendHugeGeometryChunks([createMockHugeChunk(1, 41) as any], {
+        totalBatches: 1,
+        totalElements: 1,
+        totalVertices: 3,
+        totalTriangles: 1,
+      });
+
+      assert.strictEqual(state.hugeGeometryMode, true);
+      assert.strictEqual(state.hugeGeometryStats?.totalElements, 1);
+      assert.strictEqual(state.hugeGeometryEntities.get(41)?.ifcType, 'IfcWall');
+      assert.strictEqual(state.pendingHugeGeometryChunks?.length, 1);
+      assert.strictEqual(state.hugeGeometryVersion, 1);
+    });
+
+    it('should clear pending huge chunks without dropping accumulated metadata', () => {
+      state.appendHugeGeometryChunks([createMockHugeChunk(2, 42) as any], {
+        totalBatches: 1,
+        totalElements: 1,
+        totalVertices: 3,
+        totalTriangles: 1,
+      });
+
+      state.clearPendingHugeGeometryChunks();
+
+      assert.strictEqual(state.pendingHugeGeometryChunks, null);
+      assert.strictEqual(state.hugeGeometryEntities.get(42)?.ifcType, 'IfcWall');
+      assert.strictEqual(state.hugeGeometryMode, true);
     });
   });
 

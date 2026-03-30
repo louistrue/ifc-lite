@@ -213,6 +213,20 @@ export function useColorUpdateState() {
   };
 }
 
+export function useHugeGeometryState() {
+  const hugeGeometryMode = useViewerStore((state) => state.hugeGeometryMode);
+  const pendingHugeGeometryChunks = useViewerStore((state) => state.pendingHugeGeometryChunks);
+  const hugeGeometryVersion = useViewerStore((state) => state.hugeGeometryVersion);
+  const clearPendingHugeGeometryChunks = useViewerStore((state) => state.clearPendingHugeGeometryChunks);
+
+  return {
+    hugeGeometryMode,
+    pendingHugeGeometryChunks,
+    hugeGeometryVersion,
+    clearPendingHugeGeometryChunks,
+  };
+}
+
 /**
  * IFC data store state
  */
@@ -239,6 +253,7 @@ export function useViewerSelectors() {
     theme: useThemeState(),
     contextMenu: useContextMenuState(),
     colorUpdates: useColorUpdateState(),
+    hugeGeometry: useHugeGeometryState(),
     ifcData: useIfcDataState(),
   };
 }

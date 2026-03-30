@@ -11,6 +11,7 @@ import type { IfcDataStore } from '@ifc-lite/parser';
 import type {
   GeometryResult,
   CoordinateInfo,
+  HugeGeometryChunk,
   HugeGeometryEntityInfo,
   HugeGeometryStats,
 } from '@ifc-lite/geometry';
@@ -23,6 +24,8 @@ export interface DataSlice {
   hugeGeometryMode: boolean;
   hugeGeometryStats: HugeGeometryStats | null;
   hugeGeometryEntities: Map<number, HugeGeometryEntityInfo>;
+  pendingHugeGeometryChunks: HugeGeometryChunk[] | null;
+  hugeGeometryVersion: number;
   /** Transient overlay colors (lens/IDS/sdk overlays). */
   pendingColorUpdates: Map<number, [number, number, number, number]> | null;
   /** Persistent mesh color updates (IFC deferred style/material colors). */
@@ -36,6 +39,8 @@ export interface DataSlice {
     stats?: HugeGeometryStats | null,
     entities?: Map<number, HugeGeometryEntityInfo>
   ) => void;
+  appendHugeGeometryChunks: (chunks: HugeGeometryChunk[], stats?: HugeGeometryStats | null) => void;
+  clearPendingHugeGeometryChunks: () => void;
   appendGeometryBatch: (meshes: GeometryResult['meshes'], coordinateInfo?: CoordinateInfo) => void;
   /** Persist mesh color changes in geometryResult (used for IFC style/material updates). */
   updateMeshColors: (updates: Map<number, [number, number, number, number]>) => void;
@@ -69,6 +74,8 @@ export const createDataSlice: StateCreator<DataSlice, [], [], DataSlice> = (set)
   hugeGeometryMode: false,
   hugeGeometryStats: null,
   hugeGeometryEntities: new Map(),
+  pendingHugeGeometryChunks: null,
+  hugeGeometryVersion: 0,
   pendingColorUpdates: null,
   pendingMeshColorUpdates: null,
 
@@ -80,6 +87,8 @@ export const createDataSlice: StateCreator<DataSlice, [], [], DataSlice> = (set)
     hugeGeometryMode: false,
     hugeGeometryStats: null,
     hugeGeometryEntities: new Map(),
+    pendingHugeGeometryChunks: null,
+    hugeGeometryVersion: 0,
   }),
 
   setHugeGeometryState: (mode, stats = null, entities = new Map()) => set(() => ({
@@ -87,6 +96,36 @@ export const createDataSlice: StateCreator<DataSlice, [], [], DataSlice> = (set)
     hugeGeometryStats: stats,
     hugeGeometryEntities: new Map(entities),
   })),
+
+  appendHugeGeometryChunks: (chunks, stats = null) => set((state) => {
+    if (chunks.length === 0) return {};
+
+    const nextEntities = new Map(state.hugeGeometryEntities);
+    for (const chunk of chunks) {
+      for (const element of chunk.elements) {
+        nextEntities.set(element.expressId, {
+          expressId: element.expressId,
+          ifcType: element.ifcType,
+          modelIndex: element.modelIndex,
+          color: element.color,
+          boundsMin: element.boundsMin,
+          boundsMax: element.boundsMax,
+        });
+      }
+    }
+
+    return {
+      hugeGeometryMode: true,
+      hugeGeometryStats: stats ?? state.hugeGeometryStats,
+      hugeGeometryEntities: nextEntities,
+      pendingHugeGeometryChunks: state.pendingHugeGeometryChunks
+        ? [...state.pendingHugeGeometryChunks, ...chunks]
+        : chunks.slice(),
+      hugeGeometryVersion: state.hugeGeometryVersion + chunks.length,
+    };
+  }),
+
+  clearPendingHugeGeometryChunks: () => set({ pendingHugeGeometryChunks: null }),
 
   appendGeometryBatch: (meshes, coordinateInfo) => set((state) => {
     // Incremental totals: O(batch_size) instead of O(total_accumulated) .reduce()
@@ -105,6 +144,11 @@ export const createDataSlice: StateCreator<DataSlice, [], [], DataSlice> = (set)
           totalVertices: batchVertices,
           coordinateInfo: coordinateInfo || getDefaultCoordinateInfo(),
         },
+        hugeGeometryMode: false,
+        hugeGeometryStats: null,
+        hugeGeometryEntities: new Map(),
+        pendingHugeGeometryChunks: null,
+        hugeGeometryVersion: 0,
       };
     }
 

@@ -20,7 +20,7 @@
 
 import { useEffect, useRef, type MutableRefObject } from 'react';
 import type { Renderer } from '@ifc-lite/renderer';
-import type { MeshData, CoordinateInfo } from '@ifc-lite/geometry';
+import type { CoordinateInfo, HugeGeometryChunk, MeshData } from '@ifc-lite/geometry';
 
 export interface UseGeometryStreamingParams {
   rendererRef: MutableRefObject<Renderer | null>;
@@ -29,11 +29,15 @@ export interface UseGeometryStreamingParams {
   /** Monotonic counter — triggers the streaming effect even when the geometry
    *  array reference is stable (incremental filtering reuses the same array). */
   geometryVersion?: number;
+  hugeGeometryMode?: boolean;
+  hugeGeometryVersion?: number;
+  pendingHugeGeometryChunks: HugeGeometryChunk[] | null;
   coordinateInfo?: CoordinateInfo;
   isStreaming: boolean;
   geometryBoundsRef: MutableRefObject<{ min: { x: number; y: number; z: number }; max: { x: number; y: number; z: number } }>;
   pendingMeshColorUpdates: Map<number, [number, number, number, number]> | null;
   pendingColorUpdates: Map<number, [number, number, number, number]> | null;
+  clearPendingHugeGeometryChunks: () => void;
   clearPendingMeshColorUpdates: () => void;
   clearPendingColorUpdates: () => void;
   clearColorRef: MutableRefObject<[number, number, number, number]>;
@@ -53,11 +57,15 @@ export function useGeometryStreaming(params: UseGeometryStreamingParams): void {
     isInitialized,
     geometry,
     geometryVersion,
+    hugeGeometryMode = false,
+    hugeGeometryVersion,
+    pendingHugeGeometryChunks,
     coordinateInfo,
     isStreaming,
     geometryBoundsRef,
     pendingMeshColorUpdates,
     pendingColorUpdates,
+    clearPendingHugeGeometryChunks,
     clearPendingMeshColorUpdates,
     clearPendingColorUpdates,
     clearColorRef,
@@ -71,6 +79,7 @@ export function useGeometryStreaming(params: UseGeometryStreamingParams): void {
   const finalBoundsRefittedRef = useRef(false);
   const cameraSnapshotRef = useRef<{ px: number; py: number; pz: number; tx: number; ty: number; tz: number } | null>(null);
   const prevIsStreamingRef = useRef(isStreaming);
+  const prevHugeGeometryModeRef = useRef(false);
 
   // ─── Main geometry effect ────────────────────────────────────────────
   // Runs on every geometry change (new file, incremental batch, visibility toggle).
@@ -79,7 +88,7 @@ export function useGeometryStreaming(params: UseGeometryStreamingParams): void {
     const renderer = rendererRef.current;
 
     // Geometry cleared/null — reset so next load is fresh
-    if (!geometry) {
+    if (!geometry && !hugeGeometryMode) {
       if (lastGeometryLengthRef.current > 0 || lastGeometryRef.current !== null) {
         lastGeometryLengthRef.current = 0;
         lastGeometryRef.current = null;
@@ -102,8 +111,9 @@ export function useGeometryStreaming(params: UseGeometryStreamingParams): void {
     const device = renderer.getGPUDevice();
     if (!device) return;
 
+    const legacyGeometry = geometry ?? [];
     const scene = renderer.getScene();
-    const currentLength = geometry.length;
+    const currentLength = legacyGeometry.length;
     const lastLength = lastGeometryLengthRef.current;
 
     // ── Classify the change ──
@@ -112,6 +122,9 @@ export function useGeometryStreaming(params: UseGeometryStreamingParams): void {
     const isCleared = currentLength === 0;
 
     if (isCleared) {
+      if (hugeGeometryMode) {
+        return;
+      }
       scene.clear();
       processedMeshIdsRef.current.clear();
       lastGeometryLengthRef.current = 0;
@@ -127,7 +140,7 @@ export function useGeometryStreaming(params: UseGeometryStreamingParams): void {
       finalBoundsRefittedRef.current = false;
       cameraSnapshotRef.current = null;
       lastGeometryLengthRef.current = 0;
-      lastGeometryRef.current = geometry;
+      lastGeometryRef.current = legacyGeometry;
       renderer.getCamera().reset();
       geometryBoundsRef.current = { ...DEFAULT_BOUNDS };
     } else if (!isIncremental && currentLength !== lastLength) {
@@ -136,7 +149,7 @@ export function useGeometryStreaming(params: UseGeometryStreamingParams): void {
         scene.clear();
         processedMeshIdsRef.current.clear();
         lastGeometryLengthRef.current = 0;
-        lastGeometryRef.current = geometry;
+        lastGeometryRef.current = legacyGeometry;
       } else {
         // New file while another was open — full reset
         scene.clear();
@@ -145,7 +158,7 @@ export function useGeometryStreaming(params: UseGeometryStreamingParams): void {
         finalBoundsRefittedRef.current = false;
         cameraSnapshotRef.current = null;
         lastGeometryLengthRef.current = 0;
-        lastGeometryRef.current = geometry;
+        lastGeometryRef.current = legacyGeometry;
         renderer.getCamera().reset();
         geometryBoundsRef.current = { ...DEFAULT_BOUNDS };
       }
@@ -158,13 +171,13 @@ export function useGeometryStreaming(params: UseGeometryStreamingParams): void {
       scene.clear();
       processedMeshIdsRef.current.clear();
       lastGeometryLengthRef.current = 0;
-      lastGeometryRef.current = geometry;
+      lastGeometryRef.current = legacyGeometry;
     }
 
     if (isIncremental) {
-      lastGeometryRef.current = geometry;
+      lastGeometryRef.current = legacyGeometry;
     } else if (lastGeometryRef.current === null) {
-      lastGeometryRef.current = geometry;
+      lastGeometryRef.current = legacyGeometry;
     }
 
     // ── Extract new meshes ──
@@ -172,12 +185,12 @@ export function useGeometryStreaming(params: UseGeometryStreamingParams): void {
     if (isStreaming || isIncremental) {
       // Fast path: new meshes are always appended at end
       const start = lastGeometryLengthRef.current;
-      newMeshes = geometry.slice(start);
+      newMeshes = legacyGeometry.slice(start);
     } else {
       // Slow path: scan for unprocessed meshes (full rebuild)
       newMeshes = [];
-      for (let i = 0; i < geometry.length; i++) {
-        const meshData = geometry[i];
+      for (let i = 0; i < legacyGeometry.length; i++) {
+        const meshData = legacyGeometry[i];
         const compoundKey = `${meshData.expressId}:${i}`;
         if (!processedMeshIdsRef.current.has(compoundKey)) {
           newMeshes.push(meshData);
@@ -215,8 +228,8 @@ export function useGeometryStreaming(params: UseGeometryStreamingParams): void {
         const tgt = renderer.getCamera().getTarget();
         cameraSnapshotRef.current = { px: pos.x, py: pos.y, pz: pos.z, tx: tgt.x, ty: tgt.y, tz: tgt.z };
       }
-    } else if (!cameraFittedRef.current && geometry.length > 0 && !isStreaming) {
-      const bounds = computeBounds(geometry);
+    } else if (!cameraFittedRef.current && legacyGeometry.length > 0 && !isStreaming) {
+      const bounds = computeBounds(legacyGeometry);
       if (bounds) {
         renderer.getCamera().fitToBounds(bounds.min, bounds.max);
         geometryBoundsRef.current = bounds;
@@ -228,7 +241,62 @@ export function useGeometryStreaming(params: UseGeometryStreamingParams): void {
     }
 
     renderer.requestRender();
-  }, [geometry, geometryVersion, coordinateInfo, isInitialized, isStreaming]);
+  }, [geometry, geometryVersion, coordinateInfo, hugeGeometryMode, isInitialized, isStreaming]);
+
+  useEffect(() => {
+    if (!hugeGeometryMode || !pendingHugeGeometryChunks || pendingHugeGeometryChunks.length === 0) return;
+
+    const renderer = rendererRef.current;
+    if (!renderer || !isInitialized) return;
+
+    if (!prevHugeGeometryModeRef.current) {
+      renderer.getScene().clear();
+      processedMeshIdsRef.current.clear();
+      lastGeometryLengthRef.current = 0;
+      lastGeometryRef.current = geometry;
+      cameraFittedRef.current = false;
+      finalBoundsRefittedRef.current = false;
+      cameraSnapshotRef.current = null;
+      geometryBoundsRef.current = { ...DEFAULT_BOUNDS };
+    }
+
+    for (const chunk of pendingHugeGeometryChunks) {
+      renderer.addHugeGeometryChunk(chunk);
+    }
+
+    if (!cameraFittedRef.current && coordinateInfo?.shiftedBounds) {
+      const sb = coordinateInfo.shiftedBounds;
+      const maxSize = Math.max(sb.max.x - sb.min.x, sb.max.y - sb.min.y, sb.max.z - sb.min.z);
+      if (maxSize > 0 && Number.isFinite(maxSize)) {
+        renderer.getCamera().fitToBounds(sb.min, sb.max);
+        geometryBoundsRef.current = { min: { ...sb.min }, max: { ...sb.max } };
+        cameraFittedRef.current = true;
+        const pos = renderer.getCamera().getPosition();
+        const tgt = renderer.getCamera().getTarget();
+        cameraSnapshotRef.current = { px: pos.x, py: pos.y, pz: pos.z, tx: tgt.x, ty: tgt.y, tz: tgt.z };
+      }
+    }
+
+    renderer.requestRender();
+    clearPendingHugeGeometryChunks();
+    prevHugeGeometryModeRef.current = hugeGeometryMode;
+  }, [
+    clearPendingHugeGeometryChunks,
+    coordinateInfo,
+    geometry,
+    geometryBoundsRef,
+    hugeGeometryMode,
+    hugeGeometryVersion,
+    isInitialized,
+    pendingHugeGeometryChunks,
+    rendererRef,
+  ]);
+
+  useEffect(() => {
+    if (!hugeGeometryMode) {
+      prevHugeGeometryModeRef.current = false;
+    }
+  }, [hugeGeometryMode]);
 
   // ─── Streaming complete: finalize + bounds refit ─────────────────────
   useEffect(() => {
@@ -236,6 +304,12 @@ export function useGeometryStreaming(params: UseGeometryStreamingParams): void {
     if (!renderer || !isInitialized) return;
 
     if (prevIsStreamingRef.current && !isStreaming) {
+      if (hugeGeometryMode) {
+        prevIsStreamingRef.current = isStreaming;
+        renderer.requestRender();
+        return;
+      }
+
       // Flush any remaining queued meshes synchronously before finalize
       const device = renderer.getGPUDevice();
       const pipeline = renderer.getPipeline();
@@ -289,7 +363,7 @@ export function useGeometryStreaming(params: UseGeometryStreamingParams): void {
       return () => clearTimeout(timer);
     }
     prevIsStreamingRef.current = isStreaming;
-  }, [isStreaming, isInitialized]);
+  }, [hugeGeometryMode, isStreaming, isInitialized]);
 
   // ─── Mesh color updates (style/material deferred colors) ─────────────
   useEffect(() => {
@@ -301,11 +375,15 @@ export function useGeometryStreaming(params: UseGeometryStreamingParams): void {
     const pipeline = renderer.getPipeline();
     const scene = renderer.getScene();
     if (device && pipeline && pendingMeshColorUpdates.size > 0) {
-      scene.updateMeshColors(pendingMeshColorUpdates, device, pipeline);
+      if (hugeGeometryMode) {
+        scene.updateHugeMeshColors(pendingMeshColorUpdates);
+      } else {
+        scene.updateMeshColors(pendingMeshColorUpdates, device, pipeline);
+      }
       renderer.requestRender();
       clearPendingMeshColorUpdates();
     }
-  }, [pendingMeshColorUpdates, isInitialized, clearPendingMeshColorUpdates]);
+  }, [pendingMeshColorUpdates, hugeGeometryMode, isInitialized, clearPendingMeshColorUpdates]);
 
   // ─── Lens color overlays ─────────────────────────────────────────────
   useEffect(() => {

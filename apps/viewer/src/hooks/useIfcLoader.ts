@@ -79,6 +79,7 @@ export function useIfcLoader() {
     setProgress,
     setIfcDataStore,
     setGeometryResult,
+    appendHugeGeometryChunks,
     appendGeometryBatch,
     updateMeshColors,
     updateCoordinateInfo,
@@ -88,6 +89,7 @@ export function useIfcLoader() {
     setProgress: s.setProgress,
     setIfcDataStore: s.setIfcDataStore,
     setGeometryResult: s.setGeometryResult,
+    appendHugeGeometryChunks: s.appendHugeGeometryChunks,
     appendGeometryBatch: s.appendGeometryBatch,
     updateMeshColors: s.updateMeshColors,
     updateCoordinateInfo: s.updateCoordinateInfo,
@@ -121,6 +123,7 @@ export function useIfcLoader() {
       const buffer = await file.arrayBuffer();
       const fileReadMs = performance.now() - fileReadStart;
       const fileSizeMB = buffer.byteLength / (1024 * 1024);
+      const preferHugeBatches = buffer.byteLength >= 512 * 1024 * 1024;
       console.log(`[useIfc] File: ${file.name}, size: ${fileSizeMB.toFixed(2)}MB, read in ${fileReadMs.toFixed(0)}ms`);
 
       // Detect file format (IFCX/IFC5 vs IFC4 STEP vs GLB)
@@ -383,10 +386,23 @@ export function useIfcLoader() {
       try {
         // Use dynamic batch sizing for optimal throughput
         const dynamicBatchConfig = getDynamicBatchConfig(fileSizeMB);
+        const emptyCoordinateInfo: CoordinateInfo = {
+          originShift: { x: 0, y: 0, z: 0 },
+          originalBounds: {
+            min: { x: 0, y: 0, z: 0 },
+            max: { x: 0, y: 0, z: 0 },
+          },
+          shiftedBounds: {
+            min: { x: 0, y: 0, z: 0 },
+            max: { x: 0, y: 0, z: 0 },
+          },
+          hasLargeCoordinates: false,
+        };
 
         for await (const event of geometryProcessor.processAdaptive(new Uint8Array(buffer), {
           sizeThreshold: 2 * 1024 * 1024, // 2MB threshold
           batchSize: dynamicBatchConfig, // Dynamic batches: small first, then large
+          preferHugeBatches,
         })) {
           const eventReceived = performance.now();
 
@@ -397,6 +413,14 @@ export function useIfcLoader() {
             case 'model-open':
               setProgress({ phase: 'Processing geometry', percent: 50 });
               modelOpenMs = performance.now() - totalStartTime;
+              if (preferHugeBatches) {
+                setGeometryResult({
+                  meshes: [],
+                  totalTriangles: 0,
+                  totalVertices: 0,
+                  coordinateInfo: emptyCoordinateInfo,
+                });
+              }
               console.log(`[useIfc] Model opened at ${modelOpenMs.toFixed(0)}ms`);
               break;
             case 'colorUpdate': {
@@ -456,6 +480,31 @@ export function useIfcLoader() {
                 });
               }
 
+              break;
+            }
+            case 'huge-batch': {
+              batchCount++;
+
+              if (batchCount === 1) {
+                firstGeometryTime = performance.now() - totalStartTime;
+                console.log(`[useIfc] Batch #1: ${event.chunks[0]?.elements.length ?? 0} chunk elements, wait: ${firstGeometryTime.toFixed(0)}ms`);
+              }
+
+              for (let i = 0; i < event.meshes.length; i++) allMeshes.push(event.meshes[i]);
+              finalCoordinateInfo = event.coordinateInfo ?? null;
+              totalMeshes = event.totalSoFar;
+              lastTotalMeshes = event.totalSoFar;
+
+              appendHugeGeometryChunks(event.chunks, event.stats);
+              if (event.coordinateInfo) {
+                updateCoordinateInfo(event.coordinateInfo);
+              }
+
+              const progressPercent = 50 + Math.min(45, (totalMeshes / Math.max(estimatedTotal / 10, totalMeshes)) * 45);
+              setProgress({
+                phase: `Rendering geometry (${totalMeshes} meshes)`,
+                percent: progressPercent
+              });
               break;
             }
             case 'complete':
@@ -523,6 +572,25 @@ export function useIfcLoader() {
                 // Data model parsing failed - spatial index and caching skipped
                 console.warn('[useIfc] Skipping spatial index/cache - data model unavailable:', err);
               });
+              break;
+            case 'huge-complete':
+              finalCoordinateInfo = event.coordinateInfo ?? null;
+
+              if (cumulativeColorUpdates.size > 0) {
+                updateMeshColors(cumulativeColorUpdates);
+              }
+
+              if (finalCoordinateInfo && capturedRtcOffset) {
+                finalCoordinateInfo.wasmRtcOffset = capturedRtcOffset;
+              }
+
+              updateCoordinateInfo(finalCoordinateInfo);
+
+              setProgress({ phase: 'Complete', percent: 100 });
+              console.log(
+                `[useIfc] Geometry streaming complete: ${event.stats.totalBatches} huge batches, ` +
+                `${event.stats.totalElements} elements`
+              );
               break;
           }
 

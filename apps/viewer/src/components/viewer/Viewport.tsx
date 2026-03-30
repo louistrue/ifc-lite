@@ -20,6 +20,7 @@ import {
   useThemeState,
   useContextMenuState,
   useColorUpdateState,
+  useHugeGeometryState,
   useIfcDataState,
 } from '../../hooks/useViewerSelectors.js';
 import { useModelSelection } from '../../hooks/useModelSelection.js';
@@ -239,6 +240,12 @@ export function Viewport({ geometry, geometryVersion, coordinateInfo, computedIs
     clearPendingColorUpdates,
     clearPendingMeshColorUpdates,
   } = useColorUpdateState();
+  const {
+    hugeGeometryMode,
+    pendingHugeGeometryChunks,
+    hugeGeometryVersion,
+    clearPendingHugeGeometryChunks,
+  } = useHugeGeometryState();
 
   // IFC data state
   const { ifcDataStore } = useIfcDataState();
@@ -800,11 +807,15 @@ export function Viewport({ geometry, geometryVersion, coordinateInfo, computedIs
     isInitialized,
     geometry,
     geometryVersion,
+    hugeGeometryMode,
+    hugeGeometryVersion,
+    pendingHugeGeometryChunks,
     coordinateInfo,
     isStreaming,
     geometryBoundsRef,
     pendingColorUpdates,
     pendingMeshColorUpdates,
+    clearPendingHugeGeometryChunks,
     clearPendingColorUpdates,
     clearPendingMeshColorUpdates,
     clearColorRef,

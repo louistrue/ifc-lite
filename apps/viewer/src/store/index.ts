@@ -160,6 +160,8 @@ export const useViewerStore = create<ViewerState>()((...args) => ({
       hugeGeometryMode: false,
       hugeGeometryStats: null,
       hugeGeometryEntities: new Map(),
+      pendingHugeGeometryChunks: null,
+      hugeGeometryVersion: 0,
       pendingColorUpdates: null,
       pendingMeshColorUpdates: null,
 

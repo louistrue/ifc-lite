@@ -61,7 +61,8 @@ import { BufferBuilder } from './buffer-builder.js';
 import { CoordinateHandler } from './coordinate-handler.js';
 import { GeometryQuality } from './progressive-loader.js';
 import { createPlatformBridge, isTauri, type IPlatformBridge } from './platform-bridge.js';
-import type { GeometryResult, MeshData, CoordinateInfo } from './types.js';
+import { buildHugeGeometryChunks } from './huge-chunk-builder.js';
+import type { CoordinateInfo, GeometryResult, HugeGeometryChunk, HugeGeometryStats, MeshData } from './types.js';
 
 export interface GeometryProcessorOptions {
   quality?: GeometryQuality; // Default: Balanced
@@ -103,8 +104,17 @@ export type StreamingGeometryEvent =
   | { type: 'start'; totalEstimate: number }
   | { type: 'model-open'; modelID: number }
   | { type: 'batch'; meshes: MeshData[]; totalSoFar: number; coordinateInfo?: import('./types.js').CoordinateInfo }
+  | {
+      type: 'huge-batch';
+      meshes: MeshData[];
+      chunks: HugeGeometryChunk[];
+      totalSoFar: number;
+      stats: HugeGeometryStats;
+      coordinateInfo?: import('./types.js').CoordinateInfo;
+    }
   | { type: 'colorUpdate'; updates: Map<number, [number, number, number, number]> }
   | { type: 'rtcOffset'; rtcOffset: { x: number; y: number; z: number }; hasRtc: boolean }
+  | { type: 'huge-complete'; totalMeshes: number; stats: HugeGeometryStats; coordinateInfo: import('./types.js').CoordinateInfo }
   | { type: 'complete'; totalMeshes: number; coordinateInfo: import('./types.js').CoordinateInfo };
 
 export type StreamingInstancedGeometryEvent =
@@ -452,6 +462,10 @@ export class GeometryProcessor {
    */
   async *processParallel(
     buffer: Uint8Array,
+    options: {
+      preferHugeBatches?: boolean;
+      targetChunkBytes?: number;
+    } = {},
   ): AsyncGenerator<StreamingGeometryEvent> {
     // Initialize if needed
     if (!this.bridge?.isInitialized()) {
@@ -543,7 +557,16 @@ export class GeometryProcessor {
     let resolveWaiting: (() => void) | null = null;
     let workersCompleted = 0;
     let totalMeshes = 0;
+    let streamedMeshes = 0;
     let workerError: Error | null = null;
+    let hugeBatchId = 0;
+    let hugeStats: HugeGeometryStats = {
+      totalBatches: 0,
+      totalElements: 0,
+      totalVertices: 0,
+      totalTriangles: 0,
+    };
+    const emitHugeBatches = options.preferHugeBatches === true && useFastPrePass;
 
     const workers: Worker[] = [];
 
@@ -638,12 +661,35 @@ export class GeometryProcessor {
         const batch = batchQueue.shift()!;
         this.coordinateHandler.processMeshesIncremental(batch);
         const coordinateInfo = this.coordinateHandler.getCurrentCoordinateInfo();
-        yield {
-          type: 'batch',
-          meshes: batch,
-          totalSoFar: totalMeshes,
-          coordinateInfo: coordinateInfo || undefined,
-        };
+        streamedMeshes += batch.length;
+
+        if (emitHugeBatches) {
+          const { chunks, nextBatchId } = buildHugeGeometryChunks(batch, hugeBatchId, options.targetChunkBytes);
+          hugeBatchId = nextBatchId;
+          for (const chunk of chunks) {
+            hugeStats = {
+              totalBatches: hugeStats.totalBatches + 1,
+              totalElements: hugeStats.totalElements + chunk.elements.length,
+              totalVertices: hugeStats.totalVertices + (chunk.vertexData.length / chunk.vertexStrideFloats),
+              totalTriangles: hugeStats.totalTriangles + (chunk.indexCount / 3),
+            };
+          }
+          yield {
+            type: 'huge-batch',
+            meshes: batch,
+            chunks,
+            totalSoFar: streamedMeshes,
+            stats: hugeStats,
+            coordinateInfo: coordinateInfo || undefined,
+          };
+        } else {
+          yield {
+            type: 'batch',
+            meshes: batch,
+            totalSoFar: streamedMeshes,
+            coordinateInfo: coordinateInfo || undefined,
+          };
+        }
       }
 
       if (workerError) {
@@ -664,7 +710,11 @@ export class GeometryProcessor {
     }
 
     const coordinateInfo = this.coordinateHandler.getFinalCoordinateInfo();
-    yield { type: 'complete', totalMeshes, coordinateInfo };
+    if (emitHugeBatches) {
+      yield { type: 'huge-complete', totalMeshes, stats: hugeStats, coordinateInfo };
+    } else {
+      yield { type: 'complete', totalMeshes, coordinateInfo };
+    }
   }
 
   /**
@@ -683,6 +733,8 @@ export class GeometryProcessor {
       sizeThreshold?: number;
       batchSize?: number | DynamicBatchConfig;
       entityIndex?: Map<number, any>;
+      preferHugeBatches?: boolean;
+      targetChunkBytes?: number;
     } = {}
   ): AsyncGenerator<StreamingGeometryEvent> {
     const sizeThreshold = options.sizeThreshold ?? 2 * 1024 * 1024; // Default 2MB
@@ -745,7 +797,10 @@ export class GeometryProcessor {
         && (navigator.hardwareConcurrency ?? 1) > 1;
 
       if (useParallel) {
-        yield* this.processParallel(buffer);
+        yield* this.processParallel(buffer, {
+          preferHugeBatches: options.preferHugeBatches,
+          targetChunkBytes: options.targetChunkBytes,
+        });
       } else {
         yield* this.processStreaming(buffer, options.entityIndex, batchConfig);
       }
