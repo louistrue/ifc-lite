@@ -71,6 +71,9 @@ flate2 = "1.0"
 # Base64 encoding for SSE payloads
 base64 = "0.22"
 
+# Remote source fetch support
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "http2", "charset"] }
+
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
 

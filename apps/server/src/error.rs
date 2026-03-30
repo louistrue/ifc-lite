@@ -47,6 +47,9 @@ pub enum ApiError {
 
     #[error("Parquet serialization error: {0}")]
     Parquet(String),
+
+    #[error("Remote fetch error: {0}")]
+    RemoteFetch(String),
 }
 
 /// Error response body.
@@ -70,6 +73,7 @@ impl IntoResponse for ApiError {
             ApiError::Internal(_) => (StatusCode::INTERNAL_SERVER_ERROR, "INTERNAL_ERROR"),
             ApiError::Join(_) => (StatusCode::INTERNAL_SERVER_ERROR, "TASK_ERROR"),
             ApiError::Parquet(_) => (StatusCode::INTERNAL_SERVER_ERROR, "PARQUET_ERROR"),
+            ApiError::RemoteFetch(_) => (StatusCode::BAD_GATEWAY, "REMOTE_FETCH_ERROR"),
         };
 
         let body = ErrorResponse {
@@ -114,5 +118,11 @@ impl From<crate::services::ParquetError> for ApiError {
 impl From<crate::services::parquet_data_model::DataModelParquetError> for ApiError {
     fn from(err: crate::services::parquet_data_model::DataModelParquetError) -> Self {
         ApiError::Parquet(err.to_string())
+    }
+}
+
+impl From<reqwest::Error> for ApiError {
+    fn from(err: reqwest::Error) -> Self {
+        ApiError::RemoteFetch(err.to_string())
     }
 }

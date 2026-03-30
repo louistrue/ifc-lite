@@ -67,6 +67,7 @@ fn build_cors_layer(config: &Config) -> CorsLayer {
             .allow_origin(origins)
             .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
             .allow_headers([header::CONTENT_TYPE, header::AUTHORIZATION, header::ACCEPT])
+            .expose_headers([header::HeaderName::from_static("x-ifc-metadata")])
             .max_age(Duration::from_secs(3600))
     }
 }
@@ -123,8 +124,10 @@ async fn main() {
         .route("/api/v1/parse", post(routes::parse::parse_full))
         .route("/api/v1/parse/stream", post(routes::parse::parse_stream))
         .route("/api/v1/parse/parquet-stream", post(routes::parse::parse_parquet_stream))
+        .route("/api/v1/parse/parquet-stream-url", post(routes::parse::parse_parquet_stream_by_url))
         .route("/api/v1/parse/metadata", post(routes::parse::parse_metadata))
         .route("/api/v1/parse/parquet", post(routes::parse::parse_parquet))
+        .route("/api/v1/parse/parquet-url", post(routes::parse::parse_parquet_by_url))
         .route("/api/v1/parse/parquet/optimized", post(routes::parse::parse_parquet_optimized))
         .route("/api/v1/parse/data-model/:cache_key", get(routes::parse::get_data_model))
         // Cache endpoints

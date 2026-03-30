@@ -23,6 +23,7 @@ use flate2::read::GzDecoder;
 use futures::stream::StreamExt;
 use ifc_lite_core::EntityScanner;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::convert::Infallible;
 use std::io::Read;
 
@@ -34,6 +35,15 @@ pub struct ParseQuery {
     pub opening_filter: OpeningFilterMode,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+pub struct RemoteSourceRequest {
+    pub url: String,
+    #[serde(default)]
+    pub file_name: Option<String>,
+    #[serde(default)]
+    pub headers: HashMap<String, String>,
+}
+
 fn reject_unsupported_streaming_opening_filter(query: &ParseQuery) -> Result<(), ApiError> {
     if query.opening_filter == OpeningFilterMode::Default {
         return Ok(());
@@ -42,6 +52,51 @@ fn reject_unsupported_streaming_opening_filter(query: &ParseQuery) -> Result<(),
     Err(ApiError::BadRequest(
         "opening_filter is not yet supported for streaming endpoints; use /api/v1/parse or /api/v1/parse/parquet instead".into(),
     ))
+}
+
+fn check_file_size(data_len: usize, max_file_size_mb: usize) -> Result<(), ApiError> {
+    if data_len > max_file_size_mb * 1024 * 1024 {
+        return Err(ApiError::FileTooLarge {
+            max_mb: max_file_size_mb,
+        });
+    }
+
+    Ok(())
+}
+
+async fn fetch_remote_file(request: &RemoteSourceRequest) -> Result<Vec<u8>, ApiError> {
+    let url = request.url.trim();
+    if !(url.starts_with("http://") || url.starts_with("https://")) {
+        return Err(ApiError::BadRequest(
+            "remote source URL must use http or https".into(),
+        ));
+    }
+
+    let client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::limited(5))
+        .build()?;
+
+    let mut http_request = client.get(url);
+    for (name, value) in &request.headers {
+        http_request = http_request.header(name, value);
+    }
+
+    let response = http_request.send().await?;
+    let status = response.status();
+    if !status.is_success() {
+        return Err(ApiError::RemoteFetch(format!(
+            "remote source returned status {}",
+            status
+        )));
+    }
+
+    let bytes = response.bytes().await?;
+    tracing::info!(
+        source_url = %url,
+        size = bytes.len(),
+        "Fetched IFC source from remote URL"
+    );
+    Ok(bytes.to_vec())
 }
 
 /// Extract file data from multipart request.
@@ -171,6 +226,208 @@ pub async fn parse_stream(
         });
         Ok(Event::default().data(json))
     });
+
+    Ok(Sse::new(stream).keep_alive(KeepAlive::default()))
+}
+
+/// POST /api/v1/parse/parquet-stream-url - Streaming parse where the server fetches the IFC from a URL.
+pub async fn parse_parquet_stream_by_url(
+    State(state): State<AppState>,
+    Query(query): Query<ParseQuery>,
+    Json(remote): Json<RemoteSourceRequest>,
+) -> Result<Sse<std::pin::Pin<Box<dyn futures::Stream<Item = Result<Event, Infallible>> + Send>>>, ApiError> {
+    use base64::{Engine, engine::general_purpose::STANDARD};
+    use crate::services::serialize_to_parquet;
+    use crate::types::MeshData;
+    use futures::StreamExt;
+    use std::sync::{Arc, Mutex};
+
+    reject_unsupported_streaming_opening_filter(&query)?;
+
+    let data = fetch_remote_file(&remote).await?;
+    check_file_size(data.len(), state.config.max_file_size_mb)?;
+
+    let cache_key = format!(
+        "{}-{}",
+        DiskCache::generate_key(&data),
+        query.opening_filter.cache_key_suffix()
+    );
+    let cache_key_clone = cache_key.clone();
+
+    let parquet_cache_key = format!("{}-parquet-v2", cache_key);
+    let metadata_cache_key = format!("{}-parquet-metadata-v2", cache_key);
+
+    if let (Some(cached_parquet), Some(cached_metadata_json)) = (
+        state.cache.get_bytes(&parquet_cache_key).await?,
+        state.cache.get_bytes(&metadata_cache_key).await?,
+    ) {
+        tracing::info!(
+            cache_key = %cache_key,
+            parquet_size = cached_parquet.len(),
+            "Streaming URL cache HIT - returning cached data as fast stream"
+        );
+
+        let metadata_header: ParquetMetadataHeader = serde_json::from_slice(&cached_metadata_json)
+            .map_err(|e| ApiError::Internal(format!("Failed to parse cached metadata: {}", e)))?;
+
+        let geometry_len = u32::from_le_bytes(cached_parquet[0..4].try_into().unwrap()) as usize;
+        let geometry_data = cached_parquet[4..4 + geometry_len].to_vec();
+
+        let cache_key_for_stream = cache_key.clone();
+        let fast_stream: std::pin::Pin<Box<dyn futures::Stream<Item = Result<Event, Infallible>> + Send>> = Box::pin(futures::stream::iter(vec![
+            Ok::<_, Infallible>(Event::default().data(
+                serde_json::to_string(&ParquetStreamEvent::Start {
+                    total_estimate: metadata_header.stats.total_meshes,
+                    cache_key: cache_key_for_stream.clone(),
+                }).unwrap()
+            )),
+            Ok(Event::default().data(
+                serde_json::to_string(&ParquetStreamEvent::Batch {
+                    data: base64::engine::general_purpose::STANDARD.encode(&geometry_data),
+                    mesh_count: metadata_header.stats.total_meshes,
+                    batch_number: 1,
+                }).unwrap()
+            )),
+            Ok(Event::default().data(
+                serde_json::to_string(&ParquetStreamEvent::Complete {
+                    stats: metadata_header.stats,
+                    metadata: metadata_header.metadata,
+                }).unwrap()
+            )),
+        ]));
+
+        return Ok(Sse::new(fast_stream).keep_alive(KeepAlive::default()));
+    }
+
+    tracing::info!(
+        cache_key = %cache_key,
+        size = data.len(),
+        source_url = %remote.url,
+        "Streaming URL cache MISS - processing remote file"
+    );
+
+    let content = String::from_utf8(data)?;
+    let initial_batch_size = state.config.initial_batch_size;
+    let max_batch_size = state.config.max_batch_size;
+    let cache = state.cache.clone();
+
+    let accumulated_meshes: Arc<Mutex<Vec<MeshData>>> = Arc::new(Mutex::new(Vec::new()));
+    let accumulated_meshes_for_stream = accumulated_meshes.clone();
+    let cache_for_geometry = cache.clone();
+    let cache_key_for_geometry = cache_key.clone();
+
+    let stream: std::pin::Pin<
+        Box<dyn futures::Stream<Item = Result<Event, Infallible>> + Send>,
+    > = Box::pin(process_streaming(content.clone(), initial_batch_size, max_batch_size).map(
+        move |event: StreamEvent| {
+            let sse_event = match event {
+                StreamEvent::Start { total_estimate } => {
+                    ParquetStreamEvent::Start {
+                        total_estimate,
+                        cache_key: cache_key_clone.clone(),
+                    }
+                }
+                StreamEvent::Progress { processed, total, .. } => {
+                    ParquetStreamEvent::Progress { processed, total }
+                }
+                StreamEvent::Batch { meshes, batch_number } => {
+                    if let Ok(mut acc) = accumulated_meshes_for_stream.lock() {
+                        acc.extend(meshes.iter().cloned());
+                    }
+
+                    match serialize_to_parquet(&meshes) {
+                        Ok(parquet_bytes) => {
+                            let base64_data = STANDARD.encode(&parquet_bytes);
+                            ParquetStreamEvent::Batch {
+                                data: base64_data,
+                                mesh_count: meshes.len(),
+                                batch_number,
+                            }
+                        }
+                        Err(e) => ParquetStreamEvent::Error {
+                            message: format!("Failed to serialize batch: {}", e),
+                        },
+                    }
+                }
+                StreamEvent::Complete { stats, metadata, mesh_coordinate_space, site_transform, building_transform, .. } => {
+                    let cache = cache_for_geometry.clone();
+                    let key = cache_key_for_geometry.clone();
+                    let stats_clone = stats.clone();
+                    let metadata_clone = metadata.clone();
+                    let meshes_for_cache = accumulated_meshes.clone();
+                    let coord_space = mesh_coordinate_space.clone();
+                    let site_tf = site_transform.clone();
+                    let building_tf = building_transform.clone();
+
+                    tokio::spawn(async move {
+                        let all_meshes = {
+                            match meshes_for_cache.lock() {
+                                Ok(mut guard) => std::mem::take(&mut *guard),
+                                Err(_) => {
+                                    tracing::error!("Failed to lock accumulated meshes for URL-stream caching");
+                                    return;
+                                }
+                            }
+                        };
+
+                        if all_meshes.is_empty() {
+                            tracing::warn!("No meshes accumulated for URL-stream caching");
+                            return;
+                        }
+
+                        let serialize_result = tokio::task::spawn_blocking(move || {
+                            serialize_to_parquet(&all_meshes)
+                        }).await;
+
+                        if let Ok(Ok(geometry_parquet)) = serialize_result {
+                            let mut combined_parquet = Vec::new();
+                            combined_parquet.extend_from_slice(&(geometry_parquet.len() as u32).to_le_bytes());
+                            combined_parquet.extend_from_slice(&geometry_parquet);
+                            combined_parquet.extend_from_slice(&0u32.to_le_bytes());
+
+                            let parquet_cache_key = format!("{}-parquet-v2", key);
+                            if let Err(e) = cache.set_bytes(&parquet_cache_key, &combined_parquet).await {
+                                tracing::error!(error = %e, "Failed to cache geometry from URL stream");
+                            }
+
+                            let metadata_header = ParquetMetadataHeader {
+                                cache_key: key.clone(),
+                                metadata: metadata_clone,
+                                stats: stats_clone,
+                                mesh_coordinate_space: coord_space,
+                                site_transform: site_tf,
+                                building_transform: building_tf,
+                                data_model_stats: None,
+                            };
+
+                            match serde_json::to_string(&metadata_header) {
+                                Ok(metadata_json) => {
+                                    let metadata_cache_key = format!("{}-parquet-metadata-v2", key);
+                                    if let Err(e) = cache.set_bytes(&metadata_cache_key, metadata_json.as_bytes()).await {
+                                        tracing::error!(error = %e, "Failed to cache URL-stream metadata");
+                                    }
+                                }
+                                Err(e) => {
+                                    tracing::error!(error = %e, "Failed to serialize URL-stream metadata");
+                                }
+                            }
+                        }
+                    });
+
+                    ParquetStreamEvent::Complete { stats, metadata }
+                }
+                StreamEvent::Error { message } => ParquetStreamEvent::Error { message },
+            };
+
+            let json = serde_json::to_string(&sse_event).unwrap_or_else(|e| {
+                serde_json::to_string(&ParquetStreamEvent::Error {
+                    message: e.to_string(),
+                })
+                .unwrap()
+            });
+            Ok(Event::default().data(json))
+        },
+    ));
 
     Ok(Sse::new(stream).keep_alive(KeepAlive::default()))
 }
@@ -723,6 +980,145 @@ pub async fn parse_parquet(
     });
 
     // Build response with binary body and metadata header
+    let response = Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, "application/x-parquet-geometry")
+        .header("X-IFC-Metadata", metadata_json)
+        .header(header::CONTENT_LENGTH, combined_parquet.len())
+        .body(Body::from(combined_parquet))
+        .map_err(|e| ApiError::Internal(e.to_string()))?;
+
+    Ok(response)
+}
+
+/// POST /api/v1/parse/parquet-url - Full parse where the server fetches the IFC from a URL.
+pub async fn parse_parquet_by_url(
+    State(state): State<AppState>,
+    Query(query): Query<ParseQuery>,
+    Json(remote): Json<RemoteSourceRequest>,
+) -> Result<Response, ApiError> {
+    let data = fetch_remote_file(&remote).await?;
+    check_file_size(data.len(), state.config.max_file_size_mb)?;
+
+    let cache_key = format!(
+        "{}-{}",
+        DiskCache::generate_key(&data),
+        query.opening_filter.cache_key_suffix()
+    );
+
+    let parquet_cache_key = format!("{}-parquet-v2", cache_key);
+    let metadata_cache_key = format!("{}-parquet-metadata-v2", cache_key);
+
+    if let (Some(cached_parquet), Some(cached_metadata_json)) = (
+        state.cache.get_bytes(&parquet_cache_key).await?,
+        state.cache.get_bytes(&metadata_cache_key).await?,
+    ) {
+        tracing::info!(
+            cache_key = %cache_key,
+            parquet_size = cached_parquet.len(),
+            "Parquet URL cache HIT - returning cached response"
+        );
+
+        let response = Response::builder()
+            .status(StatusCode::OK)
+            .header(header::CONTENT_TYPE, "application/x-parquet-geometry")
+            .header("X-IFC-Metadata", String::from_utf8(cached_metadata_json)?)
+            .header(header::CONTENT_LENGTH, cached_parquet.len())
+            .body(Body::from(cached_parquet))
+            .map_err(|e| ApiError::Internal(e.to_string()))?;
+
+        return Ok(response);
+    }
+
+    tracing::info!(
+        cache_key = %cache_key,
+        size = data.len(),
+        source_url = %remote.url,
+        "Parquet URL cache MISS - processing remote file"
+    );
+
+    let content = String::from_utf8(data)?;
+
+    let serialize_start = tokio::time::Instant::now();
+    let opening_filter = query.opening_filter;
+    let ((geometry_result, geometry_parquet), (data_model_stats, data_model_parquet)) =
+        tokio::task::spawn_blocking(move || {
+            let (geometry_result, data_model) = rayon::join(
+                || process_geometry_filtered(&content, opening_filter),
+                || extract_data_model(&content),
+            );
+
+            let dm_stats = DataModelStats {
+                entity_count: data_model.entities.len(),
+                property_set_count: data_model.property_sets.len(),
+                relationship_count: data_model.relationships.len(),
+                spatial_node_count: data_model.spatial_hierarchy.nodes.len(),
+            };
+
+            let (geo_parquet, dm_parquet) = rayon::join(
+                || serialize_to_parquet(&geometry_result.meshes),
+                || serialize_data_model_to_parquet(&data_model),
+            );
+
+            ((geometry_result, geo_parquet), (dm_stats, dm_parquet))
+        })
+        .await?;
+
+    let geometry_parquet = geometry_parquet?;
+    let data_model_parquet = data_model_parquet?;
+
+    let serialize_time = serialize_start.elapsed();
+    tracing::info!(
+        meshes = geometry_result.meshes.len(),
+        geometry_parquet_size = geometry_parquet.len(),
+        data_model_parquet_size = data_model_parquet.len(),
+        total_serialize_time_ms = serialize_time.as_millis(),
+        "Remote geometry and data model serialization complete (parallel)"
+    );
+
+    let data_model_cache_key = format!("{}-datamodel-v2", cache_key);
+    if let Err(e) = state.cache.set_bytes(&data_model_cache_key, &data_model_parquet).await {
+        tracing::error!(error = %e, "Failed to cache data model for remote parse");
+    }
+
+    let mut combined_parquet = Vec::new();
+    combined_parquet.extend_from_slice(&(geometry_parquet.len() as u32).to_le_bytes());
+    combined_parquet.extend_from_slice(&geometry_parquet);
+    combined_parquet.extend_from_slice(&0u32.to_le_bytes());
+
+    let cache_key_clone = cache_key.clone();
+    let metadata_header = ParquetMetadataHeader {
+        cache_key: cache_key_clone.clone(),
+        metadata: geometry_result.metadata,
+        stats: geometry_result.stats,
+        mesh_coordinate_space: geometry_result.mesh_coordinate_space,
+        site_transform: geometry_result.site_transform,
+        building_transform: geometry_result.building_transform,
+        data_model_stats: Some(data_model_stats),
+    };
+
+    let metadata_json = serde_json::to_string(&metadata_header)?;
+
+    let parquet_cache_key = format!("{}-parquet-v2", cache_key_clone);
+    let metadata_cache_key = format!("{}-parquet-metadata-v2", cache_key_clone);
+    let combined_parquet_clone = combined_parquet.clone();
+    let metadata_json_clone = metadata_json.clone();
+    let cache = state.cache.clone();
+
+    tokio::spawn(async move {
+        if let Err(e) = cache.set_bytes(&parquet_cache_key, &combined_parquet_clone).await {
+            tracing::error!(error = %e, "Failed to cache remote Parquet bytes");
+        }
+        if let Err(e) = cache.set_bytes(&metadata_cache_key, metadata_json_clone.as_bytes()).await {
+            tracing::error!(error = %e, "Failed to cache remote metadata");
+        }
+        tracing::info!(
+            cache_key = %cache_key_clone,
+            parquet_size = combined_parquet_clone.len(),
+            "Cached remote Parquet response"
+        );
+    });
+
     let response = Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "application/x-parquet-geometry")
