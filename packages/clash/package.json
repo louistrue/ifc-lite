@@ -1,0 +1,52 @@
+{
+  "name": "@ifc-lite/clash",
+  "version": "0.1.0",
+  "description": "IFC clash detection — collision, intersection, and clearance checks between IFC elements",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch"
+  },
+  "dependencies": {
+    "@ifc-lite/parser": "workspace:^",
+    "@ifc-lite/query": "workspace:^",
+    "@ifc-lite/data": "workspace:^",
+    "@ifc-lite/geometry": "workspace:^",
+    "@ifc-lite/spatial": "workspace:^"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.0"
+  },
+  "license": "MPL-2.0",
+  "author": "Louis True",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/louistrue/ifc-lite.git",
+    "directory": "packages/clash"
+  },
+  "homepage": "https://louistrue.github.io/ifc-lite/",
+  "bugs": "https://github.com/louistrue/ifc-lite/issues",
+  "keywords": [
+    "ifc",
+    "bim",
+    "clash",
+    "collision",
+    "detection",
+    "aec"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ]
+}

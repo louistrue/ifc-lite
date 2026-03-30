@@ -1,0 +1,49 @@
+{
+  "name": "@ifc-lite/diff",
+  "version": "0.1.0",
+  "description": "IFC model diffing — detect added, deleted, and changed elements between two IFC files",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch"
+  },
+  "dependencies": {
+    "@ifc-lite/parser": "workspace:^",
+    "@ifc-lite/query": "workspace:^",
+    "@ifc-lite/data": "workspace:^"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.0"
+  },
+  "license": "MPL-2.0",
+  "author": "Louis True",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/louistrue/ifc-lite.git",
+    "directory": "packages/diff"
+  },
+  "homepage": "https://louistrue.github.io/ifc-lite/",
+  "bugs": "https://github.com/louistrue/ifc-lite/issues",
+  "keywords": [
+    "ifc",
+    "bim",
+    "diff",
+    "comparison",
+    "aec"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ]
+}

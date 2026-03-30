@@ -31,6 +31,7 @@ import { askCommand } from './commands/ask.js';
 import { viewCommand } from './commands/view.js';
 import { analyzeCommand } from './commands/analyze.js';
 import { lodCommand } from './commands/lod.js';
+import { clashCommand } from './commands/clash.js';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -69,7 +70,8 @@ const HELP = `
     schema                                        Dump SDK API schema (for LLM tools)
     merge     <f1.ifc> <f2.ifc> --out F           Merge multiple IFC files
     convert   <file.ifc> --schema VER --out F     Convert between IFC schema versions
-    diff      <f1.ifc> <f2.ifc>                   Compare two IFC files
+    diff      <f1.ifc> <f2.ifc>                   Compare two IFC files (attrs, props, quantities)
+    clash     <f1.ifc> [f2.ifc]                  Clash detection (collision, clearance, intersection)
     validate  <file.ifc>                          Structural validation checks
     bsdd      <class|search|psets|qsets> <arg>     buildingSMART Data Dictionary lookup
     stats     <file.ifc>                          Auto-calculated model KPIs and health check
@@ -118,6 +120,11 @@ const HELP = `
     ifc-lite convert model.ifc --schema IFC4 --out model-ifc4.ifc
     ifc-lite diff model-v1.ifc model-v2.ifc --json
     ifc-lite diff model-v1.ifc model-v2.ifc --by-entity
+    ifc-lite diff model-v1.ifc model-v2.ifc --viewer 3456
+    ifc-lite clash model.ifc --type-a IfcBeam --type-b IfcPipeSegment
+    ifc-lite clash arch.ifc mep.ifc --mode clearance --clearance 0.1
+    ifc-lite clash model.ifc --mode intersection --json
+    ifc-lite clash model.ifc --config clash-sets.json
     ifc-lite validate model.ifc --json
     ifc-lite bsdd class IfcWall
     ifc-lite bsdd search "concrete wall"
@@ -229,6 +236,9 @@ async function main(): Promise<void> {
       break;
     case 'lod':
       await lodCommand(commandArgs);
+      break;
+    case 'clash':
+      await clashCommand(commandArgs);
       break;
     default:
       process.stderr.write(`Unknown command: ${command}\n`);

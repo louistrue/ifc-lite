@@ -548,23 +548,54 @@ importers:
         specifier: ^1.6.0
         version: 1.6.1(@edge-runtime/vm@3.2.0)(@types/node@22.19.13)(lightningcss@1.30.2)
 
+  packages/clash:
+    dependencies:
+      '@ifc-lite/data':
+        specifier: workspace:^
+        version: link:../data
+      '@ifc-lite/geometry':
+        specifier: workspace:^
+        version: link:../geometry
+      '@ifc-lite/parser':
+        specifier: workspace:^
+        version: link:../parser
+      '@ifc-lite/query':
+        specifier: workspace:^
+        version: link:../query
+      '@ifc-lite/spatial':
+        specifier: workspace:^
+        version: link:../spatial
+    devDependencies:
+      typescript:
+        specifier: ^5.3.0
+        version: 5.9.3
+
   packages/cli:
     dependencies:
       '@ifc-lite/bcf':
         specifier: workspace:^
         version: link:../bcf
+      '@ifc-lite/clash':
+        specifier: workspace:^
+        version: link:../clash
       '@ifc-lite/create':
         specifier: workspace:^
         version: link:../create
       '@ifc-lite/data':
         specifier: workspace:^
         version: link:../data
+      '@ifc-lite/diff':
+        specifier: workspace:^
+        version: link:../diff
       '@ifc-lite/encoding':
         specifier: workspace:^
         version: link:../encoding
       '@ifc-lite/export':
         specifier: workspace:^
         version: link:../export
+      '@ifc-lite/geometry':
+        specifier: workspace:^
+        version: link:../geometry
       '@ifc-lite/ids':
         specifier: workspace:^
         version: link:../ids
@@ -583,6 +614,9 @@ importers:
       '@ifc-lite/sdk':
         specifier: workspace:^
         version: link:../sdk
+      '@ifc-lite/spatial':
+        specifier: workspace:^
+        version: link:../spatial
       '@ifc-lite/viewer-core':
         specifier: workspace:^
         version: link:../viewer
@@ -632,6 +666,22 @@ importers:
       vitest:
         specifier: ^1.6.0
         version: 1.6.1(@edge-runtime/vm@3.2.0)(@types/node@22.19.13)(lightningcss@1.30.2)
+
+  packages/diff:
+    dependencies:
+      '@ifc-lite/data':
+        specifier: workspace:^
+        version: link:../data
+      '@ifc-lite/parser':
+        specifier: workspace:^
+        version: link:../parser
+      '@ifc-lite/query':
+        specifier: workspace:^
+        version: link:../query
+    devDependencies:
+      typescript:
+        specifier: ^5.3.0
+        version: 5.9.3
 
   packages/drawing-2d:
     dependencies:

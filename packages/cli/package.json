@@ -37,7 +37,11 @@
     "@ifc-lite/sandbox": "workspace:^",
     "@ifc-lite/mutations": "workspace:^",
     "@ifc-lite/wasm": "workspace:^",
-    "@ifc-lite/viewer-core": "workspace:^"
+    "@ifc-lite/viewer-core": "workspace:^",
+    "@ifc-lite/diff": "workspace:^",
+    "@ifc-lite/clash": "workspace:^",
+    "@ifc-lite/geometry": "workspace:^",
+    "@ifc-lite/spatial": "workspace:^"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
