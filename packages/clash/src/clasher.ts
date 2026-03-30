@@ -215,7 +215,8 @@ function testClash(
     // Compute approximate distance between AABBs
     const dist = aabbDistance(boundsA, boundsB);
 
-    // If they actually intersect, this is more than a clearance issue
+    // If elements actually intersect beyond tolerance, don't report as clearance issue
+    // (use 'collision' or 'intersection' mode for actual overlaps)
     if (dist < 0 && Math.abs(dist) > opts.tolerance) return null;
 
     // Within clearance threshold

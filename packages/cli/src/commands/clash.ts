@@ -200,11 +200,14 @@ async function sendVisualClashes(viewerPort: number, result: ClashResult): Promi
 
     for (const batch of batches) {
       const url = `http://localhost:${viewerPort}/api/colorize`;
-      await fetch(url, {
+      const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(batch),
       });
+      if (!res.ok) {
+        process.stderr.write(`Warning: Colorize request failed with status ${res.status}\n`);
+      }
     }
 
     process.stderr.write(`Clash visualization applied: red=source, orange=target\n`);

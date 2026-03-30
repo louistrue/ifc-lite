@@ -150,11 +150,14 @@ async function sendVisualDiff(
     // Apply color overrides via REST API
     for (const batch of batches) {
       const url = `http://localhost:${viewerPort}/api/colorize`;
-      await fetch(url, {
+      const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ expressIds: batch.refs, color: batch.color }),
       });
+      if (!res.ok) {
+        process.stderr.write(`Warning: Colorize request failed with status ${res.status}\n`);
+      }
     }
 
     process.stderr.write(`Visual diff applied: green=added, orange=changed\n`);
