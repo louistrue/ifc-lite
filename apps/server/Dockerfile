@@ -21,7 +21,7 @@ RUN apt-get update && apt-get install -y \
 
 # Build dependencies first (cached layer)
 COPY --from=planner /app/recipe.json recipe.json
-RUN cargo chef cook --release --recipe-path recipe.json
+RUN cargo chef cook --release --recipe-path recipe.json --package ifc-lite-server
 
 # Copy source and build application
 COPY . .
