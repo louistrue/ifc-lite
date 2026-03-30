@@ -269,3 +269,120 @@ fn test_wall_with_opening_file() {
         }
     }
 }
+
+/// Test that ShellBasedSurfaceModel with IfcAdvancedFace produces geometry.
+///
+/// CATIA and similar NURBS-based CAD exporters produce SurfaceModel representations
+/// containing IfcOpenShell with IfcAdvancedFace entities (B-spline surfaces, planes,
+/// cylindrical surfaces). This test verifies the processor handles that correctly
+/// instead of silently skipping the faces.
+///
+/// Addresses: https://github.com/louistrue/ifc-lite/issues/472
+#[test]
+fn test_shell_based_surface_model_with_advanced_faces() {
+    // Minimal IFC snippet: ShellBasedSurfaceModel -> OpenShell -> AdvancedFace (planar)
+    // This mimics the CATIA export pattern from issue #472
+    let content = r#"
+#1=IFCCARTESIANPOINT((0.,0.,0.));
+#2=IFCCARTESIANPOINT((100.,0.,0.));
+#3=IFCCARTESIANPOINT((100.,100.,0.));
+#4=IFCCARTESIANPOINT((0.,100.,0.));
+#5=IFCVERTEXPOINT(#1);
+#6=IFCVERTEXPOINT(#2);
+#7=IFCVERTEXPOINT(#3);
+#8=IFCVERTEXPOINT(#4);
+#9=IFCDIRECTION((0.,0.,1.));
+#10=IFCDIRECTION((1.,0.,0.));
+#11=IFCAXIS2PLACEMENT3D(#1,#9,#10);
+#12=IFCPLANE(#11);
+#13=IFCLINE(#1,#20);
+#14=IFCLINE(#2,#21);
+#15=IFCLINE(#3,#22);
+#16=IFCLINE(#4,#23);
+#20=IFCVECTOR(#24,1.);
+#21=IFCVECTOR(#25,1.);
+#22=IFCVECTOR(#26,1.);
+#23=IFCVECTOR(#27,1.);
+#24=IFCDIRECTION((1.,0.,0.));
+#25=IFCDIRECTION((0.,1.,0.));
+#26=IFCDIRECTION((-1.,0.,0.));
+#27=IFCDIRECTION((0.,-1.,0.));
+#30=IFCEDGECURVE(#5,#6,#13,.T.);
+#31=IFCEDGECURVE(#6,#7,#14,.T.);
+#32=IFCEDGECURVE(#7,#8,#15,.T.);
+#33=IFCEDGECURVE(#8,#5,#16,.T.);
+#40=IFCORIENTEDEDGE(*,*,#30,.T.);
+#41=IFCORIENTEDEDGE(*,*,#31,.T.);
+#42=IFCORIENTEDEDGE(*,*,#32,.T.);
+#43=IFCORIENTEDEDGE(*,*,#33,.T.);
+#50=IFCEDGELOOP((#40,#41,#42,#43));
+#51=IFCFACEOUTERBOUND(#50,.T.);
+#52=IFCADVANCEDFACE((#51),#12,.T.);
+#53=IFCOPENSHELL((#52));
+#54=IFCSHELLBASEDSURFACEMODEL((#53));
+"#;
+
+    let mut decoder = EntityDecoder::new(content);
+    let schema = IfcSchema::new();
+    let processor = ShellBasedSurfaceModelProcessor::new();
+
+    let entity = decoder.decode_by_id(54).unwrap();
+    assert_eq!(entity.ifc_type, IfcType::IfcShellBasedSurfaceModel);
+
+    let mesh = processor
+        .process(&entity, &mut decoder, &schema)
+        .expect("Failed to process ShellBasedSurfaceModel with AdvancedFace");
+
+    // Should produce geometry from the planar AdvancedFace
+    assert!(
+        !mesh.is_empty(),
+        "ShellBasedSurfaceModel with AdvancedFace should produce geometry"
+    );
+    assert!(
+        mesh.positions.len() >= 12,
+        "Should have at least 4 vertices (quad face): got {} floats",
+        mesh.positions.len()
+    );
+    assert!(
+        mesh.indices.len() >= 6,
+        "Should have at least 2 triangles: got {} indices",
+        mesh.indices.len()
+    );
+}
+
+/// Test that ShellBasedSurfaceModel still works with simple PolyLoop faces
+/// (regression test to ensure AdvancedFace support doesn't break simple faces)
+#[test]
+fn test_shell_based_surface_model_with_polyloop() {
+    let content = r#"
+#1=IFCCARTESIANPOINT((0.,0.,0.));
+#2=IFCCARTESIANPOINT((100.,0.,0.));
+#3=IFCCARTESIANPOINT((100.,100.,0.));
+#4=IFCCARTESIANPOINT((0.,100.,0.));
+#10=IFCPOLYLOOP((#1,#2,#3,#4));
+#11=IFCFACEOUTERBOUND(#10,.T.);
+#12=IFCFACE((#11));
+#13=IFCOPENSHELL((#12));
+#14=IFCSHELLBASEDSURFACEMODEL((#13));
+"#;
+
+    let mut decoder = EntityDecoder::new(content);
+    let schema = IfcSchema::new();
+    let processor = ShellBasedSurfaceModelProcessor::new();
+
+    let entity = decoder.decode_by_id(14).unwrap();
+    let mesh = processor
+        .process(&entity, &mut decoder, &schema)
+        .expect("Failed to process ShellBasedSurfaceModel with PolyLoop");
+
+    assert!(
+        !mesh.is_empty(),
+        "ShellBasedSurfaceModel with PolyLoop should still produce geometry"
+    );
+    assert_eq!(
+        mesh.positions.len(),
+        12,
+        "Should have 4 vertices (12 floats)"
+    );
+    assert_eq!(mesh.indices.len(), 6, "Should have 2 triangles (6 indices)");
+}

@@ -11,6 +11,7 @@ use crate::{Error, Mesh, Point3, Result};
 use ifc_lite_core::{DecodedEntity, EntityDecoder, IfcSchema, IfcType};
 
 use crate::router::GeometryProcessor;
+use super::advanced_face::process_advanced_face;
 use super::helpers::{extract_loop_points_by_id, FaceData, FaceResult};
 
 // ---------- FacetedBrepProcessor ----------
@@ -505,7 +506,13 @@ impl Default for FacetedBrepProcessor {
 
 /// FaceBasedSurfaceModel processor
 /// Handles IfcFaceBasedSurfaceModel - surface model made of connected face sets
-/// Structure: FaceBasedSurfaceModel -> ConnectedFaceSet[] -> Face[] -> FaceBound -> PolyLoop
+///
+/// Supports two face types within connected face sets:
+/// - Simple faces with IfcPolyLoop bounds (standard BRep from most exporters)
+/// - IfcAdvancedFace with B-spline/planar/cylindrical surfaces (CATIA, NURBS exports)
+///
+/// Structure (simple): FaceBasedSurfaceModel -> ConnectedFaceSet[] -> Face[] -> FaceBound -> PolyLoop
+/// Structure (advanced): FaceBasedSurfaceModel -> ConnectedFaceSet[] -> AdvancedFace[] -> FaceSurface
 pub struct FaceBasedSurfaceModelProcessor;
 
 impl FaceBasedSurfaceModelProcessor {
@@ -549,58 +556,82 @@ impl GeometryProcessor for FaceBasedSurfaceModelProcessor {
 
             // Process each face in the set
             for face_id in face_ids {
-                // Get bound IDs from Face
-                let bound_ids = match decoder.get_entity_ref_list_fast(face_id) {
-                    Some(ids) => ids,
-                    None => continue,
+                // Decode the face entity to check its type.
+                // Some exporters use IfcAdvancedFace within ConnectedFaceSet,
+                // which requires B-spline surface processing.
+                let face = match decoder.decode_by_id(face_id) {
+                    Ok(f) => f,
+                    Err(_) => continue,
                 };
 
-                let mut outer_points: Option<Vec<Point3<f64>>> = None;
-                let mut hole_points: Vec<Vec<Point3<f64>>> = Vec::new();
+                if face.ifc_type == IfcType::IfcAdvancedFace {
+                    // Advanced face: delegate to shared NURBS/planar/cylindrical handler
+                    let (positions, indices) = match process_advanced_face(&face, decoder) {
+                        Ok(result) => result,
+                        Err(_) => continue,
+                    };
 
-                for bound_id in bound_ids {
-                    // FAST PATH: Extract loop_id, orientation, is_outer from raw bytes
-                    // get_face_bound_fast returns (loop_id, orientation, is_outer)
-                    let (loop_id, orientation, is_outer) =
-                        match decoder.get_face_bound_fast(bound_id) {
-                            Some(data) => data,
-                            None => continue,
-                        };
-
-                    // Get loop points using shared helper
-                    let mut points = match extract_loop_points_by_id(loop_id, decoder) {
-                        Some(p) => p,
+                    if !positions.is_empty() {
+                        let base_idx = (all_positions.len() / 3) as u32;
+                        all_positions.extend(positions);
+                        for idx in indices {
+                            all_indices.push(base_idx + idx);
+                        }
+                    }
+                } else {
+                    // Simple face: extract PolyLoop points via fast path
+                    let bound_ids = match decoder.get_entity_ref_list_fast(face_id) {
+                        Some(ids) => ids,
                         None => continue,
                     };
 
-                    if !orientation {
-                        points.reverse();
-                    }
+                    let mut outer_points: Option<Vec<Point3<f64>>> = None;
+                    let mut hole_points: Vec<Vec<Point3<f64>>> = Vec::new();
 
-                    if is_outer || outer_points.is_none() {
-                        outer_points = Some(points);
-                    } else {
-                        hole_points.push(points);
-                    }
-                }
+                    for bound_id in bound_ids {
+                        // FAST PATH: Extract loop_id, orientation, is_outer from raw bytes
+                        // get_face_bound_fast returns (loop_id, orientation, is_outer)
+                        let (loop_id, orientation, is_outer) =
+                            match decoder.get_face_bound_fast(bound_id) {
+                                Some(data) => data,
+                                None => continue,
+                            };
 
-                // Triangulate the face
-                if let Some(outer) = outer_points {
-                    if outer.len() >= 3 {
-                        let base_idx = (all_positions.len() / 3) as u32;
+                        // Get loop points using shared helper
+                        let mut points = match extract_loop_points_by_id(loop_id, decoder) {
+                            Some(p) => p,
+                            None => continue,
+                        };
 
-                        // Add positions
-                        for p in &outer {
-                            all_positions.push(p.x as f32);
-                            all_positions.push(p.y as f32);
-                            all_positions.push(p.z as f32);
+                        if !orientation {
+                            points.reverse();
                         }
 
-                        // Simple fan triangulation (works for convex faces)
-                        for i in 1..outer.len() - 1 {
-                            all_indices.push(base_idx);
-                            all_indices.push(base_idx + i as u32);
-                            all_indices.push(base_idx + i as u32 + 1);
+                        if is_outer || outer_points.is_none() {
+                            outer_points = Some(points);
+                        } else {
+                            hole_points.push(points);
+                        }
+                    }
+
+                    // Triangulate the face
+                    if let Some(outer) = outer_points {
+                        if outer.len() >= 3 {
+                            let base_idx = (all_positions.len() / 3) as u32;
+
+                            // Add positions
+                            for p in &outer {
+                                all_positions.push(p.x as f32);
+                                all_positions.push(p.y as f32);
+                                all_positions.push(p.z as f32);
+                            }
+
+                            // Simple fan triangulation (works for convex faces)
+                            for i in 1..outer.len() - 1 {
+                                all_indices.push(base_idx);
+                                all_indices.push(base_idx + i as u32);
+                                all_indices.push(base_idx + i as u32 + 1);
+                            }
                         }
                     }
                 }
@@ -629,7 +660,13 @@ impl Default for FaceBasedSurfaceModelProcessor {
 
 /// ShellBasedSurfaceModel processor
 /// Handles IfcShellBasedSurfaceModel - surface model made of shells
-/// Structure: ShellBasedSurfaceModel -> Shell[] -> Face[] -> FaceBound -> PolyLoop
+///
+/// Supports two face types within shells:
+/// - Simple faces with IfcPolyLoop bounds (standard BRep from most exporters)
+/// - IfcAdvancedFace with B-spline/planar/cylindrical surfaces (CATIA, NURBS exports)
+///
+/// Structure (simple): ShellBasedSurfaceModel -> Shell[] -> Face[] -> FaceBound -> PolyLoop
+/// Structure (advanced): ShellBasedSurfaceModel -> Shell[] -> AdvancedFace[] -> FaceSurface
 pub struct ShellBasedSurfaceModelProcessor;
 
 impl ShellBasedSurfaceModelProcessor {
@@ -674,57 +711,82 @@ impl GeometryProcessor for ShellBasedSurfaceModelProcessor {
 
             // Process each face in the shell
             for face_id in face_ids {
-                // Get bound IDs from Face
-                let bound_ids = match decoder.get_entity_ref_list_fast(face_id) {
-                    Some(ids) => ids,
-                    None => continue,
+                // Decode the face entity to check its type.
+                // CATIA and other NURBS-based exporters use IfcAdvancedFace within
+                // IfcOpenShell/IfcClosedShell, which requires B-spline surface processing
+                // instead of simple PolyLoop extraction.
+                let face = match decoder.decode_by_id(face_id) {
+                    Ok(f) => f,
+                    Err(_) => continue,
                 };
 
-                let mut outer_points: Option<Vec<Point3<f64>>> = None;
-                let mut hole_points: Vec<Vec<Point3<f64>>> = Vec::new();
+                if face.ifc_type == IfcType::IfcAdvancedFace {
+                    // Advanced face: delegate to shared NURBS/planar/cylindrical handler
+                    let (positions, indices) = match process_advanced_face(&face, decoder) {
+                        Ok(result) => result,
+                        Err(_) => continue,
+                    };
 
-                for bound_id in bound_ids {
-                    // FAST PATH: Extract loop_id, orientation, is_outer from raw bytes
-                    let (loop_id, orientation, is_outer) =
-                        match decoder.get_face_bound_fast(bound_id) {
-                            Some(data) => data,
-                            None => continue,
-                        };
-
-                    // Get loop points using shared helper
-                    let mut points = match extract_loop_points_by_id(loop_id, decoder) {
-                        Some(p) => p,
+                    if !positions.is_empty() {
+                        let base_idx = (all_positions.len() / 3) as u32;
+                        all_positions.extend(positions);
+                        for idx in indices {
+                            all_indices.push(base_idx + idx);
+                        }
+                    }
+                } else {
+                    // Simple face: extract PolyLoop points via fast path
+                    let bound_ids = match decoder.get_entity_ref_list_fast(face_id) {
+                        Some(ids) => ids,
                         None => continue,
                     };
 
-                    if !orientation {
-                        points.reverse();
-                    }
+                    let mut outer_points: Option<Vec<Point3<f64>>> = None;
+                    let mut hole_points: Vec<Vec<Point3<f64>>> = Vec::new();
 
-                    if is_outer || outer_points.is_none() {
-                        outer_points = Some(points);
-                    } else {
-                        hole_points.push(points);
-                    }
-                }
+                    for bound_id in bound_ids {
+                        // FAST PATH: Extract loop_id, orientation, is_outer from raw bytes
+                        let (loop_id, orientation, is_outer) =
+                            match decoder.get_face_bound_fast(bound_id) {
+                                Some(data) => data,
+                                None => continue,
+                            };
 
-                // Triangulate the face
-                if let Some(outer) = outer_points {
-                    if outer.len() >= 3 {
-                        let base_idx = (all_positions.len() / 3) as u32;
+                        // Get loop points using shared helper
+                        let mut points = match extract_loop_points_by_id(loop_id, decoder) {
+                            Some(p) => p,
+                            None => continue,
+                        };
 
-                        // Add positions
-                        for p in &outer {
-                            all_positions.push(p.x as f32);
-                            all_positions.push(p.y as f32);
-                            all_positions.push(p.z as f32);
+                        if !orientation {
+                            points.reverse();
                         }
 
-                        // Simple fan triangulation (works for convex faces)
-                        for i in 1..outer.len() - 1 {
-                            all_indices.push(base_idx);
-                            all_indices.push(base_idx + i as u32);
-                            all_indices.push(base_idx + i as u32 + 1);
+                        if is_outer || outer_points.is_none() {
+                            outer_points = Some(points);
+                        } else {
+                            hole_points.push(points);
+                        }
+                    }
+
+                    // Triangulate the face
+                    if let Some(outer) = outer_points {
+                        if outer.len() >= 3 {
+                            let base_idx = (all_positions.len() / 3) as u32;
+
+                            // Add positions
+                            for p in &outer {
+                                all_positions.push(p.x as f32);
+                                all_positions.push(p.y as f32);
+                                all_positions.push(p.z as f32);
+                            }
+
+                            // Simple fan triangulation (works for convex faces)
+                            for i in 1..outer.len() - 1 {
+                                all_indices.push(base_idx);
+                                all_indices.push(base_idx + i as u32);
+                                all_indices.push(base_idx + i as u32 + 1);
+                            }
                         }
                     }
                 }
