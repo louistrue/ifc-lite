@@ -15,9 +15,11 @@
 //! - `mapped`: MappedItem (geometry instancing)
 //! - `swept`: SweptDiskSolid, RevolvedAreaSolid (swept geometry)
 //! - `advanced`: AdvancedBrep (NURBS/B-spline)
+//! - `advanced_face`: Shared IfcAdvancedFace processing (B-spline, planar, cylindrical)
 //! - `helpers`: Shared parse functions used by multiple processors
 
 mod helpers;
+mod advanced_face;
 mod extrusion;
 mod tessellated;
 mod brep;
