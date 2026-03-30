@@ -2,7 +2,7 @@
 # Optimized multi-stage build for Railway deployment
 
 # Stage 1: Chef - prepare recipe for dependency caching
-FROM lukemathwalker/cargo-chef:latest-rust-1.83 AS chef
+FROM lukemathwalker/cargo-chef:latest-rust-1.87 AS chef
 WORKDIR /app
 
 # Stage 2: Planner - create dependency recipe
