@@ -14,6 +14,7 @@ import { describe, it, beforeEach, expect } from 'vitest';
 import { BufferBuilder } from './buffer-builder.js';
 import { CoordinateHandler } from './coordinate-handler.js';
 import { deduplicateMeshes, getDeduplicationStats } from './geometry-deduplicator.js';
+import { buildHugeGeometryChunks } from './huge-chunk-builder.js';
 import type { MeshData } from './types.js';
 
 // Helper to create test mesh data
@@ -356,5 +357,36 @@ describe('GeometryDeduplicator', () => {
       expect(stats.maxInstancesPerGeometry).toBe(2); // mesh1 and mesh2
       expect(stats.deduplicationRatio).toBe(1.5); // 3/2
     });
+  });
+});
+
+describe('HugeChunkBuilder', () => {
+  it('builds render-ready chunks with per-element metadata', () => {
+    const meshes = [
+      createTestMesh({
+        expressId: 11,
+        ifcType: 'IfcWall',
+        color: [1, 0, 0, 1],
+      }),
+      createTestMesh({
+        expressId: 12,
+        ifcType: 'IfcSlab',
+        color: [1, 0, 0, 1],
+        positions: new Float32Array([2, 0, 0, 3, 0, 0, 2, 1, 0]),
+      }),
+    ];
+
+    const { chunks, nextBatchId } = buildHugeGeometryChunks(meshes, 100);
+
+    expect(chunks).toHaveLength(1);
+    expect(nextBatchId).toBe(101);
+    expect(chunks[0].batchId).toBe(100);
+    expect(chunks[0].vertexStrideFloats).toBe(7);
+    expect(chunks[0].elements).toHaveLength(2);
+    expect(chunks[0].elements[0].expressId).toBe(11);
+    expect(chunks[0].elements[1].expressId).toBe(12);
+    expect(chunks[0].boundsMin).toEqual([0, 0, 0]);
+    expect(chunks[0].boundsMax).toEqual([3, 1, 0]);
+    expect(chunks[0].indexCount).toBe(6);
   });
 });

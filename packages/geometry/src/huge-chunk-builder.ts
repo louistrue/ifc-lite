@@ -143,20 +143,22 @@ export function buildHugeGeometryChunks(
   startingBatchId: number,
   targetChunkBytes: number = DEFAULT_TARGET_CHUNK_BYTES,
 ): { chunks: HugeGeometryChunk[]; nextBatchId: number } {
-  const groups = new Map<string, ChunkMeshGroup>();
+  const groups: ChunkMeshGroup[] = [];
+  const activeGroupByColor = new Map<string, ChunkMeshGroup>();
 
   for (const mesh of meshes) {
     const key = colorKey(mesh.color);
     const meshBytes = estimateMeshBytes(mesh);
-    const existing = groups.get(key);
+    const existing = activeGroupByColor.get(key);
 
     if (!existing || (existing.estimatedBytes + meshBytes > targetChunkBytes && existing.meshes.length > 0)) {
-      const uniqueKey = `${key}:${startingBatchId + groups.size}`;
-      groups.set(uniqueKey, {
+      const group: ChunkMeshGroup = {
         color: mesh.color,
         meshes: [mesh],
         estimatedBytes: meshBytes,
-      });
+      };
+      groups.push(group);
+      activeGroupByColor.set(key, group);
       continue;
     }
 
@@ -166,7 +168,7 @@ export function buildHugeGeometryChunks(
 
   const chunks: HugeGeometryChunk[] = [];
   let batchId = startingBatchId;
-  for (const group of groups.values()) {
+  for (const group of groups) {
     chunks.push(buildChunk(batchId++, group.color, group.meshes));
   }
 

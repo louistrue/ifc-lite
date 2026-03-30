@@ -61,7 +61,6 @@ import { BufferBuilder } from './buffer-builder.js';
 import { CoordinateHandler } from './coordinate-handler.js';
 import { GeometryQuality } from './progressive-loader.js';
 import { createPlatformBridge, isTauri, type IPlatformBridge } from './platform-bridge.js';
-import { buildHugeGeometryChunks } from './huge-chunk-builder.js';
 import type { CoordinateInfo, GeometryResult, HugeGeometryChunk, HugeGeometryStats, MeshData } from './types.js';
 
 export interface GeometryProcessorOptions {
@@ -82,6 +81,7 @@ export interface DynamicBatchConfig {
 }
 
 const FAST_PARALLEL_PREPASS_THRESHOLD_BYTES = 512 * 1024 * 1024;
+const HUGE_BATCH_ID_STRIDE = 1_000_000;
 
 /**
  * Calculate dynamic batch size based on batch number
@@ -106,7 +106,6 @@ export type StreamingGeometryEvent =
   | { type: 'batch'; meshes: MeshData[]; totalSoFar: number; coordinateInfo?: import('./types.js').CoordinateInfo }
   | {
       type: 'huge-batch';
-      meshes: MeshData[];
       chunks: HugeGeometryChunk[];
       totalSoFar: number;
       stats: HugeGeometryStats;
@@ -122,6 +121,49 @@ export type StreamingInstancedGeometryEvent =
   | { type: 'model-open'; modelID: number }
   | { type: 'batch'; geometries: import('@ifc-lite/wasm').InstancedGeometry[]; totalSoFar: number; coordinateInfo?: import('./types.js').CoordinateInfo }
   | { type: 'complete'; totalGeometries: number; totalInstances: number; coordinateInfo: import('./types.js').CoordinateInfo };
+
+type ChunkBounds = {
+  min: [number, number, number];
+  max: [number, number, number];
+};
+
+function updateChunkBounds(target: ChunkBounds | null, chunk: HugeGeometryChunk): ChunkBounds {
+  if (!target) {
+    return {
+      min: [...chunk.boundsMin] as [number, number, number],
+      max: [...chunk.boundsMax] as [number, number, number],
+    };
+  }
+
+  target.min[0] = Math.min(target.min[0], chunk.boundsMin[0]);
+  target.min[1] = Math.min(target.min[1], chunk.boundsMin[1]);
+  target.min[2] = Math.min(target.min[2], chunk.boundsMin[2]);
+  target.max[0] = Math.max(target.max[0], chunk.boundsMax[0]);
+  target.max[1] = Math.max(target.max[1], chunk.boundsMax[1]);
+  target.max[2] = Math.max(target.max[2], chunk.boundsMax[2]);
+  return target;
+}
+
+function createCoordinateInfoFromChunkBounds(
+  bounds: ChunkBounds | null,
+  rtcOffset?: { x: number; y: number; z: number },
+  hasLargeCoordinates: boolean = false,
+): CoordinateInfo {
+  const min = bounds
+    ? { x: bounds.min[0], y: bounds.min[1], z: bounds.min[2] }
+    : { x: 0, y: 0, z: 0 };
+  const max = bounds
+    ? { x: bounds.max[0], y: bounds.max[1], z: bounds.max[2] }
+    : { x: 0, y: 0, z: 0 };
+
+  return {
+    originShift: { x: 0, y: 0, z: 0 },
+    originalBounds: { min: { ...min }, max: { ...max } },
+    shiftedBounds: { min, max },
+    hasLargeCoordinates,
+    wasmRtcOffset: rtcOffset,
+  };
+}
 
 export class GeometryProcessor {
   private bridge: IfcLiteBridge | null = null;
@@ -553,13 +595,16 @@ export class GeometryProcessor {
     }
 
     // Queue-based async generator: workers push batches, generator yields them
-    const batchQueue: MeshData[][] = [];
+    const eventQueue: Array<
+      | { kind: 'mesh'; meshes: MeshData[] }
+      | { kind: 'huge'; chunks: HugeGeometryChunk[] }
+    > = [];
     let resolveWaiting: (() => void) | null = null;
     let workersCompleted = 0;
     let totalMeshes = 0;
     let streamedMeshes = 0;
     let workerError: Error | null = null;
-    let hugeBatchId = 0;
+    let hugeBounds: ChunkBounds | null = null;
     let hugeStats: HugeGeometryStats = {
       totalBatches: 0,
       totalElements: 0,
@@ -607,7 +652,15 @@ export class GeometryProcessor {
           }));
 
           if (meshes.length > 0) {
-            batchQueue.push(meshes);
+            eventQueue.push({ kind: 'mesh', meshes });
+            if (resolveWaiting) {
+              resolveWaiting();
+              resolveWaiting = null;
+            }
+          }
+        } else if (msg.type === 'huge-batch') {
+          if (msg.chunks.length > 0) {
+            eventQueue.push({ kind: 'huge', chunks: msg.chunks });
             if (resolveWaiting) {
               resolveWaiting();
               resolveWaiting = null;
@@ -643,53 +696,78 @@ export class GeometryProcessor {
       };
 
       // Send work — sharedBuffer is zero-copy, typed arrays are transferred
-      worker.postMessage({
-        type: 'process' as const,
-        sharedBuffer,
-        jobsFlat: workerJobs,
-        unitScale,
-        rtcX, rtcY, rtcZ,
-        needsShift,
-        voidKeys, voidCounts, voidValues,
-        styleIds, styleColors,
-      });
+      if (emitHugeBatches) {
+        worker.postMessage({
+          type: 'process-huge' as const,
+          sharedBuffer,
+          jobsFlat: workerJobs,
+          unitScale,
+          rtcX, rtcY, rtcZ,
+          needsShift,
+          voidKeys, voidCounts, voidValues,
+          styleIds, styleColors,
+          batchStartId: i * HUGE_BATCH_ID_STRIDE,
+          targetChunkBytes: options.targetChunkBytes,
+        });
+      } else {
+        worker.postMessage({
+          type: 'process' as const,
+          sharedBuffer,
+          jobsFlat: workerJobs,
+          unitScale,
+          rtcX, rtcY, rtcZ,
+          needsShift,
+          voidKeys, voidCounts, voidValues,
+          styleIds, styleColors,
+        });
+      }
     }
 
     // Yield batches as they arrive from any worker
     while (true) {
-      while (batchQueue.length > 0) {
-        const batch = batchQueue.shift()!;
-        this.coordinateHandler.processMeshesIncremental(batch);
-        const coordinateInfo = this.coordinateHandler.getCurrentCoordinateInfo();
-        streamedMeshes += batch.length;
+      while (eventQueue.length > 0) {
+        const event = eventQueue.shift()!;
 
-        if (emitHugeBatches) {
-          const { chunks, nextBatchId } = buildHugeGeometryChunks(batch, hugeBatchId, options.targetChunkBytes);
-          hugeBatchId = nextBatchId;
-          for (const chunk of chunks) {
-            hugeStats = {
-              totalBatches: hugeStats.totalBatches + 1,
-              totalElements: hugeStats.totalElements + chunk.elements.length,
-              totalVertices: hugeStats.totalVertices + (chunk.vertexData.length / chunk.vertexStrideFloats),
-              totalTriangles: hugeStats.totalTriangles + (chunk.indexCount / 3),
-            };
-          }
-          yield {
-            type: 'huge-batch',
-            meshes: batch,
-            chunks,
-            totalSoFar: streamedMeshes,
-            stats: hugeStats,
-            coordinateInfo: coordinateInfo || undefined,
-          };
-        } else {
+        if (event.kind === 'mesh') {
+          const batch = event.meshes;
+          this.coordinateHandler.processMeshesIncremental(batch);
+          const coordinateInfo = this.coordinateHandler.getCurrentCoordinateInfo();
+          streamedMeshes += batch.length;
+
           yield {
             type: 'batch',
             meshes: batch,
             totalSoFar: streamedMeshes,
             coordinateInfo: coordinateInfo || undefined,
           };
+          continue;
         }
+
+        const batchChunks = event.chunks;
+        let batchElements = 0;
+        for (const chunk of batchChunks) {
+          hugeBounds = updateChunkBounds(hugeBounds, chunk);
+          batchElements += chunk.elements.length;
+          hugeStats = {
+            totalBatches: hugeStats.totalBatches + 1,
+            totalElements: hugeStats.totalElements + chunk.elements.length,
+            totalVertices: hugeStats.totalVertices + (chunk.vertexData.length / chunk.vertexStrideFloats),
+            totalTriangles: hugeStats.totalTriangles + (chunk.indexCount / 3),
+          };
+        }
+        streamedMeshes += batchElements;
+        const coordinateInfo = createCoordinateInfoFromChunkBounds(
+          hugeBounds,
+          rtcOffset ? { x: rtcX, y: rtcY, z: rtcZ } : undefined,
+          Boolean(needsShift || rtcOffset),
+        );
+        yield {
+          type: 'huge-batch',
+          chunks: batchChunks,
+          totalSoFar: streamedMeshes,
+          stats: hugeStats,
+          coordinateInfo,
+        };
       }
 
       if (workerError) {
@@ -700,7 +778,7 @@ export class GeometryProcessor {
         throw workerError;
       }
 
-      if (workersCompleted >= chunks.length && batchQueue.length === 0) {
+      if (workersCompleted >= chunks.length && eventQueue.length === 0) {
         break;
       }
 
@@ -709,10 +787,15 @@ export class GeometryProcessor {
       });
     }
 
-    const coordinateInfo = this.coordinateHandler.getFinalCoordinateInfo();
     if (emitHugeBatches) {
+      const coordinateInfo = createCoordinateInfoFromChunkBounds(
+        hugeBounds,
+        rtcOffset ? { x: rtcX, y: rtcY, z: rtcZ } : undefined,
+        Boolean(needsShift || rtcOffset),
+      );
       yield { type: 'huge-complete', totalMeshes, stats: hugeStats, coordinateInfo };
     } else {
+      const coordinateInfo = this.coordinateHandler.getFinalCoordinateInfo();
       yield { type: 'complete', totalMeshes, coordinateInfo };
     }
   }

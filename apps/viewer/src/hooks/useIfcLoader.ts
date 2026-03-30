@@ -14,7 +14,7 @@ import { useCallback, useRef } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useViewerStore } from '../store.js';
 import { IfcParser, detectFormat, parseIfcx, type IfcDataStore } from '@ifc-lite/parser';
-import { GeometryProcessor, GeometryQuality, type MeshData, type CoordinateInfo } from '@ifc-lite/geometry';
+import { GeometryProcessor, GeometryQuality, type CoordinateInfo, type HugeGeometryStats, type MeshData } from '@ifc-lite/geometry';
 import { buildSpatialIndexGuarded } from '../utils/loadingUtils.js';
 import { type GeometryData, loadGLBToMeshData } from '@ifc-lite/cache';
 
@@ -362,6 +362,8 @@ export function useIfcLoader() {
       let totalMeshes = 0;
       const allMeshes: MeshData[] = []; // Collect all meshes for BVH building
       let finalCoordinateInfo: CoordinateInfo | null = null;
+      let finalHugeStats: HugeGeometryStats | null = null;
+      let usedHugeStreaming = false;
       // Capture RTC offset from WASM for proper multi-model alignment
       let capturedRtcOffset: { x: number; y: number; z: number } | null = null;
       // Track all deferred style updates so cache data always uses final colors.
@@ -484,14 +486,18 @@ export function useIfcLoader() {
             }
             case 'huge-batch': {
               batchCount++;
+              usedHugeStreaming = true;
 
               if (batchCount === 1) {
                 firstGeometryTime = performance.now() - totalStartTime;
-                console.log(`[useIfc] Batch #1: ${event.chunks[0]?.elements.length ?? 0} chunk elements, wait: ${firstGeometryTime.toFixed(0)}ms`);
+                console.log(
+                  `[useIfc] Batch #1: ${event.chunks[0]?.elements.length ?? 0} chunk elements, ` +
+                  `wait: ${firstGeometryTime.toFixed(0)}ms`
+                );
               }
 
-              for (let i = 0; i < event.meshes.length; i++) allMeshes.push(event.meshes[i]);
               finalCoordinateInfo = event.coordinateInfo ?? null;
+              finalHugeStats = event.stats;
               totalMeshes = event.totalSoFar;
               lastTotalMeshes = event.totalSoFar;
 
@@ -541,6 +547,7 @@ export function useIfcLoader() {
               dataStorePromise.then(dataStore => {
                 // Guard: skip if user loaded a new file since this load started
                 if (loadSessionRef.current !== currentSession) return;
+                if (usedHugeStreaming) return;
                 // Build spatial index from meshes in time-sliced chunks (non-blocking).
                 // Previously this was synchronous inside requestIdleCallback, blocking
                 // the main thread for seconds on 200K+ mesh models (190M+ float reads
@@ -575,6 +582,7 @@ export function useIfcLoader() {
               break;
             case 'huge-complete':
               finalCoordinateInfo = event.coordinateInfo ?? null;
+              finalHugeStats = event.stats;
 
               if (cumulativeColorUpdates.size > 0) {
                 updateMeshColors(cumulativeColorUpdates);
@@ -604,10 +612,15 @@ export function useIfcLoader() {
       if (loadSessionRef.current !== currentSession) return;
 
       const totalElapsedMs = performance.now() - totalStartTime;
-      const totalVertices = allMeshes.reduce((sum, m) => sum + m.positions.length / 3, 0);
+      const totalVertices = usedHugeStreaming
+        ? (finalHugeStats?.totalVertices ?? 0)
+        : allMeshes.reduce((sum, m) => sum + m.positions.length / 3, 0);
+      const totalMeshCount = usedHugeStreaming
+        ? (finalHugeStats?.totalElements ?? lastTotalMeshes)
+        : allMeshes.length;
       console.log(
         `[useIfc] ✓ ${file.name} (${fileSizeMB.toFixed(1)}MB) → ` +
-        `${allMeshes.length} meshes, ${(totalVertices / 1000).toFixed(0)}k vertices | ` +
+        `${totalMeshCount} meshes, ${(totalVertices / 1000).toFixed(0)}k vertices | ` +
         `first: ${firstGeometryTime.toFixed(0)}ms, total: ${totalElapsedMs.toFixed(0)}ms`
       );
       console.log(`[useIfc] TOTAL LOAD TIME (local): ${totalElapsedMs.toFixed(0)}ms (${(totalElapsedMs / 1000).toFixed(1)}s)`);
@@ -617,7 +630,7 @@ export function useIfcLoader() {
       setError(err instanceof Error ? err.message : 'Unknown error');
       setLoading(false);
     }
-  }, [setLoading, setError, setProgress, setIfcDataStore, setGeometryResult, appendGeometryBatch, updateMeshColors, updateCoordinateInfo, loadFromCache, saveToCache, loadFromServer]);
+  }, [setLoading, setError, setProgress, setIfcDataStore, setGeometryResult, appendHugeGeometryChunks, appendGeometryBatch, updateMeshColors, updateCoordinateInfo, loadFromCache, saveToCache, loadFromServer]);
 
   return { loadFile };
 }
