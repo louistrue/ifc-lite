@@ -26,7 +26,39 @@ export function planParallelTaskRanges(
     return ranges;
   }
 
+  const baselineChunkSize = Math.ceil(totalJobs / workerCount);
   const fileSizeGB = fileSizeBytes / (1024 * 1024 * 1024);
+  const isHugeWorkload = fileSizeGB >= 0.5 || totalJobs >= 50_000;
+
+  // Large browser workloads pay a steep fixed cost per processGeometryBatch()
+  // call, so excessive slicing destroys throughput. For these inputs, use a
+  // single warm-up slice plus one near-baseline chunk per worker.
+  if (isHugeWorkload) {
+    const warmupTaskSize = clamp(
+      Math.ceil(baselineChunkSize * (workerCount >= 4 ? 0.08 : 0.12)),
+      4_000,
+      fileSizeGB >= 0.75 ? 12_000 : 16_000
+    );
+    const tailChunkSize = Math.max(
+      warmupTaskSize,
+      Math.ceil((totalJobs - warmupTaskSize) / workerCount)
+    );
+
+    const ranges: Array<[number, number]> = [];
+    let nextStart = 0;
+
+    ranges.push([nextStart, Math.min(totalJobs, nextStart + warmupTaskSize)]);
+    nextStart = ranges[0][1];
+
+    while (nextStart < totalJobs) {
+      const end = Math.min(totalJobs, nextStart + tailChunkSize);
+      ranges.push([nextStart, end]);
+      nextStart = end;
+    }
+
+    return ranges;
+  }
+
   const smallTaskSize = clamp(
     Math.ceil(totalJobs / Math.max(workerCount * 12, 1)),
     750,

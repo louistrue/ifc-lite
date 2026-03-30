@@ -129,8 +129,8 @@ describe('planParallelTaskRanges', () => {
     const ranges = planParallelTaskRanges(120_000, 4, 1024 * 1024 * 1024);
     const lengths = ranges.map(([start, end]) => end - start);
 
-    expect(lengths[0]).toBeLessThanOrEqual(lengths[8]);
-    expect(lengths[1]).toBeLessThanOrEqual(lengths.at(-1) ?? 0);
+    expect(lengths.length).toBe(5);
+    expect(lengths[0]).toBeLessThan(lengths[1]);
     expect(lengths.at(-1)).toBeGreaterThanOrEqual(lengths[0]);
   });
 
@@ -142,6 +142,15 @@ describe('planParallelTaskRanges', () => {
       [2, 4],
       [4, 6],
     ]);
+  });
+
+  it('should cap huge workloads near one slice per worker plus warm-up', () => {
+    const ranges = planParallelTaskRanges(105_393, 2, 986 * 1024 * 1024);
+
+    expect(ranges).toHaveLength(3);
+    expect(ranges[0][1] - ranges[0][0]).toBeLessThan(ranges[1][1] - ranges[1][0]);
+    expect(ranges[1][1] - ranges[1][0]).toBeGreaterThan(40_000);
+    expect(ranges[2][1]).toBe(105_393);
   });
 });
 
