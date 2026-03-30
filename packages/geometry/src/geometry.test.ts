@@ -14,6 +14,7 @@ import { describe, it, beforeEach, expect } from 'vitest';
 import { BufferBuilder } from './buffer-builder.js';
 import { CoordinateHandler } from './coordinate-handler.js';
 import { deduplicateMeshes, getDeduplicationStats } from './geometry-deduplicator.js';
+import { planParallelTaskRanges } from './parallel-task-planner.js';
 import type { MeshData } from './types.js';
 
 // Helper to create test mesh data
@@ -107,6 +108,40 @@ describe('BufferBuilder', () => {
       expect(result.totalTriangles).toBe(0);
       expect(result.meshes.length).toBe(0);
     });
+  });
+});
+
+describe('planParallelTaskRanges', () => {
+  it('should cover every job exactly once without gaps or overlap', () => {
+    const ranges = planParallelTaskRanges(100_000, 3, 900 * 1024 * 1024);
+
+    expect(ranges.length).toBeGreaterThan(3);
+    expect(ranges[0][0]).toBe(0);
+    expect(ranges.at(-1)?.[1]).toBe(100_000);
+
+    for (let i = 1; i < ranges.length; i++) {
+      expect(ranges[i - 1][1]).toBe(ranges[i][0]);
+      expect(ranges[i][1]).toBeGreaterThan(ranges[i][0]);
+    }
+  });
+
+  it('should front-load smaller tasks before ramping up throughput', () => {
+    const ranges = planParallelTaskRanges(120_000, 4, 1024 * 1024 * 1024);
+    const lengths = ranges.map(([start, end]) => end - start);
+
+    expect(lengths[0]).toBeLessThanOrEqual(lengths[8]);
+    expect(lengths[1]).toBeLessThanOrEqual(lengths.at(-1) ?? 0);
+    expect(lengths.at(-1)).toBeGreaterThanOrEqual(lengths[0]);
+  });
+
+  it('should keep tiny workloads evenly distributed', () => {
+    const ranges = planParallelTaskRanges(6, 4, 10 * 1024 * 1024);
+
+    expect(ranges).toEqual([
+      [0, 2],
+      [2, 4],
+      [4, 6],
+    ]);
   });
 });
 

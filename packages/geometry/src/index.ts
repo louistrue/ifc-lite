@@ -28,6 +28,7 @@ export {
 export { BufferBuilder } from './buffer-builder.js';
 export { CoordinateHandler } from './coordinate-handler.js';
 export { GeometryQuality } from './progressive-loader.js';
+export { planParallelTaskRanges } from './parallel-task-planner.js';
 
 export { LODGenerator, type LODConfig, type LODMesh } from './lod.js';
 export {
@@ -60,6 +61,7 @@ import { IfcLiteMeshCollector } from './ifc-lite-mesh-collector.js';
 import { BufferBuilder } from './buffer-builder.js';
 import { CoordinateHandler } from './coordinate-handler.js';
 import { GeometryQuality } from './progressive-loader.js';
+import { planParallelTaskRanges } from './parallel-task-planner.js';
 import { createPlatformBridge, isTauri, type IPlatformBridge } from './platform-bridge.js';
 import type { GeometryResult, MeshData, CoordinateInfo } from './types.js';
 
@@ -471,6 +473,7 @@ export class GeometryProcessor {
       { type: 'module' },
     );
 
+    const prePassStart = performance.now();
     const prePassResult = await new Promise<any>((resolve, reject) => {
       const w = makeWorker();
       w.onmessage = (e: MessageEvent) => {
@@ -480,6 +483,7 @@ export class GeometryProcessor {
       w.onerror = (e) => { w.terminate(); reject(new Error(e.message)); };
       w.postMessage({ type: 'prepass', sharedBuffer });
     });
+    console.log(`[GeometryProcessor] parallel pre-pass: ${(performance.now() - prePassStart).toFixed(0)}ms`);
 
     if (!prePassResult || !prePassResult.jobs || prePassResult.totalJobs === 0) {
       const coordinateInfo = this.coordinateHandler.getFinalCoordinateInfo();
@@ -515,32 +519,42 @@ export class GeometryProcessor {
     }
 
     const workerCount = Math.min(maxWorkers, totalJobs);
-    const jobsPerWorker = Math.ceil(totalJobs / workerCount);
-
-    const chunks: [number, number][] = [];
-    for (let i = 0; i < workerCount; i++) {
-      const start = i * jobsPerWorker;
-      const end = Math.min(start + jobsPerWorker, totalJobs);
-      if (start < end) chunks.push([start, end]);
-    }
+    const taskRanges = planParallelTaskRanges(totalJobs, workerCount, buffer.byteLength);
+    console.log(
+      `[GeometryProcessor] parallel tasks: ${taskRanges.length} slices ` +
+      `across ${workerCount} workers for ${totalJobs} jobs`
+    );
 
     // Queue-based async generator: workers push batches, generator yields them
-    const batchQueue: MeshData[][] = [];
+    const batchQueue: Array<{ meshes: MeshData[]; totalSoFar: number }> = [];
     let resolveWaiting: (() => void) | null = null;
     let workersCompleted = 0;
+    let nextTaskIndex = 0;
     let totalMeshes = 0;
     let workerError: Error | null = null;
 
     const workers: Worker[] = [];
 
-    for (let i = 0; i < chunks.length; i++) {
-      const [jobStart, jobEnd] = chunks[i];
-      if (jobStart >= jobEnd) {
-        workersCompleted++;
-        continue;
-      }
-      const workerJobs = jobsFlat.slice(jobStart * 3, jobEnd * 3);
+    const dispatchNextTask = (worker: Worker): boolean => {
+      const nextRange = taskRanges[nextTaskIndex++];
+      if (!nextRange) return false;
 
+      const [jobStart, jobEnd] = nextRange;
+      const workerJobs = jobsFlat.slice(jobStart * 3, jobEnd * 3);
+      worker.postMessage({
+        type: 'process' as const,
+        sharedBuffer,
+        jobsFlat: workerJobs,
+        unitScale,
+        rtcX, rtcY, rtcZ,
+        needsShift,
+        voidKeys, voidCounts, voidValues,
+        styleIds, styleColors,
+      });
+      return true;
+    };
+
+    for (let i = 0; i < workerCount; i++) {
       const worker = new Worker(
         new URL('./geometry.worker.ts', import.meta.url),
         { type: 'module' }
@@ -570,19 +584,21 @@ export class GeometryProcessor {
           }));
 
           if (meshes.length > 0) {
-            batchQueue.push(meshes);
+            totalMeshes += meshes.length;
+            batchQueue.push({ meshes, totalSoFar: totalMeshes });
             if (resolveWaiting) {
               resolveWaiting();
               resolveWaiting = null;
             }
           }
         } else if (msg.type === 'complete') {
-          totalMeshes += msg.totalMeshes;
-          workersCompleted++;
-          worker.terminate();
-          if (resolveWaiting) {
-            resolveWaiting();
-            resolveWaiting = null;
+          if (!dispatchNextTask(worker)) {
+            workersCompleted++;
+            worker.terminate();
+            if (resolveWaiting) {
+              resolveWaiting();
+              resolveWaiting = null;
+            }
           }
         } else if (msg.type === 'error') {
           workerError = new Error(`Geometry worker error: ${msg.message}`);
@@ -606,28 +622,22 @@ export class GeometryProcessor {
       };
 
       // Send work — sharedBuffer is zero-copy, typed arrays are transferred
-      worker.postMessage({
-        type: 'process' as const,
-        sharedBuffer,
-        jobsFlat: workerJobs,
-        unitScale,
-        rtcX, rtcY, rtcZ,
-        needsShift,
-        voidKeys, voidCounts, voidValues,
-        styleIds, styleColors,
-      });
+      if (!dispatchNextTask(worker)) {
+        workersCompleted++;
+        worker.terminate();
+      }
     }
 
     // Yield batches as they arrive from any worker
     while (true) {
       while (batchQueue.length > 0) {
-        const batch = batchQueue.shift()!;
+        const { meshes: batch, totalSoFar } = batchQueue.shift()!;
         this.coordinateHandler.processMeshesIncremental(batch);
         const coordinateInfo = this.coordinateHandler.getCurrentCoordinateInfo();
         yield {
           type: 'batch',
           meshes: batch,
-          totalSoFar: totalMeshes,
+          totalSoFar,
           coordinateInfo: coordinateInfo || undefined,
         };
       }
@@ -640,7 +650,7 @@ export class GeometryProcessor {
         throw workerError;
       }
 
-      if (workersCompleted >= chunks.length && batchQueue.length === 0) {
+      if (workersCompleted >= workers.length && batchQueue.length === 0) {
         break;
       }
 
