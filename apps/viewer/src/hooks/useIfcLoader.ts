@@ -522,7 +522,9 @@ export function useIfcLoader() {
             totalVertices: 0,
             totalTriangles: 0,
           };
-          const zeroCopyBatchSize = fileSizeMB < 50 ? 128 : fileSizeMB < 250 ? 384 : fileSizeMB < 600 ? 768 : 1536;
+          // Keep zero-copy batches moderate so the first flush happens quickly
+          // and per-color bucket memory stays bounded on large models.
+          const zeroCopyBatchSize = fileSizeMB < 50 ? 128 : fileSizeMB < 250 ? 256 : fileSizeMB < 600 ? 384 : 512;
 
           setProgress({ phase: 'Processing geometry', percent: 50 });
           modelOpenMs = performance.now() - totalStartTime;

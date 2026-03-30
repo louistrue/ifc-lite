@@ -31,7 +31,14 @@ fn color_bucket_key(color: [f32; 4]) -> u64 {
 }
 
 fn new_gpu_batch(batch_size: usize) -> GpuGeometry {
-    GpuGeometry::with_capacity(batch_size * 1000 * 7, batch_size * 3000)
+    // Keep bucket preallocation conservative. The previous estimate assumed
+    // ~1000 vertices per mesh and was multiplied per active color bucket,
+    // which can explode WASM heap usage before the first streamed flush.
+    // A smaller estimate preserves throughput while avoiding multi-bucket OOM
+    // spikes on large files.
+    let estimated_vertices = batch_size.saturating_mul(256);
+    let estimated_indices = batch_size.saturating_mul(768);
+    GpuGeometry::with_capacity(estimated_vertices.saturating_mul(7), estimated_indices)
 }
 
 #[wasm_bindgen]
