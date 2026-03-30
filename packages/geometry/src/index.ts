@@ -467,7 +467,7 @@ export class GeometryProcessor {
 
     // ── PHASE 1: Full pre-pass in worker ──
     const makeWorker = () => new Worker(
-      new URL('./geometry.worker.js', import.meta.url),
+      new URL('./geometry.worker.ts', import.meta.url),
       { type: 'module' },
     );
 
@@ -542,7 +542,7 @@ export class GeometryProcessor {
       const workerJobs = jobsFlat.slice(jobStart * 3, jobEnd * 3);
 
       const worker = new Worker(
-        new URL('./geometry.worker.js', import.meta.url),
+        new URL('./geometry.worker.ts', import.meta.url),
         { type: 'module' }
       );
 
