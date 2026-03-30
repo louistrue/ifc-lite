@@ -212,12 +212,12 @@ if (!('encodeInto' in cachedTextEncoder)) {
 
 let WASM_VECTOR_LEN = 0;
 
-function __wasm_bindgen_func_elem_1127(arg0, arg1, arg2) {
-    wasm.__wasm_bindgen_func_elem_1127(arg0, arg1, addHeapObject(arg2));
+function __wasm_bindgen_func_elem_1131(arg0, arg1, arg2) {
+    wasm.__wasm_bindgen_func_elem_1131(arg0, arg1, addHeapObject(arg2));
 }
 
-function __wasm_bindgen_func_elem_1167(arg0, arg1, arg2, arg3) {
-    wasm.__wasm_bindgen_func_elem_1167(arg0, arg1, addHeapObject(arg2), addHeapObject(arg3));
+function __wasm_bindgen_func_elem_1173(arg0, arg1, arg2, arg3) {
+    wasm.__wasm_bindgen_func_elem_1173(arg0, arg1, addHeapObject(arg2), addHeapObject(arg3));
 }
 
 const GeoReferenceJsFinalization = (typeof FinalizationRegistry === 'undefined')
@@ -1320,6 +1320,19 @@ export class IfcAPI {
         const len6 = WASM_VECTOR_LEN;
         const ret = wasm.ifcapi_processGeometryBatch(this.__wbg_ptr, ptr0, len0, ptr1, len1, unit_scale, rtc_x, rtc_y, rtc_z, needs_shift, ptr2, len2, ptr3, len3, ptr4, len4, ptr5, len5, ptr6, len6);
         return MeshCollection.__wrap(ret);
+    }
+    /**
+     * Build deferred element color updates for already-streamed geometry.
+     * Returns flat arrays so JS can apply a late expressId -> RGBA update pass
+     * without rerunning geometry generation.
+     * @param {Uint8Array} data
+     * @returns {any}
+     */
+    buildElementStyleUpdates(data) {
+        const ptr0 = passArray8ToWasm0(data, wasm.__wbindgen_export3);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.ifcapi_buildElementStyleUpdates(this.__wbg_ptr, ptr0, len0);
+        return takeObject(ret);
     }
     /**
      * Parse IFC file with streaming GPU-ready geometry batches
@@ -3049,7 +3062,7 @@ function __wbg_get_imports() {
                 const a = state0.a;
                 state0.a = 0;
                 try {
-                    return __wasm_bindgen_func_elem_1167(a, state0.b, arg0, arg1);
+                    return __wasm_bindgen_func_elem_1173(a, state0.b, arg0, arg1);
                 } finally {
                     state0.a = a;
                 }
@@ -3163,7 +3176,7 @@ function __wbg_get_imports() {
     };
     imports.wbg.__wbindgen_cast_8410bcb836a2825d = function(arg0, arg1) {
         // Cast intrinsic for `Closure(Closure { dtor_idx: 145, function: Function { arguments: [Externref], shim_idx: 146, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
-        const ret = makeMutClosure(arg0, arg1, wasm.__wasm_bindgen_func_elem_1126, __wasm_bindgen_func_elem_1127);
+        const ret = makeMutClosure(arg0, arg1, wasm.__wasm_bindgen_func_elem_1130, __wasm_bindgen_func_elem_1131);
         return addHeapObject(ret);
     };
     imports.wbg.__wbindgen_cast_d6cd19b81560fd6e = function(arg0) {

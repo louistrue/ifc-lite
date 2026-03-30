@@ -518,7 +518,7 @@ export class GeometryProcessor {
     if (cores >= 16 && deviceMemoryGB >= 16) {
       maxWorkers = useFastPrePass ? Math.min(6, Math.floor(cores / 2)) : Math.min(8, Math.floor(cores / 2));
     } else if (cores >= 8 && deviceMemoryGB >= 8) {
-      maxWorkers = useFastPrePass ? 4 : fileSizeGB > 0.5 ? 2 : 3;
+      maxWorkers = useFastPrePass ? 5 : fileSizeGB > 0.5 ? 2 : 3;
     } else {
       maxWorkers = Math.max(1, Math.min(2, Math.floor(cores / 2)));
     }
@@ -546,8 +546,70 @@ export class GeometryProcessor {
     let nextTaskIndex = 0;
     let totalMeshes = 0;
     let workerError: Error | null = null;
+    let geometryCompleteYielded = false;
+    let stylePassStarted = false;
+    let stylePassDone = !useFastPrePass;
+    const deferredColorUpdates: Array<Map<number, [number, number, number, number]>> = [];
 
     const workers: Worker[] = [];
+
+    const startStylePass = () => {
+      if (stylePassStarted || !useFastPrePass) return;
+      stylePassStarted = true;
+
+      const worker = makeWorker();
+      workers.push(worker);
+
+      worker.onmessage = (e: MessageEvent) => {
+        const msg = e.data;
+        if (msg.type === 'style-result') {
+          const updates = new Map<number, [number, number, number, number]>();
+          const ids = msg.elementIds as Uint32Array;
+          const colors = msg.elementColors as Uint8Array;
+          for (let i = 0; i < ids.length; i++) {
+            const ci = i * 4;
+            updates.set(ids[i], [
+              colors[ci] / 255,
+              colors[ci + 1] / 255,
+              colors[ci + 2] / 255,
+              colors[ci + 3] / 255,
+            ]);
+          }
+          if (updates.size > 0) {
+            deferredColorUpdates.push(updates);
+          }
+          stylePassDone = true;
+          worker.terminate();
+          if (resolveWaiting) {
+            resolveWaiting();
+            resolveWaiting = null;
+          }
+        } else if (msg.type === 'error') {
+          console.warn(`[GeometryProcessor] Deferred style pass failed: ${msg.message}`);
+          stylePassDone = true;
+          worker.terminate();
+          if (resolveWaiting) {
+            resolveWaiting();
+            resolveWaiting = null;
+          }
+        }
+      };
+
+      worker.onerror = (e) => {
+        console.warn(`[GeometryProcessor] Deferred style pass worker failed: ${e.message}`);
+        stylePassDone = true;
+        worker.terminate();
+        if (resolveWaiting) {
+          resolveWaiting();
+          resolveWaiting = null;
+        }
+      };
+
+      worker.postMessage({
+        type: 'style-pass' as const,
+        sharedBuffer,
+      });
+    };
 
     const dispatchNextTask = (worker: Worker): boolean => {
       const nextRange = taskRanges[nextTaskIndex++];
@@ -656,6 +718,11 @@ export class GeometryProcessor {
         };
       }
 
+      while (deferredColorUpdates.length > 0) {
+        const updates = deferredColorUpdates.shift()!;
+        yield { type: 'colorUpdate', updates };
+      }
+
       if (workerError) {
         // Terminate remaining workers
         for (const w of workers) {
@@ -664,7 +731,17 @@ export class GeometryProcessor {
         throw workerError;
       }
 
-      if (workersCompleted >= workers.length && batchQueue.length === 0) {
+      const geometryDone = workersCompleted >= workerCount;
+      if (geometryDone && !geometryCompleteYielded) {
+        geometryCompleteYielded = true;
+        const coordinateInfo = this.coordinateHandler.getFinalCoordinateInfo();
+        yield { type: 'complete', totalMeshes, coordinateInfo };
+        if (!stylePassStarted) {
+          startStylePass();
+        }
+      }
+
+      if (geometryCompleteYielded && batchQueue.length === 0 && deferredColorUpdates.length === 0 && stylePassDone) {
         break;
       }
 
@@ -672,9 +749,6 @@ export class GeometryProcessor {
         resolveWaiting = resolve;
       });
     }
-
-    const coordinateInfo = this.coordinateHandler.getFinalCoordinateInfo();
-    yield { type: 'complete', totalMeshes, coordinateInfo };
   }
 
   /**

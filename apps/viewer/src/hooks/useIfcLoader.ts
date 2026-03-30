@@ -372,6 +372,7 @@ export function useIfcLoader() {
       let firstGeometryTime = 0; // Time to first rendered geometry
       let modelOpenMs = 0;
       let lastTotalMeshes = 0;
+      let geometryCompleteHandled = false;
 
       // OPTIMIZATION: Accumulate meshes and batch state updates
       // First batch renders immediately, then accumulate for throughput
@@ -400,16 +401,17 @@ export function useIfcLoader() {
               console.log(`[useIfc] Model opened at ${modelOpenMs.toFixed(0)}ms`);
               break;
             case 'colorUpdate': {
-              // Accumulate color updates locally during streaming.
-              // We apply them in a single pass at 'complete' instead of
-              // calling updateMeshColors() per event (which triggers a
-              // React reconciliation each time + O(n) scan over all meshes).
+              // Before geometry complete: accumulate updates locally and apply once.
+              // After geometry complete: apply late deferred style updates immediately.
               for (const [expressId, color] of event.updates) {
                 cumulativeColorUpdates.set(expressId, color);
               }
               // Keep local mesh snapshots in sync for cache serialization.
               applyColorUpdatesToMeshes(allMeshes, event.updates);
               applyColorUpdatesToMeshes(pendingMeshes, event.updates);
+              if (geometryCompleteHandled) {
+                updateMeshColors(event.updates);
+              }
               break;
             }
             case 'rtcOffset': {
@@ -459,6 +461,11 @@ export function useIfcLoader() {
               break;
             }
             case 'complete':
+              if (geometryCompleteHandled) {
+                break;
+              }
+              geometryCompleteHandled = true;
+
               // Flush any remaining pending meshes
               if (pendingMeshes.length > 0) {
                 appendGeometryBatch(pendingMeshes, event.coordinateInfo);
@@ -523,6 +530,16 @@ export function useIfcLoader() {
                 // Data model parsing failed - spatial index and caching skipped
                 console.warn('[useIfc] Skipping spatial index/cache - data model unavailable:', err);
               });
+
+              const totalElapsedMs = performance.now() - totalStartTime;
+              const totalVertices = allMeshes.reduce((sum, m) => sum + m.positions.length / 3, 0);
+              console.log(
+                `[useIfc] ✓ ${file.name} (${fileSizeMB.toFixed(1)}MB) → ` +
+                `${allMeshes.length} meshes, ${(totalVertices / 1000).toFixed(0)}k vertices | ` +
+                `first: ${firstGeometryTime.toFixed(0)}ms, total: ${totalElapsedMs.toFixed(0)}ms`
+              );
+              console.log(`[useIfc] TOTAL LOAD TIME (local): ${totalElapsedMs.toFixed(0)}ms (${(totalElapsedMs / 1000).toFixed(1)}s)`);
+              setLoading(false);
               break;
           }
 
@@ -535,15 +552,17 @@ export function useIfcLoader() {
 
       if (loadSessionRef.current !== currentSession) return;
 
-      const totalElapsedMs = performance.now() - totalStartTime;
-      const totalVertices = allMeshes.reduce((sum, m) => sum + m.positions.length / 3, 0);
-      console.log(
-        `[useIfc] ✓ ${file.name} (${fileSizeMB.toFixed(1)}MB) → ` +
-        `${allMeshes.length} meshes, ${(totalVertices / 1000).toFixed(0)}k vertices | ` +
-        `first: ${firstGeometryTime.toFixed(0)}ms, total: ${totalElapsedMs.toFixed(0)}ms`
-      );
-      console.log(`[useIfc] TOTAL LOAD TIME (local): ${totalElapsedMs.toFixed(0)}ms (${(totalElapsedMs / 1000).toFixed(1)}s)`);
-      setLoading(false);
+      if (!geometryCompleteHandled) {
+        const totalElapsedMs = performance.now() - totalStartTime;
+        const totalVertices = allMeshes.reduce((sum, m) => sum + m.positions.length / 3, 0);
+        console.log(
+          `[useIfc] ✓ ${file.name} (${fileSizeMB.toFixed(1)}MB) → ` +
+          `${allMeshes.length} meshes, ${(totalVertices / 1000).toFixed(0)}k vertices | ` +
+          `first: ${firstGeometryTime.toFixed(0)}ms, total: ${totalElapsedMs.toFixed(0)}ms`
+        );
+        console.log(`[useIfc] TOTAL LOAD TIME (local): ${totalElapsedMs.toFixed(0)}ms (${(totalElapsedMs / 1000).toFixed(1)}s)`);
+        setLoading(false);
+      }
     } catch (err) {
       if (loadSessionRef.current !== currentSession) return;
       setError(err instanceof Error ? err.message : 'Unknown error');

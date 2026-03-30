@@ -2377,6 +2377,54 @@ impl IfcAPI {
         result.into()
     }
 
+    /// Build deferred element color updates for already-streamed geometry.
+    /// Returns flat arrays so JS can apply a late expressId -> RGBA update pass
+    /// without rerunning geometry generation.
+    #[wasm_bindgen(js_name = buildElementStyleUpdates)]
+    pub fn build_element_style_updates(&self, data: &[u8]) -> JsValue {
+        use ifc_lite_core::EntityDecoder;
+
+        let content = unsafe { std::str::from_utf8_unchecked(data) };
+        let entity_index = ifc_lite_core::build_entity_index(content);
+        let mut decoder = EntityDecoder::with_index(content, entity_index);
+
+        let geometry_styles = build_geometry_style_index(content, &mut decoder);
+        let mut element_styles = build_element_style_index(content, &geometry_styles, &mut decoder);
+        let element_material_styles =
+            build_element_material_styles_from_content(content, &mut decoder);
+
+        // Material-based styling can provide a useful late fallback when an
+        // element has no direct style assignment. We can only apply one color
+        // per expressId at the viewer layer, so take the first material color.
+        for (element_id, colors) in element_material_styles {
+            if element_styles.contains_key(&element_id) {
+                continue;
+            }
+            if let Some(color) = colors.first().copied() {
+                element_styles.insert(element_id, color);
+            }
+        }
+
+        let style_len = element_styles.len();
+        let element_ids = js_sys::Uint32Array::new_with_length(style_len as u32);
+        let element_colors = js_sys::Uint8Array::new_with_length((style_len * 4) as u32);
+
+        for (i, (&id, &color)) in element_styles.iter().enumerate() {
+            let idx = i as u32;
+            element_ids.set_index(idx, id);
+            let color_idx = idx * 4;
+            element_colors.set_index(color_idx, (color[0] * 255.0) as u8);
+            element_colors.set_index(color_idx + 1, (color[1] * 255.0) as u8);
+            element_colors.set_index(color_idx + 2, (color[2] * 255.0) as u8);
+            element_colors.set_index(color_idx + 3, (color[3] * 255.0) as u8);
+        }
+
+        let result = js_sys::Object::new();
+        super::set_js_prop(&result, "elementIds", &element_ids);
+        super::set_js_prop(&result, "elementColors", &element_colors);
+        result.into()
+    }
+
     /// Process geometry for a subset of pre-scanned entities.
     /// Takes raw bytes and pre-pass data from buildPrePassOnce.
     #[wasm_bindgen(js_name = processGeometryBatch)]

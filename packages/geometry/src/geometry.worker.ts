@@ -28,7 +28,16 @@ export interface GeometryWorkerPrePassMessage {
   sharedBuffer: SharedArrayBuffer;
 }
 
-export type GeometryWorkerRequest = GeometryWorkerInitMessage | GeometryWorkerProcessMessage | GeometryWorkerPrePassMessage;
+export interface GeometryWorkerStylePassMessage {
+  type: 'style-pass';
+  sharedBuffer: SharedArrayBuffer;
+}
+
+export type GeometryWorkerRequest =
+  | GeometryWorkerInitMessage
+  | GeometryWorkerProcessMessage
+  | GeometryWorkerPrePassMessage
+  | GeometryWorkerStylePassMessage;
 
 export interface GeometryWorkerBatchMessage {
   type: 'batch';
@@ -47,6 +56,12 @@ export interface GeometryWorkerCompleteMessage {
   totalMeshes: number;
 }
 
+export interface GeometryWorkerStyleResultMessage {
+  type: 'style-result';
+  elementIds: Uint32Array;
+  elementColors: Uint8Array;
+}
+
 export interface GeometryWorkerErrorMessage {
   type: 'error';
   message: string;
@@ -55,6 +70,7 @@ export interface GeometryWorkerErrorMessage {
 export type GeometryWorkerResponse =
   | GeometryWorkerBatchMessage
   | GeometryWorkerCompleteMessage
+  | GeometryWorkerStyleResultMessage
   | GeometryWorkerErrorMessage;
 
 let api: IfcAPI | null = null;
@@ -97,6 +113,23 @@ self.onmessage = async (e: MessageEvent<GeometryWorkerRequest>) => {
           : api!.buildPrePassOnce(bytes)
       ));
       (self as unknown as Worker).postMessage({ type: 'prepass-result', result });
+      return;
+    }
+
+    if (e.data.type === 'style-pass') {
+      if (!api) { await init(); api = new IfcAPI(); }
+      const result = withSharedBytes(e.data.sharedBuffer, (bytes) => api!.buildElementStyleUpdates(bytes)) as {
+        elementIds: Uint32Array;
+        elementColors: Uint8Array;
+      };
+      (self as unknown as Worker).postMessage(
+        {
+          type: 'style-result',
+          elementIds: result.elementIds,
+          elementColors: result.elementColors,
+        } as GeometryWorkerStyleResultMessage,
+        [result.elementIds.buffer, result.elementColors.buffer]
+      );
       return;
     }
 
