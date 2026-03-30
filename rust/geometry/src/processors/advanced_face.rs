@@ -338,14 +338,13 @@ fn evaluate_bspline_curve(
     result
 }
 
-/// Sample intermediate points from a B-spline curve edge.
-/// Returns points along the curve (excluding start vertex, including end vertex
-/// is handled by the next edge's start vertex in the loop).
+/// Sample points along a B-spline curve edge.
+/// Returns the start vertex plus intermediate sample points.
+/// The end vertex is omitted (provided by the next edge's start in the loop).
 fn sample_bspline_edge_curve(
     curve: &DecodedEntity,
     start: &Point3<f64>,
-    end: &Point3<f64>,
-    same_sense: bool,
+    curve_forward: bool,
     decoder: &mut EntityDecoder,
 ) -> Vec<Point3<f64>> {
     // Parse B-spline curve: degree(0), control_points(1), ..., knot_mults(6), knots(7)
@@ -400,10 +399,10 @@ fn sample_bspline_edge_curve(
     // Add the start vertex first
     points.push(*start);
 
-    // Sample intermediate points (skip first=start, skip last=next edge's start)
+    // Sample intermediate points (skip last = next edge's start vertex)
     for i in 1..n_segments {
         let frac = i as f64 / n_segments as f64;
-        let t = if same_sense {
+        let t = if curve_forward {
             t_min + (t_max - t_min) * frac
         } else {
             t_max - (t_max - t_min) * frac
@@ -476,7 +475,15 @@ fn extract_edge_loop_points(
         // IfcEdgeCurve: EdgeStart(0), EdgeEnd(1), EdgeGeometry(2), SameSense(3)
         let edge_same_sense = edge_curve.get(3).and_then(|a| a.as_enum())
             .map(|e| e == "T" || e == "TRUE").unwrap_or(true);
-        let same_sense = orientation == edge_same_sense;
+
+        // Orientation determines which direction we walk the edge in the loop:
+        //   TRUE  → EdgeStart to EdgeEnd
+        //   FALSE → EdgeEnd to EdgeStart
+        // SameSense determines curve parameterization relative to edge direction:
+        //   TRUE  → curve t_min→t_max goes EdgeStart→EdgeEnd
+        //   FALSE → curve t_max→t_min goes EdgeStart→EdgeEnd
+        // Combined: traverse curve forward when orientation==edge_same_sense
+        let curve_forward = orientation == edge_same_sense;
 
         // Get start and end vertices from EdgeCurve
         let start_vertex = edge_curve
@@ -486,14 +493,16 @@ fn extract_edge_loop_points(
             .get(1)
             .and_then(|attr| decoder.resolve_ref(attr).ok().flatten());
 
-        let start_pt = start_vertex.as_ref().and_then(|v| extract_vertex_coords(v, decoder));
-        let end_pt = end_vertex.as_ref().and_then(|v| extract_vertex_coords(v, decoder));
+        let edge_start_pt = start_vertex.as_ref().and_then(|v| extract_vertex_coords(v, decoder));
+        let edge_end_pt = end_vertex.as_ref().and_then(|v| extract_vertex_coords(v, decoder));
 
-        // Determine actual start/end based on orientation
-        let (actual_start, actual_end) = if same_sense {
-            (start_pt, end_pt)
+        // Walk direction is based on Orientation only (not SameSense):
+        //   Orientation TRUE  → we encounter EdgeStart first
+        //   Orientation FALSE → we encounter EdgeEnd first
+        let (walk_start, _walk_end) = if orientation {
+            (edge_start_pt, edge_end_pt)
         } else {
-            (end_pt, start_pt)
+            (edge_end_pt, edge_start_pt)
         };
 
         // Get the edge geometry to check if it's a curve
@@ -505,9 +514,8 @@ fn extract_edge_loop_points(
             let geom_type = geom.ifc_type.as_str().to_uppercase();
             if geom_type == "IFCBSPLINECURVEWITHKNOTS" {
                 // Sample B-spline curve for intermediate points
-                let s = actual_start.unwrap_or(Point3::new(0.0, 0.0, 0.0));
-                let e = actual_end.unwrap_or(Point3::new(0.0, 0.0, 0.0));
-                let sampled = sample_bspline_edge_curve(&geom, &s, &e, same_sense, decoder);
+                let s = walk_start.unwrap_or(Point3::new(0.0, 0.0, 0.0));
+                let sampled = sample_bspline_edge_curve(&geom, &s, curve_forward, decoder);
                 polygon_points.extend(sampled);
                 continue;
             }
@@ -515,7 +523,7 @@ fn extract_edge_loop_points(
         }
 
         // Default: add start vertex only
-        if let Some(pt) = actual_start {
+        if let Some(pt) = walk_start {
             polygon_points.push(pt);
         }
     }
