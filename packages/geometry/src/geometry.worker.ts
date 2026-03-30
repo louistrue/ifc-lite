@@ -4,8 +4,6 @@
 
 import init, { initSync, IfcAPI } from '@ifc-lite/wasm';
 
-const TRANSFER_MESH_BATCH_SIZE = 4096;
-
 export interface GeometryWorkerInitMessage {
   type: 'init';
   wasmModule?: WebAssembly.Module;
@@ -43,7 +41,6 @@ export type GeometryWorkerRequest =
 
 export interface GeometryWorkerBatchMessage {
   type: 'batch';
-  batchMeshCount: number;
   meshes: {
     expressId: number;
     ifcType?: string;
@@ -164,23 +161,8 @@ self.onmessage = async (e: MessageEvent<GeometryWorkerRequest>) => {
         styleIds, styleColors,
       ));
 
-      let meshes: GeometryWorkerBatchMessage['meshes'] = [];
-      let transferBuffers: Transferable[] = [];
-      let totalMeshes = 0;
-
-      const flushBatch = () => {
-        if (meshes.length === 0) return;
-        (self as unknown as Worker).postMessage(
-          {
-            type: 'batch',
-            batchMeshCount: meshes.length,
-            meshes,
-          } as GeometryWorkerBatchMessage,
-          transferBuffers,
-        );
-        meshes = [];
-        transferBuffers = [];
-      };
+      const meshes: GeometryWorkerBatchMessage['meshes'] = [];
+      const transferBuffers: Transferable[] = [];
 
       for (let i = 0; i < collection.length; i++) {
         const mesh = collection.get(i);
@@ -202,18 +184,19 @@ self.onmessage = async (e: MessageEvent<GeometryWorkerRequest>) => {
           normals.buffer as ArrayBuffer,
           indices.buffer as ArrayBuffer,
         );
-        totalMeshes++;
         mesh.free();
-
-        if (meshes.length >= TRANSFER_MESH_BATCH_SIZE) {
-          flushBatch();
-        }
       }
       collection.free();
 
-      flushBatch();
       (self as unknown as Worker).postMessage(
-        { type: 'complete', totalMeshes } as GeometryWorkerCompleteMessage,
+        {
+          type: 'batch',
+          meshes,
+        } as GeometryWorkerBatchMessage,
+        transferBuffers,
+      );
+      (self as unknown as Worker).postMessage(
+        { type: 'complete', totalMeshes: meshes.length } as GeometryWorkerCompleteMessage,
       );
     }
   } catch (err) {
