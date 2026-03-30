@@ -96,6 +96,9 @@ export function useIfcCache() {
       // Convert cache data store to viewer data store format
       const dataStore = result.dataStore as any;
 
+      // Set parseTime to cache read time (not preserved in binary cache format)
+      dataStore.parseTime = cacheReadTime;
+
       // Restore source buffer for on-demand property extraction
       if (cacheResult.sourceBuffer) {
         dataStore.source = new Uint8Array(cacheResult.sourceBuffer);

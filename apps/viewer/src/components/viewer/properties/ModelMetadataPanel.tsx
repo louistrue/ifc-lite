@@ -147,7 +147,7 @@ export function ModelMetadataPanel({ model }: { model: FederatedModel }) {
                 {formatDate(model.loadedAt)}
               </span>
             </div>
-            {dataStore && (
+            {dataStore && dataStore.parseTime != null && (
               <div className="flex items-center gap-3 px-3 py-2">
                 <Clock className="h-3.5 w-3.5 text-zinc-400 shrink-0" />
                 <span className="text-xs text-zinc-500">Parse Time</span>
