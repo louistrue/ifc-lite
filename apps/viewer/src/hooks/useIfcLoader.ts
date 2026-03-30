@@ -408,7 +408,10 @@ export function useIfcLoader() {
         rejectDataStore = reject;
       });
 
+      let dataModelParsingStarted = false;
       const startDataModelParsing = () => {
+        if (dataModelParsingStarted) return;
+        dataModelParsingStarted = true;
         const parser = new IfcParser();
         // wasmApi as fallback if Web Worker unavailable
         const wasmApi = geometryProcessor.getApi();
@@ -444,11 +447,6 @@ export function useIfcLoader() {
           rejectDataStore(err);
         });
       };
-
-      // Start data model parsing IMMEDIATELY — runs in parallel with geometry.
-      // Entity scan uses Web Worker (off main thread), columnar parse yields
-      // every ~4ms to maintain 60fps navigation during geometry streaming.
-      setTimeout(startDataModelParsing, 0);
 
       // Use adaptive processing: sync for small files, streaming for large files
       let estimatedTotal = 0;
@@ -493,6 +491,17 @@ export function useIfcLoader() {
         rendererPipeline &&
         zeroCopyApi
       );
+      const deferDataModelParsing =
+        useZeroCopyGeometry && fileSizeMB >= 250;
+
+      if (deferDataModelParsing) {
+        console.log(
+          `[useIfc] Large zero-copy IFC (${fileSizeMB.toFixed(0)}MB): deferring data model parsing until geometry completes to reduce memory pressure.`
+        );
+      } else {
+        // Start data model parsing immediately when geometry memory pressure is low enough.
+        setTimeout(startDataModelParsing, 0);
+      }
 
       try {
         // Use dynamic batch sizing for optimal throughput
@@ -524,7 +533,7 @@ export function useIfcLoader() {
           };
           // Keep zero-copy batches moderate so the first flush happens quickly
           // and per-color bucket memory stays bounded on large models.
-          const zeroCopyBatchSize = fileSizeMB < 50 ? 128 : fileSizeMB < 250 ? 256 : fileSizeMB < 600 ? 384 : 512;
+          const zeroCopyBatchSize = fileSizeMB < 50 ? 128 : fileSizeMB < 250 ? 192 : fileSizeMB < 600 ? 256 : 256;
 
           setProgress({ phase: 'Processing geometry', percent: 50 });
           modelOpenMs = performance.now() - totalStartTime;
@@ -600,6 +609,9 @@ export function useIfcLoader() {
             `[useIfc] Geometry streaming complete: ${zeroCopyStats.totalBatches} zero-copy batches, ` +
             `${zeroCopyStats.totalElements} elements`
           );
+          if (deferDataModelParsing) {
+            setTimeout(startDataModelParsing, 0);
+          }
         } else {
           for await (const event of geometryProcessor.processAdaptive(new Uint8Array(buffer), {
             sizeThreshold: 2 * 1024 * 1024, // 2MB threshold
