@@ -8,6 +8,7 @@
 //! Used by both AdvancedBrepProcessor and ShellBasedSurfaceModelProcessor/FaceBasedSurfaceModelProcessor
 //! when shells contain IfcAdvancedFace entities (common in CATIA exports).
 
+use crate::triangulation::{calculate_polygon_normal, project_to_2d, triangulate_polygon};
 use crate::{Error, Point3, Result};
 use ifc_lite_core::{DecodedEntity, EntityDecoder};
 use nalgebra::Matrix4;
@@ -409,7 +410,8 @@ fn process_planar_face(
                     }
                 }
 
-                // Triangulate the polygon
+                // Triangulate the polygon using robust ear-cutting
+                // (fan triangulation fails on non-convex polygons like ramp edges)
                 if polygon_points.len() >= 3 {
                     let base_idx = (positions.len() / 3) as u32;
 
@@ -419,11 +421,25 @@ fn process_planar_face(
                         positions.push(point.z as f32);
                     }
 
-                    // Fan triangulation for simple convex polygons
-                    for i in 1..polygon_points.len() - 1 {
-                        indices.push(base_idx);
-                        indices.push(base_idx + i as u32);
-                        indices.push(base_idx + i as u32 + 1);
+                    // Project 3D polygon to 2D for robust triangulation
+                    let normal = calculate_polygon_normal(&polygon_points);
+                    let (points_2d, _, _, _) =
+                        project_to_2d(&polygon_points, &normal);
+
+                    match triangulate_polygon(&points_2d) {
+                        Ok(tri_indices) => {
+                            for idx in tri_indices {
+                                indices.push(base_idx + idx as u32);
+                            }
+                        }
+                        Err(_) => {
+                            // Fallback to fan triangulation if earcutr fails
+                            for i in 1..polygon_points.len() - 1 {
+                                indices.push(base_idx);
+                                indices.push(base_idx + i as u32);
+                                indices.push(base_idx + i as u32 + 1);
+                            }
+                        }
                     }
                 }
             }
