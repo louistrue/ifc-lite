@@ -58,18 +58,44 @@ export type GeometryWorkerResponse =
   | GeometryWorkerErrorMessage;
 
 let api: IfcAPI | null = null;
+let sharedViewSupported: boolean | null = null;
+
+function cloneSharedBytes(sharedBuffer: SharedArrayBuffer): Uint8Array {
+  const localBytes = new Uint8Array(sharedBuffer.byteLength);
+  localBytes.set(new Uint8Array(sharedBuffer));
+  return localBytes;
+}
+
+function withSharedBytes<T>(
+  sharedBuffer: SharedArrayBuffer,
+  run: (bytes: Uint8Array) => T
+): T {
+  if (sharedViewSupported === false) {
+    return run(cloneSharedBytes(sharedBuffer));
+  }
+
+  try {
+    const result = run(new Uint8Array(sharedBuffer));
+    sharedViewSupported = true;
+    return result;
+  } catch (err) {
+    if (sharedViewSupported === true) throw err;
+    sharedViewSupported = false;
+    return run(cloneSharedBytes(sharedBuffer));
+  }
+}
 
 self.onmessage = async (e: MessageEvent<GeometryWorkerRequest>) => {
   try {
     if (e.data.type === 'prepass' || e.data.type === 'prepass-fast') {
       if (!api) { await init(); api = new IfcAPI(); }
-      const localBuffer = new Uint8Array(e.data.sharedBuffer.byteLength);
-      localBuffer.set(new Uint8Array(e.data.sharedBuffer));
       // Fast pre-pass: only scan for entity locations (~1-2s)
       // Full pre-pass: also resolves styles + voids (~6s)
-      const result = e.data.type === 'prepass-fast'
-        ? api.buildPrePassFast(localBuffer)
-        : api.buildPrePassOnce(localBuffer);
+      const result = withSharedBytes(e.data.sharedBuffer, (bytes) => (
+        e.data.type === 'prepass-fast'
+          ? api!.buildPrePassFast(bytes)
+          : api!.buildPrePassOnce(bytes)
+      ));
       (self as unknown as Worker).postMessage({ type: 'prepass-result', result });
       return;
     }
@@ -94,17 +120,13 @@ self.onmessage = async (e: MessageEvent<GeometryWorkerRequest>) => {
       const { sharedBuffer, jobsFlat, unitScale, rtcX, rtcY, rtcZ, needsShift,
               voidKeys, voidCounts, voidValues, styleIds, styleColors } = e.data;
 
-      // Copy shared bytes to local buffer (Firefox requires this for typed array ops)
-      const localBytes = new Uint8Array(sharedBuffer.byteLength);
-      localBytes.set(new Uint8Array(sharedBuffer));
-
       // Call processGeometryBatch with pre-pass data
-      const collection = api.processGeometryBatch(
-        localBytes, jobsFlat, unitScale,
+      const collection = withSharedBytes(sharedBuffer, (bytes) => api!.processGeometryBatch(
+        bytes, jobsFlat, unitScale,
         rtcX, rtcY, rtcZ, needsShift,
         voidKeys, voidCounts, voidValues,
         styleIds, styleColors,
-      );
+      ));
 
       const meshes: GeometryWorkerBatchMessage['meshes'] = [];
       const transferBuffers: ArrayBuffer[] = [];

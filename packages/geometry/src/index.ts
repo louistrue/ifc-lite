@@ -82,6 +82,8 @@ export interface DynamicBatchConfig {
   fileSizeMB?: number;
 }
 
+const FAST_PARALLEL_PREPASS_THRESHOLD_BYTES = 512 * 1024 * 1024;
+
 /**
  * Calculate dynamic batch size based on batch number
  */
@@ -467,12 +469,14 @@ export class GeometryProcessor {
     const sharedBuffer = new SharedArrayBuffer(buffer.byteLength);
     new Uint8Array(sharedBuffer).set(buffer);
 
-    // ── PHASE 1: Full pre-pass in worker ──
+    // ── PHASE 1: Pre-pass in worker ──
     const makeWorker = () => new Worker(
       new URL('./geometry.worker.ts', import.meta.url),
       { type: 'module' },
     );
 
+    const useFastPrePass = buffer.byteLength >= FAST_PARALLEL_PREPASS_THRESHOLD_BYTES;
+    const prePassMode = useFastPrePass ? 'prepass-fast' : 'prepass';
     const prePassStart = performance.now();
     const prePassResult = await new Promise<any>((resolve, reject) => {
       const w = makeWorker();
@@ -481,9 +485,12 @@ export class GeometryProcessor {
         else if (e.data.type === 'error') { w.terminate(); reject(new Error(e.data.message)); }
       };
       w.onerror = (e) => { w.terminate(); reject(new Error(e.message)); };
-      w.postMessage({ type: 'prepass', sharedBuffer });
+      w.postMessage({ type: prePassMode, sharedBuffer });
     });
-    console.log(`[GeometryProcessor] parallel pre-pass: ${(performance.now() - prePassStart).toFixed(0)}ms`);
+    console.log(
+      `[GeometryProcessor] parallel ${useFastPrePass ? 'fast ' : ''}pre-pass: ` +
+      `${(performance.now() - prePassStart).toFixed(0)}ms`
+    );
 
     if (!prePassResult || !prePassResult.jobs || prePassResult.totalJobs === 0) {
       const coordinateInfo = this.coordinateHandler.getFinalCoordinateInfo();
@@ -509,13 +516,18 @@ export class GeometryProcessor {
     // - Large files need more memory per worker, so fewer workers
     let maxWorkers: number;
     if (cores >= 16 && deviceMemoryGB >= 16) {
-      maxWorkers = Math.min(8, Math.floor(cores / 2));
+      maxWorkers = useFastPrePass ? Math.min(4, Math.floor(cores / 2)) : Math.min(8, Math.floor(cores / 2));
     } else if (cores >= 8 && deviceMemoryGB >= 8) {
-      // MacBook Air M-series: 8 cores but fanless → throttles with too many workers
-      // Use 3 workers: enough parallelism without severe throttling
-      maxWorkers = fileSizeGB > 0.5 ? 2 : 3;
+      maxWorkers = useFastPrePass ? 3 : fileSizeGB > 0.5 ? 2 : 3;
     } else {
       maxWorkers = Math.max(1, Math.min(2, Math.floor(cores / 2)));
+    }
+
+    if (useFastPrePass) {
+      console.warn(
+        '[GeometryProcessor] Huge local IFC: fast pre-pass enabled for throughput; ' +
+        'default colors/openings may be less exact during initial load.'
+      );
     }
 
     const workerCount = Math.min(maxWorkers, totalJobs);
