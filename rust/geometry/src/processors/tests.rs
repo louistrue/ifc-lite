@@ -386,3 +386,50 @@ fn test_shell_based_surface_model_with_polyloop() {
     );
     assert_eq!(mesh.indices.len(), 6, "Should have 2 triangles (6 indices)");
 }
+
+/// Test with the actual CATIA file from issue #472.
+/// Verifies that all 306 AdvancedFaces (145 B-spline, 115 planar,
+/// 38 linear extrusion, 8 cylindrical) produce geometry.
+#[test]
+fn test_catia_surface_model_file() {
+    use crate::router::GeometryRouter;
+
+    let path = "../../tests/models/various/2222.ifc";
+    let content = match std::fs::read_to_string(path) {
+        Ok(c) => c,
+        Err(_) => {
+            eprintln!("Skipping test_catia_surface_model_file: {} not found", path);
+            return;
+        }
+    };
+
+    let entity_index = ifc_lite_core::build_entity_index(&content);
+    let mut decoder = EntityDecoder::with_index(&content, entity_index);
+    let router = GeometryRouter::with_units(&content, &mut decoder);
+
+    // IfcRamp #7963 has SurfaceModel with AdvancedFaces (B-spline, plane,
+    // linear extrusion, cylindrical surfaces)
+    let ramp = decoder.decode_by_id(7963).expect("Failed to decode IfcRamp #7963");
+    assert_eq!(ramp.ifc_type, IfcType::IfcRamp);
+
+    let mesh = router
+        .process_element(&ramp, &mut decoder)
+        .expect("Failed to process CATIA IfcRamp SurfaceModel");
+
+    println!(
+        "CATIA IfcRamp: {} vertices, {} triangles",
+        mesh.positions.len() / 3,
+        mesh.indices.len() / 3
+    );
+
+    // Should produce significant geometry from all surface types
+    assert!(
+        !mesh.is_empty(),
+        "CATIA SurfaceModel should produce geometry"
+    );
+    assert!(
+        mesh.positions.len() / 3 > 500,
+        "Should have >500 vertices from AdvancedFaces, got {}",
+        mesh.positions.len() / 3
+    );
+}

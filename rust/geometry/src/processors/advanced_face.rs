@@ -45,6 +45,17 @@ pub(super) fn process_advanced_face(
         process_bspline_face(&surface, decoder)
     } else if surface_type == "IFCCYLINDRICALSURFACE" {
         process_cylindrical_face(face, &surface, decoder)
+    } else if surface_type == "IFCSURFACEOFLINEAREXTRUSION"
+        || surface_type == "IFCSURFACEOFREVOLUTION"
+        || surface_type == "IFCCONICALSURFACE"
+        || surface_type == "IFCSPHERICALSURFACE"
+        || surface_type == "IFCTOROIDALSURFACE"
+    {
+        // For these surface types, the edge loop boundary vertices already lie
+        // on the surface. Extracting and triangulating them gives a reasonable
+        // polygonal approximation. This covers IfcSurfaceOfLinearExtrusion
+        // (common in CATIA exports) and other analytic surface types.
+        process_planar_face(face, decoder)
     } else {
         // Unsupported surface type - return empty geometry
         Ok((Vec::new(), Vec::new()))
