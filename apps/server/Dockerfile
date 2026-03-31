@@ -12,6 +12,8 @@ RUN cargo chef prepare --recipe-path recipe.json
 
 # Stage 3: Builder - build dependencies (cached) then app
 FROM chef AS builder
+ARG CARGO_BUILD_JOBS=2
+ENV CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS}
 
 # Install build dependencies
 RUN apt-get update && apt-get install -y \
