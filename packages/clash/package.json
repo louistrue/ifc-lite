@@ -17,7 +17,6 @@
   },
   "dependencies": {
     "@ifc-lite/parser": "workspace:^",
-    "@ifc-lite/query": "workspace:^",
     "@ifc-lite/data": "workspace:^",
     "@ifc-lite/geometry": "workspace:^",
     "@ifc-lite/spatial": "workspace:^"

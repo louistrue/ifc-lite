@@ -138,8 +138,8 @@ function ChangeDetailSection({ change }: { change: EntityChange }) {
           {change.quantityChanges.map((qc, i) => (
             <div key={`q-${i}`} className="flex gap-2 text-muted-foreground">
               <span className="font-medium text-foreground">{qc.qsetName}.{qc.quantityName}:</span>
-              <span className="text-red-500">{qc.oldValue}</span>
-              <span className="text-green-600">{qc.newValue}</span>
+              <span className="text-red-500">{String(qc.oldValue ?? '(none)')}</span>
+              <span className="text-green-600">{String(qc.newValue ?? '(none)')}</span>
             </div>
           ))}
         </div>

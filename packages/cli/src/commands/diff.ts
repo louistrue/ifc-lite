@@ -136,6 +136,7 @@ async function sendVisualDiff(
 
   try {
     const batches: Array<{ ids: number[]; color: readonly [number, number, number, number] }> = [];
+    let hadFailures = false;
 
     if (diff.added.length > 0) {
       batches.push({ ids: diff.added.map(e => e.expressId), color: DIFF_COLORS.added });
@@ -152,12 +153,17 @@ async function sendVisualDiff(
         body: JSON.stringify({ action: 'colorizeEntities', ids: batch.ids, color: batch.color }),
       });
       if (!res.ok) {
+        hadFailures = true;
         process.stderr.write(`Warning: Colorize request failed with status ${res.status}\n`);
       }
     }
 
-    process.stderr.write(`Visual diff applied: green=added, orange=changed\n`);
-    process.stderr.write(`  (Deleted elements not shown — they don't exist in the new model)\n`);
+    if (hadFailures) {
+      process.stderr.write(`Visual diff partially applied: some batches failed\n`);
+    } else {
+      process.stderr.write(`Visual diff applied: green=added, orange=changed\n`);
+      process.stderr.write(`  (Deleted elements not shown — they don't exist in the new model)\n`);
+    }
   } catch (err: any) {
     process.stderr.write(`Warning: Could not connect to viewer on port ${viewerPort}: ${err.message}\n`);
   }

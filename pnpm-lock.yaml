@@ -565,9 +565,6 @@ importers:
       '@ifc-lite/parser':
         specifier: workspace:^
         version: link:../parser
-      '@ifc-lite/query':
-        specifier: workspace:^
-        version: link:../query
       '@ifc-lite/spatial':
         specifier: workspace:^
         version: link:../spatial

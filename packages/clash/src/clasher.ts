@@ -16,7 +16,6 @@
 
 import type { IfcDataStore } from '@ifc-lite/parser';
 import type { MeshData } from '@ifc-lite/geometry';
-import { EntityNode } from '@ifc-lite/query';
 import { IFC_ENTITY_NAMES } from '@ifc-lite/data';
 import { AABBUtils, type AABB } from '@ifc-lite/spatial';
 import type {
@@ -95,7 +94,9 @@ function buildElementGroup(
   stores: Map<string, { store: IfcDataStore; meshes: MeshData[] }>,
 ): ElementMesh[] {
   const entry = stores.get(file);
-  if (!entry) return [];
+  if (!entry) {
+    throw new Error(`Clash set references file "${file}" but no store/geometry was loaded for it. Ensure the model has geometry before running clash detection.`);
+  }
 
   const { store, meshes } = entry;
 
@@ -116,33 +117,33 @@ function buildElementGroup(
   const elements: ElementMesh[] = [];
 
   for (const [typeName, ids] of store.entityIndex.byType) {
-    // Apply type filter
-    if (typeFilterSet) {
-      const displayName = IFC_ENTITY_NAMES[typeName] ?? typeName;
-      if (!typeFilterSet.has(typeName) && !typeFilterSet.has(displayName.toUpperCase())) {
-        continue;
-      }
-    }
-
-    const displayName = IFC_ENTITY_NAMES[typeName] ?? typeName;
-
     for (const id of ids) {
+      // Use canonical type name from store (proper PascalCase)
+      const displayName = store.entities.getTypeName(id) || IFC_ENTITY_NAMES[typeName] || typeName;
+
+      // Apply type filter
+      if (typeFilterSet) {
+        if (!typeFilterSet.has(typeName) && !typeFilterSet.has(displayName.toUpperCase())) {
+          continue;
+        }
+      }
+
       const mesh = meshMap.get(id);
       if (!mesh || mesh.positions.length === 0) continue;
 
-      const node = new EntityNode(store, id);
-      const gid = node.globalId;
+      const gid = store.entities.getGlobalId(id);
       if (!gid) continue;
 
       // Apply globalId filter
       if (gidFilterSet && !gidFilterSet.has(gid)) continue;
 
       const bounds = computeBounds(mesh);
+      const name = store.entities.getName(id) || '';
       elements.push({
         expressId: id,
         globalId: gid,
         type: displayName,
-        name: node.name || '',
+        name,
         file,
         bounds,
         mesh,
@@ -160,11 +161,22 @@ function checkGroupPair(
   opts: Required<ClashSettings>,
 ): Clash[] {
   const clashes: Clash[] = [];
+  // Deduplicate same-file pairs to avoid (A,B) and (B,A) duplicates
+  const seenPairs = new Set<string>();
 
   for (const elemA of groupA) {
     for (const elemB of groupB) {
       // Skip same element
       if (elemA.expressId === elemB.expressId && elemA.file === elemB.file) continue;
+
+      // Canonical pair key to avoid duplicate (A,B)/(B,A) for same-file groups
+      if (elemA.file === elemB.file) {
+        const lo = Math.min(elemA.expressId, elemB.expressId);
+        const hi = Math.max(elemA.expressId, elemB.expressId);
+        const key = `${elemA.file}:${lo}:${hi}`;
+        if (seenPairs.has(key)) continue;
+        seenPairs.add(key);
+      }
 
       const clash = testClash(elemA, elemB, clashSetName, opts);
       if (clash) {

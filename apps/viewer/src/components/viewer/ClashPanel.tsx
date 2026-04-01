@@ -113,6 +113,9 @@ export function ClashPanel({ onClose }: ClashPanelProps) {
   const setClashTolerance = useViewerStore((s) => s.setClashTolerance);
   const setClashClearance = useViewerStore((s) => s.setClashClearance);
   const clearClash = useViewerStore((s) => s.clearClash);
+  const models = useViewerStore((s) => s.models);
+  const [crossModelA, setCrossModelA] = useState('');
+  const [crossModelB, setCrossModelB] = useState('');
 
   // Build filter options
   const clashSetOptions = useMemo(() => {
@@ -215,6 +218,7 @@ export function ClashPanel({ onClose }: ClashPanelProps) {
   // Available IFC types for pickers
   const availableTypes = useMemo(() => getAvailableTypes(), [getAvailableTypes]);
   const hasModel = availableTypes.length > 0;
+  const modelEntries = useMemo(() => Array.from(models.entries()), [models]);
 
   const handleRunClash = useCallback(() => {
     const typesA = typeA ? typeA.split(',').map(t => t.trim()).filter(Boolean) : undefined;
@@ -222,8 +226,15 @@ export function ClashPanel({ onClose }: ClashPanelProps) {
     runSelfClash(typesA, typesB);
   }, [typeA, typeB, runSelfClash]);
 
+  const handleRunCrossModelClash = useCallback(() => {
+    if (!crossModelA || !crossModelB) return;
+    const typesA = typeA ? typeA.split(',').map(t => t.trim()).filter(Boolean) : undefined;
+    const typesB = typeB ? typeB.split(',').map(t => t.trim()).filter(Boolean) : undefined;
+    runCrossModelClash(crossModelA, crossModelB, typesA, typesB);
+  }, [crossModelA, crossModelB, typeA, typeB, runCrossModelClash]);
+
   // ── Empty state ──
-  if (!clashResult && !clashLoading) {
+  if (!clashResult && !clashLoading && !clashError) {
     return (
       <div className="h-full flex flex-col bg-background">
         <PanelHeader onClose={onClose} onSettings={() => setSettingsOpen(!settingsOpen)} />
@@ -311,6 +322,42 @@ export function ClashPanel({ onClose }: ClashPanelProps) {
                 <Zap className="h-4 w-4 mr-2" />
                 Run Clash Detection
               </Button>
+              {modelEntries.length >= 2 && (
+                <>
+                  <Separator className="my-4 w-full" />
+                  <p className="text-xs text-muted-foreground mb-2">Or compare two loaded models:</p>
+                  <div className="w-full max-w-xs space-y-2 mb-4">
+                    <Select value={crossModelA} onValueChange={setCrossModelA}>
+                      <SelectTrigger className="h-7 text-xs">
+                        <SelectValue placeholder="Model A..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {modelEntries.map(([id, m]) => (
+                          <SelectItem key={id} value={id}>{m.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Select value={crossModelB} onValueChange={setCrossModelB}>
+                      <SelectTrigger className="h-7 text-xs">
+                        <SelectValue placeholder="Model B..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {modelEntries.filter(([id]) => id !== crossModelA).map(([id, m]) => (
+                          <SelectItem key={id} value={id}>{m.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <Button
+                    onClick={handleRunCrossModelClash}
+                    disabled={!crossModelA || !crossModelB}
+                    variant="outline"
+                  >
+                    <Zap className="h-4 w-4 mr-2" />
+                    Cross-Model Clash
+                  </Button>
+                </>
+              )}
             </>
           )}
         </div>
