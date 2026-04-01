@@ -15,8 +15,8 @@
     }
   },
   "scripts": {
-    "build": "tsc",
-    "dev": "tsc --watch",
+    "build": "pnpm exec tsc",
+    "dev": "pnpm exec tsc --watch",
     "start": "node dist/cli.js",
     "postinstall": "node -e \"import('./dist/postinstall.js').catch(() => {})\" || true"
   },

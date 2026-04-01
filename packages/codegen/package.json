@@ -6,8 +6,8 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
-    "build": "tsc",
-    "dev": "tsc --watch",
+    "build": "pnpm exec tsc",
+    "dev": "pnpm exec tsc --watch",
     "test": "vitest run",
     "generate": "node dist/cli.js",
     "generate:ifc4": "node dist/cli.js schemas/IFC4.exp -o generated/ifc4",
