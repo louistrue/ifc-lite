@@ -4,7 +4,9 @@
 
 //! Geo-referencing and RTC offset methods for IFC-Lite API
 
-use super::styling::{build_element_style_index, build_geometry_style_index, get_default_color_for_type};
+use super::styling::{
+    build_element_style_index, build_geometry_style_index, get_default_color_for_type,
+};
 use super::{GeoReferenceJs, IfcAPI, MeshCollectionWithRtc, RtcOffsetJs};
 use crate::zero_copy::{MeshCollection, MeshDataJs};
 use wasm_bindgen::prelude::*;

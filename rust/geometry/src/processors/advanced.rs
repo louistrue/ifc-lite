@@ -11,8 +11,8 @@ use crate::{Error, Mesh, Point3, Result};
 use ifc_lite_core::{DecodedEntity, EntityDecoder, IfcSchema, IfcType};
 use nalgebra::Matrix4;
 
-use crate::router::GeometryProcessor;
 use super::helpers::get_axis2_placement_transform_by_id;
+use crate::router::GeometryProcessor;
 
 /// AdvancedBrep processor
 /// Handles IfcAdvancedBrep and IfcAdvancedBrepWithVoids - NURBS/B-spline surfaces
@@ -323,27 +323,42 @@ impl AdvancedBrepProcessor {
                             // EdgeStart/EdgeEnd can be * (derived), get from EdgeElement if needed
 
                             // Try to get start vertex from OrientedEdge first
-                            let vertex = oriented_edge.get(0)
+                            let vertex = oriented_edge
+                                .get(0)
                                 .and_then(|attr| decoder.resolve_ref(attr).ok().flatten())
                                 .or_else(|| {
                                     // If EdgeStart is *, get from EdgeElement (IfcEdgeCurve)
-                                    oriented_edge.get(2)
+                                    oriented_edge
+                                        .get(2)
                                         .and_then(|attr| decoder.resolve_ref(attr).ok().flatten())
                                         .and_then(|edge_curve| {
                                             // IfcEdgeCurve: EdgeStart(0), EdgeEnd(1), EdgeGeometry(2)
-                                            edge_curve.get(0)
-                                                .and_then(|attr| decoder.resolve_ref(attr).ok().flatten())
+                                            edge_curve.get(0).and_then(|attr| {
+                                                decoder.resolve_ref(attr).ok().flatten()
+                                            })
                                         })
                                 });
 
                             if let Some(vertex) = vertex {
                                 // IfcVertexPoint has VertexGeometry (IfcCartesianPoint)
                                 if let Some(point_attr) = vertex.get(0) {
-                                    if let Some(point) = decoder.resolve_ref(point_attr).ok().flatten() {
-                                        if let Some(coords) = point.get(0).and_then(|v| v.as_list()) {
-                                            let x = coords.first().and_then(|v| v.as_float()).unwrap_or(0.0);
-                                            let y = coords.get(1).and_then(|v| v.as_float()).unwrap_or(0.0);
-                                            let z = coords.get(2).and_then(|v| v.as_float()).unwrap_or(0.0);
+                                    if let Some(point) =
+                                        decoder.resolve_ref(point_attr).ok().flatten()
+                                    {
+                                        if let Some(coords) = point.get(0).and_then(|v| v.as_list())
+                                        {
+                                            let x = coords
+                                                .first()
+                                                .and_then(|v| v.as_float())
+                                                .unwrap_or(0.0);
+                                            let y = coords
+                                                .get(1)
+                                                .and_then(|v| v.as_float())
+                                                .unwrap_or(0.0);
+                                            let z = coords
+                                                .get(2)
+                                                .and_then(|v| v.as_float())
+                                                .unwrap_or(0.0);
 
                                             polygon_points.push(Point3::new(x, y, z));
                                         }
@@ -457,12 +472,16 @@ impl AdvancedBrepProcessor {
         for bound in bounds {
             if let Some(bound_id) = bound.as_entity_ref() {
                 let bound_entity = decoder.decode_by_id(bound_id)?;
-                let loop_attr = bound_entity.get(0).ok_or_else(|| {
-                    Error::geometry("FaceBound missing Bound".to_string())
-                })?;
+                let loop_attr = bound_entity
+                    .get(0)
+                    .ok_or_else(|| Error::geometry("FaceBound missing Bound".to_string()))?;
 
                 if let Some(loop_entity) = decoder.resolve_ref(loop_attr)? {
-                    if loop_entity.ifc_type.as_str().eq_ignore_ascii_case("IFCEDGELOOP") {
+                    if loop_entity
+                        .ifc_type
+                        .as_str()
+                        .eq_ignore_ascii_case("IFCEDGELOOP")
+                    {
                         if let Some(edges_attr) = loop_entity.get(0) {
                             if let Some(edges) = edges_attr.as_list() {
                                 for edge_ref in edges {
@@ -472,18 +491,27 @@ impl AdvancedBrepProcessor {
                                             // EdgeStart/EdgeEnd can be * (null), get from EdgeElement if needed
 
                                             // Try to get start vertex from OrientedEdge first
-                                            let start_vertex = oriented_edge.get(0)
-                                                .and_then(|attr| decoder.resolve_ref(attr).ok().flatten());
+                                            let start_vertex =
+                                                oriented_edge.get(0).and_then(|attr| {
+                                                    decoder.resolve_ref(attr).ok().flatten()
+                                                });
 
                                             // If null, get from EdgeElement (attribute 2)
                                             let vertex = if start_vertex.is_some() {
                                                 start_vertex
-                                            } else if let Some(edge_elem_attr) = oriented_edge.get(2) {
+                                            } else if let Some(edge_elem_attr) =
+                                                oriented_edge.get(2)
+                                            {
                                                 // Get EdgeElement (IfcEdgeCurve)
-                                                if let Some(edge_curve) = decoder.resolve_ref(edge_elem_attr).ok().flatten() {
+                                                if let Some(edge_curve) = decoder
+                                                    .resolve_ref(edge_elem_attr)
+                                                    .ok()
+                                                    .flatten()
+                                                {
                                                     // IfcEdgeCurve: 0=EdgeStart, 1=EdgeEnd, 2=EdgeGeometry
-                                                    edge_curve.get(0)
-                                                        .and_then(|attr| decoder.resolve_ref(attr).ok().flatten())
+                                                    edge_curve.get(0).and_then(|attr| {
+                                                        decoder.resolve_ref(attr).ok().flatten()
+                                                    })
                                                 } else {
                                                     None
                                                 }
@@ -494,12 +522,28 @@ impl AdvancedBrepProcessor {
                                             if let Some(vertex) = vertex {
                                                 // IfcVertexPoint: 0=VertexGeometry (IfcCartesianPoint)
                                                 if let Some(point_attr) = vertex.get(0) {
-                                                    if let Some(point) = decoder.resolve_ref(point_attr).ok().flatten() {
-                                                        if let Some(coords) = point.get(0).and_then(|v| v.as_list()) {
-                                                            let x = coords.first().and_then(|v| v.as_float()).unwrap_or(0.0);
-                                                            let y = coords.get(1).and_then(|v| v.as_float()).unwrap_or(0.0);
-                                                            let z = coords.get(2).and_then(|v| v.as_float()).unwrap_or(0.0);
-                                                            boundary_points.push(Point3::new(x, y, z));
+                                                    if let Some(point) = decoder
+                                                        .resolve_ref(point_attr)
+                                                        .ok()
+                                                        .flatten()
+                                                    {
+                                                        if let Some(coords) =
+                                                            point.get(0).and_then(|v| v.as_list())
+                                                        {
+                                                            let x = coords
+                                                                .first()
+                                                                .and_then(|v| v.as_float())
+                                                                .unwrap_or(0.0);
+                                                            let y = coords
+                                                                .get(1)
+                                                                .and_then(|v| v.as_float())
+                                                                .unwrap_or(0.0);
+                                                            let z = coords
+                                                                .get(2)
+                                                                .and_then(|v| v.as_float())
+                                                                .unwrap_or(0.0);
+                                                            boundary_points
+                                                                .push(Point3::new(x, y, z));
                                                         }
                                                     }
                                                 }
@@ -542,10 +586,15 @@ impl AdvancedBrepProcessor {
         // Handle angle wrapping (if angles span across -π/π boundary)
         if max_angle - min_angle > std::f64::consts::PI * 1.5 {
             // Likely wraps around, recalculate with positive angles
-            let positive_angles: Vec<f64> = local_points.iter()
+            let positive_angles: Vec<f64> = local_points
+                .iter()
                 .map(|p| {
                     let a = p.y.atan2(p.x);
-                    if a < 0.0 { a + 2.0 * std::f64::consts::PI } else { a }
+                    if a < 0.0 {
+                        a + 2.0 * std::f64::consts::PI
+                    } else {
+                        a
+                    }
                 })
                 .collect();
             min_angle = positive_angles.iter().cloned().fold(f64::MAX, f64::min);
@@ -558,7 +607,8 @@ impl AdvancedBrepProcessor {
 
         // Balance between accuracy and matching web-ifc's output
         // Use ~15 degrees per segment (π/12) for good curvature approximation
-        let angle_segments = ((angle_span / (std::f64::consts::PI / 12.0)).ceil() as usize).clamp(3, 16);
+        let angle_segments =
+            ((angle_span / (std::f64::consts::PI / 12.0)).ceil() as usize).clamp(3, 16);
         // Height segments based on aspect ratio - at least 1, more for tall cylinders
         let height_segments = ((height / (radius * 2.0)).ceil() as usize).clamp(1, 4);
 

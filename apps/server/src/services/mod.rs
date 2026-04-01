@@ -15,6 +15,8 @@ pub mod streaming;
 pub use data_model::extract_data_model;
 pub use parquet::{serialize_to_parquet, ParquetError};
 pub use parquet_data_model::serialize_data_model_to_parquet;
-pub use parquet_optimized::{serialize_to_parquet_optimized_with_stats, OptimizedStats, VERTEX_MULTIPLIER};
+pub use parquet_optimized::{
+    serialize_to_parquet_optimized_with_stats, OptimizedStats, VERTEX_MULTIPLIER,
+};
 pub use processor::{process_geometry_filtered, OpeningFilterMode};
 pub use streaming::process_streaming;

@@ -7,15 +7,17 @@
 //! Handles IfcBooleanResult and IfcBooleanClippingResult for boolean operations
 //! (DIFFERENCE, UNION, INTERSECTION).
 
-use crate::{calculate_normals, ClippingProcessor, Error, Mesh, Point2, Point3, Profile2D, Result, Vector3};
+use crate::{
+    calculate_normals, ClippingProcessor, Error, Mesh, Point2, Point3, Profile2D, Result, Vector3,
+};
 use ifc_lite_core::{DecodedEntity, EntityDecoder, IfcSchema, IfcType};
 
-use crate::router::GeometryProcessor;
-use super::helpers::parse_axis2_placement_3d;
-use super::extrusion::ExtrudedAreaSolidProcessor;
-use super::tessellated::TriangulatedFaceSetProcessor;
 use super::brep::FacetedBrepProcessor;
-use super::swept::{SweptDiskSolidProcessor, RevolvedAreaSolidProcessor};
+use super::extrusion::ExtrudedAreaSolidProcessor;
+use super::helpers::parse_axis2_placement_3d;
+use super::swept::{RevolvedAreaSolidProcessor, SweptDiskSolidProcessor};
+use super::tessellated::TriangulatedFaceSetProcessor;
+use crate::router::GeometryProcessor;
 
 /// Maximum recursion depth for nested boolean operations.
 /// Prevents stack overflow from deeply nested IfcBooleanResult chains.
@@ -149,7 +151,8 @@ impl BooleanClippingProcessor {
             position_transform[(0, 2)],
             position_transform[(1, 2)],
             position_transform[(2, 2)],
-        ).normalize();
+        )
+        .normalize();
 
         Ok((location, normal, agreement))
     }
@@ -207,9 +210,9 @@ impl BooleanClippingProcessor {
                 )));
             }
 
-            let coords_attr = point
-                .get(0)
-                .ok_or_else(|| Error::geometry("IfcCartesianPoint missing coordinates".to_string()))?;
+            let coords_attr = point.get(0).ok_or_else(|| {
+                Error::geometry("IfcCartesianPoint missing coordinates".to_string())
+            })?;
             let coords = coords_attr
                 .as_list()
                 .ok_or_else(|| Error::geometry("Expected point coordinate list".to_string()))?;
@@ -330,17 +333,17 @@ impl BooleanClippingProcessor {
         plane_normal: Vector3<f64>,
         agreement: bool,
     ) -> Result<Mesh> {
-        let position_attr = half_space
-            .get(2)
-            .ok_or_else(|| Error::geometry("PolygonalBoundedHalfSpace missing Position".to_string()))?;
-        let position = decoder
-            .resolve_ref(position_attr)?
-            .ok_or_else(|| Error::geometry("Failed to resolve bounded half-space Position".to_string()))?;
+        let position_attr = half_space.get(2).ok_or_else(|| {
+            Error::geometry("PolygonalBoundedHalfSpace missing Position".to_string())
+        })?;
+        let position = decoder.resolve_ref(position_attr)?.ok_or_else(|| {
+            Error::geometry("Failed to resolve bounded half-space Position".to_string())
+        })?;
         let transform = parse_axis2_placement_3d(&position, decoder)?;
 
-        let boundary_attr = half_space
-            .get(3)
-            .ok_or_else(|| Error::geometry("PolygonalBoundedHalfSpace missing PolygonalBoundary".to_string()))?;
+        let boundary_attr = half_space.get(3).ok_or_else(|| {
+            Error::geometry("PolygonalBoundedHalfSpace missing PolygonalBoundary".to_string())
+        })?;
         let boundary = decoder
             .resolve_ref(boundary_attr)?
             .ok_or_else(|| Error::geometry("Failed to resolve PolygonalBoundary".to_string()))?;
@@ -348,8 +351,10 @@ impl BooleanClippingProcessor {
         let mut contour_2d = self.parse_polygonal_boundary_2d(&boundary, decoder)?;
 
         let origin = Point3::new(transform[(0, 3)], transform[(1, 3)], transform[(2, 3)]);
-        let x_axis = Vector3::new(transform[(0, 0)], transform[(1, 0)], transform[(2, 0)]).normalize();
-        let y_axis = Vector3::new(transform[(0, 1)], transform[(1, 1)], transform[(2, 1)]).normalize();
+        let x_axis =
+            Vector3::new(transform[(0, 0)], transform[(1, 0)], transform[(2, 0)]).normalize();
+        let y_axis =
+            Vector3::new(transform[(0, 1)], transform[(1, 1)], transform[(2, 1)]).normalize();
 
         let mut contour_world: Vec<Point3<f64>> = contour_2d
             .iter()
@@ -380,7 +385,8 @@ impl BooleanClippingProcessor {
             Point3::new(host_min.x as f64, host_max.y as f64, host_max.z as f64),
             Point3::new(host_max.x as f64, host_max.y as f64, host_max.z as f64),
         ];
-        let host_diag = ((host_max.x - host_min.x) as f64).hypot((host_max.y - host_min.y) as f64)
+        let host_diag = ((host_max.x - host_min.x) as f64)
+            .hypot((host_max.y - host_min.y) as f64)
             .hypot((host_max.z - host_min.z) as f64);
         let max_projection = host_corners
             .iter()
@@ -510,7 +516,10 @@ impl BooleanClippingProcessor {
 
         // Unknown operator - return first operand
         #[cfg(debug_assertions)]
-        eprintln!("[WARN] Unknown CSG operator {}, returning first operand", operator);
+        eprintln!(
+            "[WARN] Unknown CSG operator {}, returning first operand",
+            operator
+        );
         Ok(mesh)
     }
 }

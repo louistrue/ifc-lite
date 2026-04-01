@@ -22,13 +22,13 @@ pub struct LegacyEntityInfo {
 pub fn get_legacy_entity_info(entity_name: &str) -> Option<LegacyEntityInfo> {
     match entity_name {
         // === IFC4 entities removed in IFC4x3 ===
-        
+
         // Style entities
         "IFCPRESENTATIONSTYLEASSIGNMENT" => Some(LegacyEntityInfo {
             base_type: IfcType::IfcPresentationStyle,
             has_geometry: false,
         }),
-        
+
         // StandardCase variants (removed, use base type)
         "IFCBEAMSTANDARDCASE" => Some(LegacyEntityInfo {
             base_type: IfcType::IfcBeam,
@@ -62,7 +62,7 @@ pub fn get_legacy_entity_info(entity_name: &str) -> Option<LegacyEntityInfo> {
             base_type: IfcType::IfcOpeningElement,
             has_geometry: true,
         }),
-        
+
         // ElementedCase variants
         "IFCSLABELEMENTEDCASE" => Some(LegacyEntityInfo {
             base_type: IfcType::IfcSlab,
@@ -72,7 +72,7 @@ pub fn get_legacy_entity_info(entity_name: &str) -> Option<LegacyEntityInfo> {
             base_type: IfcType::IfcWall,
             has_geometry: true,
         }),
-        
+
         // Style entities (replaced by Type)
         "IFCDOORSTYLE" => Some(LegacyEntityInfo {
             base_type: IfcType::IfcDoorType,
@@ -82,13 +82,13 @@ pub fn get_legacy_entity_info(entity_name: &str) -> Option<LegacyEntityInfo> {
             base_type: IfcType::IfcWindowType,
             has_geometry: false,
         }),
-        
+
         // Deprecated generic element
         "IFCPROXY" => Some(LegacyEntityInfo {
             base_type: IfcType::IfcBuildingElementProxy,
             has_geometry: true,
         }),
-        
+
         // Abstract bases (removed, but rarely used directly)
         "IFCBUILDINGELEMENT" => Some(LegacyEntityInfo {
             base_type: IfcType::IfcBuiltElement,
@@ -98,7 +98,7 @@ pub fn get_legacy_entity_info(entity_name: &str) -> Option<LegacyEntityInfo> {
             base_type: IfcType::IfcBuiltElementType,
             has_geometry: false,
         }),
-        
+
         _ => None,
     }
 }

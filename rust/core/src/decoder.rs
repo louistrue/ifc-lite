@@ -171,7 +171,12 @@ impl<'a> EntityDecoder<'a> {
     /// Decode entity at byte offset with known ID (faster - checks cache before parsing)
     /// Use this when the scanner provides the entity ID to avoid re-parsing cached entities
     #[inline]
-    pub fn decode_at_with_id(&mut self, id: u32, start: usize, end: usize) -> Result<DecodedEntity> {
+    pub fn decode_at_with_id(
+        &mut self,
+        id: u32,
+        start: usize,
+        end: usize,
+    ) -> Result<DecodedEntity> {
         // Check cache first - avoid parsing if already decoded
         if let Some(entity_arc) = self.cache.get(&id) {
             return Ok(entity_arc.as_ref().clone());
@@ -296,9 +301,7 @@ impl<'a> EntityDecoder<'a> {
         // Find first '#' which is the entity ref
         while i < len {
             // Skip whitespace
-            while i < len
-                && (bytes[i] == b' ' || bytes[i] == b'\n' || bytes[i] == b'\r')
-            {
+            while i < len && (bytes[i] == b' ' || bytes[i] == b'\n' || bytes[i] == b'\r') {
                 i += 1;
             }
 

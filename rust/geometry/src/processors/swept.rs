@@ -4,10 +4,7 @@
 
 //! Swept geometry processors - SweptDiskSolid and RevolvedAreaSolid.
 
-use crate::{
-    profiles::ProfileProcessor,
-    Error, Mesh, Point3, Result, Vector3,
-};
+use crate::{profiles::ProfileProcessor, Error, Mesh, Point3, Result, Vector3};
 use ifc_lite_core::{DecodedEntity, EntityDecoder, IfcSchema, IfcType};
 
 use crate::router::GeometryProcessor;

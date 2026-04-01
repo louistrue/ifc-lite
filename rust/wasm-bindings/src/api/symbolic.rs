@@ -23,7 +23,10 @@ impl IfcAPI {
     /// }
     /// ```
     #[wasm_bindgen(js_name = parseSymbolicRepresentations)]
-    pub fn parse_symbolic_representations(&self, content: String) -> crate::zero_copy::SymbolicRepresentationCollection {
+    pub fn parse_symbolic_representations(
+        &self,
+        content: String,
+    ) -> crate::zero_copy::SymbolicRepresentationCollection {
         use crate::zero_copy::SymbolicRepresentationCollection;
         use ifc_lite_core::{build_entity_index, EntityDecoder, EntityScanner, IfcType};
 
@@ -109,7 +112,12 @@ impl IfcAPI {
                 // Get ObjectPlacement transform for symbolic representations.
                 // - Translations are accumulated directly (not rotated by parent)
                 // - Rotations ARE accumulated to orient symbols correctly
-                let placement_transform = get_object_placement_for_symbolic_logged(&entity, &mut decoder, unit_scale, None);
+                let placement_transform = get_object_placement_for_symbolic_logged(
+                    &entity,
+                    &mut decoder,
+                    unit_scale,
+                    None,
+                );
 
                 // Check ContextOfItems (attribute 0) for WorldCoordinateSystem
                 // Some Plan representations use a different coordinate system than Body
@@ -127,7 +135,8 @@ impl IfcAPI {
                             } else {
                                 Transform2D::identity()
                             }
-                        } else if context.ifc_type == IfcType::IfcGeometricRepresentationSubContext {
+                        } else if context.ifc_type == IfcType::IfcGeometricRepresentationSubContext
+                        {
                             // SubContext inherits from parent - for now use identity
                             // TODO: could recursively get parent context's WCS
                             Transform2D::identity()
@@ -182,7 +191,6 @@ impl IfcAPI {
             }
         }
 
-
         // Log bounding box of all symbolic geometry
         let mut min_x = f32::MAX;
         let mut min_y = f32::MAX;
@@ -226,7 +234,12 @@ struct Transform2D {
 
 impl Transform2D {
     fn identity() -> Self {
-        Self { tx: 0.0, ty: 0.0, cos_theta: 1.0, sin_theta: 0.0 }
+        Self {
+            tx: 0.0,
+            ty: 0.0,
+            cos_theta: 1.0,
+            sin_theta: 0.0,
+        }
     }
 
     fn transform_point(&self, x: f32, y: f32) -> (f32, f32) {
@@ -235,7 +248,6 @@ impl Transform2D {
         let ry = x * self.sin_theta + y * self.cos_theta;
         (rx + self.tx, ry + self.ty)
     }
-
 }
 
 /// Compose two 2D transforms: result = a * b (apply b first, then a)
@@ -299,7 +311,13 @@ fn resolve_placement_for_symbolic_with_logging(
     let parent_transform = if let Some(parent_attr) = placement.get(0) {
         if !parent_attr.is_null() {
             if let Ok(Some(parent)) = decoder.resolve_ref(parent_attr) {
-                resolve_placement_for_symbolic_with_logging(&parent, decoder, unit_scale, depth + 1, log_entity_id)
+                resolve_placement_for_symbolic_with_logging(
+                    &parent,
+                    decoder,
+                    unit_scale,
+                    depth + 1,
+                    log_entity_id,
+                )
             } else {
                 Transform2D::identity()
             }
@@ -314,7 +332,9 @@ fn resolve_placement_for_symbolic_with_logging(
     let local_transform = if let Some(rel_attr) = placement.get(1) {
         if !rel_attr.is_null() {
             if let Ok(Some(rel)) = decoder.resolve_ref(rel_attr) {
-                if rel.ifc_type == IfcType::IfcAxis2Placement3D || rel.ifc_type == IfcType::IfcAxis2Placement2D {
+                if rel.ifc_type == IfcType::IfcAxis2Placement3D
+                    || rel.ifc_type == IfcType::IfcAxis2Placement2D
+                {
                     parse_axis2_placement_2d(&rel, decoder, unit_scale)
                 } else {
                     Transform2D::identity()
@@ -336,20 +356,19 @@ fn resolve_placement_for_symbolic_with_logging(
     // still allowing correct orientation of symbols.
     // Compose transforms properly: rotate local translation by parent rotation
     let combined_cos = parent_transform.cos_theta * local_transform.cos_theta
-                     - parent_transform.sin_theta * local_transform.sin_theta;
+        - parent_transform.sin_theta * local_transform.sin_theta;
     let combined_sin = parent_transform.sin_theta * local_transform.cos_theta
-                     + parent_transform.cos_theta * local_transform.sin_theta;
+        + parent_transform.cos_theta * local_transform.sin_theta;
 
     // Rotate local translation by parent rotation before adding to parent translation
     let rotated_local_tx = local_transform.tx * parent_transform.cos_theta
-                         - local_transform.ty * parent_transform.sin_theta;
+        - local_transform.ty * parent_transform.sin_theta;
     let rotated_local_ty = local_transform.tx * parent_transform.sin_theta
-                         + local_transform.ty * parent_transform.cos_theta;
+        + local_transform.ty * parent_transform.cos_theta;
 
     let composed_tx = parent_transform.tx + rotated_local_tx;
     let composed_ty = parent_transform.ty + rotated_local_ty;
     let _composed_rot = combined_sin.atan2(combined_cos).to_degrees();
-
 
     Transform2D {
         tx: composed_tx,
@@ -413,20 +432,24 @@ fn parse_axis2_placement_2d_with_logging(
         (0.0, 0.0, None)
     };
 
-
     // Get RefDirection (attribute 2 for 3D, attribute 1 for 2D) to get rotation
     // RefDirection is the X-axis direction in the local coordinate system
     // Use X-Y components for floor plan rotation (Z is up)
-    let (cos_theta, sin_theta) = if let Some(ref_dir_attr) = placement.get(2).or_else(|| placement.get(1)) {
+    let (cos_theta, sin_theta) = if let Some(ref_dir_attr) =
+        placement.get(2).or_else(|| placement.get(1))
+    {
         if !ref_dir_attr.is_null() {
             if let Some(ref_dir_id) = ref_dir_attr.as_entity_ref() {
                 if let Ok(ref_dir) = decoder.decode_by_id(ref_dir_id) {
                     if ref_dir.ifc_type == IfcType::IfcDirection {
                         if let Some(ratios_attr) = ref_dir.get(0) {
                             if let Some(ratios) = ratios_attr.as_list() {
-                                let dx = ratios.first().and_then(|v| v.as_float()).unwrap_or(1.0) as f32;
-                                let dy = ratios.get(1).and_then(|v| v.as_float()).unwrap_or(0.0) as f32;
-                                let dz = ratios.get(2).and_then(|v| v.as_float()).unwrap_or(0.0) as f32;
+                                let dx =
+                                    ratios.first().and_then(|v| v.as_float()).unwrap_or(1.0) as f32;
+                                let dy =
+                                    ratios.get(1).and_then(|v| v.as_float()).unwrap_or(0.0) as f32;
+                                let dz =
+                                    ratios.get(2).and_then(|v| v.as_float()).unwrap_or(0.0) as f32;
 
                                 // Use X-Y for rotation (Z is up)
                                 let len = (dx * dx + dy * dy).sqrt();
@@ -461,7 +484,12 @@ fn parse_axis2_placement_2d_with_logging(
         (1.0, 0.0)
     };
 
-    Transform2D { tx, ty, cos_theta, sin_theta }
+    Transform2D {
+        tx,
+        ty,
+        cos_theta,
+        sin_theta,
+    }
 }
 
 /// Parse IfcCartesianTransformationOperator to get 2D transform
@@ -482,14 +510,26 @@ fn parse_cartesian_transformation_operator(
             if origin.ifc_type == IfcType::IfcCartesianPoint {
                 if let Some(coords_attr) = origin.get(0) {
                     if let Some(coords) = coords_attr.as_list() {
-                        let x = coords.first().and_then(|v| v.as_float()).unwrap_or(0.0) as f32 * unit_scale;
-                        let y = coords.get(1).and_then(|v| v.as_float()).unwrap_or(0.0) as f32 * unit_scale;
+                        let x = coords.first().and_then(|v| v.as_float()).unwrap_or(0.0) as f32
+                            * unit_scale;
+                        let y = coords.get(1).and_then(|v| v.as_float()).unwrap_or(0.0) as f32
+                            * unit_scale;
                         (x, y)
-                    } else { (0.0, 0.0) }
-                } else { (0.0, 0.0) }
-            } else { (0.0, 0.0) }
-        } else { (0.0, 0.0) }
-    } else { (0.0, 0.0) };
+                    } else {
+                        (0.0, 0.0)
+                    }
+                } else {
+                    (0.0, 0.0)
+                }
+            } else {
+                (0.0, 0.0)
+            }
+        } else {
+            (0.0, 0.0)
+        }
+    } else {
+        (0.0, 0.0)
+    };
 
     // Get Axis1 for rotation (attribute 0)
     let (cos_theta, sin_theta) = if let Some(axis1_ref) = operator.get_ref(0) {
@@ -505,13 +545,28 @@ fn parse_cartesian_transformation_operator(
                         } else {
                             (1.0, 0.0)
                         }
-                    } else { (1.0, 0.0) }
-                } else { (1.0, 0.0) }
-            } else { (1.0, 0.0) }
-        } else { (1.0, 0.0) }
-    } else { (1.0, 0.0) };
+                    } else {
+                        (1.0, 0.0)
+                    }
+                } else {
+                    (1.0, 0.0)
+                }
+            } else {
+                (1.0, 0.0)
+            }
+        } else {
+            (1.0, 0.0)
+        }
+    } else {
+        (1.0, 0.0)
+    };
 
-    Transform2D { tx, ty, cos_theta, sin_theta }
+    Transform2D {
+        tx,
+        ty,
+        cos_theta,
+        sin_theta,
+    }
 }
 
 /// Extract symbolic geometry from a representation item (recursive for IfcGeometricSet, IfcMappedItem)
@@ -583,7 +638,8 @@ fn extract_symbolic_item(
                     // Compose: entity_transform * mapping_target * mapping_origin
                     // The mapping origin defines where the mapped geometry's (0,0) is relative to entity
                     // The mapping target provides additional transformation
-                    let origin_with_target = compose_transforms(&mapping_target_transform, &mapping_origin_transform);
+                    let origin_with_target =
+                        compose_transforms(&mapping_target_transform, &mapping_origin_transform);
                     let composed_transform = compose_transforms(transform, &origin_with_target);
 
                     if let Some(mapped_rep_id) = rep_map.get_ref(1) {
@@ -624,8 +680,12 @@ fn extract_symbolic_item(
                         }
                         if let Some(coords_attr) = point_entity.get(0) {
                             if let Some(coords) = coords_attr.as_list() {
-                                let local_x = coords.first().and_then(|v| v.as_float()).unwrap_or(0.0) as f32 * unit_scale;
-                                let local_y = coords.get(1).and_then(|v| v.as_float()).unwrap_or(0.0) as f32 * unit_scale;
+                                let local_x =
+                                    coords.first().and_then(|v| v.as_float()).unwrap_or(0.0) as f32
+                                        * unit_scale;
+                                let local_y =
+                                    coords.get(1).and_then(|v| v.as_float()).unwrap_or(0.0) as f32
+                                        * unit_scale;
 
                                 // Apply full transform (rotation + translation) to orient symbols correctly.
                                 // The placement's rotation is accumulated from hierarchy to orient
@@ -650,7 +710,6 @@ fn extract_symbolic_item(
                             && (points[0] - points[n - 2]).abs() < 0.001
                             && (points[1] - points[n - 1]).abs() < 0.001;
 
-
                         collection.add_polyline(SymbolicPolyline::new(
                             express_id,
                             ifc_type.to_string(),
@@ -671,8 +730,14 @@ fn extract_symbolic_item(
                             let mut points: Vec<f32> = Vec::with_capacity(coord_list.len() * 2);
                             for coord in coord_list {
                                 if let Some(coords) = coord.as_list() {
-                                    let local_x = coords.first().and_then(|v| v.as_float()).unwrap_or(0.0) as f32 * unit_scale;
-                                    let local_y = coords.get(1).and_then(|v| v.as_float()).unwrap_or(0.0) as f32 * unit_scale;
+                                    let local_x =
+                                        coords.first().and_then(|v| v.as_float()).unwrap_or(0.0)
+                                            as f32
+                                            * unit_scale;
+                                    let local_y =
+                                        coords.get(1).and_then(|v| v.as_float()).unwrap_or(0.0)
+                                            as f32
+                                            * unit_scale;
 
                                     // Apply full transform (rotation + translation)
                                     let (wx, wy) = transform.transform_point(local_x, local_y);
@@ -724,15 +789,31 @@ fn extract_symbolic_item(
                         if let Ok(loc) = decoder.decode_by_id(loc_ref) {
                             if let Some(coords_attr) = loc.get(0) {
                                 if let Some(coords) = coords_attr.as_list() {
-                                    let x = coords.first().and_then(|v| v.as_float()).unwrap_or(0.0) as f32 * unit_scale;
-                                    let y = coords.get(1).and_then(|v| v.as_float()).unwrap_or(0.0) as f32 * unit_scale;
+                                    let x = coords.first().and_then(|v| v.as_float()).unwrap_or(0.0)
+                                        as f32
+                                        * unit_scale;
+                                    let y = coords.get(1).and_then(|v| v.as_float()).unwrap_or(0.0)
+                                        as f32
+                                        * unit_scale;
                                     (x, y)
-                                } else { (0.0, 0.0) }
-                            } else { (0.0, 0.0) }
-                        } else { (0.0, 0.0) }
-                    } else { (0.0, 0.0) }
-                } else { (0.0, 0.0) }
-            } else { (0.0, 0.0) };
+                                } else {
+                                    (0.0, 0.0)
+                                }
+                            } else {
+                                (0.0, 0.0)
+                            }
+                        } else {
+                            (0.0, 0.0)
+                        }
+                    } else {
+                        (0.0, 0.0)
+                    }
+                } else {
+                    (0.0, 0.0)
+                }
+            } else {
+                (0.0, 0.0)
+            };
 
             // Validate center coordinates
             if !center_x.is_finite() || !center_y.is_finite() {
@@ -744,7 +825,6 @@ fn extract_symbolic_item(
             let world_cx = wx - rtc_x;
             // Negate Y to match section cut coordinate system
             let world_cy = -wy + rtc_z;
-
 
             collection.add_circle(SymbolicCircle::full_circle(
                 express_id,
@@ -763,7 +843,9 @@ fn extract_symbolic_item(
                     if basis_curve.ifc_type == IfcType::IfcCircle {
                         // For simplicity, extract as polyline approximation of the arc
                         // Get radius and center
-                        let radius = basis_curve.get(1).and_then(|a| a.as_float()).unwrap_or(0.0) as f32 * unit_scale;
+                        let radius = basis_curve.get(1).and_then(|a| a.as_float()).unwrap_or(0.0)
+                            as f32
+                            * unit_scale;
 
                         // Skip invalid or degenerate radii
                         if radius <= 0.0 || !radius.is_finite() {
@@ -776,15 +858,37 @@ fn extract_symbolic_item(
                                     if let Ok(loc) = decoder.decode_by_id(loc_ref) {
                                         if let Some(coords_attr) = loc.get(0) {
                                             if let Some(coords) = coords_attr.as_list() {
-                                                let x = coords.first().and_then(|v| v.as_float()).unwrap_or(0.0) as f32 * unit_scale;
-                                                let y = coords.get(1).and_then(|v| v.as_float()).unwrap_or(0.0) as f32 * unit_scale;
+                                                let x = coords
+                                                    .first()
+                                                    .and_then(|v| v.as_float())
+                                                    .unwrap_or(0.0)
+                                                    as f32
+                                                    * unit_scale;
+                                                let y = coords
+                                                    .get(1)
+                                                    .and_then(|v| v.as_float())
+                                                    .unwrap_or(0.0)
+                                                    as f32
+                                                    * unit_scale;
                                                 (x, y)
-                                            } else { (0.0, 0.0) }
-                                        } else { (0.0, 0.0) }
-                                    } else { (0.0, 0.0) }
-                                } else { (0.0, 0.0) }
-                            } else { (0.0, 0.0) }
-                        } else { (0.0, 0.0) };
+                                            } else {
+                                                (0.0, 0.0)
+                                            }
+                                        } else {
+                                            (0.0, 0.0)
+                                        }
+                                    } else {
+                                        (0.0, 0.0)
+                                    }
+                                } else {
+                                    (0.0, 0.0)
+                                }
+                            } else {
+                                (0.0, 0.0)
+                            }
+                        } else {
+                            (0.0, 0.0)
+                        };
 
                         // Validate center coordinates
                         if !center_x.is_finite() || !center_y.is_finite() {
@@ -792,13 +896,21 @@ fn extract_symbolic_item(
                         }
 
                         // Get trim parameters (simplified - assume parameter values)
-                        let trim1 = item.get(1).and_then(|a| {
-                            a.as_list().and_then(|l| l.first().and_then(|v| v.as_float()))
-                        }).unwrap_or(0.0) as f32;
-                        let trim2 = item.get(2).and_then(|a| {
-                            a.as_list().and_then(|l| l.first().and_then(|v| v.as_float()))
-                        }).unwrap_or(std::f32::consts::TAU as f64) as f32;
-
+                        let trim1 = item
+                            .get(1)
+                            .and_then(|a| {
+                                a.as_list()
+                                    .and_then(|l| l.first().and_then(|v| v.as_float()))
+                            })
+                            .unwrap_or(0.0) as f32;
+                        let trim2 = item
+                            .get(2)
+                            .and_then(|a| {
+                                a.as_list()
+                                    .and_then(|l| l.first().and_then(|v| v.as_float()))
+                            })
+                            .unwrap_or(std::f32::consts::TAU as f64)
+                            as f32;
 
                         // Convert to arc and tessellate as polyline
                         let start_angle = trim1.to_radians().min(trim2.to_radians());
@@ -832,9 +944,14 @@ fn extract_symbolic_item(
 
                             // Distance from midpoint to chord line
                             let sagitta = ((end_y - start_y) * mid_x - (end_x - start_x) * mid_y
-                                          + end_x * start_y - end_y * start_x).abs() / chord_len;
+                                + end_x * start_y
+                                - end_y * start_x)
+                                .abs()
+                                / chord_len;
 
-                            radius > 100.0 || sagitta < chord_len * 0.02 || radius > chord_len * 10.0
+                            radius > 100.0
+                                || sagitta < chord_len * 0.02
+                                || radius > chord_len * 10.0
                         } else {
                             true // Very short arc, treat as point/line
                         };
@@ -855,7 +972,8 @@ fn extract_symbolic_item(
                         } else {
                             // Normal arc tessellation
                             let arc_length = (end_angle - start_angle).abs();
-                            let num_segments = ((arc_length * radius / 0.1) as usize).max(8).min(64);
+                            let num_segments =
+                                ((arc_length * radius / 0.1) as usize).max(8).min(64);
 
                             let mut points = Vec::with_capacity((num_segments + 1) * 2);
                             for i in 0..=num_segments {

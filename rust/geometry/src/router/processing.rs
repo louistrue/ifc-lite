@@ -6,7 +6,9 @@
 
 use super::GeometryRouter;
 use crate::{Error, Mesh, Result, SubMeshCollection};
-use ifc_lite_core::{has_geometry_by_name, DecodedEntity, EntityDecoder, GeometryCategory, IfcType};
+use ifc_lite_core::{
+    has_geometry_by_name, DecodedEntity, EntityDecoder, GeometryCategory, IfcType,
+};
 use nalgebra::Matrix4;
 use std::sync::Arc;
 
@@ -27,7 +29,11 @@ impl GeometryRouter {
         z.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
 
         let mid = x.len() / 2;
-        let centroid = (*x.get(mid).unwrap_or(&0.0), *y.get(mid).unwrap_or(&0.0), *z.get(mid).unwrap_or(&0.0));
+        let centroid = (
+            *x.get(mid).unwrap_or(&0.0),
+            *y.get(mid).unwrap_or(&0.0),
+            *z.get(mid).unwrap_or(&0.0),
+        );
 
         const THRESHOLD: f64 = 10000.0;
         if centroid.0.abs() > THRESHOLD
@@ -402,13 +408,13 @@ impl GeometryRouter {
                 .ok_or_else(|| Error::geometry("Failed to resolve MappingSource".to_string()))?;
 
             // Get MappedRepresentation from RepresentationMap (attribute 1)
-            let mapped_repr_attr = source_entity
-                .get(1)
-                .ok_or_else(|| Error::geometry("RepresentationMap missing MappedRepresentation".to_string()))?;
+            let mapped_repr_attr = source_entity.get(1).ok_or_else(|| {
+                Error::geometry("RepresentationMap missing MappedRepresentation".to_string())
+            })?;
 
-            let mapped_repr = decoder
-                .resolve_ref(mapped_repr_attr)?
-                .ok_or_else(|| Error::geometry("Failed to resolve MappedRepresentation".to_string()))?;
+            let mapped_repr = decoder.resolve_ref(mapped_repr_attr)?.ok_or_else(|| {
+                Error::geometry("Failed to resolve MappedRepresentation".to_string())
+            })?;
 
             // Get MappingTarget transformation
             let mapping_transform = if let Some(target_attr) = item.get(1) {
@@ -431,8 +437,8 @@ impl GeometryRouter {
                 for nested_item in items {
                     // Recursively collect sub-meshes (skip unsupported geometry types)
                     let count_before = sub_meshes.len();
-                    if let Err(_e) = self
-                        .collect_submeshes_from_item(&nested_item, decoder, sub_meshes)
+                    if let Err(_e) =
+                        self.collect_submeshes_from_item(&nested_item, decoder, sub_meshes)
                     {
                         #[cfg(debug_assertions)]
                         eprintln!(

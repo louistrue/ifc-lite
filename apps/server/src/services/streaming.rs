@@ -9,8 +9,8 @@ use crate::types::{CoordinateInfo, MeshData, ModelMetadata, ProcessingStats, Str
 use async_stream::stream;
 use futures::Stream;
 use ifc_lite_core::{
-    build_entity_index, scan_placement_bounds, DecodedEntity, EntityDecoder, EntityIndex, EntityScanner,
-    IfcType,
+    build_entity_index, scan_placement_bounds, DecodedEntity, EntityDecoder, EntityIndex,
+    EntityScanner, IfcType,
 };
 use ifc_lite_geometry::{calculate_normals, GeometryRouter};
 use rayon::prelude::*;
@@ -140,12 +140,16 @@ fn prepare_streaming_data(content: String) -> PreparedData {
     // Resolve site/building placement transforms for cache consistency
     let site_transform: Option<Vec<f64>> = site_entity_pos.and_then(|(start, end)| {
         let entity = decoder.decode_at(start, end).ok()?;
-        let matrix = router.resolve_scaled_placement(&entity, &mut decoder).ok()?;
+        let matrix = router
+            .resolve_scaled_placement(&entity, &mut decoder)
+            .ok()?;
         Some(matrix.to_vec())
     });
     let building_transform: Option<Vec<f64>> = building_entity_pos.and_then(|(start, end)| {
         let entity = decoder.decode_at(start, end).ok()?;
-        let matrix = router.resolve_scaled_placement(&entity, &mut decoder).ok()?;
+        let matrix = router
+            .resolve_scaled_placement(&entity, &mut decoder)
+            .ok()?;
         Some(matrix.to_vec())
     });
 
@@ -184,8 +188,7 @@ fn process_batch(
 ) -> Vec<MeshData> {
     jobs.par_iter()
         .filter_map(|job| {
-            let mut local_decoder =
-                EntityDecoder::with_arc_index(&content, entity_index.clone());
+            let mut local_decoder = EntityDecoder::with_arc_index(&content, entity_index.clone());
 
             if let Ok(entity) = local_decoder.decode_at(job.start, job.end) {
                 let has_representation = entity.get(6).is_some_and(|a| !a.is_null());
@@ -231,8 +234,8 @@ fn process_batch(
 /// Calculate dynamic batch size based on batch number and total job count.
 /// For large files, use MUCH larger batches to maximize parallel throughput and reduce overhead.
 fn calculate_batch_size(
-    batch_number: usize, 
-    initial_batch_size: usize, 
+    batch_number: usize,
+    initial_batch_size: usize,
     max_batch_size: usize,
     total_jobs: usize,
 ) -> usize {
@@ -249,11 +252,11 @@ fn calculate_batch_size(
     } else {
         max_batch_size
     };
-    
+
     match batch_number {
-        1..=2 => initial_batch_size,                    // Fast first frame (2 batches for quick start)
-        3..=5 => (initial_batch_size + adjusted_max) / 2,  // Ramp up quickly
-        _ => adjusted_max,                              // Full throughput (much larger batches)
+        1..=2 => initial_batch_size, // Fast first frame (2 batches for quick start)
+        3..=5 => (initial_batch_size + adjusted_max) / 2, // Ramp up quickly
+        _ => adjusted_max,           // Full throughput (much larger batches)
     }
 }
 
@@ -306,18 +309,18 @@ pub fn process_streaming(
         let mut next_batch_num = 1;
         let mut next_expected_batch = 1;
         let mut completed_batches: std::collections::BTreeMap<usize, (usize, String, Vec<MeshData>)> = std::collections::BTreeMap::new();
-        
+
         // Use a channel to receive completed batches
         let (tx, mut rx) = mpsc::unbounded_channel::<(usize, Result<(usize, String, Vec<MeshData>), String>)>();
         let mut in_flight = 0;
-        
+
         loop {
             // Start new batches up to pipeline depth
             while in_flight < pipeline_depth && job_index < prepared.jobs.len() {
                 let batch_num = next_batch_num;
                 next_batch_num += 1;
                 in_flight += 1;
-                
+
                 let current_batch_size = calculate_batch_size(
                     batch_num,
                     initial_batch_size,
@@ -327,10 +330,10 @@ pub fn process_streaming(
                 let end_index = (job_index + current_batch_size).min(prepared.jobs.len());
                 let chunk: Vec<EntityJob> = prepared.jobs[job_index..end_index].to_vec();
                 job_index = end_index;
-                
+
                 let chunk_len = chunk.len();
                 let last_type_name = chunk.last().map(|j| j.type_name.clone()).unwrap_or_default();
-                
+
                 let chunk_vec = chunk;
                 let content_bg = prepared.content.clone();
                 let index_bg = prepared.entity_index.clone();
@@ -345,16 +348,16 @@ pub fn process_streaming(
                     let result = tokio::task::spawn_blocking(move || {
                         process_batch(chunk_vec, content_bg, index_bg, style_bg, void_bg, unit_scale, rtc_offset)
                     }).await;
-                    
+
                     let batch_result = match result {
                         Ok(meshes) => Ok((chunk_len, last_type_name, meshes)),
                         Err(e) => Err(format!("Batch processing failed: {}", e)),
                     };
-                    
+
                     let _ = tx_clone.send((batch_num, batch_result));
                 });
             }
-            
+
             // Receive completed batches (non-blocking)
             while let Ok((batch_num, result)) = rx.try_recv() {
                 in_flight -= 1;
@@ -369,7 +372,7 @@ pub fn process_streaming(
                     }
                 }
             }
-            
+
             // Yield completed batches in order
             while let Some((chunk_len, last_type_name, meshes)) = completed_batches.remove(&next_expected_batch) {
                 total_processed += chunk_len;
@@ -394,15 +397,15 @@ pub fn process_streaming(
                     total: total_jobs,
                     current_type: last_type_name,
                 };
-                
+
                 next_expected_batch += 1;
             }
-            
+
             // Check if we're done
             if job_index >= prepared.jobs.len() && in_flight == 0 && completed_batches.is_empty() {
                 break;
             }
-            
+
             // Yield control to allow other tasks to run
             tokio::task::yield_now().await;
         }
@@ -450,10 +453,7 @@ pub fn process_streaming(
 /// OPTIMIZATION: Build both style indices in a single pass through entities.
 /// Previously, build_geometry_style_index and build_element_style_index each scanned all entities.
 /// This combined function scans once and builds both maps together, reducing I/O overhead.
-fn build_style_indices(
-    content: &str,
-    decoder: &mut EntityDecoder,
-) -> FxHashMap<u32, [f32; 4]> {
+fn build_style_indices(content: &str, decoder: &mut EntityDecoder) -> FxHashMap<u32, [f32; 4]> {
     // Phase 1: Single scan to collect styled items and geometry-bearing elements
     let mut geometry_styles: FxHashMap<u32, [f32; 4]> = FxHashMap::default();
     let mut element_repr_ids: Vec<(u32, u32)> = Vec::with_capacity(2000); // (element_id, repr_id)

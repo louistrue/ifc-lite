@@ -87,7 +87,9 @@ pub use fast_parse::{
 };
 pub use generated::{has_geometry_by_name, IfcType};
 pub use georef::{GeoRefExtractor, GeoReference, RtcOffset};
-pub use legacy_entities::{get_legacy_entity_info, is_legacy_entity, map_legacy_to_base_type, LegacyEntityInfo};
+pub use legacy_entities::{
+    get_legacy_entity_info, is_legacy_entity, map_legacy_to_base_type, LegacyEntityInfo,
+};
 pub use model_bounds::{scan_model_bounds, scan_placement_bounds, ModelBounds};
 pub use parser::{parse_entity, EntityScanner, Token};
 pub use schema_gen::{AttributeValue, DecodedEntity, GeometryCategory, IfcSchema, ProfileCategory};

@@ -212,12 +212,12 @@ if (!('encodeInto' in cachedTextEncoder)) {
 
 let WASM_VECTOR_LEN = 0;
 
-function __wasm_bindgen_func_elem_1127(arg0, arg1, arg2) {
-    wasm.__wasm_bindgen_func_elem_1127(arg0, arg1, addHeapObject(arg2));
+function __wasm_bindgen_func_elem_1129(arg0, arg1, arg2) {
+    wasm.__wasm_bindgen_func_elem_1129(arg0, arg1, addHeapObject(arg2));
 }
 
-function __wasm_bindgen_func_elem_1167(arg0, arg1, arg2, arg3) {
-    wasm.__wasm_bindgen_func_elem_1167(arg0, arg1, addHeapObject(arg2), addHeapObject(arg3));
+function __wasm_bindgen_func_elem_1168(arg0, arg1, arg2, arg3) {
+    wasm.__wasm_bindgen_func_elem_1168(arg0, arg1, addHeapObject(arg2), addHeapObject(arg3));
 }
 
 const GeoReferenceJsFinalization = (typeof FinalizationRegistry === 'undefined')
@@ -1406,6 +1406,32 @@ export class IfcAPI {
         const len0 = WASM_VECTOR_LEN;
         const ret = wasm.ifcapi_parseToGpuInstancedGeometry(this.__wbg_ptr, ptr0, len0);
         return GpuInstancedGeometryCollection.__wrap(ret);
+    }
+    /**
+     * Process instanced geometry for a subset of pre-scanned entities.
+     * Takes raw bytes and pre-pass data from buildPrePassOnce.
+     * @param {Uint8Array} data
+     * @param {Uint32Array} jobs_flat
+     * @param {number} unit_scale
+     * @param {number} rtc_x
+     * @param {number} rtc_y
+     * @param {number} rtc_z
+     * @param {boolean} needs_shift
+     * @param {Uint32Array} style_ids
+     * @param {Uint8Array} style_colors
+     * @returns {InstancedMeshCollection}
+     */
+    processInstancedGeometryBatch(data, jobs_flat, unit_scale, rtc_x, rtc_y, rtc_z, needs_shift, style_ids, style_colors) {
+        const ptr0 = passArray8ToWasm0(data, wasm.__wbindgen_export3);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passArray32ToWasm0(jobs_flat, wasm.__wbindgen_export3);
+        const len1 = WASM_VECTOR_LEN;
+        const ptr2 = passArray32ToWasm0(style_ids, wasm.__wbindgen_export3);
+        const len2 = WASM_VECTOR_LEN;
+        const ptr3 = passArray8ToWasm0(style_colors, wasm.__wbindgen_export3);
+        const len3 = WASM_VECTOR_LEN;
+        const ret = wasm.ifcapi_processInstancedGeometryBatch(this.__wbg_ptr, ptr0, len0, ptr1, len1, unit_scale, rtc_x, rtc_y, rtc_z, needs_shift, ptr2, len2, ptr3, len3);
+        return InstancedMeshCollection.__wrap(ret);
     }
     /**
      * Parse IFC file with zero-copy mesh data
@@ -3049,7 +3075,7 @@ function __wbg_get_imports() {
                 const a = state0.a;
                 state0.a = 0;
                 try {
-                    return __wasm_bindgen_func_elem_1167(a, state0.b, arg0, arg1);
+                    return __wasm_bindgen_func_elem_1168(a, state0.b, arg0, arg1);
                 } finally {
                     state0.a = a;
                 }
@@ -3163,7 +3189,7 @@ function __wbg_get_imports() {
     };
     imports.wbg.__wbindgen_cast_8410bcb836a2825d = function(arg0, arg1) {
         // Cast intrinsic for `Closure(Closure { dtor_idx: 145, function: Function { arguments: [Externref], shim_idx: 146, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
-        const ret = makeMutClosure(arg0, arg1, wasm.__wasm_bindgen_func_elem_1126, __wasm_bindgen_func_elem_1127);
+        const ret = makeMutClosure(arg0, arg1, wasm.__wasm_bindgen_func_elem_1128, __wasm_bindgen_func_elem_1129);
         return addHeapObject(ret);
     };
     imports.wbg.__wbindgen_cast_d6cd19b81560fd6e = function(arg0) {

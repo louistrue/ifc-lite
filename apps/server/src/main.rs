@@ -21,6 +21,7 @@
 //! - `POST /api/v1/parse/parquet/optimized` - ara3d BOS-optimized format (~50x smaller)
 //! - `GET /api/v1/cache/:key` - Retrieve cached result
 
+use axum::http::{header, HeaderValue, Method};
 use axum::{
     extract::DefaultBodyLimit,
     routing::{get, post},
@@ -30,12 +31,8 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 use tower_http::{
-    compression::CompressionLayer,
-    cors::CorsLayer,
-    timeout::TimeoutLayer,
-    trace::TraceLayer,
+    compression::CompressionLayer, cors::CorsLayer, timeout::TimeoutLayer, trace::TraceLayer,
 };
-use axum::http::{header, HeaderValue, Method};
 
 mod config;
 mod error;
@@ -59,7 +56,9 @@ fn build_cors_layer(config: &Config) -> CorsLayer {
         CorsLayer::permissive()
     } else {
         tracing::info!("CORS configured for origins: {:?}", config.cors_origins);
-        let origins: Vec<HeaderValue> = config.cors_origins.iter()
+        let origins: Vec<HeaderValue> = config
+            .cors_origins
+            .iter()
             .filter_map(|o| o.parse::<HeaderValue>().ok())
             .collect();
 
@@ -83,7 +82,8 @@ async fn main() {
     // Initialize logging
     tracing_subscriber::fmt()
         .with_env_filter(
-            std::env::var("RUST_LOG").unwrap_or_else(|_| "info,tower_http=debug,ifc_lite_server=debug".into()),
+            std::env::var("RUST_LOG")
+                .unwrap_or_else(|_| "info,tower_http=debug,ifc_lite_server=debug".into()),
         )
         .pretty()
         .init();
@@ -122,15 +122,30 @@ async fn main() {
         // Parse endpoints
         .route("/api/v1/parse", post(routes::parse::parse_full))
         .route("/api/v1/parse/stream", post(routes::parse::parse_stream))
-        .route("/api/v1/parse/parquet-stream", post(routes::parse::parse_parquet_stream))
-        .route("/api/v1/parse/metadata", post(routes::parse::parse_metadata))
+        .route(
+            "/api/v1/parse/parquet-stream",
+            post(routes::parse::parse_parquet_stream),
+        )
+        .route(
+            "/api/v1/parse/metadata",
+            post(routes::parse::parse_metadata),
+        )
         .route("/api/v1/parse/parquet", post(routes::parse::parse_parquet))
-        .route("/api/v1/parse/parquet/optimized", post(routes::parse::parse_parquet_optimized))
-        .route("/api/v1/parse/data-model/:cache_key", get(routes::parse::get_data_model))
+        .route(
+            "/api/v1/parse/parquet/optimized",
+            post(routes::parse::parse_parquet_optimized),
+        )
+        .route(
+            "/api/v1/parse/data-model/:cache_key",
+            get(routes::parse::get_data_model),
+        )
         // Cache endpoints
         .route("/api/v1/cache/{key}", get(routes::cache::get_cached))
         .route("/api/v1/cache/check/:hash", get(routes::parse::check_cache))
-        .route("/api/v1/cache/geometry/:hash", get(routes::parse::get_cached_geometry))
+        .route(
+            "/api/v1/cache/geometry/:hash",
+            get(routes::parse::get_cached_geometry),
+        )
         // Middleware
         .layer(DefaultBodyLimit::max(config.max_file_size_mb * 1024 * 1024)) // Match max_file_size_mb
         .layer(CompressionLayer::new()) // Compress responses (gzip)

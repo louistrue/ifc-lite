@@ -58,11 +58,11 @@ fn test_parse_direction() {
 /// chamfers at wall-to-wall joints, but openings are positioned on the wall face
 /// (length x height). These are perpendicular coordinate systems.
 mod wall_profile_research {
-    use crate::extrusion::extrude_profile;
     use crate::bool2d::subtract_2d;
+    use crate::extrusion::extrude_profile;
     use crate::profile::Profile2D;
-    use crate::Point3;
     use crate::router::GeometryRouter;
+    use crate::Point3;
     use nalgebra::Point2;
 
     /// Test 1: Chamfered Footprint Extrusion
@@ -74,11 +74,11 @@ mod wall_profile_research {
         // Chamfered wall footprint from AC20-FZK-Haus.ifc example
         // 5 points indicate chamfered corners (vs 4 for rectangle)
         let footprint = Profile2D::new(vec![
-            Point2::new(0.300, -0.300),   // chamfer start
-            Point2::new(9.700, -0.300),   // chamfer end
-            Point2::new(10.000, 0.000),   // corner
-            Point2::new(0.000, 0.000),    // corner
-            Point2::new(0.300, -0.300),   // closing point
+            Point2::new(0.300, -0.300), // chamfer start
+            Point2::new(9.700, -0.300), // chamfer end
+            Point2::new(10.000, 0.000), // corner
+            Point2::new(0.000, 0.000),  // corner
+            Point2::new(0.300, -0.300), // closing point
         ]);
 
         // X = wall length (10m), Y = wall thickness (0.3m)
@@ -114,7 +114,7 @@ mod wall_profile_research {
         // IFC Profile Space (footprint, XY plane)
         // Represents wall footprint looking from above
         let footprint_profile = Profile2D::new(vec![
-            Point2::new(0.3, -0.3),   // chamfer
+            Point2::new(0.3, -0.3), // chamfer
             Point2::new(9.7, -0.3), // chamfer
             Point2::new(10.0, 0.0), // corner
             Point2::new(0.0, 0.0),  // corner
@@ -124,7 +124,7 @@ mod wall_profile_research {
         // Wall Face Space (face, XZ plane)
         // Represents wall face looking from side - where openings are positioned
         let wall_face_profile = Profile2D::new(vec![
-            Point2::new(0.0, 0.0),   // bottom-left
+            Point2::new(0.0, 0.0),  // bottom-left
             Point2::new(10.0, 0.0), // bottom-right
             Point2::new(10.0, 2.7), // top-right
             Point2::new(0.0, 2.7),  // top-left
@@ -135,15 +135,29 @@ mod wall_profile_research {
         // The face is always rectangular because chamfers only affect horizontal edges
 
         // Verify both profiles have correct dimensions
-        let footprint_bounds = footprint_profile.outer.iter()
-            .fold((f64::MAX, f64::MAX, f64::MIN, f64::MIN), |(min_x, min_y, max_x, max_y), p| {
-                (min_x.min(p.x), min_y.min(p.y), max_x.max(p.x), max_y.max(p.y))
-            });
+        let footprint_bounds = footprint_profile.outer.iter().fold(
+            (f64::MAX, f64::MAX, f64::MIN, f64::MIN),
+            |(min_x, min_y, max_x, max_y), p| {
+                (
+                    min_x.min(p.x),
+                    min_y.min(p.y),
+                    max_x.max(p.x),
+                    max_y.max(p.y),
+                )
+            },
+        );
 
-        let face_bounds = wall_face_profile.outer.iter()
-            .fold((f64::MAX, f64::MAX, f64::MIN, f64::MIN), |(min_x, min_y, max_x, max_y), p| {
-                (min_x.min(p.x), min_y.min(p.y), max_x.max(p.x), max_y.max(p.y))
-            });
+        let face_bounds = wall_face_profile.outer.iter().fold(
+            (f64::MAX, f64::MAX, f64::MIN, f64::MIN),
+            |(min_x, min_y, max_x, max_y), p| {
+                (
+                    min_x.min(p.x),
+                    min_y.min(p.y),
+                    max_x.max(p.x),
+                    max_y.max(p.y),
+                )
+            },
+        );
 
         let _footprint_bounds = footprint_bounds; // Suppress unused warning
         let _face_bounds = face_bounds;
@@ -165,10 +179,10 @@ mod wall_profile_research {
     fn test_opening_projection_strategy() {
         // Opening in wall-face coords (length x height)
         // Example from AC20-FZK-Haus.ifc: window at (6.495, 0.8) to (8.495, 2.0)
-        let opening_face_min_u = 6.495;  // position along wall length
-        let opening_face_min_v = 0.8;    // height from bottom
-        let opening_face_max_u = 8.495;  // position along wall length
-        let opening_face_max_v = 2.0;    // height from top
+        let opening_face_min_u = 6.495; // position along wall length
+        let opening_face_min_v = 0.8; // height from bottom
+        let opening_face_max_u = 8.495; // position along wall length
+        let opening_face_max_v = 2.0; // height from top
 
         // The opening doesn't intersect the chamfer area
         // Chamfers are at corners: 0-0.3m and 9.7-10m along length
@@ -278,7 +292,9 @@ mod wall_profile_research {
         let opening_max = Point3::new(opening_max_u, 0.0, opening_max_v);
 
         // Subtract the opening box from chamfered wall
-        let result = clipper.subtract_box(&chamfered_wall, opening_min, opening_max).unwrap();
+        let result = clipper
+            .subtract_box(&chamfered_wall, opening_min, opening_max)
+            .unwrap();
 
         let final_vertex_count = result.vertex_count();
         let final_triangle_count = result.triangle_count();
@@ -292,9 +308,10 @@ mod wall_profile_research {
 
         // The hybrid approach should be more efficient than full CSG
         // but still generate reasonable geometry
-        println!("Hybrid approach: {} verts, {} tris (was {} verts, {} tris)",
-                 final_vertex_count, final_triangle_count,
-                 initial_vertex_count, initial_triangle_count);
+        println!(
+            "Hybrid approach: {} verts, {} tris (was {} verts, {} tris)",
+            final_vertex_count, final_triangle_count, initial_vertex_count, initial_triangle_count
+        );
     }
 
     /// Test 6: Benchmark Comparison
@@ -364,7 +381,9 @@ mod wall_profile_research {
         for (min_u, min_v, max_u, max_v) in openings {
             let opening_min = Point3::new(min_u, -0.3, min_v);
             let opening_max = Point3::new(max_u, 0.0, max_v);
-            mesh_c = clipper.subtract_box(&mesh_c, opening_min, opening_max).unwrap();
+            mesh_c = clipper
+                .subtract_box(&mesh_c, opening_min, opening_max)
+                .unwrap();
         }
 
         let verts_c = mesh_c.vertex_count();
@@ -372,13 +391,25 @@ mod wall_profile_research {
 
         // Document the comparison
         println!("\n=== Benchmark Comparison ===");
-        println!("Approach A (chamfered, no openings): {} verts, {} tris", verts_a, tris_a);
-        println!("Approach B (rectangular, with openings): {} verts, {} tris", verts_b, tris_b);
-        println!("Approach C (hybrid, chamfered + openings): {} verts, {} tris", verts_c, tris_c);
+        println!(
+            "Approach A (chamfered, no openings): {} verts, {} tris",
+            verts_a, tris_a
+        );
+        println!(
+            "Approach B (rectangular, with openings): {} verts, {} tris",
+            verts_b, tris_b
+        );
+        println!(
+            "Approach C (hybrid, chamfered + openings): {} verts, {} tris",
+            verts_c, tris_c
+        );
         println!("\nKey Insights:");
         println!("- Approach B loses chamfers (not acceptable)");
         println!("- Approach C preserves chamfers AND adds openings");
-        println!("- Approach C vertex count: {} (target: <200 for efficiency)", verts_c);
+        println!(
+            "- Approach C vertex count: {} (target: <200 for efficiency)",
+            verts_c
+        );
 
         // Approach B should have more vertices due to openings
         assert!(verts_b > verts_a);
@@ -390,7 +421,10 @@ mod wall_profile_research {
         // Approach C should be more efficient than full 3D CSG
         // Current CSG generates ~650 verts for 3 openings
         // Target: ~150-200 verts
-        assert!(verts_c < 700, "Hybrid approach should be more efficient than full CSG");
+        assert!(
+            verts_c < 700,
+            "Hybrid approach should be more efficient than full CSG"
+        );
     }
 
     /// Test 7: Optimized Implementation Benchmark
@@ -417,12 +451,22 @@ mod wall_profile_research {
 
         // Get wall bounds for the optimized function
         let (wall_min_f32, wall_max_f32) = wall_mesh.bounds();
-        let wall_min = Point3::new(wall_min_f32.x as f64, wall_min_f32.y as f64, wall_min_f32.z as f64);
-        let wall_max = Point3::new(wall_max_f32.x as f64, wall_max_f32.y as f64, wall_max_f32.z as f64);
+        let wall_min = Point3::new(
+            wall_min_f32.x as f64,
+            wall_min_f32.y as f64,
+            wall_min_f32.z as f64,
+        );
+        let wall_max = Point3::new(
+            wall_max_f32.x as f64,
+            wall_max_f32.y as f64,
+            wall_max_f32.z as f64,
+        );
 
         // Test CSG approach (old)
         let clipper = ClippingProcessor::new();
-        let csg_result = clipper.subtract_box(&wall_mesh, open_min, open_max).unwrap();
+        let csg_result = clipper
+            .subtract_box(&wall_mesh, open_min, open_max)
+            .unwrap();
         let csg_verts = csg_result.vertex_count();
         let csg_tris = csg_result.triangle_count();
 
@@ -433,7 +477,10 @@ mod wall_profile_research {
         let opt_tris = opt_result.triangle_count();
 
         println!("\n=== Optimized vs CSG Comparison ===");
-        println!("Initial wall: {} verts, {} tris", initial_verts, initial_tris);
+        println!(
+            "Initial wall: {} verts, {} tris",
+            initial_verts, initial_tris
+        );
         println!("CSG approach: {} verts, {} tris", csg_verts, csg_tris);
         println!("Optimized approach: {} verts, {} tris", opt_verts, opt_tris);
 
@@ -458,10 +505,10 @@ mod wall_profile_research {
     fn test_chamfer_preservation_analysis() {
         // Chamfered footprint
         let chamfered = Profile2D::new(vec![
-            Point2::new(0.3, -0.3),   // chamfer start
-            Point2::new(9.7, -0.3),   // chamfer end
-            Point2::new(10.0, 0.0),   // corner
-            Point2::new(0.0, 0.0),    // corner
+            Point2::new(0.3, -0.3), // chamfer start
+            Point2::new(9.7, -0.3), // chamfer end
+            Point2::new(10.0, 0.0), // corner
+            Point2::new(0.0, 0.0),  // corner
         ]);
 
         // Rectangular footprint (no chamfers)

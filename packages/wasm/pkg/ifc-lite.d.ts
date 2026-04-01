@@ -413,6 +413,11 @@ export class IfcAPI {
    */
   parseToGpuInstancedGeometry(content: string): GpuInstancedGeometryCollection;
   /**
+   * Process instanced geometry for a subset of pre-scanned entities.
+   * Takes raw bytes and pre-pass data from buildPrePassOnce.
+   */
+  processInstancedGeometryBatch(data: Uint8Array, jobs_flat: Uint32Array, unit_scale: number, rtc_x: number, rtc_y: number, rtc_z: number, needs_shift: boolean, style_ids: Uint32Array, style_colors: Uint8Array): InstancedMeshCollection;
+  /**
    * Parse IFC file with zero-copy mesh data
    * Maximum performance - returns mesh with direct memory access
    *
@@ -1068,6 +1073,7 @@ export interface InitOutput {
   readonly ifcapi_parseToGpuInstancedGeometry: (a: number, b: number, c: number) => number;
   readonly ifcapi_parseZeroCopy: (a: number, b: number, c: number) => number;
   readonly ifcapi_processGeometryBatch: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number, l: number, m: number, n: number, o: number, p: number, q: number, r: number, s: number, t: number) => number;
+  readonly ifcapi_processInstancedGeometryBatch: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number, l: number, m: number, n: number) => number;
   readonly ifcapi_scanEntitiesFast: (a: number, b: number, c: number) => number;
   readonly ifcapi_scanEntitiesFastBytes: (a: number, b: number, c: number) => number;
   readonly ifcapi_scanGeometryEntitiesFast: (a: number, b: number, c: number) => number;
@@ -1177,9 +1183,9 @@ export interface InitOutput {
   readonly profileentryjs_expressId: (a: number) => number;
   readonly symboliccircle_expressId: (a: number) => number;
   readonly __wbg_gpuinstancedgeometryref_free: (a: number, b: number) => void;
-  readonly __wasm_bindgen_func_elem_1127: (a: number, b: number, c: number) => void;
-  readonly __wasm_bindgen_func_elem_1126: (a: number, b: number) => void;
-  readonly __wasm_bindgen_func_elem_1167: (a: number, b: number, c: number, d: number) => void;
+  readonly __wasm_bindgen_func_elem_1129: (a: number, b: number, c: number) => void;
+  readonly __wasm_bindgen_func_elem_1128: (a: number, b: number) => void;
+  readonly __wasm_bindgen_func_elem_1168: (a: number, b: number, c: number, d: number) => void;
   readonly __wbindgen_export: (a: number) => void;
   readonly __wbindgen_export2: (a: number, b: number, c: number) => void;
   readonly __wbindgen_export3: (a: number, b: number) => number;

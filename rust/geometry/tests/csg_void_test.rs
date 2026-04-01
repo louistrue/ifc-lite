@@ -65,7 +65,8 @@ DATA;
 #300=IFCRELVOIDSELEMENT('0001234567890123456791',#2,$,$,#100,#200);
 ENDSEC;
 END-ISO-10303-21;
-"#.to_string()
+"#
+    .to_string()
 }
 
 /// Test that CSG subtraction produces valid geometry
@@ -82,22 +83,14 @@ fn test_csg_void_subtraction_basic() {
         .expect("Failed to process slab");
 
     // Get the opening entity (#200)
-    let opening = decoder
-        .decode_by_id(200)
-        .expect("Failed to decode opening");
+    let opening = decoder.decode_by_id(200).expect("Failed to decode opening");
     let opening_mesh = router
         .process_element(&opening, &mut decoder)
         .expect("Failed to process opening");
 
     // Both meshes should have geometry
-    assert!(
-        !slab_mesh.is_empty(),
-        "Slab mesh should not be empty"
-    );
-    assert!(
-        !opening_mesh.is_empty(),
-        "Opening mesh should not be empty"
-    );
+    assert!(!slab_mesh.is_empty(), "Slab mesh should not be empty");
+    assert!(!opening_mesh.is_empty(), "Opening mesh should not be empty");
 
     // Perform CSG subtraction
     let clipper = ClippingProcessor::new();
@@ -106,10 +99,7 @@ fn test_csg_void_subtraction_basic() {
     match result {
         Ok(result_mesh) => {
             // Result should have valid geometry
-            assert!(
-                !result_mesh.is_empty(),
-                "CSG result should not be empty"
-            );
+            assert!(!result_mesh.is_empty(), "CSG result should not be empty");
 
             // Positions and normals must be non-empty
             assert!(
@@ -174,9 +164,7 @@ fn test_mesh_merge() {
         .expect("Failed to process slab");
 
     // Get opening mesh
-    let opening = decoder
-        .decode_by_id(200)
-        .expect("Failed to decode opening");
+    let opening = decoder.decode_by_id(200).expect("Failed to decode opening");
     let opening_mesh = router
         .process_element(&opening, &mut decoder)
         .expect("Failed to process opening");

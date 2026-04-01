@@ -7,12 +7,12 @@
 use crate::{Error, Mesh, Result};
 use ifc_lite_core::{DecodedEntity, EntityDecoder, IfcSchema, IfcType};
 
-use crate::router::GeometryProcessor;
-use super::extrusion::ExtrudedAreaSolidProcessor;
-use super::tessellated::TriangulatedFaceSetProcessor;
-use super::brep::FacetedBrepProcessor;
 use super::boolean::BooleanClippingProcessor;
-use super::swept::{SweptDiskSolidProcessor, RevolvedAreaSolidProcessor};
+use super::brep::FacetedBrepProcessor;
+use super::extrusion::ExtrudedAreaSolidProcessor;
+use super::swept::{RevolvedAreaSolidProcessor, SweptDiskSolidProcessor};
+use super::tessellated::TriangulatedFaceSetProcessor;
+use crate::router::GeometryProcessor;
 
 /// MappedItem processor (P0)
 /// Handles IfcMappedItem - geometry instancing

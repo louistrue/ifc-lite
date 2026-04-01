@@ -310,10 +310,7 @@ impl IfcSchema {
             GeometryCategory::ExplicitMesh,
         );
         geometry_types.insert(IfcType::IfcPolygonalFaceSet, GeometryCategory::ExplicitMesh);
-        geometry_types.insert(
-            IfcType::IfcFaceBasedSurfaceModel,
-            GeometryCategory::Surface,
-        );
+        geometry_types.insert(IfcType::IfcFaceBasedSurfaceModel, GeometryCategory::Surface);
         geometry_types.insert(
             IfcType::IfcSurfaceOfLinearExtrusion,
             GeometryCategory::Surface,
@@ -521,10 +518,8 @@ mod tests {
         assert_eq!(typed_int.as_float(), Some(100.0));
 
         // Test that non-typed lists return None
-        let regular_list = AttributeValue::List(vec![
-            AttributeValue::Float(1.0),
-            AttributeValue::Float(2.0),
-        ]);
+        let regular_list =
+            AttributeValue::List(vec![AttributeValue::Float(1.0), AttributeValue::Float(2.0)]);
         assert_eq!(regular_list.as_float(), None);
 
         // Test that empty list returns None

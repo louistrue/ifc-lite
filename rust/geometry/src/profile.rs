@@ -110,7 +110,12 @@ pub struct VoidInfo {
 
 impl VoidInfo {
     /// Create a new void info
-    pub fn new(contour: Vec<Point2<f64>>, depth_start: f64, depth_end: f64, is_through: bool) -> Self {
+    pub fn new(
+        contour: Vec<Point2<f64>>,
+        depth_start: f64,
+        depth_end: f64,
+        is_through: bool,
+    ) -> Self {
         Self {
             contour,
             depth_start,

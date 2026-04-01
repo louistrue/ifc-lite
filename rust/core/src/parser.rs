@@ -306,8 +306,7 @@ impl<'a> EntityScanner<'a> {
         }
 
         // Use safe UTF-8 conversion - malformed input should not cause UB
-        let type_name = std::str::from_utf8(&self.bytes[type_start..type_end])
-            .unwrap_or("UNKNOWN");
+        let type_name = std::str::from_utf8(&self.bytes[type_start..type_end]).unwrap_or("UNKNOWN");
 
         // Move position past this entity
         self.position = line_end;
@@ -340,7 +339,7 @@ impl<'a> EntityScanner<'a> {
 
         while pos < len {
             let b = content[pos];
-            
+
             if in_string {
                 if b == b'\'' {
                     // Check for escaped quote ('') - if next char is also quote, skip both
