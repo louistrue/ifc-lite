@@ -4,14 +4,15 @@
 
 import { mkdirSync, writeFileSync } from 'fs';
 import { join } from 'path';
-import { getLatestVersion } from '../utils/config-fixers.js';
+import { getPackageVersion } from '../utils/config-fixers.js';
 
 /**
  * Scaffold a native-binary IFC processing server with TypeScript client examples.
  * No Docker required -- the server binary is downloaded and run via npm scripts.
  */
 export function createServerNativeTemplate(targetDir: string, projectName: string) {
-  const latestVersion = getLatestVersion();
+  const serverBinVersion = getPackageVersion('@ifc-lite/server-bin');
+  const serverClientVersion = getPackageVersion('@ifc-lite/server-client');
 
   // package.json
   writeFileSync(join(targetDir, 'package.json'), JSON.stringify({
@@ -29,8 +30,8 @@ export function createServerNativeTemplate(targetDir: string, projectName: strin
       'typecheck': 'tsc --noEmit',
     },
     dependencies: {
-      '@ifc-lite/server-bin': latestVersion,
-      '@ifc-lite/server-client': latestVersion,
+      '@ifc-lite/server-bin': serverBinVersion,
+      '@ifc-lite/server-client': serverClientVersion,
     },
     devDependencies: {
       'typescript': '^5.3.0',
@@ -192,9 +193,13 @@ Example:
     process.exit(1);
   }
 
-  const buffer = readFileSync(ifcPath);
+  const nodeBuffer = readFileSync(ifcPath);
+  const buffer = nodeBuffer.buffer.slice(
+    nodeBuffer.byteOffset,
+    nodeBuffer.byteOffset + nodeBuffer.byteLength,
+  ) as ArrayBuffer;
   console.log(\`\\nParsing: \${ifcPath}\`);
-  console.log(\`File size: \${(buffer.length / 1024 / 1024).toFixed(2)} MB\`);
+  console.log(\`File size: \${(nodeBuffer.length / 1024 / 1024).toFixed(2)} MB\`);
 
   const startTime = performance.now();
 
@@ -273,8 +278,12 @@ async function main() {
     process.exit(1);
   }
 
-  const buffer = readFileSync(ifcPath);
-  console.log(\`\\nStreaming: \${ifcPath} (\${(buffer.length / 1024 / 1024).toFixed(1)} MB)\`);
+  const nodeBuffer = readFileSync(ifcPath);
+  const buffer = nodeBuffer.buffer.slice(
+    nodeBuffer.byteOffset,
+    nodeBuffer.byteOffset + nodeBuffer.byteLength,
+  ) as ArrayBuffer;
+  console.log(\`\\nStreaming: \${ifcPath} (\${(nodeBuffer.length / 1024 / 1024).toFixed(1)} MB)\`);
 
   const startTime = performance.now();
   let totalMeshes = 0;

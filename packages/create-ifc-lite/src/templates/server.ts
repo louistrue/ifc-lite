@@ -4,13 +4,13 @@
 
 import { mkdirSync, writeFileSync } from 'fs';
 import { join } from 'path';
-import { getLatestVersion } from '../utils/config-fixers.js';
+import { getPackageVersion } from '../utils/config-fixers.js';
 
 /**
  * Scaffold a Docker-based IFC processing server with TypeScript client examples.
  */
 export function createServerTemplate(targetDir: string, projectName: string) {
-  const latestVersion = getLatestVersion();
+  const serverClientVersion = getPackageVersion('@ifc-lite/server-client');
 
   // docker-compose.yml - Production configuration
   writeFileSync(join(targetDir, 'docker-compose.yml'), `# IFC-Lite Server - Production Configuration
@@ -189,7 +189,7 @@ cache
       'typecheck': 'tsc --noEmit',
     },
     dependencies: {
-      '@ifc-lite/server-client': latestVersion,
+      '@ifc-lite/server-client': serverClientVersion,
     },
     devDependencies: {
       'typescript': '^5.3.0',
@@ -285,8 +285,12 @@ The server will:
 
   // Read IFC file
   console.log(\`\\nParsing: \${ifcPath}\`);
-  const buffer = readFileSync(ifcPath);
-  console.log(\`File size: \${(buffer.length / 1024 / 1024).toFixed(2)} MB\`);
+  const nodeBuffer = readFileSync(ifcPath);
+  const buffer = nodeBuffer.buffer.slice(
+    nodeBuffer.byteOffset,
+    nodeBuffer.byteOffset + nodeBuffer.byteLength,
+  ) as ArrayBuffer;
+  console.log(\`File size: \${(nodeBuffer.length / 1024 / 1024).toFixed(2)} MB\`);
 
   // Parse with Parquet format (most efficient)
   console.log('\\nSending to server...');
@@ -386,8 +390,12 @@ async function main() {
     process.exit(1);
   }
 
-  const buffer = readFileSync(ifcPath);
-  console.log(\`\\nStreaming: \${ifcPath} (\${(buffer.length / 1024 / 1024).toFixed(1)} MB)\`);
+  const nodeBuffer = readFileSync(ifcPath);
+  const buffer = nodeBuffer.buffer.slice(
+    nodeBuffer.byteOffset,
+    nodeBuffer.byteOffset + nodeBuffer.byteLength,
+  ) as ArrayBuffer;
+  console.log(\`\\nStreaming: \${ifcPath} (\${(nodeBuffer.length / 1024 / 1024).toFixed(1)} MB)\`);
 
   // Check Parquet support
   const parquetAvailable = await client.isParquetSupported();
@@ -452,6 +460,8 @@ main().catch(console.error);
  * See example.ts and example-stream.ts for usage examples.
  */
 
+import { IfcServerClient } from '@ifc-lite/server-client';
+
 export { IfcServerClient } from '@ifc-lite/server-client';
 export type {
   ServerConfig,
@@ -469,7 +479,6 @@ export const DEFAULT_SERVER_URL = 'http://localhost:3001';
  * Create a pre-configured client for the local Docker server.
  */
 export function createLocalClient(options?: { timeout?: number }) {
-  const { IfcServerClient } = require('@ifc-lite/server-client');
   return new IfcServerClient({
     baseUrl: process.env.SERVER_URL || DEFAULT_SERVER_URL,
     timeout: options?.timeout ?? 300000,
