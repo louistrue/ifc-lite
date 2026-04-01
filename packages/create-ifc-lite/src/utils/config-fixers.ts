@@ -4,23 +4,33 @@
 
 import { existsSync, readFileSync, writeFileSync, rmSync } from 'fs';
 import { join } from 'path';
-import { execSync } from 'child_process';
+import { execFileSync } from 'child_process';
 
 /** Cache of npm-resolved versions to avoid redundant registry queries. */
 const versionCache = new Map<string, string>();
 const publishedVersionsCache = new Map<string, Set<string>>();
+const VALID_PACKAGE_NAME = /^(?:@[\w.-]+\/)?[\w.-]+$/;
+const NPM_TIMEOUT_MS = 30000;
+const MAX_VERSION_CANDIDATES = 10;
 
-function readJsonFromNpm(command: string): unknown {
-  const result = execSync(command, { stdio: 'pipe' }).toString().trim();
+function readJsonFromNpm(args: string[]): unknown {
+  const result = execFileSync('npm', args, {
+    stdio: 'pipe',
+    timeout: NPM_TIMEOUT_MS,
+  }).toString().trim();
   return result ? JSON.parse(result) : {};
 }
 
 function getPublishedVersions(packageName: string): Set<string> {
+  if (!VALID_PACKAGE_NAME.test(packageName)) {
+    throw new Error(`Invalid package name: ${packageName}`);
+  }
+
   if (publishedVersionsCache.has(packageName)) {
     return publishedVersionsCache.get(packageName)!;
   }
 
-  const json = readJsonFromNpm(`npm view ${packageName} versions --json`);
+  const json = readJsonFromNpm(['view', packageName, 'versions', '--json']);
   const versions = Array.isArray(json) ? json : [json];
   const set = new Set(versions.filter((value): value is string => typeof value === 'string'));
   publishedVersionsCache.set(packageName, set);
@@ -33,7 +43,7 @@ function extractPinnedVersion(range: string): string | null {
 }
 
 function getVersionDependencies(packageName: string, version: string): Record<string, string> {
-  const json = readJsonFromNpm(`npm view ${packageName}@${version} dependencies --json`);
+  const json = readJsonFromNpm(['view', `${packageName}@${version}`, 'dependencies', '--json']);
   if (!json || typeof json !== 'object' || Array.isArray(json)) {
     return {};
   }
@@ -67,7 +77,8 @@ export function getPackageVersion(packageName: string): string {
   }
   try {
     const versions = [...getPublishedVersions(packageName)];
-    const selectedVersion = versions.reverse().find((version) =>
+    const recentVersions = versions.slice(-MAX_VERSION_CANDIDATES).reverse();
+    const selectedVersion = recentVersions.find((version) =>
       isInstallablePublishedVersion(packageName, version)
     );
 
@@ -78,10 +89,11 @@ export function getPackageVersion(packageName: string): string {
     const version = `^${selectedVersion}`;
     versionCache.set(packageName, version);
     return version;
-  } catch {
+  } catch (cause) {
     throw new Error(
       `Failed to resolve the latest published version of ${packageName}. ` +
-      'Check your npm registry access and try again.'
+      'Check your npm registry access and try again.',
+      { cause }
     );
   }
 }

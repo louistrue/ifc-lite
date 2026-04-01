@@ -6,6 +6,16 @@ import { mkdirSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { getPackageVersion } from '../utils/config-fixers.js';
 
+const LICENSE_HEADER = `/* This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
+
+`;
+
+function writeSourceFile(targetDir: string, relativePath: string, content: string) {
+  writeFileSync(join(targetDir, relativePath), `${LICENSE_HEADER}${content}`);
+}
+
 /**
  * Scaffold a standalone React + Vite WebGPU viewer.
  */
@@ -58,17 +68,24 @@ export function createReactTemplate(targetDir: string, projectName: string) {
     include: ['src'],
   }, null, 2));
 
-  writeFileSync(join(targetDir, 'vite.config.ts'), `import { defineConfig } from 'vite';
+  writeSourceFile(targetDir, 'vite.config.ts', `import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
+
+const isolationHeaders = {
+  'Cross-Origin-Opener-Policy': 'same-origin',
+  'Cross-Origin-Embedder-Policy': 'require-corp',
+};
 
 export default defineConfig({
+  plugins: [react()],
   optimizeDeps: {
     exclude: ['@ifc-lite/wasm'],
   },
   server: {
-    headers: {
-      'Cross-Origin-Opener-Policy': 'same-origin',
-      'Cross-Origin-Embedder-Policy': 'require-corp',
-    },
+    headers: isolationHeaders,
+  },
+  preview: {
+    headers: isolationHeaders,
   },
 });
 `);
@@ -89,7 +106,7 @@ export default defineConfig({
 
   mkdirSync(join(targetDir, 'src'));
 
-  writeFileSync(join(targetDir, 'src', 'main.tsx'), `import React from 'react';
+  writeSourceFile(targetDir, 'src/main.tsx', `import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App.js';
 import './styles.css';
@@ -101,7 +118,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
 );
 `);
 
-  writeFileSync(join(targetDir, 'src', 'App.tsx'), `import { useCallback, useEffect, useRef, useState, type ChangeEvent, type DragEvent } from 'react';
+  writeSourceFile(targetDir, 'src/App.tsx', `import { useCallback, useEffect, useRef, useState, type ChangeEvent, type DragEvent } from 'react';
 import { GeometryProcessor } from '@ifc-lite/geometry';
 import { Renderer } from '@ifc-lite/renderer';
 
@@ -210,14 +227,17 @@ async function createViewer(canvas: HTMLCanvasElement): Promise<ViewerSession> {
 
 export default function App() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const processorRef = useRef<GeometryProcessor | null>(null);
   const viewerRef = useRef<ViewerSession | null>(null);
+  const loadIdRef = useRef(0);
   const [status, setStatus] = useState('Initializing WebGPU viewer...');
   const [ready, setReady] = useState(false);
   const [busy, setBusy] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
+    const initId = ++loadIdRef.current;
 
     const init = async () => {
       if (!canvasRef.current) return;
@@ -230,15 +250,16 @@ export default function App() {
       try {
         const processor = new GeometryProcessor();
         await processor.init();
-        if (cancelled) return;
+        if (cancelled || initId !== loadIdRef.current) return;
 
         processorRef.current = processor;
-        viewerRef.current = await createViewer(canvasRef.current);
-        if (cancelled) {
-          viewerRef.current?.destroy();
+        const viewer = await createViewer(canvasRef.current);
+        if (cancelled || initId !== loadIdRef.current) {
+          viewer.destroy();
           return;
         }
 
+        viewerRef.current = viewer;
         setReady(true);
         setBusy(false);
         setStatus('Drop an IFC file or choose one to start rendering.');
@@ -253,28 +274,43 @@ export default function App() {
 
     return () => {
       cancelled = true;
+      loadIdRef.current += 1;
       viewerRef.current?.destroy();
       viewerRef.current = null;
     };
   }, []);
 
   const loadFile = useCallback(async (file: File) => {
-    if (!canvasRef.current || !processorRef.current) return;
+    if (!canvasRef.current || !processorRef.current || !ready || busy) return;
+    const loadId = ++loadIdRef.current;
 
     setBusy(true);
     setStatus('Preparing renderer...');
 
     try {
-      viewerRef.current?.destroy();
-      viewerRef.current = await createViewer(canvasRef.current);
-      const renderer = viewerRef.current.renderer;
+      const previousViewer = viewerRef.current;
+      const viewer = await createViewer(canvasRef.current);
+      if (loadId !== loadIdRef.current) {
+        viewer.destroy();
+        return;
+      }
+
+      previousViewer?.destroy();
+      viewerRef.current = viewer;
+      const renderer = viewer.renderer;
       const processor = processorRef.current;
+      if (!processor) {
+        throw new Error('Geometry processor is no longer available.');
+      }
+
       const bytes = new Uint8Array(await file.arrayBuffer());
 
       let loadedMeshes = 0;
       setStatus('Streaming geometry...');
 
       for await (const event of processor.processStreaming(bytes)) {
+        if (loadId !== loadIdRef.current) return;
+
         if (event.type === 'batch') {
           renderer.addMeshes(event.meshes, true);
           loadedMeshes = event.totalSoFar;
@@ -288,11 +324,15 @@ export default function App() {
       }
     } catch (error) {
       console.error(error);
-      setStatus(error instanceof Error ? error.message : 'Failed to load IFC file.');
+      if (loadId === loadIdRef.current) {
+        setStatus(error instanceof Error ? error.message : 'Failed to load IFC file.');
+      }
     } finally {
-      setBusy(false);
+      if (loadId === loadIdRef.current) {
+        setBusy(false);
+      }
     }
-  }, []);
+  }, [busy, ready]);
 
   const onFileChange = useCallback(async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -303,11 +343,17 @@ export default function App() {
 
   const onDrop = useCallback(async (event: DragEvent<HTMLElement>) => {
     event.preventDefault();
+    if (!ready || busy) return;
     const file = event.dataTransfer.files?.[0];
     if (file) {
       await loadFile(file);
     }
-  }, [loadFile]);
+  }, [busy, loadFile, ready]);
+
+  const openFilePicker = useCallback(() => {
+    if (!ready || busy) return;
+    fileInputRef.current?.click();
+  }, [busy, ready]);
 
   return (
     <div className="app">
@@ -320,15 +366,24 @@ export default function App() {
           </p>
         </div>
 
-        <label className={'upload' + (!ready || busy ? ' disabled' : '')}>
-          <input
-            type="file"
-            accept=".ifc"
-            disabled={!ready || busy}
-            onChange={(event) => void onFileChange(event)}
-          />
-          <span>{busy ? 'Working…' : 'Choose IFC File'}</span>
-        </label>
+        <input
+          ref={fileInputRef}
+          className="visuallyHiddenInput"
+          type="file"
+          accept=".ifc"
+          disabled={!ready || busy}
+          aria-label="Choose IFC file"
+          onChange={(event) => void onFileChange(event)}
+        />
+        <button
+          type="button"
+          className="uploadButton"
+          disabled={!ready || busy}
+          aria-disabled={!ready || busy}
+          onClick={openFilePicker}
+        >
+          {busy ? 'Working…' : 'Choose IFC File'}
+        </button>
 
         <div className="panel">
           <p className="label">Status</p>
@@ -354,7 +409,7 @@ export default function App() {
 }
 `);
 
-  writeFileSync(join(targetDir, 'src', 'styles.css'), `:root {
+  writeSourceFile(targetDir, 'src/styles.css', `:root {
   color-scheme: dark;
   font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   background: #0b1220;
@@ -416,7 +471,7 @@ body {
   line-height: 1.5;
 }
 
-.upload {
+.uploadButton {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -428,19 +483,28 @@ body {
   font-weight: 700;
   cursor: pointer;
   transition: transform 0.15s ease, opacity 0.15s ease;
+  border: none;
 }
 
-.upload:hover {
+.uploadButton:hover:not(:disabled) {
   transform: translateY(-1px);
 }
 
-.upload.disabled {
+.uploadButton:disabled {
   opacity: 0.6;
   cursor: not-allowed;
 }
 
-.upload input {
-  display: none;
+.visuallyHiddenInput {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .panel {
