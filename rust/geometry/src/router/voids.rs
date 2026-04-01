@@ -9,7 +9,7 @@ use crate::csg::{ClippingProcessor, Plane, Triangle, TriangleVec};
 use crate::{Error, Mesh, Point3, Result, Vector3};
 use ifc_lite_core::{DecodedEntity, EntityDecoder, IfcType};
 use nalgebra::Matrix4;
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 /// Epsilon for normalizing direction vectors (guards against zero-length).
 const NORMALIZE_EPSILON: f64 = 1e-12;
@@ -22,6 +22,8 @@ const MIN_OPENING_VOLUME: f64 = 0.0001;
 const CSG_TRIANGLE_RETENTION_DIVISOR: usize = 4;
 /// Minimum triangle count for a valid CSG result.
 const MIN_VALID_TRIANGLES: usize = 4;
+/// Maximum wrapper depth when drilling through mapped/boolean items to find an extrusion.
+const MAX_EXTRUSION_EXTRACT_DEPTH: usize = 32;
 
 /// Extract rotation columns from a 4x4 transform matrix.
 fn extract_rotation_columns(m: &Matrix4<f64>) -> (Vector3<f64>, Vector3<f64>, Vector3<f64>) {
@@ -46,9 +48,17 @@ fn rotate_and_normalize(
 fn is_body_representation(rep_type: &str) -> bool {
     matches!(
         rep_type,
-        "Body" | "SweptSolid" | "Brep" | "CSG" | "Clipping" | "Tessellation"
-            | "MappedRepresentation" | "SolidModel" | "SurfaceModel"
-            | "AdvancedSweptSolid" | "AdvancedBrep"
+        "Body"
+            | "SweptSolid"
+            | "Brep"
+            | "CSG"
+            | "Clipping"
+            | "Tessellation"
+            | "MappedRepresentation"
+            | "SolidModel"
+            | "SurfaceModel"
+            | "AdvancedSweptSolid"
+            | "AdvancedBrep"
     )
 }
 
@@ -145,58 +155,66 @@ impl GeometryRouter {
         item: &DecodedEntity,
         decoder: &mut EntityDecoder,
     ) -> Option<(Vector3<f64>, Option<Matrix4<f64>>)> {
-        match item.ifc_type {
-            IfcType::IfcExtrudedAreaSolid => {
-                // Direct extraction from ExtrudedDirection (attribute 2) and Position (attribute 1)
-                self.extract_extrusion_direction_from_solid(item, decoder)
-            }
-            IfcType::IfcBooleanClippingResult | IfcType::IfcBooleanResult => {
-                // FirstOperand (attribute 1) contains base geometry
-                let first_attr = item.get(1)?;
-                let first_operand = decoder.resolve_ref(first_attr).ok()??;
-                self.extract_extrusion_direction_recursive(&first_operand, decoder)
-            }
-            IfcType::IfcMappedItem => {
-                // MappingSource (attribute 0) -> MappedRepresentation -> Items
-                let source_attr = item.get(0)?;
-                let source = decoder.resolve_ref(source_attr).ok()??;
-                // RepresentationMap.MappedRepresentation is attribute 1
-                let rep_attr = source.get(1)?;
-                let rep = decoder.resolve_ref(rep_attr).ok()??;
+        let mut current = item.clone();
+        let mut visited = FxHashSet::default();
+        let mut mapping_chain: Option<Matrix4<f64>> = None;
 
-                // MappingTarget (attribute 1) -> instance transform
-                let mapping_transform = if let Some(target_attr) = item.get(1) {
-                    if !target_attr.is_null() {
-                        if let Ok(Some(target)) = decoder.resolve_ref(target_attr) {
-                            self.parse_cartesian_transformation_operator(&target, decoder).ok()
-                        } else {
-                            None
+        for _depth in 0..MAX_EXTRUSION_EXTRACT_DEPTH {
+            if !visited.insert(current.id) {
+                return None;
+            }
+
+            match current.ifc_type {
+                IfcType::IfcExtrudedAreaSolid => {
+                    let (dir, position_transform) =
+                        self.extract_extrusion_direction_from_solid(&current, decoder)?;
+                    let combined = match (mapping_chain.as_ref(), position_transform) {
+                        (Some(chain), Some(pos)) => Some(chain * pos),
+                        (Some(chain), None) => Some(chain.clone()),
+                        (None, Some(pos)) => Some(pos),
+                        (None, None) => None,
+                    };
+                    return Some((dir, combined));
+                }
+                IfcType::IfcBooleanClippingResult | IfcType::IfcBooleanResult => {
+                    // FirstOperand (attribute 1) contains base geometry
+                    let first_attr = current.get(1)?;
+                    current = decoder.resolve_ref(first_attr).ok()??;
+                }
+                IfcType::IfcMappedItem => {
+                    // MappingSource (attribute 0) -> MappedRepresentation -> Items
+                    let source_attr = current.get(0)?;
+                    let source = decoder.resolve_ref(source_attr).ok()??;
+                    // RepresentationMap.MappedRepresentation is attribute 1
+                    let rep_attr = source.get(1)?;
+                    let rep = decoder.resolve_ref(rep_attr).ok()??;
+
+                    // MappingTarget (attribute 1) -> instance transform
+                    if let Some(target_attr) = current.get(1) {
+                        if !target_attr.is_null() {
+                            if let Ok(Some(target)) = decoder.resolve_ref(target_attr) {
+                                if let Ok(map) =
+                                    self.parse_cartesian_transformation_operator(&target, decoder)
+                                {
+                                    mapping_chain = Some(match mapping_chain.take() {
+                                        Some(chain) => chain * map,
+                                        None => map,
+                                    });
+                                }
+                            }
                         }
-                    } else {
-                        None
                     }
-                } else {
-                    None
-                };
 
-                // Get first item from representation
-                let items_attr = rep.get(3)?;
-                let items = decoder.resolve_ref_list(items_attr).ok()?;
-                items.first().and_then(|first| {
-                    self.extract_extrusion_direction_recursive(first, decoder).map(|(dir, pos)| {
-                        // Combine MappingTarget transform with position transform
-                        let combined = match (mapping_transform.as_ref(), pos) {
-                            (Some(map), Some(pos)) => Some(map * pos),
-                            (Some(map), None) => Some(map.clone()),
-                            (None, Some(pos)) => Some(pos),
-                            (None, None) => None,
-                        };
-                        (dir, combined)
-                    })
-                })
+                    // Get first item from representation
+                    let items_attr = rep.get(3)?;
+                    let items = decoder.resolve_ref_list(items_attr).ok()?;
+                    current = items.first()?.clone();
+                }
+                _ => return None,
             }
-            _ => None,
         }
+
+        None
     }
 
     /// Get per-item meshes for an opening element, transformed to world coordinates.
@@ -214,7 +232,8 @@ impl GeometryRouter {
             return Ok(vec![]);
         }
 
-        let representation = decoder.resolve_ref(representation_attr)?
+        let representation = decoder
+            .resolve_ref(representation_attr)?
             .ok_or_else(|| Error::geometry("Failed to resolve representation".to_string()))?;
         let representations_attr = representation.get(2).ok_or_else(|| {
             Error::geometry("ProductDefinitionShape missing Representations".to_string())
@@ -222,7 +241,8 @@ impl GeometryRouter {
         let representations = decoder.resolve_ref_list(representations_attr)?;
 
         // Get the same placement transform that apply_placement uses
-        let mut placement_transform = self.get_placement_transform_from_element(element, decoder)
+        let mut placement_transform = self
+            .get_placement_transform_from_element(element, decoder)
             .unwrap_or_else(|_| Matrix4::identity());
         self.scale_transform(&mut placement_transform);
 
@@ -293,7 +313,8 @@ impl GeometryRouter {
         let representations = decoder.resolve_ref_list(representations_attr)?;
 
         // Get placement transform
-        let mut placement_transform = self.get_placement_transform_from_element(element, decoder)
+        let mut placement_transform = self
+            .get_placement_transform_from_element(element, decoder)
             .unwrap_or_else(|_| Matrix4::identity());
         self.scale_transform(&mut placement_transform);
 
@@ -371,19 +392,38 @@ impl GeometryRouter {
                 ];
 
                 // Transform all corners and compute new AABB
-                let transformed: Vec<Point3<f64>> = corners.iter()
+                let transformed: Vec<Point3<f64>> = corners
+                    .iter()
                     .map(|p| placement_transform.transform_point(p))
                     .collect();
 
                 let world_min = Point3::new(
-                    transformed.iter().map(|p| p.x).fold(f64::INFINITY, f64::min),
-                    transformed.iter().map(|p| p.y).fold(f64::INFINITY, f64::min),
-                    transformed.iter().map(|p| p.z).fold(f64::INFINITY, f64::min),
+                    transformed
+                        .iter()
+                        .map(|p| p.x)
+                        .fold(f64::INFINITY, f64::min),
+                    transformed
+                        .iter()
+                        .map(|p| p.y)
+                        .fold(f64::INFINITY, f64::min),
+                    transformed
+                        .iter()
+                        .map(|p| p.z)
+                        .fold(f64::INFINITY, f64::min),
                 );
                 let world_max = Point3::new(
-                    transformed.iter().map(|p| p.x).fold(f64::NEG_INFINITY, f64::max),
-                    transformed.iter().map(|p| p.y).fold(f64::NEG_INFINITY, f64::max),
-                    transformed.iter().map(|p| p.z).fold(f64::NEG_INFINITY, f64::max),
+                    transformed
+                        .iter()
+                        .map(|p| p.x)
+                        .fold(f64::NEG_INFINITY, f64::max),
+                    transformed
+                        .iter()
+                        .map(|p| p.y)
+                        .fold(f64::NEG_INFINITY, f64::max),
+                    transformed
+                        .iter()
+                        .map(|p| p.z)
+                        .fold(f64::NEG_INFINITY, f64::max),
                 );
 
                 // Apply RTC offset to opening bounds so they match wall mesh coordinate system
@@ -437,7 +477,6 @@ impl GeometryRouter {
         decoder: &mut EntityDecoder,
         void_index: &FxHashMap<u32, Vec<u32>>,
     ) -> Result<Mesh> {
-
         let opening_ids = match void_index.get(&element.id) {
             Some(ids) if !ids.is_empty() => ids,
             _ => {
@@ -455,10 +494,11 @@ impl GeometryRouter {
         let world_clipping_planes: Vec<(Point3<f64>, Vector3<f64>, bool)> =
             if self.has_clipping_planes(element, decoder) {
                 // Get element's ObjectPlacement transform (for clipping planes)
-                let mut object_placement_transform = match self.get_placement_transform_from_element(element, decoder) {
-                    Ok(t) => t,
-                    Err(_) => Matrix4::identity(),
-                };
+                let mut object_placement_transform =
+                    match self.get_placement_transform_from_element(element, decoder) {
+                        Ok(t) => t,
+                        Err(_) => Matrix4::identity(),
+                    };
                 self.scale_transform(&mut object_placement_transform);
 
                 // Extract clipping planes (for roof clips)
@@ -536,7 +576,9 @@ impl GeometryRouter {
             match opening {
                 OpeningType::Rectangular(open_min, open_max, extrusion_dir) => {
                     let (final_min, final_max) = if let Some(dir) = extrusion_dir {
-                        self.extend_opening_along_direction(*open_min, *open_max, wall_min, wall_max, *dir)
+                        self.extend_opening_along_direction(
+                            *open_min, *open_max, wall_min, wall_max, *dir,
+                        )
                     } else {
                         (*open_min, *open_max)
                     };
@@ -552,8 +594,6 @@ impl GeometryRouter {
         if !rect_boxes.is_empty() {
             result = self.cut_multiple_rectangular_openings(&result, &rect_boxes);
         }
-
-        let mut rect_operation_count = 0usize;
 
         // Process remaining non-rectangular openings only
         for opening in &non_rect_openings {
@@ -592,10 +632,12 @@ impl GeometryRouter {
                     // 3. Result validation — reject CSG output that loses > 75 % of triangles
                     let (result_min, result_max) = result.bounds();
                     let (open_min_f32, open_max_f32) = opening_mesh.bounds();
-                    let no_overlap =
-                        open_max_f32.x < result_min.x || open_min_f32.x > result_max.x ||
-                        open_max_f32.y < result_min.y || open_min_f32.y > result_max.y ||
-                        open_max_f32.z < result_min.z || open_min_f32.z > result_max.z;
+                    let no_overlap = open_max_f32.x < result_min.x
+                        || open_min_f32.x > result_max.x
+                        || open_max_f32.y < result_min.y
+                        || open_min_f32.y > result_max.y
+                        || open_max_f32.z < result_min.z
+                        || open_min_f32.z > result_max.z;
                     if no_overlap {
                         continue;
                     }
@@ -615,7 +657,8 @@ impl GeometryRouter {
                         Ok(csg_result) => {
                             // Validate result is not degenerate — must retain a reasonable
                             // fraction of the pre-CSG triangles to catch BSP blowups
-                            let min_tris = (tri_before / CSG_TRIANGLE_RETENTION_DIVISOR).max(MIN_VALID_TRIANGLES);
+                            let min_tris = (tri_before / CSG_TRIANGLE_RETENTION_DIVISOR)
+                                .max(MIN_VALID_TRIANGLES);
                             if !csg_result.is_empty() && csg_result.triangle_count() >= min_tris {
                                 result = csg_result;
                             }
@@ -635,7 +678,9 @@ impl GeometryRouter {
             use crate::csg::{ClippingProcessor, Plane};
             let clipper = ClippingProcessor::new();
 
-            for (_clip_idx, (plane_point, plane_normal, agreement)) in world_clipping_planes.iter().enumerate() {
+            for (_clip_idx, (plane_point, plane_normal, agreement)) in
+                world_clipping_planes.iter().enumerate()
+            {
                 let clip_normal = if *agreement {
                     *plane_normal
                 } else {
@@ -676,13 +721,14 @@ impl GeometryRouter {
             if vertex_count > 100 {
                 openings.push(OpeningType::NonRectangular(opening_mesh));
             } else {
-                let item_bounds_with_dir = self.get_opening_item_bounds_with_direction(&opening_entity, decoder)
+                let item_bounds_with_dir = self
+                    .get_opening_item_bounds_with_direction(&opening_entity, decoder)
                     .unwrap_or_default();
 
                 if !item_bounds_with_dir.is_empty() {
-                    let is_floor_opening = item_bounds_with_dir.iter().any(|(_, _, dir)| {
-                        dir.map(|d| d.z.abs() > 0.95).unwrap_or(false)
-                    });
+                    let is_floor_opening = item_bounds_with_dir
+                        .iter()
+                        .any(|(_, _, dir)| dir.map(|d| d.z.abs() > 0.95).unwrap_or(false));
 
                     if is_floor_opening && vertex_count > 0 {
                         openings.push(OpeningType::NonRectangular(opening_mesh.clone()));
@@ -693,21 +739,30 @@ impl GeometryRouter {
                                 let abs_x = d.x.abs();
                                 let abs_y = d.y.abs();
                                 let abs_z = d.z.abs();
-                                !(abs_x > AXIS_THRESHOLD || abs_y > AXIS_THRESHOLD || abs_z > AXIS_THRESHOLD)
-                            }).unwrap_or(false)
+                                !(abs_x > AXIS_THRESHOLD
+                                    || abs_y > AXIS_THRESHOLD
+                                    || abs_z > AXIS_THRESHOLD)
+                            })
+                            .unwrap_or(false)
                         });
 
                         if any_diagonal {
                             // Only use the diagonal path if we have an actual extrusion direction;
                             // without one the rotation would be arbitrary and produce wrong cuts.
-                            if let Some(dir) = item_bounds_with_dir.iter().find_map(|(_, _, d)| *d) {
-                                let item_meshes = self.get_opening_item_meshes_world(&opening_entity, decoder)
+                            if let Some(dir) = item_bounds_with_dir.iter().find_map(|(_, _, d)| *d)
+                            {
+                                let item_meshes = self
+                                    .get_opening_item_meshes_world(&opening_entity, decoder)
                                     .unwrap_or_default();
                                 if item_meshes.is_empty() {
-                                    openings.push(OpeningType::DiagonalRectangular(opening_mesh.clone(), dir));
+                                    openings.push(OpeningType::DiagonalRectangular(
+                                        opening_mesh.clone(),
+                                        dir,
+                                    ));
                                 } else {
                                     for item_mesh in item_meshes {
-                                        openings.push(OpeningType::DiagonalRectangular(item_mesh, dir));
+                                        openings
+                                            .push(OpeningType::DiagonalRectangular(item_mesh, dir));
                                     }
                                 }
                             } else {
@@ -716,14 +771,20 @@ impl GeometryRouter {
                             }
                         } else {
                             for (min_pt, max_pt, extrusion_dir) in item_bounds_with_dir {
-                                openings.push(OpeningType::Rectangular(min_pt, max_pt, extrusion_dir));
+                                openings.push(OpeningType::Rectangular(
+                                    min_pt,
+                                    max_pt,
+                                    extrusion_dir,
+                                ));
                             }
                         }
                     }
                 } else {
                     let (open_min, open_max) = opening_mesh.bounds();
-                    let min_f64 = Point3::new(open_min.x as f64, open_min.y as f64, open_min.z as f64);
-                    let max_f64 = Point3::new(open_max.x as f64, open_max.y as f64, open_max.z as f64);
+                    let min_f64 =
+                        Point3::new(open_min.x as f64, open_min.y as f64, open_min.z as f64);
+                    let max_f64 =
+                        Point3::new(open_max.x as f64, open_max.y as f64, open_max.z as f64);
 
                     openings.push(OpeningType::Rectangular(min_f64, max_f64, None));
                 }
@@ -764,9 +825,12 @@ impl GeometryRouter {
                     let (b_min, b_max, _) = &rects[j];
 
                     // Check if boxes overlap or are adjacent (within tolerance)
-                    let overlaps_x = a_min.x <= b_max.x + MERGE_TOLERANCE && a_max.x >= b_min.x - MERGE_TOLERANCE;
-                    let overlaps_y = a_min.y <= b_max.y + MERGE_TOLERANCE && a_max.y >= b_min.y - MERGE_TOLERANCE;
-                    let overlaps_z = a_min.z <= b_max.z + MERGE_TOLERANCE && a_max.z >= b_min.z - MERGE_TOLERANCE;
+                    let overlaps_x = a_min.x <= b_max.x + MERGE_TOLERANCE
+                        && a_max.x >= b_min.x - MERGE_TOLERANCE;
+                    let overlaps_y = a_min.y <= b_max.y + MERGE_TOLERANCE
+                        && a_max.y >= b_min.y - MERGE_TOLERANCE;
+                    let overlaps_z = a_min.z <= b_max.z + MERGE_TOLERANCE
+                        && a_max.z >= b_min.z - MERGE_TOLERANCE;
 
                     if overlaps_x && overlaps_y && overlaps_z {
                         // Merge into box i
@@ -812,7 +876,8 @@ impl GeometryRouter {
     ) {
         use nalgebra::Rotation3;
 
-        let diagonal_openings: Vec<(&Mesh, &Vector3<f64>)> = openings.iter()
+        let diagonal_openings: Vec<(&Mesh, &Vector3<f64>)> = openings
+            .iter()
             .filter_map(|o| match o {
                 OpeningType::DiagonalRectangular(mesh, dir) => Some((mesh, dir)),
                 _ => None,
@@ -830,7 +895,10 @@ impl GeometryRouter {
         let mut groups: Vec<(Vector3<f64>, Vec<&Mesh>)> = Vec::new();
         for (mesh, dir) in &diagonal_openings {
             let d = *dir;
-            if let Some(group) = groups.iter_mut().find(|(g, _)| d.dot(g).abs() > DIR_DOT_THRESHOLD) {
+            if let Some(group) = groups
+                .iter_mut()
+                .find(|(g, _)| d.dot(g).abs() > DIR_DOT_THRESHOLD)
+            {
                 group.1.push(mesh);
             } else {
                 groups.push((*d, vec![mesh]));
@@ -878,9 +946,11 @@ impl GeometryRouter {
 
             for opening_mesh in group_meshes {
                 let mut rot_min = Point3::new(f64::INFINITY, f64::INFINITY, f64::INFINITY);
-                let mut rot_max = Point3::new(f64::NEG_INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY);
+                let mut rot_max =
+                    Point3::new(f64::NEG_INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY);
                 for chunk in opening_mesh.positions.chunks_exact(3) {
-                    let p = rotation * Point3::new(chunk[0] as f64, chunk[1] as f64, chunk[2] as f64);
+                    let p =
+                        rotation * Point3::new(chunk[0] as f64, chunk[1] as f64, chunk[2] as f64);
                     rot_min.x = rot_min.x.min(p.x);
                     rot_min.y = rot_min.y.min(p.y);
                     rot_min.z = rot_min.z.min(p.z);
@@ -896,13 +966,15 @@ impl GeometryRouter {
 
             // Rotate positions and normals back to world frame
             for chunk in result.positions.chunks_exact_mut(3) {
-                let p = inv_rotation * Point3::new(chunk[0] as f64, chunk[1] as f64, chunk[2] as f64);
+                let p =
+                    inv_rotation * Point3::new(chunk[0] as f64, chunk[1] as f64, chunk[2] as f64);
                 chunk[0] = p.x as f32;
                 chunk[1] = p.y as f32;
                 chunk[2] = p.z as f32;
             }
             for chunk in result.normals.chunks_exact_mut(3) {
-                let n = inv_rotation * Vector3::new(chunk[0] as f64, chunk[1] as f64, chunk[2] as f64);
+                let n =
+                    inv_rotation * Vector3::new(chunk[0] as f64, chunk[1] as f64, chunk[2] as f64);
                 chunk[0] = n.x as f32;
                 chunk[1] = n.y as f32;
                 chunk[2] = n.z as f32;
@@ -926,7 +998,7 @@ impl GeometryRouter {
         open_max: Point3<f64>,
         wall_min: Point3<f64>,
         wall_max: Point3<f64>,
-        extrusion_direction: Vector3<f64>,  // World-space, normalized
+        extrusion_direction: Vector3<f64>, // World-space, normalized
     ) -> (Point3<f64>, Point3<f64>) {
         // Use opening center as reference point for projection
         let open_center = Point3::new(
@@ -981,8 +1053,8 @@ impl GeometryRouter {
 
         // Calculate how much to extend in each direction along the extrusion axis
         // If wall extends beyond opening, we need to extend the opening
-        let extend_backward = (open_min_proj - wall_min_proj).max(0.0);  // How much wall extends before opening
-        let extend_forward = (wall_max_proj - open_max_proj).max(0.0);   // How much wall extends after opening
+        let extend_backward = (open_min_proj - wall_min_proj).max(0.0); // How much wall extends before opening
+        let extend_forward = (wall_max_proj - open_max_proj).max(0.0); // How much wall extends after opening
 
         // Extend opening bounds along the extrusion direction
         let extended_min = open_min - extrusion_direction * extend_backward;
@@ -990,10 +1062,7 @@ impl GeometryRouter {
 
         // Create new AABB that encompasses both original opening and extended points
         // This ensures we don't shrink the opening in other dimensions
-        let all_points = [
-            open_min, open_max,
-            extended_min, extended_max,
-        ];
+        let all_points = [open_min, open_max, extended_min, extended_max];
 
         let new_min = Point3::new(
             all_points.iter().map(|p| p.x).fold(f64::INFINITY, f64::min),
@@ -1001,9 +1070,18 @@ impl GeometryRouter {
             all_points.iter().map(|p| p.z).fold(f64::INFINITY, f64::min),
         );
         let new_max = Point3::new(
-            all_points.iter().map(|p| p.x).fold(f64::NEG_INFINITY, f64::max),
-            all_points.iter().map(|p| p.y).fold(f64::NEG_INFINITY, f64::max),
-            all_points.iter().map(|p| p.z).fold(f64::NEG_INFINITY, f64::max),
+            all_points
+                .iter()
+                .map(|p| p.x)
+                .fold(f64::NEG_INFINITY, f64::max),
+            all_points
+                .iter()
+                .map(|p| p.y)
+                .fold(f64::NEG_INFINITY, f64::max),
+            all_points
+                .iter()
+                .map(|p| p.z)
+                .fold(f64::NEG_INFINITY, f64::max),
         );
 
         (new_min, new_max)
@@ -1070,10 +1148,7 @@ impl GeometryRouter {
 
         const EPSILON: f64 = 1e-6;
 
-        let mut result = Mesh::with_capacity(
-            mesh.positions.len() / 3,
-            mesh.indices.len() / 3,
-        );
+        let mut result = Mesh::with_capacity(mesh.positions.len() / 3, mesh.indices.len() / 3);
 
         let mut clip_buffers = ClipBuffers::new();
 
@@ -1113,7 +1188,10 @@ impl GeometryRouter {
             } else {
                 let edge1 = v1 - v0;
                 let edge2 = v2 - v0;
-                edge1.cross(&edge2).try_normalize(1e-10).unwrap_or(Vector3::new(0.0, 0.0, 1.0))
+                edge1
+                    .cross(&edge2)
+                    .try_normalize(1e-10)
+                    .unwrap_or(Vector3::new(0.0, 0.0, 1.0))
             };
 
             let tri_min_x = v0.x.min(v1.x).min(v2.x);
@@ -1124,9 +1202,13 @@ impl GeometryRouter {
             let tri_max_z = v0.z.max(v1.z).max(v2.z);
 
             // If triangle is completely outside opening, keep it as-is
-            if tri_max_x <= open_min.x - EPSILON || tri_min_x >= open_max.x + EPSILON ||
-               tri_max_y <= open_min.y - EPSILON || tri_min_y >= open_max.y + EPSILON ||
-               tri_max_z <= open_min.z - EPSILON || tri_min_z >= open_max.z + EPSILON {
+            if tri_max_x <= open_min.x - EPSILON
+                || tri_min_x >= open_max.x + EPSILON
+                || tri_max_y <= open_min.y - EPSILON
+                || tri_min_y >= open_max.y + EPSILON
+                || tri_max_z <= open_min.z - EPSILON
+                || tri_min_z >= open_max.z + EPSILON
+            {
                 let base = result.vertex_count() as u32;
                 result.add_vertex(v0, n0);
                 result.add_vertex(v1, n0);
@@ -1136,15 +1218,28 @@ impl GeometryRouter {
             }
 
             // Check if triangle is completely inside opening (remove it)
-            if tri_min_x >= open_min.x + EPSILON && tri_max_x <= open_max.x - EPSILON &&
-               tri_min_y >= open_min.y + EPSILON && tri_max_y <= open_max.y - EPSILON &&
-               tri_min_z >= open_min.z + EPSILON && tri_max_z <= open_max.z - EPSILON {
+            if tri_min_x >= open_min.x + EPSILON
+                && tri_max_x <= open_max.x - EPSILON
+                && tri_min_y >= open_min.y + EPSILON
+                && tri_max_y <= open_max.y - EPSILON
+                && tri_min_z >= open_min.z + EPSILON
+                && tri_max_z <= open_max.z - EPSILON
+            {
                 continue;
             }
 
             // Triangle may intersect opening - clip it
             if self.triangle_intersects_box(&v0, &v1, &v2, &open_min, &open_max) {
-                self.clip_triangle_against_box(&mut result, &mut clip_buffers, &v0, &v1, &v2, &n0, &open_min, &open_max);
+                self.clip_triangle_against_box(
+                    &mut result,
+                    &mut clip_buffers,
+                    &v0,
+                    &v1,
+                    &v2,
+                    &n0,
+                    &open_min,
+                    &open_max,
+                );
             } else {
                 let base = result.vertex_count() as u32;
                 result.add_vertex(v0, n0);
@@ -1157,7 +1252,6 @@ impl GeometryRouter {
         // No internal face generation for diagonal openings
         result
     }
-
 
     /// Test if a triangle intersects an axis-aligned bounding box using Separating Axis Theorem (SAT)
     /// Returns true if triangle and box intersect, false if they are separated
@@ -1266,7 +1360,8 @@ impl GeometryRouter {
                 let mut box_projection = 0.0;
                 for i in 0..3 {
                     let box_axis_vec = box_axes[i];
-                    box_projection += box_half_extents[i] * axis_normalized.dot(&box_axis_vec).abs();
+                    box_projection +=
+                        box_half_extents[i] * axis_normalized.dot(&box_axis_vec).abs();
                 }
 
                 if tri_max < -box_projection || tri_min > box_projection {
@@ -1316,23 +1411,47 @@ impl GeometryRouter {
         // We clip to keep geometry OUTSIDE the box (behind these planes)
         let planes = [
             // +X inward: inside box where x >= open_min.x
-            Plane::new(Point3::new(open_min.x, 0.0, 0.0), Vector3::new(1.0, 0.0, 0.0)),
+            Plane::new(
+                Point3::new(open_min.x, 0.0, 0.0),
+                Vector3::new(1.0, 0.0, 0.0),
+            ),
             // -X inward: inside box where x <= open_max.x
-            Plane::new(Point3::new(open_max.x, 0.0, 0.0), Vector3::new(-1.0, 0.0, 0.0)),
+            Plane::new(
+                Point3::new(open_max.x, 0.0, 0.0),
+                Vector3::new(-1.0, 0.0, 0.0),
+            ),
             // +Y inward: inside box where y >= open_min.y
-            Plane::new(Point3::new(0.0, open_min.y, 0.0), Vector3::new(0.0, 1.0, 0.0)),
+            Plane::new(
+                Point3::new(0.0, open_min.y, 0.0),
+                Vector3::new(0.0, 1.0, 0.0),
+            ),
             // -Y inward: inside box where y <= open_max.y
-            Plane::new(Point3::new(0.0, open_max.y, 0.0), Vector3::new(0.0, -1.0, 0.0)),
+            Plane::new(
+                Point3::new(0.0, open_max.y, 0.0),
+                Vector3::new(0.0, -1.0, 0.0),
+            ),
             // +Z inward: inside box where z >= open_min.z
-            Plane::new(Point3::new(0.0, 0.0, open_min.z), Vector3::new(0.0, 0.0, 1.0)),
+            Plane::new(
+                Point3::new(0.0, 0.0, open_min.z),
+                Vector3::new(0.0, 0.0, 1.0),
+            ),
             // -Z inward: inside box where z <= open_max.z
-            Plane::new(Point3::new(0.0, 0.0, open_max.z), Vector3::new(0.0, 0.0, -1.0)),
+            Plane::new(
+                Point3::new(0.0, 0.0, open_max.z),
+                Vector3::new(0.0, 0.0, -1.0),
+            ),
         ];
 
         // Guard: skip if input vertices contain NaN (from degenerate prior clips)
-        if !v0.x.is_finite() || !v0.y.is_finite() || !v0.z.is_finite()
-            || !v1.x.is_finite() || !v1.y.is_finite() || !v1.z.is_finite()
-            || !v2.x.is_finite() || !v2.y.is_finite() || !v2.z.is_finite()
+        if !v0.x.is_finite()
+            || !v0.y.is_finite()
+            || !v0.z.is_finite()
+            || !v1.x.is_finite()
+            || !v1.y.is_finite()
+            || !v1.z.is_finite()
+            || !v2.x.is_finite()
+            || !v2.y.is_finite()
+            || !v2.z.is_finite()
         {
             // Keep the triangle as-is (don't clip degenerate geometry)
             let base = result.vertex_count() as u32;
@@ -1394,8 +1513,12 @@ impl GeometryRouter {
                         let p2 = front + (back2 - front) * t2;
 
                         // Validate interpolated points
-                        if !p1.x.is_finite() || !p1.y.is_finite() || !p1.z.is_finite()
-                            || !p2.x.is_finite() || !p2.y.is_finite() || !p2.z.is_finite()
+                        if !p1.x.is_finite()
+                            || !p1.y.is_finite()
+                            || !p1.z.is_finite()
+                            || !p2.x.is_finite()
+                            || !p2.y.is_finite()
+                            || !p2.z.is_finite()
                         {
                             buffers.next_remaining.push(tri.clone());
                             continue;
@@ -1426,14 +1549,20 @@ impl GeometryRouter {
                         let p2 = front2 + (back - front2) * t2;
 
                         // Validate interpolated points
-                        if !p1.x.is_finite() || !p1.y.is_finite() || !p1.z.is_finite()
-                            || !p2.x.is_finite() || !p2.y.is_finite() || !p2.z.is_finite()
+                        if !p1.x.is_finite()
+                            || !p1.y.is_finite()
+                            || !p1.z.is_finite()
+                            || !p2.x.is_finite()
+                            || !p2.y.is_finite()
+                            || !p2.z.is_finite()
                         {
                             buffers.next_remaining.push(tri.clone());
                             continue;
                         }
 
-                        buffers.next_remaining.push(Triangle::new(front1, front2, p1));
+                        buffers
+                            .next_remaining
+                            .push(Triangle::new(front1, front2, p1));
                         buffers.next_remaining.push(Triangle::new(front2, p2, p1));
                         buffers.result.push(Triangle::new(p1, p2, back));
                     }
@@ -1458,5 +1587,4 @@ impl GeometryRouter {
             result.add_triangle(base, base + 1, base + 2);
         }
     }
-
 }

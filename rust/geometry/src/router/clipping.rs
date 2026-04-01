@@ -8,6 +8,10 @@ use super::GeometryRouter;
 use crate::{Error, Mesh, Point3, Result, Vector3};
 use ifc_lite_core::{DecodedEntity, EntityDecoder, IfcType};
 use nalgebra::Matrix4;
+use rustc_hash::FxHashSet;
+
+/// Maximum IfcBooleanClippingResult chain depth we will follow when extracting a base profile.
+const MAX_CLIPPING_DEPTH: usize = 32;
 
 impl GeometryRouter {
     /// Quick check if an element has clipping planes (IfcBooleanClippingResult in representation)
@@ -89,19 +93,24 @@ impl GeometryRouter {
         let mut clipping_planes: Vec<(Point3<f64>, Vector3<f64>, bool)> = Vec::new();
 
         // Get representation
-        let representation_attr = element.get(6)
+        let representation_attr = element
+            .get(6)
             .ok_or_else(|| Error::geometry("Element missing representation".to_string()))?;
 
-        let representation = decoder.resolve_ref(representation_attr)?
+        let representation = decoder
+            .resolve_ref(representation_attr)?
             .ok_or_else(|| Error::geometry("Failed to resolve representation".to_string()))?;
 
         if representation.ifc_type != IfcType::IfcProductDefinitionShape {
             // Fallback: can't extract profile, return error
-            return Err(Error::geometry("Element representation is not ProductDefinitionShape".to_string()));
+            return Err(Error::geometry(
+                "Element representation is not ProductDefinitionShape".to_string(),
+            ));
         }
 
         // Get representations list
-        let representations_attr = representation.get(2)
+        let representations_attr = representation
+            .get(2)
             .ok_or_else(|| Error::geometry("Missing representations".to_string()))?;
 
         let representations = decoder.resolve_ref_list(representations_attr)?;
@@ -139,7 +148,9 @@ impl GeometryRouter {
         }
 
         // Fallback: couldn't find extruded solid
-        Err(Error::geometry("Could not find IfcExtrudedAreaSolid in representation".to_string()))
+        Err(Error::geometry(
+            "Could not find IfcExtrudedAreaSolid in representation".to_string(),
+        ))
     }
 
     /// Extract profile from IfcBooleanClippingResult recursively
@@ -158,42 +169,56 @@ impl GeometryRouter {
         use nalgebra::Vector3;
 
         let mut clipping_planes: Vec<(Point3<f64>, Vector3<f64>, bool)> = Vec::new();
+        let mut current = boolean_result.clone();
+        let mut visited = FxHashSet::default();
 
-        // Get FirstOperand (the base geometry or another boolean result)
-        let first_operand_attr = boolean_result.get(1)
-            .ok_or_else(|| Error::geometry("BooleanResult missing FirstOperand".to_string()))?;
+        for _depth in 0..MAX_CLIPPING_DEPTH {
+            if !visited.insert(current.id) {
+                return Err(Error::geometry(format!(
+                    "Detected cyclic IfcBooleanClippingResult reference at #{}",
+                    current.id
+                )));
+            }
 
-        let first_operand = decoder.resolve_ref(first_operand_attr)?
-            .ok_or_else(|| Error::geometry("Failed to resolve FirstOperand".to_string()))?;
-
-        // Get SecondOperand (the clipping solid - usually IfcHalfSpaceSolid)
-        if let Some(second_operand_attr) = boolean_result.get(2) {
-            if let Ok(Some(second_operand)) = decoder.resolve_ref(second_operand_attr) {
-                if let Some(clip) = self.extract_half_space_plane(&second_operand, decoder) {
-                    clipping_planes.push(clip);
+            // Get SecondOperand (the clipping solid - usually IfcHalfSpaceSolid)
+            if let Some(second_operand_attr) = current.get(2) {
+                if let Ok(Some(second_operand)) = decoder.resolve_ref(second_operand_attr) {
+                    if let Some(clip) = self.extract_half_space_plane(&second_operand, decoder) {
+                        clipping_planes.push(clip);
+                    }
                 }
             }
-        }
 
-        // Process FirstOperand
-        if first_operand.ifc_type == IfcType::IfcBooleanClippingResult {
-            // Recursively process nested boolean results
-            let (profile, depth, axis, origin, transform, nested_clips) =
-                self.extract_profile_from_boolean_result(&first_operand, decoder)?;
-            clipping_planes.extend(nested_clips);
-            return Ok((profile, depth, axis, origin, transform, clipping_planes));
-        }
+            // Get FirstOperand (the base geometry or another boolean result)
+            let first_operand_attr = current
+                .get(1)
+                .ok_or_else(|| Error::geometry("BooleanResult missing FirstOperand".to_string()))?;
 
-        // FirstOperand should be IfcExtrudedAreaSolid
-        if first_operand.ifc_type == IfcType::IfcExtrudedAreaSolid {
-            let (profile, depth, axis, origin, transform) =
-                self.extract_profile_from_extruded_solid(&first_operand, decoder)?;
-            return Ok((profile, depth, axis, origin, transform, clipping_planes));
+            let first_operand = decoder
+                .resolve_ref(first_operand_attr)?
+                .ok_or_else(|| Error::geometry("Failed to resolve FirstOperand".to_string()))?;
+
+            if first_operand.ifc_type == IfcType::IfcBooleanClippingResult {
+                current = first_operand;
+                continue;
+            }
+
+            // FirstOperand should be IfcExtrudedAreaSolid
+            if first_operand.ifc_type == IfcType::IfcExtrudedAreaSolid {
+                let (profile, depth, axis, origin, transform) =
+                    self.extract_profile_from_extruded_solid(&first_operand, decoder)?;
+                return Ok((profile, depth, axis, origin, transform, clipping_planes));
+            }
+
+            return Err(Error::geometry(format!(
+                "Unsupported base solid type in boolean result: {:?}",
+                first_operand.ifc_type
+            )));
         }
 
         Err(Error::geometry(format!(
-            "Unsupported base solid type in boolean result: {:?}",
-            first_operand.ifc_type
+            "IfcBooleanClippingResult nesting exceeded maximum depth of {} at #{}",
+            MAX_CLIPPING_DEPTH, current.id
         )))
     }
 
@@ -202,34 +227,47 @@ impl GeometryRouter {
         &self,
         extruded_solid: &DecodedEntity,
         decoder: &mut EntityDecoder,
-    ) -> Result<(crate::profile::Profile2D, f64, u8, f64, Option<Matrix4<f64>>)> {
+    ) -> Result<(
+        crate::profile::Profile2D,
+        f64,
+        u8,
+        f64,
+        Option<Matrix4<f64>>,
+    )> {
         // Get SweptArea (attribute 0: IfcProfileDef)
-        let swept_area_attr = extruded_solid.get(0)
+        let swept_area_attr = extruded_solid
+            .get(0)
             .ok_or_else(|| Error::geometry("ExtrudedAreaSolid missing SweptArea".to_string()))?;
 
-        let profile_entity = decoder.resolve_ref(swept_area_attr)?
+        let profile_entity = decoder
+            .resolve_ref(swept_area_attr)?
             .ok_or_else(|| Error::geometry("Failed to resolve SweptArea".to_string()))?;
 
         // Extract the actual 2D profile (preserves chamfered corners!)
         let profile = self.extract_profile_2d(&profile_entity, decoder)?;
 
         // Get depth (attribute 3: Depth)
-        let depth = extruded_solid.get_float(3)
+        let depth = extruded_solid
+            .get_float(3)
             .ok_or_else(|| Error::geometry("ExtrudedAreaSolid missing Depth".to_string()))?;
 
         // Get ExtrudedDirection (attribute 2: IfcDirection)
         // This tells us which axis is the thickness axis
-        let direction_attr = extruded_solid.get(2)
-            .ok_or_else(|| Error::geometry("ExtrudedAreaSolid missing ExtrudedDirection".to_string()))?;
+        let direction_attr = extruded_solid.get(2).ok_or_else(|| {
+            Error::geometry("ExtrudedAreaSolid missing ExtrudedDirection".to_string())
+        })?;
 
-        let direction_entity = decoder.resolve_ref(direction_attr)?
+        let direction_entity = decoder
+            .resolve_ref(direction_attr)?
             .ok_or_else(|| Error::geometry("Failed to resolve ExtrudedDirection".to_string()))?;
 
         // Get direction coordinates (attribute 0: DirectionRatios)
-        let ratios_attr = direction_entity.get(0)
+        let ratios_attr = direction_entity
+            .get(0)
             .ok_or_else(|| Error::geometry("Direction missing DirectionRatios".to_string()))?;
 
-        let ratios = ratios_attr.as_list()
+        let ratios = ratios_attr
+            .as_list()
             .ok_or_else(|| Error::geometry("DirectionRatios is not a list".to_string()))?;
 
         let dx = ratios.get(0).and_then(|v| v.as_float()).unwrap_or(0.0);
@@ -271,7 +309,13 @@ impl GeometryRouter {
             None
         };
 
-        Ok((profile, depth, thickness_axis, wall_origin, position_transform))
+        Ok((
+            profile,
+            depth,
+            thickness_axis,
+            wall_origin,
+            position_transform,
+        ))
     }
 
     /// Extract base mesh from IfcBooleanClippingResult and collect clipping planes
@@ -286,10 +330,12 @@ impl GeometryRouter {
         let mut clipping_planes: Vec<(Point3<f64>, Vector3<f64>, bool)> = Vec::new();
 
         // Get FirstOperand (the base geometry or another boolean result)
-        let first_operand_attr = boolean_result.get(1)
+        let first_operand_attr = boolean_result
+            .get(1)
             .ok_or_else(|| Error::geometry("BooleanResult missing FirstOperand".to_string()))?;
 
-        let first_operand = decoder.resolve_ref(first_operand_attr)?
+        let first_operand = decoder
+            .resolve_ref(first_operand_attr)?
             .ok_or_else(|| Error::geometry("Failed to resolve FirstOperand".to_string()))?;
 
         // Get SecondOperand (the clipping solid - usually IfcHalfSpaceSolid)
@@ -304,7 +350,8 @@ impl GeometryRouter {
         // Process FirstOperand
         if first_operand.ifc_type == IfcType::IfcBooleanClippingResult {
             // Recursively process nested boolean results
-            let (base_mesh, nested_clips) = self.extract_base_from_boolean_result(&first_operand, decoder)?;
+            let (base_mesh, nested_clips) =
+                self.extract_base_from_boolean_result(&first_operand, decoder)?;
             clipping_planes.extend(nested_clips);
             return Ok((base_mesh, clipping_planes));
         }
@@ -332,7 +379,8 @@ impl GeometryRouter {
         use nalgebra::Vector3;
 
         if half_space.ifc_type != IfcType::IfcHalfSpaceSolid
-            && half_space.ifc_type != IfcType::IfcPolygonalBoundedHalfSpace {
+            && half_space.ifc_type != IfcType::IfcPolygonalBoundedHalfSpace
+        {
             return None;
         }
 
@@ -386,7 +434,8 @@ impl GeometryRouter {
         };
 
         // Get AgreementFlag - stored as Enum "T" or "F"
-        let agreement = half_space.get(1)
+        let agreement = half_space
+            .get(1)
             .map(|v| match v {
                 ifc_lite_core::AttributeValue::Enum(e) => e != "F" && e != ".F.",
                 _ => true,
