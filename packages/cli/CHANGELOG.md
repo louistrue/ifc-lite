@@ -1,5 +1,26 @@
 # @ifc-lite/cli
 
+## 0.6.2
+
+### Patch Changes
+
+- [#494](https://github.com/louistrue/ifc-lite/pull/494) [`ec0d3a0`](https://github.com/louistrue/ifc-lite/commit/ec0d3a0e4c7f9eaeb26ab0a724fd76d955e52ac5) Thanks [@louistrue](https://github.com/louistrue)! - Remove recursive package `prebuild` hooks and run TypeScript via `pnpm exec` so workspace builds resolve correctly on Windows.
+
+- Updated dependencies [[`7a1aeb7`](https://github.com/louistrue/ifc-lite/commit/7a1aeb7fabdb4b9692d02186fe4254fc561bece4), [`ec0d3a0`](https://github.com/louistrue/ifc-lite/commit/ec0d3a0e4c7f9eaeb26ab0a724fd76d955e52ac5)]:
+  - @ifc-lite/wasm@1.16.1
+  - @ifc-lite/bcf@1.15.2
+  - @ifc-lite/create@1.14.5
+  - @ifc-lite/data@1.15.1
+  - @ifc-lite/encoding@1.14.6
+  - @ifc-lite/export@1.17.2
+  - @ifc-lite/ids@1.14.9
+  - @ifc-lite/mutations@1.14.5
+  - @ifc-lite/parser@2.1.6
+  - @ifc-lite/query@1.14.6
+  - @ifc-lite/sandbox@1.14.5
+  - @ifc-lite/sdk@1.14.6
+  - @ifc-lite/viewer-core@0.2.3
+
 ## 0.6.1
 
 ### Patch Changes
