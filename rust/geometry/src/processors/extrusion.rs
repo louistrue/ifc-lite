@@ -37,6 +37,11 @@ impl GeometryProcessor for ExtrudedAreaSolidProcessor {
         decoder: &mut EntityDecoder,
         _schema: &IfcSchema,
     ) -> Result<Mesh> {
+        #[cfg(target_arch = "wasm32")]
+        web_sys::console::log_1(&format!(
+            "[GEOM] ExtrudedAreaSolid #{}", entity.id
+        ).into());
+
         // IfcExtrudedAreaSolid attributes:
         // 0: SweptArea (IfcProfileDef)
         // 1: Position (IfcAxis2Placement3D)

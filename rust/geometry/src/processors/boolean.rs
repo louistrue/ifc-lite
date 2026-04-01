@@ -399,6 +399,12 @@ impl BooleanClippingProcessor {
         _schema: &IfcSchema,
         depth: u32,
     ) -> Result<Mesh> {
+        #[cfg(target_arch = "wasm32")]
+        web_sys::console::log_1(&format!(
+            "[GEOM] boolean process_with_depth #{} depth={}",
+            entity.id, depth
+        ).into());
+
         // Depth limit to prevent stack overflow from deeply nested boolean chains
         if depth > MAX_BOOLEAN_DEPTH {
             return Err(Error::geometry(format!(

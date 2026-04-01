@@ -2490,6 +2490,12 @@ impl IfcAPI {
                 let ifc_type = entity.ifc_type;
                 let has_openings = void_index.contains_key(&id);
 
+                // DEBUG: log entity being processed so we can identify which one causes stack overflow
+                web_sys::console::log_1(&format!(
+                    "[WASM] Processing #{} type={} openings={}",
+                    id, entity.ifc_type, has_openings
+                ).into());
+
                 if has_openings {
                     if let Ok(mut mesh) = router.process_element_with_voids(
                         &entity,

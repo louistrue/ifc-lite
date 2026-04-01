@@ -477,6 +477,12 @@ impl GeometryRouter {
         decoder: &mut EntityDecoder,
         void_index: &FxHashMap<u32, Vec<u32>>,
     ) -> Result<Mesh> {
+        #[cfg(target_arch = "wasm32")]
+        web_sys::console::log_1(&format!(
+            "[GEOM] process_element_with_voids #{} type={}",
+            element.id, element.ifc_type
+        ).into());
+
         let opening_ids = match void_index.get(&element.id) {
             Some(ids) if !ids.is_empty() => ids,
             _ => {
