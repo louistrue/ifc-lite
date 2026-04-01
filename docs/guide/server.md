@@ -76,7 +76,7 @@ flowchart TB
 
     ```bash
     docker run -p 3001:8080 \
-      -v ifc-cache:/app/.cache \
+      -v ifc-cache:/app/cache \
       ghcr.io/louistrue/ifc-lite-server
     ```
 
@@ -485,7 +485,7 @@ services:
       - WORKER_THREADS=8
       - CACHE_MAX_AGE_DAYS=30
     volumes:
-      - ifc-cache:/app/.cache
+      - ifc-cache:/app/cache
 
 volumes:
   ifc-cache:

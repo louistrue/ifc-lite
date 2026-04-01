@@ -160,7 +160,7 @@ The fastest way to get started is using the `create-ifc-lite` CLI:
 docker run -p 3001:8080 ghcr.io/louistrue/ifc-lite-server
 
 # With persistent cache
-docker run -p 3001:8080 -v ifc-cache:/app/.cache ghcr.io/louistrue/ifc-lite-server
+docker run -p 3001:8080 -v ifc-cache:/app/cache ghcr.io/louistrue/ifc-lite-server
 
 # With environment configuration
 docker run -p 3001:8080 \
