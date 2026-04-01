@@ -8,8 +8,8 @@
   },
   "main": "./dist/index.js",
   "scripts": {
-    "build": "tsc",
-    "dev": "tsc --watch"
+    "build": "pnpm exec tsc",
+    "dev": "pnpm exec tsc --watch"
   },
   "files": [
     "dist",

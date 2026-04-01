@@ -15,9 +15,8 @@
     }
   },
   "scripts": {
-    "prebuild": "pnpm --filter @ifc-lite/cli^... build",
-    "build": "tsc",
-    "dev": "tsc --watch",
+    "build": "pnpm exec tsc",
+    "dev": "pnpm exec tsc --watch",
     "start": "node dist/index.js"
   },
   "files": [

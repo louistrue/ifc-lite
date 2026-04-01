@@ -12,9 +12,8 @@
     }
   },
   "scripts": {
-    "prebuild": "pnpm --filter @ifc-lite/bcf^... build",
-    "build": "tsc",
-    "dev": "tsc --watch",
+    "build": "pnpm exec tsc",
+    "dev": "pnpm exec tsc --watch",
     "test": "vitest run"
   },
   "dependencies": {

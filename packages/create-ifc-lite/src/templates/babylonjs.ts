@@ -23,6 +23,7 @@ export function createBabylonjsTemplate(targetDir: string, projectName: string) 
       dev: 'vite',
       build: 'tsc && vite build',
       preview: 'vite preview',
+      postinstall: 'node ./scripts/fix-ifc-lite-geometry-worker.mjs',
     },
     dependencies: {
       '@ifc-lite/geometry': geometryVersion,
@@ -101,6 +102,25 @@ export default defineConfig({
 
   // src/
   mkdirSync(join(targetDir, 'src'));
+  mkdirSync(join(targetDir, 'scripts'));
+
+  // scripts/fix-ifc-lite-geometry-worker.mjs
+  writeFileSync(join(targetDir, 'scripts', 'fix-ifc-lite-geometry-worker.mjs'), `import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
+
+const entryPath = path.join(process.cwd(), 'node_modules', '@ifc-lite', 'geometry', 'dist', 'index.js');
+
+if (!existsSync(entryPath)) {
+  process.exit(0);
+}
+
+const source = readFileSync(entryPath, 'utf8');
+const patched = source.replace(/geometry\\.worker\\.ts/g, 'geometry.worker.js');
+
+if (patched !== source) {
+  writeFileSync(entryPath, patched);
+}
+`);
 
   // src/ifc-to-babylon.ts
   writeFileSync(join(targetDir, 'src', 'ifc-to-babylon.ts'), `import {

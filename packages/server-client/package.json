@@ -12,8 +12,8 @@
     }
   },
   "scripts": {
-    "build": "tsc",
-    "dev": "tsc --watch"
+    "build": "pnpm exec tsc",
+    "dev": "pnpm exec tsc --watch"
   },
   "peerDependencies": {
     "apache-arrow": ">=14.0.0",
