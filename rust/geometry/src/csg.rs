@@ -722,13 +722,6 @@ impl ClippingProcessor {
     pub fn subtract_mesh(&self, host_mesh: &Mesh, opening_mesh: &Mesh) -> Result<Mesh> {
         use csgrs::traits::CSG;
 
-        #[cfg(target_arch = "wasm32")]
-        web_sys::console::log_1(&format!(
-            "[GEOM] CSG subtract_mesh host_tris={} opening_tris={}",
-            host_mesh.indices.len() / 3,
-            opening_mesh.indices.len() / 3,
-        ).into());
-
         // Validate input meshes - early exit for empty host (no clone needed)
         if host_mesh.is_empty() {
             return Ok(Mesh::new());

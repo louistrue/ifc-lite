@@ -98,43 +98,84 @@ self.onmessage = async (e: MessageEvent<GeometryWorkerRequest>) => {
       const localBytes = new Uint8Array(sharedBuffer.byteLength);
       localBytes.set(new Uint8Array(sharedBuffer));
 
-      // Call processGeometryBatch with pre-pass data
-      const collection = api.processGeometryBatch(
-        localBytes, jobsFlat, unitScale,
-        rtcX, rtcY, rtcZ, needsShift,
-        voidKeys, voidCounts, voidValues,
-        styleIds, styleColors,
-      );
+      const allMeshes: GeometryWorkerBatchMessage['meshes'] = [];
+      const allTransferBuffers: ArrayBuffer[] = [];
 
-      const meshes: GeometryWorkerBatchMessage['meshes'] = [];
-      const transferBuffers: ArrayBuffer[] = [];
+      /** Extract meshes from a MeshCollection into our arrays */
+      const collectMeshes = (collection: ReturnType<IfcAPI['processGeometryBatch']>) => {
+        for (let i = 0; i < collection.length; i++) {
+          const mesh = collection.get(i);
+          if (!mesh) continue;
+          const positions = new Float32Array(mesh.positions);
+          const normals = new Float32Array(mesh.normals);
+          const indices = new Uint32Array(mesh.indices);
+          allMeshes.push({
+            expressId: mesh.expressId,
+            ifcType: mesh.ifcType,
+            positions, normals, indices,
+            color: [mesh.color[0], mesh.color[1], mesh.color[2], mesh.color[3]],
+          });
+          allTransferBuffers.push(positions.buffer, normals.buffer, indices.buffer);
+          mesh.free();
+        }
+        collection.free();
+      };
 
-      for (let i = 0; i < collection.length; i++) {
-        const mesh = collection.get(i);
-        if (!mesh) continue;
+      try {
+        // Fast path: process all entities in a single WASM call
+        const collection = api.processGeometryBatch(
+          localBytes, jobsFlat, unitScale,
+          rtcX, rtcY, rtcZ, needsShift,
+          voidKeys, voidCounts, voidValues,
+          styleIds, styleColors,
+        );
+        collectMeshes(collection);
+      } catch (batchErr) {
+        // Native stack overflow ("too much recursion" in Firefox, "Maximum call
+        // stack size exceeded" in Chrome) kills the entire WASM call.
+        // Fall back to processing entities individually so one bad entity
+        // doesn't prevent all geometry from loading.
+        console.warn(
+          `[Worker] Batch geometry failed (${(batchErr as Error).message}), retrying entities individually…`,
+        );
 
-        const positions = new Float32Array(mesh.positions);
-        const normals = new Float32Array(mesh.normals);
-        const indices = new Uint32Array(mesh.indices);
-
-        meshes.push({
-          expressId: mesh.expressId,
-          ifcType: mesh.ifcType,
-          positions, normals, indices,
-          color: [mesh.color[0], mesh.color[1], mesh.color[2], mesh.color[3]],
-        });
-
-        transferBuffers.push(positions.buffer, normals.buffer, indices.buffer);
-        mesh.free();
+        const numJobs = Math.floor(jobsFlat.length / 3);
+        for (let j = 0; j < numJobs; j++) {
+          const singleJob = new Uint32Array([
+            jobsFlat[j * 3],
+            jobsFlat[j * 3 + 1],
+            jobsFlat[j * 3 + 2],
+          ]);
+          try {
+            // Re-init WASM after a native stack overflow — the linear-memory
+            // stack pointer may be corrupted.
+            if (!api) {
+              await init();
+              api = new IfcAPI();
+            }
+            const collection = api.processGeometryBatch(
+              localBytes, singleJob, unitScale,
+              rtcX, rtcY, rtcZ, needsShift,
+              voidKeys, voidCounts, voidValues,
+              styleIds, styleColors,
+            );
+            collectMeshes(collection);
+          } catch (entityErr) {
+            console.warn(
+              `[Worker] Skipping entity #${singleJob[0]}: ${(entityErr as Error).message}`,
+            );
+            // WASM instance may be corrupted after stack overflow — force re-init
+            api = null;
+          }
+        }
       }
-      collection.free();
 
       (self as unknown as Worker).postMessage(
-        { type: 'batch', meshes } as GeometryWorkerBatchMessage,
-        transferBuffers,
+        { type: 'batch', meshes: allMeshes } as GeometryWorkerBatchMessage,
+        allTransferBuffers,
       );
       (self as unknown as Worker).postMessage(
-        { type: 'complete', totalMeshes: meshes.length } as GeometryWorkerCompleteMessage,
+        { type: 'complete', totalMeshes: allMeshes.length } as GeometryWorkerCompleteMessage,
       );
     }
   } catch (err) {
