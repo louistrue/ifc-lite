@@ -6,9 +6,12 @@
  * Core IFC clash detection engine.
  *
  * Uses a two-phase approach:
- * 1. Broad phase: AABB overlap test via BVH spatial index
- * 2. Narrow phase: Triangle-triangle intersection for 'intersection' mode,
- *    or AABB gap distance for 'collision' and 'clearance' modes
+ * 1. Broad phase: AABB overlap test to find candidate pairs
+ * 2. Narrow phase: Triangle-triangle intersection for geometric confirmation
+ *
+ * The narrow phase runs for both 'collision' and 'intersection' modes to avoid
+ * false positives from adjacent elements whose bounding boxes overlap but
+ * whose actual geometry doesn't intersect.
  */
 
 import type { IfcDataStore } from '@ifc-lite/parser';
@@ -227,21 +230,19 @@ function testClash(
     return null;
   }
 
-  // Collision / intersection mode: check AABB overlap
+  // ── Collision / intersection mode ──
+
+  // Broad phase: AABB overlap check
   if (!AABBUtils.intersects(boundsA, boundsB)) return null;
 
+  // Skip elements that merely touch (within tolerance)
   const dist = aabbDistance(boundsA, boundsB);
+  if (opts.allowTouching && dist >= -opts.tolerance) return null;
 
-  // Allow touching filter
-  if (opts.allowTouching && Math.abs(dist) < opts.tolerance) return null;
-
-  // Tolerance filter
-  if (!opts.allowTouching && dist > -opts.tolerance && dist >= 0) return null;
-
-  if (opts.mode === 'intersection') {
-    // Narrow phase: triangle-triangle intersection test
-    if (!triangleIntersectionTest(elemA.mesh, elemB.mesh)) return null;
-  }
+  // Narrow phase: triangle-level intersection test.
+  // This is critical to avoid false positives — adjacent walls, slabs, and beams
+  // routinely have overlapping AABBs without their actual geometry intersecting.
+  if (!triangleIntersectionTest(elemA.mesh, elemB.mesh, opts.tolerance)) return null;
 
   return buildClash(elemA, elemB, dist, clashSetName);
 }
@@ -281,11 +282,14 @@ function toClashElement(elem: ElementMesh): ClashElement {
 
 /**
  * Approximate signed distance between two AABBs.
- * Negative = penetration, positive = gap, zero = touching.
+ * Negative = penetration depth, positive = gap, zero = touching.
+ *
+ * Penetration depth uses the minimum overlap across axes (the smallest
+ * axis overlap determines the separation vector).
  */
 function aabbDistance(a: AABB, b: AABB): number {
   let sqDist = 0;
-  let penetration = 0;
+  let minOverlap = Infinity;
   let hasPenetration = true;
 
   for (let i = 0; i < 3; i++) {
@@ -294,28 +298,37 @@ function aabbDistance(a: AABB, b: AABB): number {
       sqDist += gap * gap;
       hasPenetration = false;
     } else {
-      // Overlap on this axis
+      // Overlap on this axis — track minimum for correct penetration depth
       const overlap = Math.min(a.max[i], b.max[i]) - Math.max(a.min[i], b.min[i]);
-      penetration = Math.max(penetration, overlap);
+      minOverlap = Math.min(minOverlap, overlap);
     }
   }
 
-  if (hasPenetration) return -penetration;
+  if (hasPenetration) return -minOverlap;
   return Math.sqrt(sqDist);
 }
 
 /**
- * Basic triangle-triangle intersection test between two meshes.
- * Tests a sample of triangle pairs for performance.
+ * Triangle-triangle intersection test between two meshes.
+ *
+ * Uses sampling for large meshes to bound computation. For meshes with
+ * fewer than ~100 triangles each, all pairs are tested exhaustively.
+ * For larger meshes, a representative sample is tested which may produce
+ * false negatives on complex geometry.
+ *
+ * @param tolerance  Minimum penetration depth to consider a real clash
  */
-function triangleIntersectionTest(meshA: MeshData, meshB: MeshData): boolean {
+function triangleIntersectionTest(meshA: MeshData, meshB: MeshData, tolerance: number = 0): boolean {
   const trisA = meshA.indices.length / 3;
   const trisB = meshB.indices.length / 3;
 
-  // For large meshes, sample a subset
-  const maxChecks = 10000;
-  const stepA = Math.max(1, Math.floor(trisA / Math.sqrt(maxChecks)));
-  const stepB = Math.max(1, Math.floor(trisB / Math.sqrt(maxChecks)));
+  if (trisA === 0 || trisB === 0) return false;
+
+  // For small meshes, test all pairs. For large meshes, sample.
+  const maxChecks = 50000;
+  const totalPairs = trisA * trisB;
+  const stepA = totalPairs <= maxChecks ? 1 : Math.max(1, Math.floor(trisA / Math.sqrt(maxChecks)));
+  const stepB = totalPairs <= maxChecks ? 1 : Math.max(1, Math.floor(trisB / Math.sqrt(maxChecks)));
 
   for (let ia = 0; ia < trisA; ia += stepA) {
     const a0 = getVertex(meshA, meshA.indices[ia * 3]);
@@ -327,7 +340,7 @@ function triangleIntersectionTest(meshA: MeshData, meshB: MeshData): boolean {
       const b1 = getVertex(meshB, meshB.indices[ib * 3 + 1]);
       const b2 = getVertex(meshB, meshB.indices[ib * 3 + 2]);
 
-      if (trianglesIntersect(a0, a1, a2, b0, b1, b2)) {
+      if (trianglesIntersect(a0, a1, a2, b0, b1, b2, tolerance)) {
         return true;
       }
     }
@@ -360,11 +373,15 @@ function dot(a: Vec3, b: Vec3): number {
 }
 
 /**
- * Moller-Trumbore triangle-triangle intersection test using separating axis theorem.
+ * Separating Axis Theorem (SAT) triangle-triangle intersection test.
+ *
+ * Tests 13 potential separating axes (2 face normals + 9 edge cross products).
+ * A tolerance parameter allows ignoring coplanar faces that merely touch.
  */
 function trianglesIntersect(
   a0: Vec3, a1: Vec3, a2: Vec3,
   b0: Vec3, b1: Vec3, b2: Vec3,
+  tolerance: number = 0,
 ): boolean {
   const edgesA = [sub(a1, a0), sub(a2, a1), sub(a0, a2)];
   const edgesB = [sub(b1, b0), sub(b2, b1), sub(b0, b2)];
@@ -403,8 +420,10 @@ function trianglesIntersect(
       maxB = Math.max(maxB, p);
     }
 
-    // Separating axis found — no intersection
-    if (maxA < minB || maxB < minA) return false;
+    // Separating axis found — no intersection.
+    // Use tolerance to filter out coplanar faces that barely touch.
+    const overlap = Math.min(maxA, maxB) - Math.max(minA, minB);
+    if (overlap < tolerance) return false;
   }
 
   return true;

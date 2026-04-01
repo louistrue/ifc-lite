@@ -18,7 +18,7 @@
  *   --viewer <port>    Send colored diff to a running ifc-lite view instance
  */
 
-import { loadIfcFile, createStreamingContext } from '../loader.js';
+import { loadIfcFile } from '../loader.js';
 import { hasFlag, fatal, printJson, formatTable, getFlag, validateViewerPort } from '../output.js';
 import { IFC_ENTITY_NAMES } from '@ifc-lite/data';
 import { computeDiff, DIFF_COLORS } from '@ifc-lite/diff';
@@ -26,7 +26,7 @@ import type { DiffResult } from '@ifc-lite/diff';
 
 export async function diffCommand(args: string[]): Promise<void> {
   const positional = args.filter(a => !a.startsWith('-'));
-  if (positional.length < 2) fatal('Usage: ifc-lite diff <file1.ifc> <file2.ifc> [--json] [--by-entity] [--viewer <port>]');
+  if (positional.length < 2) fatal('Usage: ifc-lite diff <file1.ifc> <file2.ifc> [--json] [--by-entity] [--no-properties] [--no-quantities] [--viewer <port>]');
 
   const [file1, file2] = positional;
   const jsonOutput = hasFlag(args, '--json');
@@ -68,7 +68,7 @@ export async function diffCommand(args: string[]): Promise<void> {
 
   // Visual diff via viewer
   if (viewerPort) {
-    await sendVisualDiff(file2, viewerPort, diffResult);
+    await sendVisualDiff(viewerPort, diffResult);
   }
 }
 
@@ -129,31 +129,27 @@ function printDiffSummary(
 }
 
 async function sendVisualDiff(
-  file2: string,
   viewerPort: number,
   diff: DiffResult,
 ): Promise<void> {
   process.stderr.write(`Sending visual diff to viewer on port ${viewerPort}...\n`);
 
   try {
-    await createStreamingContext(file2, viewerPort);
-
-    const batches: Array<{ refs: number[]; color: [number, number, number, number] }> = [];
+    const batches: Array<{ ids: number[]; color: readonly [number, number, number, number] }> = [];
 
     if (diff.added.length > 0) {
-      batches.push({ refs: diff.added.map(e => e.expressId), color: DIFF_COLORS.added });
+      batches.push({ ids: diff.added.map(e => e.expressId), color: DIFF_COLORS.added });
     }
     if (diff.changed.length > 0) {
-      batches.push({ refs: diff.changed.map(e => e.expressId2), color: DIFF_COLORS.changed });
+      batches.push({ ids: diff.changed.map(e => e.expressId2), color: DIFF_COLORS.changed });
     }
 
-    // Apply color overrides via REST API
     for (const batch of batches) {
-      const url = `http://localhost:${viewerPort}/api/colorize`;
+      const url = `http://localhost:${viewerPort}/api/command`;
       const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ expressIds: batch.refs, color: batch.color }),
+        body: JSON.stringify({ action: 'colorizeEntities', ids: batch.ids, color: batch.color }),
       });
       if (!res.ok) {
         process.stderr.write(`Warning: Colorize request failed with status ${res.status}\n`);

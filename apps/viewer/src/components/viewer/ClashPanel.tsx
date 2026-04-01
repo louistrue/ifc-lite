@@ -335,7 +335,7 @@ export function ClashPanel({ onClose }: ClashPanelProps) {
     <div className="h-full flex flex-col bg-background">
       <PanelHeader
         onClose={onClose}
-        onClear={clearClash}
+        onClear={() => { clearClash(); clearColors(); clearIsolation(); }}
         onSettings={() => setSettingsOpen(!settingsOpen)}
         hasResult={!!clashResult}
       />

@@ -39,8 +39,8 @@ export interface PropertyChange {
 export interface QuantityChange {
   qsetName: string;
   quantityName: string;
-  oldValue: number;
-  newValue: number;
+  oldValue: number | null;
+  newValue: number | null;
 }
 
 export interface EntityChange {

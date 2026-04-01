@@ -382,7 +382,7 @@ export function DiffPanel({ onClose }: DiffPanelProps) {
     <div className="h-full flex flex-col bg-background">
       <PanelHeader
         onClose={onClose}
-        onClear={clearDiff}
+        onClear={() => { clearDiff(); clearColors(); clearIsolation(); }}
         hasResult={!!diffResult}
       />
 

@@ -30,7 +30,21 @@ import type { MeshData } from '@ifc-lite/geometry';
 import { GeometryProcessor } from '@ifc-lite/geometry';
 
 export async function clashCommand(args: string[]): Promise<void> {
-  const positional = args.filter(a => !a.startsWith('-'));
+  // Extract positional args, skipping flag values (e.g. --mode clearance, --viewer 3000)
+  const flagsWithValue = new Set([
+    '--mode', '--tolerance', '--clearance', '--type-a', '--type-b',
+    '--config', '--viewer',
+  ]);
+  const positional: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    if (args[i].startsWith('-')) {
+      if (flagsWithValue.has(args[i]) && i + 1 < args.length) {
+        i++; // skip the flag's value
+      }
+      continue;
+    }
+    positional.push(args[i]);
+  }
   if (positional.length < 1) {
     fatal('Usage: ifc-lite clash <file1.ifc> [file2.ifc] [--mode collision|clearance|intersection] [--json]');
   }
@@ -91,7 +105,9 @@ export async function clashCommand(args: string[]): Promise<void> {
   if (configFile) {
     try {
       const configData = await readFile(configFile, 'utf-8');
-      clashSets = JSON.parse(configData) as ClashSet[];
+      const parsed = JSON.parse(configData);
+      if (!Array.isArray(parsed)) fatal(`Config file ${configFile} must contain a JSON array of clash sets`);
+      clashSets = parsed as ClashSet[];
     } catch (err: any) {
       fatal(`Failed to load config file ${configFile}: ${err.message}`);
     }
@@ -199,11 +215,11 @@ async function sendVisualClashes(viewerPort: number, result: ClashResult): Promi
     ];
 
     for (const batch of batches) {
-      const url = `http://localhost:${viewerPort}/api/colorize`;
+      const url = `http://localhost:${viewerPort}/api/command`;
       const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(batch),
+        body: JSON.stringify({ action: 'colorizeEntities', ids: batch.expressIds, color: batch.color }),
       });
       if (!res.ok) {
         process.stderr.write(`Warning: Colorize request failed with status ${res.status}\n`);

@@ -128,6 +128,11 @@ function compareEntities(
   const oldNode = new EntityNode(oldStore, oldInfo.expressId);
   const newNode = new EntityNode(newStore, newInfo.expressId);
 
+  // Detect entity type changes (e.g. IfcWall → IfcWallStandardCase)
+  if (oldInfo.type !== newInfo.type) {
+    attributeChanges.push({ attribute: 'Type', oldValue: oldInfo.type, newValue: newInfo.type });
+  }
+
   // Compare attributes
   if (opts.attributes) {
     const oldAttrs = extractAllEntityAttributes(oldStore, oldInfo.expressId);
@@ -220,8 +225,8 @@ function compareEntities(
 
       const allQNames = new Set([...oldQset.keys(), ...newQset.keys()]);
       for (const qName of allQNames) {
-        const oldVal = oldQset.get(qName) ?? 0;
-        const newVal = newQset.get(qName) ?? 0;
+        const oldVal = oldQset.has(qName) ? oldQset.get(qName)! : null;
+        const newVal = newQset.has(qName) ? newQset.get(qName)! : null;
         if (oldVal !== newVal) {
           quantityChanges.push({ qsetName, quantityName: qName, oldValue: oldVal, newValue: newVal });
         }
