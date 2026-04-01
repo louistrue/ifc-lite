@@ -1,6 +1,6 @@
 {
   "name": "@ifc-lite/ifcx",
-  "version": "2.0.1",
+  "version": "2.0.2",
   "description": "IFC5 (IFCX) parser for IFC-Lite",
   "type": "module",
   "main": "./dist/index.js",
@@ -12,8 +12,8 @@
     }
   },
   "scripts": {
-    "build": "tsc && node ./scripts/verify-dist-hello-wall.mjs",
-    "dev": "tsc --watch"
+    "build": "pnpm exec tsc && node ./scripts/verify-dist-hello-wall.mjs",
+    "dev": "pnpm exec tsc --watch"
   },
   "dependencies": {
     "@ifc-lite/data": "workspace:^",

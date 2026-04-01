@@ -1,6 +1,6 @@
 {
   "name": "@ifc-lite/export",
-  "version": "1.17.1",
+  "version": "1.17.2",
   "description": "Export formats for IFC-Lite",
   "type": "module",
   "main": "./dist/index.js",
@@ -12,9 +12,8 @@
     }
   },
   "scripts": {
-    "prebuild": "pnpm --filter @ifc-lite/export^... build",
-    "build": "tsc",
-    "dev": "tsc --watch",
+    "build": "pnpm exec tsc",
+    "dev": "pnpm exec tsc --watch",
     "test": "vitest run"
   },
   "dependencies": {

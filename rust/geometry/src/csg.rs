@@ -109,11 +109,14 @@ impl Triangle {
     }
 }
 
+/// Maximum polygon count for either operand in a csgrs boolean operation.
+///
+/// Rectangular solids are 12 triangles, so this still allows the simple box-like
+/// boolean cases we expect while avoiding the complex BSP trees that can overflow
+/// the browser's native call stack in WASM.
+const MAX_CSG_POLYGONS_PER_MESH: usize = 24;
 /// Maximum combined polygon count for CSG operations.
-/// The csgrs BSP tree can infinite-recurse on certain polygon configurations
-/// (coplanar/near-coplanar faces cause repeated splitting with exponential growth).
-/// This limit prevents stack overflow in both native and WASM builds.
-const MAX_CSG_POLYGONS: usize = 2000;
+const MAX_CSG_POLYGONS: usize = MAX_CSG_POLYGONS_PER_MESH * 2;
 
 /// CSG Clipping Processor
 pub struct ClippingProcessor {
@@ -165,6 +168,25 @@ fn aabb_to_mesh(min: Point3<f64>, max: Point3<f64>) -> Mesh {
 }
 
 impl ClippingProcessor {
+    #[inline]
+    fn can_run_csgrs_operation(
+        csg_a: &csgrs::mesh::Mesh<()>,
+        csg_b: &csgrs::mesh::Mesh<()>,
+    ) -> bool {
+        let polygons_a = csg_a.polygons.len();
+        let polygons_b = csg_b.polygons.len();
+
+        if polygons_a < 4 || polygons_b < 4 {
+            return false;
+        }
+
+        if polygons_a > MAX_CSG_POLYGONS_PER_MESH || polygons_b > MAX_CSG_POLYGONS_PER_MESH {
+            return false;
+        }
+
+        polygons_a + polygons_b <= MAX_CSG_POLYGONS
+    }
+
     /// Create a new clipping processor
     pub fn new() -> Self {
         Self { epsilon: 1e-6 }
@@ -731,14 +753,9 @@ impl ClippingProcessor {
             return Ok(host_mesh.clone());
         }
 
-        // Additional validation: check for degenerate polygons that could cause panics
-        // Skip CSG if either mesh has suspicious polygon counts (too few for a solid)
-        if host_csg.polygons.len() < 4 || opening_csg.polygons.len() < 4 {
-            return Ok(host_mesh.clone());
-        }
-
-        // Safety: skip CSG if combined polygon count risks BSP infinite recursion
-        if host_csg.polygons.len() + opening_csg.polygons.len() > MAX_CSG_POLYGONS {
+        // Safety: only allow simple low-polygon CSG cases. Complex operands are
+        // left uncut rather than risking runaway BSP recursion in csgrs.
+        if !Self::can_run_csgrs_operation(&host_csg, &opening_csg) {
             return Ok(host_mesh.clone());
         }
 
@@ -1028,15 +1045,7 @@ impl ClippingProcessor {
             return Ok(merged);
         }
 
-        // Skip CSG if either mesh has too few polygons for a valid solid
-        if csg_a.polygons.len() < 4 || csg_b.polygons.len() < 4 {
-            let mut merged = mesh_a.clone();
-            merged.merge(mesh_b);
-            return Ok(merged);
-        }
-
-        // Safety: skip CSG if combined polygon count risks BSP infinite recursion
-        if csg_a.polygons.len() + csg_b.polygons.len() > MAX_CSG_POLYGONS {
+        if !Self::can_run_csgrs_operation(&csg_a, &csg_b) {
             let mut merged = mesh_a.clone();
             merged.merge(mesh_b);
             return Ok(merged);
@@ -1069,14 +1078,8 @@ impl ClippingProcessor {
             return Ok(Mesh::new());
         }
 
-        // Skip CSG if either mesh has too few polygons for a valid solid
-        if csg_a.polygons.len() < 4 || csg_b.polygons.len() < 4 {
+        if !Self::can_run_csgrs_operation(&csg_a, &csg_b) {
             return Ok(Mesh::new());
-        }
-
-        // Safety: skip CSG if combined polygon count risks BSP infinite recursion
-        if csg_a.polygons.len() + csg_b.polygons.len() > MAX_CSG_POLYGONS {
-            return Ok(mesh_a.clone());
         }
 
         // Perform CSG intersection
@@ -1480,5 +1483,30 @@ mod tests {
 
         let area = triangle.area();
         assert!((area - 0.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_csgrs_operation_guard_allows_simple_boxes() {
+        let box_a = aabb_to_mesh(Point3::new(0.0, 0.0, 0.0), Point3::new(1.0, 1.0, 1.0));
+        let box_b = aabb_to_mesh(Point3::new(0.25, 0.25, 0.25), Point3::new(0.75, 0.75, 0.75));
+
+        let csg_a = ClippingProcessor::mesh_to_csgrs(&box_a).unwrap();
+        let csg_b = ClippingProcessor::mesh_to_csgrs(&box_b).unwrap();
+
+        assert!(ClippingProcessor::can_run_csgrs_operation(&csg_a, &csg_b));
+    }
+
+    #[test]
+    fn test_csgrs_operation_guard_rejects_complex_operands() {
+        let box_mesh = aabb_to_mesh(Point3::new(0.0, 0.0, 0.0), Point3::new(1.0, 1.0, 1.0));
+        let mut complex_mesh = Mesh::new();
+        complex_mesh.merge(&box_mesh);
+        complex_mesh.merge(&box_mesh);
+        complex_mesh.merge(&box_mesh);
+
+        let csg_a = ClippingProcessor::mesh_to_csgrs(&complex_mesh).unwrap();
+        let csg_b = ClippingProcessor::mesh_to_csgrs(&box_mesh).unwrap();
+
+        assert!(!ClippingProcessor::can_run_csgrs_operation(&csg_a, &csg_b));
     }
 }

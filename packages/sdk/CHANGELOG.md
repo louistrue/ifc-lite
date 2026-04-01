@@ -1,5 +1,26 @@
 # @ifc-lite/sdk
 
+## 1.14.6
+
+### Patch Changes
+
+- [#494](https://github.com/louistrue/ifc-lite/pull/494) [`ec0d3a0`](https://github.com/louistrue/ifc-lite/commit/ec0d3a0e4c7f9eaeb26ab0a724fd76d955e52ac5) Thanks [@louistrue](https://github.com/louistrue)! - Remove recursive package `prebuild` hooks and run TypeScript via `pnpm exec` so workspace builds resolve correctly on Windows.
+
+- Updated dependencies [[`ec0d3a0`](https://github.com/louistrue/ifc-lite/commit/ec0d3a0e4c7f9eaeb26ab0a724fd76d955e52ac5)]:
+  - @ifc-lite/bcf@1.15.2
+  - @ifc-lite/create@1.14.5
+  - @ifc-lite/data@1.15.1
+  - @ifc-lite/drawing-2d@1.15.1
+  - @ifc-lite/encoding@1.14.6
+  - @ifc-lite/export@1.17.2
+  - @ifc-lite/ids@1.14.9
+  - @ifc-lite/lens@1.14.4
+  - @ifc-lite/lists@1.14.9
+  - @ifc-lite/mutations@1.14.5
+  - @ifc-lite/parser@2.1.6
+  - @ifc-lite/query@1.14.6
+  - @ifc-lite/spatial@1.14.5
+
 ## 1.14.5
 
 ### Patch Changes

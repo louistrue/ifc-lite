@@ -9,7 +9,7 @@ use crate::csg::{ClippingProcessor, Plane, Triangle, TriangleVec};
 use crate::{Error, Mesh, Point3, Result, Vector3};
 use ifc_lite_core::{DecodedEntity, EntityDecoder, IfcType};
 use nalgebra::Matrix4;
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 /// Epsilon for normalizing direction vectors (guards against zero-length).
 const NORMALIZE_EPSILON: f64 = 1e-12;
@@ -22,6 +22,8 @@ const MIN_OPENING_VOLUME: f64 = 0.0001;
 const CSG_TRIANGLE_RETENTION_DIVISOR: usize = 4;
 /// Minimum triangle count for a valid CSG result.
 const MIN_VALID_TRIANGLES: usize = 4;
+/// Maximum wrapper depth when drilling through mapped/boolean items to find an extrusion.
+const MAX_EXTRUSION_EXTRACT_DEPTH: usize = 32;
 
 /// Extract rotation columns from a 4x4 transform matrix.
 fn extract_rotation_columns(m: &Matrix4<f64>) -> (Vector3<f64>, Vector3<f64>, Vector3<f64>) {
@@ -153,60 +155,66 @@ impl GeometryRouter {
         item: &DecodedEntity,
         decoder: &mut EntityDecoder,
     ) -> Option<(Vector3<f64>, Option<Matrix4<f64>>)> {
-        match item.ifc_type {
-            IfcType::IfcExtrudedAreaSolid => {
-                // Direct extraction from ExtrudedDirection (attribute 2) and Position (attribute 1)
-                self.extract_extrusion_direction_from_solid(item, decoder)
-            }
-            IfcType::IfcBooleanClippingResult | IfcType::IfcBooleanResult => {
-                // FirstOperand (attribute 1) contains base geometry
-                let first_attr = item.get(1)?;
-                let first_operand = decoder.resolve_ref(first_attr).ok()??;
-                self.extract_extrusion_direction_recursive(&first_operand, decoder)
-            }
-            IfcType::IfcMappedItem => {
-                // MappingSource (attribute 0) -> MappedRepresentation -> Items
-                let source_attr = item.get(0)?;
-                let source = decoder.resolve_ref(source_attr).ok()??;
-                // RepresentationMap.MappedRepresentation is attribute 1
-                let rep_attr = source.get(1)?;
-                let rep = decoder.resolve_ref(rep_attr).ok()??;
+        let mut current = item.clone();
+        let mut visited = FxHashSet::default();
+        let mut mapping_chain: Option<Matrix4<f64>> = None;
 
-                // MappingTarget (attribute 1) -> instance transform
-                let mapping_transform = if let Some(target_attr) = item.get(1) {
-                    if !target_attr.is_null() {
-                        if let Ok(Some(target)) = decoder.resolve_ref(target_attr) {
-                            self.parse_cartesian_transformation_operator(&target, decoder)
-                                .ok()
-                        } else {
-                            None
+        for _depth in 0..MAX_EXTRUSION_EXTRACT_DEPTH {
+            if !visited.insert(current.id) {
+                return None;
+            }
+
+            match current.ifc_type {
+                IfcType::IfcExtrudedAreaSolid => {
+                    let (dir, position_transform) =
+                        self.extract_extrusion_direction_from_solid(&current, decoder)?;
+                    let combined = match (mapping_chain.as_ref(), position_transform) {
+                        (Some(chain), Some(pos)) => Some(chain * pos),
+                        (Some(chain), None) => Some(chain.clone()),
+                        (None, Some(pos)) => Some(pos),
+                        (None, None) => None,
+                    };
+                    return Some((dir, combined));
+                }
+                IfcType::IfcBooleanClippingResult | IfcType::IfcBooleanResult => {
+                    // FirstOperand (attribute 1) contains base geometry
+                    let first_attr = current.get(1)?;
+                    current = decoder.resolve_ref(first_attr).ok()??;
+                }
+                IfcType::IfcMappedItem => {
+                    // MappingSource (attribute 0) -> MappedRepresentation -> Items
+                    let source_attr = current.get(0)?;
+                    let source = decoder.resolve_ref(source_attr).ok()??;
+                    // RepresentationMap.MappedRepresentation is attribute 1
+                    let rep_attr = source.get(1)?;
+                    let rep = decoder.resolve_ref(rep_attr).ok()??;
+
+                    // MappingTarget (attribute 1) -> instance transform
+                    if let Some(target_attr) = current.get(1) {
+                        if !target_attr.is_null() {
+                            if let Ok(Some(target)) = decoder.resolve_ref(target_attr) {
+                                if let Ok(map) =
+                                    self.parse_cartesian_transformation_operator(&target, decoder)
+                                {
+                                    mapping_chain = Some(match mapping_chain.take() {
+                                        Some(chain) => chain * map,
+                                        None => map,
+                                    });
+                                }
+                            }
                         }
-                    } else {
-                        None
                     }
-                } else {
-                    None
-                };
 
-                // Get first item from representation
-                let items_attr = rep.get(3)?;
-                let items = decoder.resolve_ref_list(items_attr).ok()?;
-                items.first().and_then(|first| {
-                    self.extract_extrusion_direction_recursive(first, decoder)
-                        .map(|(dir, pos)| {
-                            // Combine MappingTarget transform with position transform
-                            let combined = match (mapping_transform.as_ref(), pos) {
-                                (Some(map), Some(pos)) => Some(map * pos),
-                                (Some(map), None) => Some(map.clone()),
-                                (None, Some(pos)) => Some(pos),
-                                (None, None) => None,
-                            };
-                            (dir, combined)
-                        })
-                })
+                    // Get first item from representation
+                    let items_attr = rep.get(3)?;
+                    let items = decoder.resolve_ref_list(items_attr).ok()?;
+                    current = items.first()?.clone();
+                }
+                _ => return None,
             }
-            _ => None,
         }
+
+        None
     }
 
     /// Get per-item meshes for an opening element, transformed to world coordinates.
@@ -586,8 +594,6 @@ impl GeometryRouter {
         if !rect_boxes.is_empty() {
             result = self.cut_multiple_rectangular_openings(&result, &rect_boxes);
         }
-
-        let mut rect_operation_count = 0usize;
 
         // Process remaining non-rectangular openings only
         for opening in &non_rect_openings {

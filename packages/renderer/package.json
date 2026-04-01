@@ -1,6 +1,6 @@
 {
   "name": "@ifc-lite/renderer",
-  "version": "1.14.7",
+  "version": "1.14.8",
   "description": "WebGPU renderer for IFC-Lite",
   "type": "module",
   "main": "./dist/index.js",
@@ -12,8 +12,8 @@
     }
   },
   "scripts": {
-    "build": "tsc",
-    "dev": "tsc --watch"
+    "build": "pnpm exec tsc",
+    "dev": "pnpm exec tsc --watch"
   },
   "dependencies": {
     "@ifc-lite/geometry": "workspace:^",

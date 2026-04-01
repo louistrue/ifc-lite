@@ -1,6 +1,6 @@
 {
   "name": "@ifc-lite/mutations",
-  "version": "1.14.4",
+  "version": "1.14.5",
   "description": "Mutation tracking and property editing for IFC-Lite",
   "type": "module",
   "main": "./dist/index.js",
@@ -12,8 +12,8 @@
     }
   },
   "scripts": {
-    "build": "tsc",
-    "dev": "tsc --watch",
+    "build": "pnpm exec tsc",
+    "dev": "pnpm exec tsc --watch",
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {

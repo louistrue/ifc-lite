@@ -1,6 +1,6 @@
 {
   "name": "@ifc-lite/sdk",
-  "version": "1.14.5",
+  "version": "1.14.6",
   "description": "Scripting SDK for ifc-lite — the bim.* API for BIM automation",
   "type": "module",
   "main": "./dist/index.js",
@@ -12,8 +12,8 @@
     }
   },
   "scripts": {
-    "build": "tsc",
-    "dev": "tsc --watch",
+    "build": "pnpm exec tsc",
+    "dev": "pnpm exec tsc --watch",
     "test": "vitest run"
   },
   "dependencies": {

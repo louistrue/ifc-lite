@@ -1,6 +1,6 @@
 {
   "name": "@ifc-lite/query",
-  "version": "1.14.5",
+  "version": "1.14.6",
   "description": "Query system for IFC-Lite",
   "type": "module",
   "main": "./dist/index.js",
@@ -12,8 +12,8 @@
     }
   },
   "scripts": {
-    "build": "tsc",
-    "dev": "tsc --watch"
+    "build": "pnpm exec tsc",
+    "dev": "pnpm exec tsc --watch"
   },
   "dependencies": {
     "@ifc-lite/parser": "workspace:^",

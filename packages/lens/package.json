@@ -1,6 +1,6 @@
 {
   "name": "@ifc-lite/lens",
-  "version": "1.14.3",
+  "version": "1.14.4",
   "description": "Rule-based 3D filtering and colorization for IFC models",
   "type": "module",
   "main": "./dist/index.js",
@@ -12,8 +12,8 @@
     }
   },
   "scripts": {
-    "build": "tsc",
-    "dev": "tsc --watch",
+    "build": "pnpm exec tsc",
+    "dev": "pnpm exec tsc --watch",
     "test": "vitest run"
   },
   "dependencies": {},

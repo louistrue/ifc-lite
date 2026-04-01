@@ -1,6 +1,6 @@
 {
   "name": "@ifc-lite/cli",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "description": "CLI toolkit for IFC files — query, validate, export, create, and script BIM data",
   "type": "module",
   "bin": {
@@ -15,9 +15,8 @@
     }
   },
   "scripts": {
-    "prebuild": "pnpm --filter @ifc-lite/cli^... build",
-    "build": "tsc",
-    "dev": "tsc --watch",
+    "build": "pnpm exec tsc",
+    "dev": "pnpm exec tsc --watch",
     "start": "node dist/index.js"
   },
   "files": [

@@ -11,12 +11,30 @@ on:
 
 jobs:
   test-templates:
-    name: Scaffold & type-check (${{ matrix.template }})
+    name: Scaffold & verify (${{ matrix.template }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        template: [basic, threejs]
+        include:
+          - template: basic
+            check_command: npx tsc --noEmit
+            build_command: npm run build
+          - template: threejs
+            check_command: npx tsc --noEmit
+            build_command: npx vite build
+          - template: babylonjs
+            check_command: npx tsc --noEmit
+            build_command: npx vite build
+          - template: react
+            check_command: npx tsc --noEmit
+            build_command: npx vite build
+          - template: server
+            check_command: npm run typecheck
+            build_command: npm run build
+          - template: server-native
+            check_command: npm run typecheck
+            build_command: npm run build
 
     steps:
       - name: Checkout
@@ -53,10 +71,9 @@ jobs:
         working-directory: /tmp/scaffold/test-${{ matrix.template }}
 
       - name: Type-check template
-        run: npx tsc --noEmit
+        run: ${{ matrix.check_command }}
         working-directory: /tmp/scaffold/test-${{ matrix.template }}
 
       - name: Build template
-        if: matrix.template == 'threejs'
-        run: npx vite build
+        run: ${{ matrix.build_command }}
         working-directory: /tmp/scaffold/test-${{ matrix.template }}

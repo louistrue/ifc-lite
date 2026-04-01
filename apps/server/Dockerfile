@@ -12,6 +12,8 @@ RUN cargo chef prepare --recipe-path recipe.json
 
 # Stage 3: Builder - build dependencies (cached) then app
 FROM chef AS builder
+ARG CARGO_BUILD_JOBS=2
+ENV CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS}
 
 # Install build dependencies
 RUN apt-get update && apt-get install -y \
@@ -33,12 +35,16 @@ FROM debian:bookworm-slim AS runtime
 # Install runtime dependencies
 RUN apt-get update && apt-get install -y \
     ca-certificates \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user
 RUN useradd -m -u 1000 appuser
 
 WORKDIR /app
+
+LABEL org.opencontainers.image.source="https://github.com/louistrue/ifc-lite"
+LABEL org.opencontainers.image.description="IFC-Lite server image"
 
 # Copy binary from builder
 COPY --from=builder /app/target/release/ifc-lite-server /app/ifc-lite-server
