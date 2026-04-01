@@ -186,10 +186,7 @@ pub fn parse_cartesian_point_from_id(
 /// Parse IfcDirection from entity ID (fast-path variant)
 ///
 /// Uses fast-path extraction when available.
-pub fn parse_direction_from_id(
-    dir_id: u32,
-    decoder: &mut EntityDecoder,
-) -> Result<Vector3<f64>> {
+pub fn parse_direction_from_id(dir_id: u32, decoder: &mut EntityDecoder) -> Result<Vector3<f64>> {
     let dir = decoder.decode_by_id(dir_id)?;
     parse_direction(&dir)
 }
@@ -202,7 +199,7 @@ pub fn parse_axis2_placement_3d_from_id(
     decoder: &mut EntityDecoder,
 ) -> Result<Matrix4<f64>> {
     let placement = decoder.decode_by_id(placement_id)?;
-    
+
     // Get location using fast path if available
     let location = if let Some(loc_attr) = placement.get(0) {
         if let Some(loc_id) = loc_attr.as_entity_ref() {
@@ -267,10 +264,22 @@ pub fn parse_axis2_placement_3d_from_id(
 
     // Build transformation matrix using Matrix4::new constructor (column-major)
     Ok(Matrix4::new(
-        x_axis_final.x, y_axis.x, z_axis_final.x, location.x,
-        x_axis_final.y, y_axis.y, z_axis_final.y, location.y,
-        x_axis_final.z, y_axis.z, z_axis_final.z, location.z,
-        0.0, 0.0, 0.0, 1.0,
+        x_axis_final.x,
+        y_axis.x,
+        z_axis_final.x,
+        location.x,
+        x_axis_final.y,
+        y_axis.y,
+        z_axis_final.y,
+        location.y,
+        x_axis_final.z,
+        y_axis.z,
+        z_axis_final.z,
+        location.z,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
     ))
 }
 

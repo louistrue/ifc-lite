@@ -123,10 +123,7 @@ pub fn extract_profiles(content: &str, model_index: u32) -> Vec<ExtractedProfile
             }
 
             // Accept Body and SweptSolid representations
-            let rep_id = shape_rep
-                .get(1)
-                .and_then(|a| a.as_string())
-                .unwrap_or("");
+            let rep_id = shape_rep.get(1).and_then(|a| a.as_string()).unwrap_or("");
             if rep_id != "Body" && rep_id != "SweptSolid" {
                 continue;
             }
@@ -156,9 +153,7 @@ pub fn extract_profiles(content: &str, model_index: u32) -> Vec<ExtractedProfile
                         Ok(entry) => results.push(entry),
                         Err(_e) => {
                             #[cfg(feature = "debug_geometry")]
-                            eprintln!(
-                                "[profile_extractor] Skipping #{id} ({ifc_type_name}): {_e}"
-                            );
+                            eprintln!("[profile_extractor] Skipping #{id} ({ifc_type_name}): {_e}");
                         }
                     }
                 } else if item.ifc_type == IfcType::IfcMappedItem {
@@ -213,9 +208,7 @@ fn extract_mapped_item_profiles(
 ) {
     if depth > MAX_MAPPED_DEPTH {
         #[cfg(feature = "debug_geometry")]
-        eprintln!(
-            "[profile_extractor] #{element_id} ({ifc_type}): max mapped item depth exceeded"
-        );
+        eprintln!("[profile_extractor] #{element_id} ({ifc_type}): max mapped item depth exceeded");
         return;
     }
 
@@ -274,9 +267,7 @@ fn extract_mapped_item_profiles(
                 Ok(entry) => results.push(entry),
                 Err(_e) => {
                     #[cfg(feature = "debug_geometry")]
-                    eprintln!(
-                        "[profile_extractor] #{element_id} ({ifc_type}) mapped: {_e}"
-                    );
+                    eprintln!("[profile_extractor] #{element_id} ({ifc_type}) mapped: {_e}");
                 }
             }
         } else if sub_item.ifc_type == IfcType::IfcMappedItem {
@@ -423,8 +414,8 @@ fn extract_extruded_solid(
     // Convert world direction to WebGL Y-up
     let extrusion_dir = [
         world_dir_ifc.x as f32,
-        world_dir_ifc.z as f32,   // WebGL Y = IFC Z
-        -world_dir_ifc.y as f32,  // WebGL Z = -IFC Y
+        world_dir_ifc.z as f32,  // WebGL Y = IFC Z
+        -world_dir_ifc.y as f32, // WebGL Z = -IFC Y
     ];
 
     // Scale profile 2D points from file units to metres
@@ -532,7 +523,8 @@ fn parse_axis2_placement_3d(
     decoder: &mut EntityDecoder,
 ) -> Result<Matrix4<f64>> {
     // Location (attr 0)
-    let location = parse_cartesian_point(placement, decoder, 0).unwrap_or(Point3::new(0.0, 0.0, 0.0));
+    let location =
+        parse_cartesian_point(placement, decoder, 0).unwrap_or(Point3::new(0.0, 0.0, 0.0));
 
     // Axis/Z direction (attr 1)
     let z_axis = if let Some(a) = placement.get(1) {
@@ -656,7 +648,11 @@ fn parse_extrusion_direction(solid: &DecodedEntity, decoder: &mut EntityDecoder)
     let z = ratios.get(2).and_then(|v| v.as_float()).unwrap_or(1.0);
     let v = Vector3::new(x, y, z);
     let len = v.norm();
-    if len > 1e-10 { v / len } else { default }
+    if len > 1e-10 {
+        v / len
+    } else {
+        default
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -680,10 +676,10 @@ fn scale_translation(mut m: Matrix4<f64>, scale: f64) -> Matrix4<f64> {
 fn convert_ifc_to_webgl(m: &Matrix4<f64>) -> [f32; 16] {
     let mut result = [0.0f32; 16];
     for col in 0..4 {
-        result[col * 4 + 0] = m[(0, col)] as f32;    // X row: unchanged
-        result[col * 4 + 1] = m[(2, col)] as f32;    // Y row: was Z
-        result[col * 4 + 2] = -m[(1, col)] as f32;   // Z row: was -Y
-        result[col * 4 + 3] = m[(3, col)] as f32;    // homogeneous
+        result[col * 4 + 0] = m[(0, col)] as f32; // X row: unchanged
+        result[col * 4 + 1] = m[(2, col)] as f32; // Y row: was Z
+        result[col * 4 + 2] = -m[(1, col)] as f32; // Z row: was -Y
+        result[col * 4 + 3] = m[(3, col)] as f32; // homogeneous
     }
     result
 }

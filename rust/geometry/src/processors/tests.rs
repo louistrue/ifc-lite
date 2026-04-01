@@ -13,9 +13,8 @@ fn test_advanced_brep_file() {
     use crate::router::GeometryRouter;
 
     // Read the actual advanced_brep.ifc file
-    let content =
-        std::fs::read_to_string("../../tests/models/ifcopenshell/advanced_brep.ifc")
-            .expect("Failed to read test file");
+    let content = std::fs::read_to_string("../../tests/models/ifcopenshell/advanced_brep.ifc")
+        .expect("Failed to read test file");
 
     let entity_index = ifc_lite_core::build_entity_index(&content);
     let mut decoder = EntityDecoder::with_index(&content, entity_index);
@@ -144,7 +143,10 @@ fn test_polygonal_bounded_half_space_respects_boundary() {
     let entity = decoder.decode_by_id(16).unwrap();
     let mesh = processor.process(&entity, &mut decoder, &schema).unwrap();
 
-    assert!(!mesh.is_empty(), "Bounded half-space should still produce geometry");
+    assert!(
+        !mesh.is_empty(),
+        "Bounded half-space should still produce geometry"
+    );
 
     let mut has_outer_base = false;
     let mut has_outer_top = false;

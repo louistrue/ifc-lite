@@ -89,7 +89,11 @@ impl IfcAPI {
 
                 // Create result object
                 let result = js_sys::Object::new();
-                super::set_js_prop(&result, "entityCount", &JsValue::from_f64(total_entities as f64));
+                super::set_js_prop(
+                    &result,
+                    "entityCount",
+                    &JsValue::from_f64(total_entities as f64),
+                );
                 super::set_js_prop(&result, "entityTypes", &super::counts_to_js(&counts));
 
                 if let Err(e) = resolve.call1(&JsValue::NULL, &result) {
@@ -141,8 +145,7 @@ impl IfcAPI {
         let mut line_count = 1; // Start at line 1
 
         // Cache type name strings: ~776 unique types repeated across 8M+ entities
-        let mut type_cache: rustc_hash::FxHashMap<&str, String> =
-            rustc_hash::FxHashMap::default();
+        let mut type_cache: rustc_hash::FxHashMap<&str, String> = rustc_hash::FxHashMap::default();
 
         while let Some((id, type_name, start, end)) = scanner.next_entity() {
             // Count newlines between last position and current start
@@ -251,7 +254,11 @@ fn parse_event_to_js(event: &ParseEvent) -> JsValue {
             super::set_js_prop(&obj, "type", &"progress".into());
             super::set_js_prop(&obj, "phase", &phase.as_str().into());
             super::set_js_prop(&obj, "percent", &(*percent as f64).into());
-            super::set_js_prop(&obj, "entitiesProcessed", &(*entities_processed as f64).into());
+            super::set_js_prop(
+                &obj,
+                "entitiesProcessed",
+                &(*entities_processed as f64).into(),
+            );
             super::set_js_prop(&obj, "totalEntities", &(*total_entities as f64).into());
         }
         ParseEvent::Completed {

@@ -80,7 +80,7 @@ impl GeometryRouter {
             mapped_item_cache: RefCell::new(FxHashMap::default()),
             faceted_brep_cache: RefCell::new(FxHashMap::default()),
             geometry_hash_cache: RefCell::new(FxHashMap::default()),
-            unit_scale: 1.0, // Default to base meters
+            unit_scale: 1.0,             // Default to base meters
             rtc_offset: (0.0, 0.0, 0.0), // Default to no offset
         };
 

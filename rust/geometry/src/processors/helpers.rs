@@ -85,13 +85,9 @@ pub(super) fn parse_axis2_placement_3d(
     } else {
         // X and Z are parallel or nearly parallel - use a default perpendicular direction
         if z_axis_final.z.abs() < 0.9 {
-            Vector3::new(0.0, 0.0, 1.0)
-                .cross(&z_axis_final)
-                .normalize()
+            Vector3::new(0.0, 0.0, 1.0).cross(&z_axis_final).normalize()
         } else {
-            Vector3::new(1.0, 0.0, 0.0)
-                .cross(&z_axis_final)
-                .normalize()
+            Vector3::new(1.0, 0.0, 0.0).cross(&z_axis_final).normalize()
         }
     };
 
@@ -240,22 +236,8 @@ pub(super) fn get_axis2_placement_transform_by_id(
     let x_axis = y_axis.cross(&z_axis).normalize();
 
     Ok(Matrix4::new(
-        x_axis.x,
-        y_axis.x,
-        z_axis.x,
-        location.0,
-        x_axis.y,
-        y_axis.y,
-        z_axis.y,
-        location.1,
-        x_axis.z,
-        y_axis.z,
-        z_axis.z,
-        location.2,
-        0.0,
-        0.0,
-        0.0,
-        1.0,
+        x_axis.x, y_axis.x, z_axis.x, location.0, x_axis.y, y_axis.y, z_axis.y, location.1,
+        x_axis.z, y_axis.z, z_axis.z, location.2, 0.0, 0.0, 0.0, 1.0,
     ))
 }
 

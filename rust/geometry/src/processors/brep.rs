@@ -10,8 +10,8 @@
 use crate::{Error, Mesh, Point3, Result};
 use ifc_lite_core::{DecodedEntity, EntityDecoder, IfcSchema, IfcType};
 
-use crate::router::GeometryProcessor;
 use super::helpers::{extract_loop_points_by_id, FaceData, FaceResult};
+use crate::router::GeometryProcessor;
 
 // ---------- FacetedBrepProcessor ----------
 
@@ -423,11 +423,10 @@ impl GeometryProcessor for FacetedBrepProcessor {
             for bound_id in bound_ids {
                 // FAST PATH: Extract loop_id, orientation, is_outer from raw bytes
                 // get_face_bound_fast returns (loop_id, orientation, is_outer)
-                let (loop_id, orientation, is_outer) =
-                    match decoder.get_face_bound_fast(bound_id) {
-                        Some(data) => data,
-                        None => continue,
-                    };
+                let (loop_id, orientation, is_outer) = match decoder.get_face_bound_fast(bound_id) {
+                    Some(data) => data,
+                    None => continue,
+                };
 
                 // FAST PATH: Get loop points directly from entity ID
                 let mut points = match self.extract_loop_points_fast(loop_id, decoder) {
@@ -524,9 +523,9 @@ impl GeometryProcessor for FaceBasedSurfaceModelProcessor {
         // IfcFaceBasedSurfaceModel attributes:
         // 0: FbsmFaces (SET of IfcConnectedFaceSet)
 
-        let faces_attr = entity
-            .get(0)
-            .ok_or_else(|| Error::geometry("FaceBasedSurfaceModel missing FbsmFaces".to_string()))?;
+        let faces_attr = entity.get(0).ok_or_else(|| {
+            Error::geometry("FaceBasedSurfaceModel missing FbsmFaces".to_string())
+        })?;
 
         let face_set_refs = faces_attr
             .as_list()
@@ -648,9 +647,9 @@ impl GeometryProcessor for ShellBasedSurfaceModelProcessor {
         // IfcShellBasedSurfaceModel attributes:
         // 0: SbsmBoundary (SET of IfcShell - either IfcOpenShell or IfcClosedShell)
 
-        let shells_attr = entity
-            .get(0)
-            .ok_or_else(|| Error::geometry("ShellBasedSurfaceModel missing SbsmBoundary".to_string()))?;
+        let shells_attr = entity.get(0).ok_or_else(|| {
+            Error::geometry("ShellBasedSurfaceModel missing SbsmBoundary".to_string())
+        })?;
 
         let shell_refs = shells_attr
             .as_list()

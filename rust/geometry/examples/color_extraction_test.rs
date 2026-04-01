@@ -18,8 +18,8 @@ use std::fs;
 fn main() {
     // Try multiple possible paths (relative to different working directories)
     let possible_paths = [
-        "../../../tests/models/ara3d/AC20-FZK-Haus.ifc",  // From rust/geometry
-        "tests/models/ara3d/AC20-FZK-Haus.ifc",           // From project root
+        "../../../tests/models/ara3d/AC20-FZK-Haus.ifc", // From rust/geometry
+        "tests/models/ara3d/AC20-FZK-Haus.ifc",          // From project root
         "/home/user/ifc-lite/tests/models/ara3d/AC20-FZK-Haus.ifc", // Absolute
     ];
 
@@ -44,7 +44,10 @@ fn main() {
     let sparren_guid = "0DTRkEz0r6gvzG6VdDr24n";
     let mut scanner = EntityScanner::new(&content);
 
-    println!("\n=== Looking for SPARREN element with GUID {} ===", sparren_guid);
+    println!(
+        "\n=== Looking for SPARREN element with GUID {} ===",
+        sparren_guid
+    );
 
     while let Some((id, type_name, start, end)) = scanner.next_entity() {
         if type_name != "IFCMEMBER" {
@@ -67,8 +70,10 @@ fn main() {
 
             // Check if we have a color for this element
             if let Some(color) = element_styles.get(&id) {
-                println!("  Element color: R={:.3}, G={:.3}, B={:.3}, A={:.3}",
-                    color[0], color[1], color[2], color[3]);
+                println!(
+                    "  Element color: R={:.3}, G={:.3}, B={:.3}, A={:.3}",
+                    color[0], color[1], color[2], color[3]
+                );
 
                 // Expected color from IFC: R=0.964, G=0.754, B=0.452
                 let expected_r = 0.964;
@@ -82,8 +87,10 @@ fn main() {
                 if is_brown {
                     println!("  ✅ Color is correct (brown/wood)!");
                 } else {
-                    println!("  ❌ Color is WRONG! Expected brown (R≈{}, G≈{}, B≈{})",
-                        expected_r, expected_g, expected_b);
+                    println!(
+                        "  ❌ Color is WRONG! Expected brown (R≈{}, G≈{}, B≈{})",
+                        expected_r, expected_g, expected_b
+                    );
                 }
             } else {
                 println!("  ❌ No color found for this element!");
@@ -117,7 +124,10 @@ fn test_window_colors(
 
     println!("\nFrame geometry #{}:", frame_id);
     if let Some(color) = geometry_styles.get(&frame_id) {
-        println!("  Color: R={:.3}, G={:.3}, B={:.3}, A={:.3}", color[0], color[1], color[2], color[3]);
+        println!(
+            "  Color: R={:.3}, G={:.3}, B={:.3}, A={:.3}",
+            color[0], color[1], color[2], color[3]
+        );
         // Expected: Kiefer (wood) = R≈0.964, G≈0.754, B≈0.452, opaque
         let is_opaque_wood = color[3] > 0.9 && color[0] > 0.9 && color[2] < 0.5;
         if is_opaque_wood {
@@ -131,13 +141,19 @@ fn test_window_colors(
 
     println!("\nGlass geometry #{}:", glass_id);
     if let Some(color) = geometry_styles.get(&glass_id) {
-        println!("  Color: R={:.3}, G={:.3}, B={:.3}, A={:.3}", color[0], color[1], color[2], color[3]);
+        println!(
+            "  Color: R={:.3}, G={:.3}, B={:.3}, A={:.3}",
+            color[0], color[1], color[2], color[3]
+        );
         // Expected: Glas = transparency 0.88, so alpha ≈ 0.12
         let is_transparent = color[3] < 0.2;
         if is_transparent {
             println!("  ✅ Glass is transparent (alpha={:.2})!", color[3]);
         } else {
-            println!("  ❌ Glass should be transparent (alpha should be ~0.12, got {:.2})", color[3]);
+            println!(
+                "  ❌ Glass should be transparent (alpha should be ~0.12, got {:.2})",
+                color[3]
+            );
         }
     } else {
         println!("  ❌ No color found for glass!");
@@ -183,7 +199,9 @@ fn trace_element_chain(
     };
     println!("  ProductDefinitionShape: #{}", repr_id);
 
-    let product_shape = decoder.decode_by_id(repr_id).expect("ProductDefinitionShape not found");
+    let product_shape = decoder
+        .decode_by_id(repr_id)
+        .expect("ProductDefinitionShape not found");
 
     // Get representations list (attr 2)
     let reprs_attr = match product_shape.get(2) {
@@ -199,11 +217,16 @@ fn trace_element_chain(
     for repr_item in reprs_list {
         let shape_repr_id = repr_item.as_entity_ref().expect("Not a ref");
 
-        let shape_repr = decoder.decode_by_id(shape_repr_id).expect("ShapeRepresentation not found");
+        let shape_repr = decoder
+            .decode_by_id(shape_repr_id)
+            .expect("ShapeRepresentation not found");
 
         // Get representation type (attr 2)
         let repr_type = shape_repr.get(2).and_then(|a| a.as_string()).unwrap_or("?");
-        println!("  ShapeRepresentation #{}: type = '{}'", shape_repr_id, repr_type);
+        println!(
+            "  ShapeRepresentation #{}: type = '{}'",
+            shape_repr_id, repr_type
+        );
 
         // Get items (attr 3)
         let items_attr = match shape_repr.get(3) {
@@ -225,7 +248,10 @@ fn trace_element_chain(
 
             // Check if this geometry ID has a color
             if let Some(color) = geometry_styles.get(&geom_id) {
-                println!("      HAS COLOR: R={:.3}, G={:.3}, B={:.3}", color[0], color[1], color[2]);
+                println!(
+                    "      HAS COLOR: R={:.3}, G={:.3}, B={:.3}",
+                    color[0], color[1], color[2]
+                );
             } else {
                 println!("      No color in geometry_styles");
             }
@@ -234,16 +260,26 @@ fn trace_element_chain(
             if geom.ifc_type == IfcType::IfcMappedItem {
                 // MappedItem: MappingSource (RepresentationMap), MappingTarget
                 let map_source_id = geom.get_ref(0).expect("MappedItem has no source");
-                println!("      MappingSource (RepresentationMap): #{}", map_source_id);
+                println!(
+                    "      MappingSource (RepresentationMap): #{}",
+                    map_source_id
+                );
 
-                let rep_map = decoder.decode_by_id(map_source_id).expect("RepMap not found");
+                let rep_map = decoder
+                    .decode_by_id(map_source_id)
+                    .expect("RepMap not found");
 
                 // RepresentationMap: MappingOrigin, MappedRepresentation
                 let mapped_repr_id = rep_map.get_ref(1).expect("RepMap has no repr");
                 println!("      MappedRepresentation: #{}", mapped_repr_id);
 
-                let mapped_repr = decoder.decode_by_id(mapped_repr_id).expect("MappedRepr not found");
-                let mapped_repr_type = mapped_repr.get(2).and_then(|a| a.as_string()).unwrap_or("?");
+                let mapped_repr = decoder
+                    .decode_by_id(mapped_repr_id)
+                    .expect("MappedRepr not found");
+                let mapped_repr_type = mapped_repr
+                    .get(2)
+                    .and_then(|a| a.as_string())
+                    .unwrap_or("?");
                 println!("      MappedRepresentation type: '{}'", mapped_repr_type);
 
                 // Get items in mapped representation
@@ -253,11 +289,16 @@ fn trace_element_chain(
                 for mapped_geom_item in mapped_items {
                     let mapped_geom_id = mapped_geom_item.as_entity_ref().expect("Not a ref");
                     let mapped_geom = decoder.decode_by_id(mapped_geom_id).expect("Not found");
-                    println!("        Underlying geometry #{}: {:?}", mapped_geom_id, mapped_geom.ifc_type);
+                    println!(
+                        "        Underlying geometry #{}: {:?}",
+                        mapped_geom_id, mapped_geom.ifc_type
+                    );
 
                     if let Some(color) = geometry_styles.get(&mapped_geom_id) {
-                        println!("          🎨 THIS HAS THE COLOR: R={:.3}, G={:.3}, B={:.3}",
-                            color[0], color[1], color[2]);
+                        println!(
+                            "          🎨 THIS HAS THE COLOR: R={:.3}, G={:.3}, B={:.3}",
+                            color[0], color[1], color[2]
+                        );
                     }
                 }
             }
@@ -426,7 +467,9 @@ fn find_color_for_geometry(
         for item in items_list {
             if let Some(underlying_geom_id) = item.as_entity_ref() {
                 // Recursively find color (handles nested MappedItems)
-                if let Some(color) = find_color_for_geometry(underlying_geom_id, geometry_styles, decoder) {
+                if let Some(color) =
+                    find_color_for_geometry(underlying_geom_id, geometry_styles, decoder)
+                {
                     return Some(color);
                 }
             }
@@ -538,10 +581,7 @@ fn extract_color_from_rendering(
     None
 }
 
-fn extract_color_rgb(
-    color_id: u32,
-    decoder: &mut EntityDecoder,
-) -> Option<[f32; 4]> {
+fn extract_color_rgb(color_id: u32, decoder: &mut EntityDecoder) -> Option<[f32; 4]> {
     let color = decoder.decode_by_id(color_id).ok()?;
 
     if color.ifc_type != IfcType::IfcColourRgb {

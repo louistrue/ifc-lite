@@ -48,9 +48,8 @@ impl GeometryRouter {
             Ok(Some(mesh)) => Ok(mesh),
             Ok(None) | Err(_) => {
                 // Fall back to traditional 3D CSG approach
-                let void_map: FxHashMap<u32, Vec<u32>> = [(element.id, opening_ids.to_vec())]
-                    .into_iter()
-                    .collect();
+                let void_map: FxHashMap<u32, Vec<u32>> =
+                    [(element.id, opening_ids.to_vec())].into_iter().collect();
                 self.process_element_with_voids(element, decoder, &void_map)
             }
         }
@@ -358,9 +357,9 @@ impl GeometryRouter {
                     Error::geometry("ArbitraryClosedProfileDef missing OuterCurve".to_string())
                 })?;
 
-                let curve = decoder.resolve_ref(curve_attr)?.ok_or_else(|| {
-                    Error::geometry("Failed to resolve OuterCurve".to_string())
-                })?;
+                let curve = decoder
+                    .resolve_ref(curve_attr)?
+                    .ok_or_else(|| Error::geometry("Failed to resolve OuterCurve".to_string()))?;
 
                 let points = self.extract_curve_points(&curve, decoder)?;
                 Ok(Profile2D::new(points))
@@ -369,14 +368,12 @@ impl GeometryRouter {
             IfcType::IfcArbitraryProfileDefWithVoids => {
                 // Get outer curve
                 let outer_attr = profile_entity.get(2).ok_or_else(|| {
-                    Error::geometry(
-                        "ArbitraryProfileDefWithVoids missing OuterCurve".to_string(),
-                    )
+                    Error::geometry("ArbitraryProfileDefWithVoids missing OuterCurve".to_string())
                 })?;
 
-                let outer_curve = decoder.resolve_ref(outer_attr)?.ok_or_else(|| {
-                    Error::geometry("Failed to resolve OuterCurve".to_string())
-                })?;
+                let outer_curve = decoder
+                    .resolve_ref(outer_attr)?
+                    .ok_or_else(|| Error::geometry("Failed to resolve OuterCurve".to_string()))?;
 
                 let outer_points = self.extract_curve_points(&outer_curve, decoder)?;
                 let mut profile = Profile2D::new(outer_points);
@@ -438,9 +435,9 @@ impl GeometryRouter {
                     Error::geometry("IfcIndexedPolyCurve missing Points".to_string())
                 })?;
 
-                let point_list = decoder.resolve_ref(points_attr)?.ok_or_else(|| {
-                    Error::geometry("Failed to resolve Points".to_string())
-                })?;
+                let point_list = decoder
+                    .resolve_ref(points_attr)?
+                    .ok_or_else(|| Error::geometry("Failed to resolve Points".to_string()))?;
 
                 // IfcCartesianPointList2D: CoordList (list of coordinates)
                 if let Some(coord_attr) = point_list.get(0) {

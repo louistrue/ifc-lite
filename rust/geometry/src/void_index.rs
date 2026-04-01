@@ -55,7 +55,10 @@ pub fn propagate_voids_to_parts(
             None => continue,
         };
         let children: Vec<u32> = match children_attr.as_list() {
-            Some(list) => list.iter().filter_map(|item| item.as_entity_ref()).collect(),
+            Some(list) => list
+                .iter()
+                .filter_map(|item| item.as_entity_ref())
+                .collect(),
             None => continue,
         };
 
@@ -268,7 +271,11 @@ impl VoidStatistics {
             0.0
         };
 
-        let hosts_with_many_voids = index.host_to_voids.values().filter(|v| v.len() > 10).count();
+        let hosts_with_many_voids = index
+            .host_to_voids
+            .values()
+            .filter(|v| v.len() > 10)
+            .count();
 
         Self {
             hosts_with_voids,

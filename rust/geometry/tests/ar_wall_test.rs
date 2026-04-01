@@ -68,8 +68,11 @@ fn analyze_mesh(mesh: &Mesh, name: &str) {
 
     // Check array size match
     if mesh.positions.len() != mesh.normals.len() {
-        println!("  ⚠️  MISMATCH: positions ({}) != normals ({})",
-            mesh.positions.len(), mesh.normals.len());
+        println!(
+            "  ⚠️  MISMATCH: positions ({}) != normals ({})",
+            mesh.positions.len(),
+            mesh.normals.len()
+        );
     }
 
     // Get bounds
@@ -86,7 +89,10 @@ fn analyze_mesh(mesh: &Mesh, name: &str) {
 
         // Check for unreasonably large dimensions
         const MAX_REASONABLE_SIZE: f32 = 100.0; // 100 meters
-        if size_x > MAX_REASONABLE_SIZE || size_y > MAX_REASONABLE_SIZE || size_z > MAX_REASONABLE_SIZE {
+        if size_x > MAX_REASONABLE_SIZE
+            || size_y > MAX_REASONABLE_SIZE
+            || size_z > MAX_REASONABLE_SIZE
+        {
             println!("  ⚠️  UNREASONABLE SIZE detected!");
         }
 
@@ -103,10 +109,16 @@ fn analyze_mesh(mesh: &Mesh, name: &str) {
 
             // Check if vertex is far from center (more than 5x the median dimension)
             let median_size = (size_x + size_y + size_z) / 3.0;
-            if dist_x > median_size * 5.0 || dist_y > median_size * 5.0 || dist_z > median_size * 5.0 {
+            if dist_x > median_size * 5.0
+                || dist_y > median_size * 5.0
+                || dist_z > median_size * 5.0
+            {
                 outlier_count += 1;
                 if outlier_count <= 5 {
-                    println!("  Outlier vertex: ({:.2}, {:.2}, {:.2})", chunk[0], chunk[1], chunk[2]);
+                    println!(
+                        "  Outlier vertex: ({:.2}, {:.2}, {:.2})",
+                        chunk[0], chunk[1], chunk[2]
+                    );
                 }
             }
         }
@@ -162,26 +174,33 @@ fn test_ar_wall_geometry() {
     let router = GeometryRouter::with_units(&content, &mut decoder);
 
     // Get wall entity
-    let wall = decoder.decode_by_id(wall_id).expect("Failed to decode wall");
+    let wall = decoder
+        .decode_by_id(wall_id)
+        .expect("Failed to decode wall");
     println!("Wall type: {}", wall.ifc_type);
 
     // Process wall WITHOUT voids first
     println!("\n--- Processing wall WITHOUT void subtraction ---");
-    let wall_mesh_no_voids = router.process_element(&wall, &mut decoder)
+    let wall_mesh_no_voids = router
+        .process_element(&wall, &mut decoder)
         .expect("Failed to process wall");
     analyze_mesh(&wall_mesh_no_voids, "Wall (no voids)");
 
     // Process each opening
     for opening_id in &opening_ids {
-        let opening = decoder.decode_by_id(*opening_id).expect("Failed to decode opening");
-        let opening_mesh = router.process_element(&opening, &mut decoder)
+        let opening = decoder
+            .decode_by_id(*opening_id)
+            .expect("Failed to decode opening");
+        let opening_mesh = router
+            .process_element(&opening, &mut decoder)
             .expect("Failed to process opening");
         analyze_mesh(&opening_mesh, &format!("Opening #{}", opening_id));
     }
 
     // Process wall WITH voids
     println!("\n--- Processing wall WITH void subtraction ---");
-    let wall_mesh_with_voids = router.process_element_with_voids(&wall, &mut decoder, &void_index)
+    let wall_mesh_with_voids = router
+        .process_element_with_voids(&wall, &mut decoder, &void_index)
         .expect("Failed to process wall with voids");
     analyze_mesh(&wall_mesh_with_voids, "Wall (with voids)");
 
@@ -192,7 +211,10 @@ fn test_ar_wall_geometry() {
         println!("Normals are empty, calling calculate_normals");
         calculate_normals(&mut mesh_copy);
     } else {
-        println!("Normals exist ({} values), checking if complete", mesh_copy.normals.len());
+        println!(
+            "Normals exist ({} values), checking if complete",
+            mesh_copy.normals.len()
+        );
         if mesh_copy.normals.len() != mesh_copy.positions.len() {
             println!("⚠️  Normals incomplete! Recalculating...");
             calculate_normals(&mut mesh_copy);
@@ -201,7 +223,10 @@ fn test_ar_wall_geometry() {
     analyze_mesh(&mesh_copy, "Wall (after calculate_normals)");
 
     // Assertions
-    assert!(!wall_mesh_with_voids.is_empty(), "Wall mesh should not be empty");
+    assert!(
+        !wall_mesh_with_voids.is_empty(),
+        "Wall mesh should not be empty"
+    );
 
     // Check positions/normals match
     assert_eq!(
@@ -220,7 +245,9 @@ fn test_ar_wall_geometry() {
     assert!(
         size_x < 50.0 && size_y < 50.0 && size_z < 50.0,
         "Wall dimensions should be reasonable: ({:.2}, {:.2}, {:.2})",
-        size_x, size_y, size_z
+        size_x,
+        size_y,
+        size_z
     );
 }
 
@@ -268,7 +295,10 @@ fn test_ar_wall_geometry_type() {
                             if let Some(reps_attr) = pds.get(2) {
                                 if let Ok(reps) = decoder.resolve_ref_list(reps_attr) {
                                     for rep in &reps {
-                                        println!("    ShapeRepresentation #{}: {}", rep.id, rep.ifc_type);
+                                        println!(
+                                            "    ShapeRepresentation #{}: {}",
+                                            rep.id, rep.ifc_type
+                                        );
 
                                         // Get representation type (attr 2)
                                         if let Some(type_attr) = rep.get(2) {
@@ -279,9 +309,13 @@ fn test_ar_wall_geometry_type() {
 
                                         // Get items (attr 3)
                                         if let Some(items_attr) = rep.get(3) {
-                                            if let Ok(items) = decoder.resolve_ref_list(items_attr) {
+                                            if let Ok(items) = decoder.resolve_ref_list(items_attr)
+                                            {
                                                 for item in &items {
-                                                    println!("      Item #{}: {}", item.id, item.ifc_type);
+                                                    println!(
+                                                        "      Item #{}: {}",
+                                                        item.id, item.ifc_type
+                                                    );
                                                 }
                                             }
                                         }
@@ -319,8 +353,11 @@ fn test_ar_wall_nan_normals_diagnosis() {
     let mut decoder = EntityDecoder::new(&content);
     let router = GeometryRouter::with_units(&content, &mut decoder);
 
-    let wall = decoder.decode_by_id(wall_id).expect("Failed to decode wall");
-    let wall_mesh = router.process_element(&wall, &mut decoder)
+    let wall = decoder
+        .decode_by_id(wall_id)
+        .expect("Failed to decode wall");
+    let wall_mesh = router
+        .process_element(&wall, &mut decoder)
         .expect("Failed to process wall");
 
     // Find NaN normals and their corresponding positions
@@ -328,10 +365,8 @@ fn test_ar_wall_nan_normals_diagnosis() {
     println!("Total vertices: {}", wall_mesh.vertex_count());
 
     // Use safe vertex count to avoid panic if arrays diverge
-    let safe_vertex_count = std::cmp::min(
-        wall_mesh.normals.len() / 3,
-        wall_mesh.positions.len() / 3,
-    );
+    let safe_vertex_count =
+        std::cmp::min(wall_mesh.normals.len() / 3, wall_mesh.positions.len() / 3);
 
     let mut nan_count = 0;
     for (i, (normal_chunk, pos_chunk)) in wall_mesh
@@ -343,12 +378,22 @@ fn test_ar_wall_nan_normals_diagnosis() {
         if i >= safe_vertex_count {
             break;
         }
-        let has_nan = !normal_chunk[0].is_finite() || !normal_chunk[1].is_finite() || !normal_chunk[2].is_finite();
+        let has_nan = !normal_chunk[0].is_finite()
+            || !normal_chunk[1].is_finite()
+            || !normal_chunk[2].is_finite();
         if has_nan {
             nan_count += 1;
             if nan_count <= 10 {
-                println!("  Vertex {}: pos=({:.2}, {:.2}, {:.2}), normal=({}, {}, {})",
-                    i, pos_chunk[0], pos_chunk[1], pos_chunk[2], normal_chunk[0], normal_chunk[1], normal_chunk[2]);
+                println!(
+                    "  Vertex {}: pos=({:.2}, {:.2}, {:.2}), normal=({}, {}, {})",
+                    i,
+                    pos_chunk[0],
+                    pos_chunk[1],
+                    pos_chunk[2],
+                    normal_chunk[0],
+                    normal_chunk[1],
+                    normal_chunk[2]
+                );
             }
         }
     }
@@ -362,9 +407,8 @@ fn test_ar_wall_nan_normals_diagnosis() {
     let positions_len = wall_mesh.positions.len();
 
     // Helper to check if index is in bounds for normals/positions (needs idx*3+3 elements)
-    let is_valid_idx = |idx: usize| -> bool {
-        (idx + 1) * 3 <= normals_len && (idx + 1) * 3 <= positions_len
-    };
+    let is_valid_idx =
+        |idx: usize| -> bool { (idx + 1) * 3 <= normals_len && (idx + 1) * 3 <= positions_len };
 
     for tri_chunk in wall_mesh.indices.chunks_exact(3) {
         let i0 = tri_chunk[0] as usize;
@@ -375,7 +419,10 @@ fn test_ar_wall_nan_normals_diagnosis() {
         if !is_valid_idx(i0) || !is_valid_idx(i1) || !is_valid_idx(i2) {
             invalid_tri_count += 1;
             if invalid_tri_count <= 3 {
-                println!("  Skipping triangle with out-of-bounds indices ({}, {}, {})", i0, i1, i2);
+                println!(
+                    "  Skipping triangle with out-of-bounds indices ({}, {}, {})",
+                    i0, i1, i2
+                );
             }
             continue;
         }
@@ -409,12 +456,18 @@ fn test_ar_wall_nan_normals_diagnosis() {
                 let len = (cross[0] * cross[0] + cross[1] * cross[1] + cross[2] * cross[2]).sqrt();
                 println!("    edge1: ({:.6}, {:.6}, {:.6})", e1[0], e1[1], e1[2]);
                 println!("    edge2: ({:.6}, {:.6}, {:.6})", e2[0], e2[1], e2[2]);
-                println!("    cross: ({:.6}, {:.6}, {:.6}), len: {:.10}", cross[0], cross[1], cross[2], len);
+                println!(
+                    "    cross: ({:.6}, {:.6}, {:.6}), len: {:.10}",
+                    cross[0], cross[1], cross[2], len
+                );
             }
         }
     }
     if invalid_tri_count > 0 {
-        println!("Total triangles with out-of-bounds indices: {}", invalid_tri_count);
+        println!(
+            "Total triangles with out-of-bounds indices: {}",
+            invalid_tri_count
+        );
     }
     println!("Total triangles with NaN normals: {}", nan_tri_count);
 
@@ -423,9 +476,7 @@ fn test_ar_wall_nan_normals_diagnosis() {
     let mut fixed_mesh = wall_mesh.clone();
     calculate_normals(&mut fixed_mesh);
 
-    let fixed_nan_count = fixed_mesh.normals.iter()
-        .filter(|v| !v.is_finite())
-        .count();
+    let fixed_nan_count = fixed_mesh.normals.iter().filter(|v| !v.is_finite()).count();
     println!("NaN normals after recalculation: {}", fixed_nan_count);
 
     // The test: After recalculation, there should be no NaN normals
@@ -471,8 +522,11 @@ fn test_csg_subtraction_preserves_normals() {
     let router = GeometryRouter::with_units(&content, &mut decoder);
 
     // Get wall mesh
-    let wall = decoder.decode_by_id(wall_id).expect("Failed to decode wall");
-    let mut wall_mesh = router.process_element(&wall, &mut decoder)
+    let wall = decoder
+        .decode_by_id(wall_id)
+        .expect("Failed to decode wall");
+    let mut wall_mesh = router
+        .process_element(&wall, &mut decoder)
         .expect("Failed to process wall");
 
     // Ensure wall has normals
@@ -481,13 +535,23 @@ fn test_csg_subtraction_preserves_normals() {
     }
 
     println!("Wall mesh before CSG:");
-    println!("  positions: {}, normals: {}", wall_mesh.positions.len(), wall_mesh.normals.len());
-    assert_eq!(wall_mesh.positions.len(), wall_mesh.normals.len(),
-        "Wall should have matching positions/normals before CSG");
+    println!(
+        "  positions: {}, normals: {}",
+        wall_mesh.positions.len(),
+        wall_mesh.normals.len()
+    );
+    assert_eq!(
+        wall_mesh.positions.len(),
+        wall_mesh.normals.len(),
+        "Wall should have matching positions/normals before CSG"
+    );
 
     // Get first opening mesh
-    let opening = decoder.decode_by_id(opening_ids[0]).expect("Failed to decode opening");
-    let mut opening_mesh = router.process_element(&opening, &mut decoder)
+    let opening = decoder
+        .decode_by_id(opening_ids[0])
+        .expect("Failed to decode opening");
+    let mut opening_mesh = router
+        .process_element(&opening, &mut decoder)
         .expect("Failed to process opening");
 
     if opening_mesh.normals.is_empty() {
@@ -495,7 +559,11 @@ fn test_csg_subtraction_preserves_normals() {
     }
 
     println!("Opening mesh:");
-    println!("  positions: {}, normals: {}", opening_mesh.positions.len(), opening_mesh.normals.len());
+    println!(
+        "  positions: {}, normals: {}",
+        opening_mesh.positions.len(),
+        opening_mesh.normals.len()
+    );
 
     // Perform CSG subtraction
     let clipper = ClippingProcessor::new();
@@ -504,7 +572,11 @@ fn test_csg_subtraction_preserves_normals() {
     match result {
         Ok(result_mesh) => {
             println!("CSG result:");
-            println!("  positions: {}, normals: {}", result_mesh.positions.len(), result_mesh.normals.len());
+            println!(
+                "  positions: {}, normals: {}",
+                result_mesh.positions.len(),
+                result_mesh.normals.len()
+            );
 
             // This is the key assertion - CSG result should have matching arrays
             assert_eq!(

@@ -4,7 +4,9 @@
 
 //! Data model extraction service - extracts properties, relationships, and spatial hierarchy.
 
-use ifc_lite_core::{build_entity_index, DecodedEntity, EntityDecoder, EntityScanner, extract_length_unit_scale};
+use ifc_lite_core::{
+    build_entity_index, extract_length_unit_scale, DecodedEntity, EntityDecoder, EntityScanner,
+};
 use rayon::prelude::*;
 use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
@@ -148,7 +150,10 @@ struct EntityJob {
 /// Extract complete data model from IFC content.
 pub fn extract_data_model(content: &str) -> DataModel {
     let extract_start = std::time::Instant::now();
-    tracing::info!(content_size = content.len(), "Starting data model extraction");
+    tracing::info!(
+        content_size = content.len(),
+        "Starting data model extraction"
+    );
 
     // Build entity index (shared across all extractors)
     let entity_index = Arc::new(build_entity_index(content));
@@ -163,7 +168,7 @@ pub fn extract_data_model(content: &str) -> DataModel {
     let mut max_id = 0u32;
     let mut last_end = 0usize;
     let content_len = content.len();
-    
+
     while let Some((id, type_name, start, end)) = scanner.next_entity() {
         total_entities += 1;
         last_id = id;
@@ -182,44 +187,72 @@ pub fn extract_data_model(content: &str) -> DataModel {
 
     let remaining_bytes = content_len.saturating_sub(last_end);
     tracing::debug!(
-        total_entities = total_entities, 
-        last_id = last_id, 
-        max_id = max_id, 
-        last_type = %last_type, 
+        total_entities = total_entities,
+        last_id = last_id,
+        max_id = max_id,
+        last_type = %last_type,
         last_end = last_end,
         content_len = content_len,
         remaining_bytes = remaining_bytes,
         "Scanned all entities"
     );
-    
+
     // Debug: log sample entity types to diagnose issues
-    let sample_types: Vec<&str> = all_entities.iter().take(20).map(|j| j.type_name.as_str()).collect();
+    let sample_types: Vec<&str> = all_entities
+        .iter()
+        .take(20)
+        .map(|j| j.type_name.as_str())
+        .collect();
     tracing::debug!(?sample_types, "Sample entity types from scan");
-    
+
     // Check if any type contains "PROPERTY" or "REL" (case-insensitive)
-    let has_property_like = all_entities.iter().any(|j| j.type_name.to_uppercase().contains("PROPERTY"));
-    let has_rel_like = all_entities.iter().any(|j| j.type_name.to_uppercase().starts_with("IFCREL"));
-    tracing::debug!(has_property_like = has_property_like, has_rel_like = has_rel_like, "Entity type pattern check");
-    
+    let has_property_like = all_entities
+        .iter()
+        .any(|j| j.type_name.to_uppercase().contains("PROPERTY"));
+    let has_rel_like = all_entities
+        .iter()
+        .any(|j| j.type_name.to_uppercase().starts_with("IFCREL"));
+    tracing::debug!(
+        has_property_like = has_property_like,
+        has_rel_like = has_rel_like,
+        "Entity type pattern check"
+    );
+
     // Debug: count property sets and relationships in scanned entities
-    let pset_count = all_entities.iter().filter(|j| j.type_name.to_uppercase() == "IFCPROPERTYSET").count();
-    let rel_count = all_entities.iter().filter(|j| {
-        let t = j.type_name.to_uppercase();
-        t == "IFCRELDEFINESBYPROPERTIES" || t == "IFCRELAGGREGATES" || t == "IFCRELCONTAINEDINSPATIALSTRUCTURE"
-    }).count();
-    tracing::debug!(pset_count = pset_count, rel_count = rel_count, "Entity type counts before extraction");
+    let pset_count = all_entities
+        .iter()
+        .filter(|j| j.type_name.to_uppercase() == "IFCPROPERTYSET")
+        .count();
+    let rel_count = all_entities
+        .iter()
+        .filter(|j| {
+            let t = j.type_name.to_uppercase();
+            t == "IFCRELDEFINESBYPROPERTIES"
+                || t == "IFCRELAGGREGATES"
+                || t == "IFCRELCONTAINEDINSPATIALSTRUCTURE"
+        })
+        .count();
+    tracing::debug!(
+        pset_count = pset_count,
+        rel_count = rel_count,
+        "Entity type counts before extraction"
+    );
 
     // Parallel extraction using rayon::join
     let content_arc = Arc::new(content.to_string());
     let (entities, ((property_sets, quantity_sets), relationships)) = rayon::join(
         || extract_entity_metadata(&all_entities, &content_arc, &entity_index),
-        || rayon::join(
-            || rayon::join(
-                || extract_properties(&all_entities, &content_arc, &entity_index),
-                || extract_quantities(&all_entities, &content_arc, &entity_index),
-            ),
-            || extract_relationships(&all_entities, &content_arc, &entity_index),
-        ),
+        || {
+            rayon::join(
+                || {
+                    rayon::join(
+                        || extract_properties(&all_entities, &content_arc, &entity_index),
+                        || extract_quantities(&all_entities, &content_arc, &entity_index),
+                    )
+                },
+                || extract_relationships(&all_entities, &content_arc, &entity_index),
+            )
+        },
     );
 
     // Extract length unit scale (e.g., 0.001 for millimeters)
@@ -234,10 +267,19 @@ pub fn extract_data_model(content: &str) -> DataModel {
     } else {
         1.0
     };
-    tracing::debug!(length_unit_scale = length_unit_scale, "Extracted length unit scale");
+    tracing::debug!(
+        length_unit_scale = length_unit_scale,
+        "Extracted length unit scale"
+    );
 
     // Build spatial hierarchy (depends on relationships and entities)
-    let spatial_hierarchy = build_spatial_hierarchy(&relationships, &entities, content, &entity_index, length_unit_scale);
+    let spatial_hierarchy = build_spatial_hierarchy(
+        &relationships,
+        &entities,
+        content,
+        &entity_index,
+        length_unit_scale,
+    );
 
     let extract_time = extract_start.elapsed();
     tracing::info!(
@@ -337,10 +379,7 @@ fn extract_properties(
 }
 
 /// Extract a single property from IfcProperty entity.
-fn extract_property(
-    entity: &DecodedEntity,
-    _decoder: &mut EntityDecoder,
-) -> Option<Property> {
+fn extract_property(entity: &DecodedEntity, _decoder: &mut EntityDecoder) -> Option<Property> {
     // PERF: Use eq_ignore_ascii_case to avoid string allocation per comparison
     let ifc_type = entity.ifc_type.as_str();
 
@@ -544,12 +583,10 @@ fn build_spatial_hierarchy(
     length_unit_scale: f64,
 ) -> SpatialHierarchyData {
     let mut decoder = EntityDecoder::with_arc_index(content, entity_index.clone());
-    
+
     // Build entity map for quick lookup
-    let entity_map: FxHashMap<u32, &EntityMetadata> = entities
-        .iter()
-        .map(|e| (e.entity_id, e))
-        .collect();
+    let entity_map: FxHashMap<u32, &EntityMetadata> =
+        entities.iter().map(|e| (e.entity_id, e)).collect();
 
     // Separate spatial relationships from element containment
     // IFCRELAGGREGATES: spatial parent -> spatial child (Project -> Site -> Building -> Storey)
@@ -583,7 +620,7 @@ fn build_spatial_hierarchy(
 
     // Build all spatial nodes with full information
     let mut nodes_map: FxHashMap<u32, SpatialNode> = FxHashMap::default();
-    
+
     let is_spatial_type = |type_name: &str| {
         matches!(
             type_name.to_uppercase().as_str(),
@@ -642,19 +679,36 @@ fn build_spatial_hierarchy(
     for &entity_id in &spatial_entity_ids {
         if !nodes_map.contains_key(&entity_id) {
             if let Some(entity) = entity_map.get(&entity_id) {
-                let name = entity.name.clone().unwrap_or_else(|| format!("{}#{}", entity.type_name, entity_id));
+                let name = entity
+                    .name
+                    .clone()
+                    .unwrap_or_else(|| format!("{}#{}", entity.type_name, entity_id));
 
-                nodes_map.insert(entity_id, SpatialNode {
+                nodes_map.insert(
                     entity_id,
-                    parent_id: 0,
-                    level: 0,
-                    path: name.clone(),
-                    type_name: entity.type_name.clone(),
-                    name: entity.name.clone(),
-                    elevation: extract_elevation_if_storey(&entity.type_name, entity_id, &mut decoder, length_unit_scale),
-                    children_ids: spatial_children_map.get(&entity_id).cloned().unwrap_or_default(),
-                    element_ids: element_containment_map.get(&entity_id).cloned().unwrap_or_default(),
-                });
+                    SpatialNode {
+                        entity_id,
+                        parent_id: 0,
+                        level: 0,
+                        path: name.clone(),
+                        type_name: entity.type_name.clone(),
+                        name: entity.name.clone(),
+                        elevation: extract_elevation_if_storey(
+                            &entity.type_name,
+                            entity_id,
+                            &mut decoder,
+                            length_unit_scale,
+                        ),
+                        children_ids: spatial_children_map
+                            .get(&entity_id)
+                            .cloned()
+                            .unwrap_or_default(),
+                        element_ids: element_containment_map
+                            .get(&entity_id)
+                            .cloned()
+                            .unwrap_or_default(),
+                    },
+                );
             }
         }
     }
@@ -669,7 +723,7 @@ fn build_spatial_hierarchy(
         if rel.rel_type.to_uppercase() == "IFCRELCONTAINEDINSPATIALSTRUCTURE" {
             let spatial_id = rel.relating_id;
             let element_id = rel.related_id;
-            
+
             if let Some(spatial_node) = nodes_map.get(&spatial_id) {
                 let type_upper = spatial_node.type_name.to_uppercase();
                 if type_upper == "IFCBUILDINGSTOREY" {
@@ -713,7 +767,9 @@ fn build_spatial_nodes_recursive(
         None => return,
     };
 
-    let entity_name = entity.name.as_ref()
+    let entity_name = entity
+        .name
+        .as_ref()
         .cloned()
         .unwrap_or_else(|| format!("{}#{}", entity.type_name, entity_id));
 
@@ -724,11 +780,18 @@ fn build_spatial_nodes_recursive(
     };
 
     // Extract elevation for storeys (with unit scale applied)
-    let elevation = extract_elevation_if_storey(&entity.type_name, entity_id, decoder, length_unit_scale);
+    let elevation =
+        extract_elevation_if_storey(&entity.type_name, entity_id, decoder, length_unit_scale);
 
     // Get children and elements
-    let children_ids = spatial_children_map.get(&entity_id).cloned().unwrap_or_default();
-    let element_ids = element_containment_map.get(&entity_id).cloned().unwrap_or_default();
+    let children_ids = spatial_children_map
+        .get(&entity_id)
+        .cloned()
+        .unwrap_or_default();
+    let element_ids = element_containment_map
+        .get(&entity_id)
+        .cloned()
+        .unwrap_or_default();
 
     let node = SpatialNode {
         entity_id,

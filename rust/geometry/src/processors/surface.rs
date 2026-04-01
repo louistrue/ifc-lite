@@ -8,8 +8,8 @@ use crate::{Error, Mesh, Point2, Point3, Result, Vector3};
 use ifc_lite_core::{DecodedEntity, EntityDecoder, IfcSchema, IfcType};
 use nalgebra::Matrix4;
 
-use crate::router::GeometryProcessor;
 use super::helpers::{get_axis2_placement_transform_by_id, get_direction_by_id};
+use crate::router::GeometryProcessor;
 
 /// SurfaceOfLinearExtrusion processor
 /// Handles IfcSurfaceOfLinearExtrusion - surface created by sweeping a curve along a direction
@@ -35,13 +35,13 @@ impl GeometryProcessor for SurfaceOfLinearExtrusionProcessor {
         // 3: Depth (length)
 
         // Get the swept curve (profile)
-        let curve_attr = entity
-            .get(0)
-            .ok_or_else(|| Error::geometry("SurfaceOfLinearExtrusion missing SweptCurve".to_string()))?;
+        let curve_attr = entity.get(0).ok_or_else(|| {
+            Error::geometry("SurfaceOfLinearExtrusion missing SweptCurve".to_string())
+        })?;
 
-        let curve_id = curve_attr
-            .as_entity_ref()
-            .ok_or_else(|| Error::geometry("Expected entity reference for SweptCurve".to_string()))?;
+        let curve_id = curve_attr.as_entity_ref().ok_or_else(|| {
+            Error::geometry("Expected entity reference for SweptCurve".to_string())
+        })?;
 
         // Get position
         let position_attr = entity.get(1);
@@ -56,9 +56,9 @@ impl GeometryProcessor for SurfaceOfLinearExtrusionProcessor {
         };
 
         // Get extrusion direction
-        let direction_attr = entity
-            .get(2)
-            .ok_or_else(|| Error::geometry("SurfaceOfLinearExtrusion missing ExtrudedDirection".to_string()))?;
+        let direction_attr = entity.get(2).ok_or_else(|| {
+            Error::geometry("SurfaceOfLinearExtrusion missing ExtrudedDirection".to_string())
+        })?;
 
         let direction = if let Some(dir_id) = direction_attr.as_entity_ref() {
             get_direction_by_id(dir_id, decoder)
@@ -218,9 +218,9 @@ impl SurfaceOfLinearExtrusionProcessor {
                 .get(2)
                 .ok_or_else(|| Error::geometry("Segment missing ParentCurve".to_string()))?;
 
-            let parent_curve_id = parent_curve_attr
-                .as_entity_ref()
-                .ok_or_else(|| Error::geometry("Expected entity reference for parent curve".to_string()))?;
+            let parent_curve_id = parent_curve_attr.as_entity_ref().ok_or_else(|| {
+                Error::geometry("Expected entity reference for parent curve".to_string())
+            })?;
 
             // Recursively get points from the parent curve
             if let Ok(segment_points) = Self::get_profile_curve_points(parent_curve_id, decoder) {
