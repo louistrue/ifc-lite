@@ -269,3 +269,44 @@ fn test_wall_with_opening_file() {
         }
     }
 }
+
+#[test]
+fn test_triangulated_face_set_out_of_bounds_indices() {
+    // Simulates a Revit export with indices beyond vertex count (issue #471)
+    let content = r#"
+#1=IFCCARTESIANPOINTLIST3D(((0.0,0.0,0.0),(100.0,0.0,0.0),(50.0,100.0,0.0)));
+#2=IFCTRIANGULATEDFACESET(#1,$,$,((1,2,3),(1,2,99)),$);
+"#;
+
+    let mut decoder = EntityDecoder::new(content);
+    let schema = IfcSchema::new();
+    let processor = TriangulatedFaceSetProcessor::new();
+
+    let entity = decoder.decode_by_id(2).unwrap();
+    let mesh = processor.process(&entity, &mut decoder, &schema).unwrap();
+
+    // Should produce valid mesh — the out-of-bounds triangle (1,2,99) is stripped
+    assert!(!mesh.is_empty());
+    // Only 1 valid triangle should remain (indices 0,1,2)
+    assert_eq!(mesh.indices.len(), 3, "Should have exactly 1 valid triangle");
+    assert!(mesh.indices.iter().all(|&i| (i as usize) < mesh.positions.len() / 3));
+}
+
+#[test]
+fn test_triangulated_face_set_all_invalid_indices() {
+    // All indices are beyond vertex count — should produce empty mesh
+    let content = r#"
+#1=IFCCARTESIANPOINTLIST3D(((0.0,0.0,0.0),(1.0,0.0,0.0),(0.0,1.0,0.0)));
+#2=IFCTRIANGULATEDFACESET(#1,$,$,((10,20,30)),$);
+"#;
+
+    let mut decoder = EntityDecoder::new(content);
+    let schema = IfcSchema::new();
+    let processor = TriangulatedFaceSetProcessor::new();
+
+    let entity = decoder.decode_by_id(2).unwrap();
+    let mesh = processor.process(&entity, &mut decoder, &schema).unwrap();
+
+    // All indices invalid — mesh should have positions but no valid triangles
+    assert!(mesh.indices.is_empty(), "All invalid indices should be stripped");
+}

@@ -655,6 +655,8 @@ impl GeometryRouter {
         // Check if we have a processor for this type
         if let Some(processor) = self.processors.get(&item.ifc_type) {
             let mut mesh = processor.process(item, decoder, &self.schema)?;
+            // Safety net: strip any out-of-bounds indices before downstream use
+            mesh.validate_indices();
             self.scale_mesh(&mut mesh);
 
             // Deduplicate by hash - buildings with repeated floors have identical geometry
@@ -770,6 +772,7 @@ impl GeometryRouter {
             }
             if let Some(processor) = self.processors.get(&sub_item.ifc_type) {
                 if let Ok(mut sub_mesh) = processor.process(&sub_item, decoder, &self.schema) {
+                    sub_mesh.validate_indices();
                     self.scale_mesh(&mut sub_mesh);
                     mesh.merge(&sub_mesh);
                 }
