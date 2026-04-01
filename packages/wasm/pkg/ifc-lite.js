@@ -212,12 +212,12 @@ if (!('encodeInto' in cachedTextEncoder)) {
 
 let WASM_VECTOR_LEN = 0;
 
-function __wasm_bindgen_func_elem_1133(arg0, arg1, arg2) {
-    wasm.__wasm_bindgen_func_elem_1133(arg0, arg1, addHeapObject(arg2));
+function __wasm_bindgen_func_elem_1119(arg0, arg1, arg2) {
+    wasm.__wasm_bindgen_func_elem_1119(arg0, arg1, addHeapObject(arg2));
 }
 
-function __wasm_bindgen_func_elem_1175(arg0, arg1, arg2, arg3) {
-    wasm.__wasm_bindgen_func_elem_1175(arg0, arg1, addHeapObject(arg2), addHeapObject(arg3));
+function __wasm_bindgen_func_elem_1159(arg0, arg1, arg2, arg3) {
+    wasm.__wasm_bindgen_func_elem_1159(arg0, arg1, addHeapObject(arg2), addHeapObject(arg3));
 }
 
 const GeoReferenceJsFinalization = (typeof FinalizationRegistry === 'undefined')
@@ -1667,18 +1667,6 @@ export class IfcAPI {
         return takeObject(ret);
     }
     /**
-     * Fast scan that only returns metadata-relevant entity refs.
-     * This drastically reduces transfer size for huge-file metadata hydration.
-     * @param {Uint8Array} data
-     * @returns {any}
-     */
-    scanRelevantEntitiesFastBytes(data) {
-        const ptr0 = passArray8ToWasm0(data, wasm.__wbindgen_export3);
-        const len0 = WASM_VECTOR_LEN;
-        const ret = wasm.ifcapi_scanRelevantEntitiesFastBytes(this.__wbg_ptr, ptr0, len0);
-        return takeObject(ret);
-    }
-    /**
      * Parse IFC file (traditional - waits for completion)
      *
      * Example:
@@ -3061,7 +3049,7 @@ function __wbg_get_imports() {
                 const a = state0.a;
                 state0.a = 0;
                 try {
-                    return __wasm_bindgen_func_elem_1175(a, state0.b, arg0, arg1);
+                    return __wasm_bindgen_func_elem_1159(a, state0.b, arg0, arg1);
                 } finally {
                     state0.a = a;
                 }
@@ -3173,9 +3161,9 @@ function __wbg_get_imports() {
         const ret = BigInt.asUintN(64, arg0);
         return addHeapObject(ret);
     };
-    imports.wbg.__wbindgen_cast_69d24e7bda2eee11 = function(arg0, arg1) {
-        // Cast intrinsic for `Closure(Closure { dtor_idx: 147, function: Function { arguments: [Externref], shim_idx: 148, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
-        const ret = makeMutClosure(arg0, arg1, wasm.__wasm_bindgen_func_elem_1132, __wasm_bindgen_func_elem_1133);
+    imports.wbg.__wbindgen_cast_46fe3e4a37968b61 = function(arg0, arg1) {
+        // Cast intrinsic for `Closure(Closure { dtor_idx: 146, function: Function { arguments: [Externref], shim_idx: 147, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+        const ret = makeMutClosure(arg0, arg1, wasm.__wasm_bindgen_func_elem_1118, __wasm_bindgen_func_elem_1119);
         return addHeapObject(ret);
     };
     imports.wbg.__wbindgen_cast_d6cd19b81560fd6e = function(arg0) {

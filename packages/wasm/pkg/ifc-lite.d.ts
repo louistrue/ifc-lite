@@ -539,11 +539,6 @@ export class IfcAPI {
    */
   scanGeometryEntitiesFast(content: string): any;
   /**
-   * Fast scan that only returns metadata-relevant entity refs.
-   * This drastically reduces transfer size for huge-file metadata hydration.
-   */
-  scanRelevantEntitiesFastBytes(data: Uint8Array): any;
-  /**
    * Parse IFC file (traditional - waits for completion)
    *
    * Example:
@@ -1076,7 +1071,6 @@ export interface InitOutput {
   readonly ifcapi_scanEntitiesFast: (a: number, b: number, c: number) => number;
   readonly ifcapi_scanEntitiesFastBytes: (a: number, b: number, c: number) => number;
   readonly ifcapi_scanGeometryEntitiesFast: (a: number, b: number, c: number) => number;
-  readonly ifcapi_scanRelevantEntitiesFastBytes: (a: number, b: number, c: number) => number;
   readonly ifcapi_version: (a: number, b: number) => void;
   readonly instancedata_color: (a: number, b: number) => void;
   readonly instancedata_expressId: (a: number) => number;
@@ -1183,9 +1177,9 @@ export interface InitOutput {
   readonly profileentryjs_expressId: (a: number) => number;
   readonly symboliccircle_expressId: (a: number) => number;
   readonly __wbg_gpuinstancedgeometryref_free: (a: number, b: number) => void;
-  readonly __wasm_bindgen_func_elem_1133: (a: number, b: number, c: number) => void;
-  readonly __wasm_bindgen_func_elem_1132: (a: number, b: number) => void;
-  readonly __wasm_bindgen_func_elem_1175: (a: number, b: number, c: number, d: number) => void;
+  readonly __wasm_bindgen_func_elem_1119: (a: number, b: number, c: number) => void;
+  readonly __wasm_bindgen_func_elem_1118: (a: number, b: number) => void;
+  readonly __wasm_bindgen_func_elem_1159: (a: number, b: number, c: number, d: number) => void;
   readonly __wbindgen_export: (a: number) => void;
   readonly __wbindgen_export2: (a: number, b: number, c: number) => void;
   readonly __wbindgen_export3: (a: number, b: number) => number;
