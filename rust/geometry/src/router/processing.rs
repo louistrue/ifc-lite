@@ -139,12 +139,6 @@ impl GeometryRouter {
         element: &DecodedEntity,
         decoder: &mut EntityDecoder,
     ) -> Result<Mesh> {
-        #[cfg(target_arch = "wasm32")]
-        web_sys::console::log_1(&format!(
-            "[GEOM] process_element #{} type={}",
-            element.id, element.ifc_type
-        ).into());
-
         // Get representation (attribute 6 for most building elements)
         // IfcProduct: GlobalId, OwnerHistory, Name, Description, ObjectType, ObjectPlacement, Representation, Tag
         let representation_attr = element.get(6).ok_or_else(|| {
@@ -644,12 +638,6 @@ impl GeometryRouter {
         item: &DecodedEntity,
         decoder: &mut EntityDecoder,
     ) -> Result<Mesh> {
-        #[cfg(target_arch = "wasm32")]
-        web_sys::console::log_1(&format!(
-            "[GEOM] process_representation_item #{} type={}",
-            item.id, item.ifc_type
-        ).into());
-
         // Special handling for MappedItem with caching
         if item.ifc_type == IfcType::IfcMappedItem {
             return self.process_mapped_item_cached(item, decoder);
@@ -711,10 +699,6 @@ impl GeometryRouter {
         item: &DecodedEntity,
         decoder: &mut EntityDecoder,
     ) -> Result<Mesh> {
-        #[cfg(target_arch = "wasm32")]
-        web_sys::console::log_1(&format!(
-            "[GEOM] process_mapped_item_cached #{}", item.id
-        ).into());
         // IfcMappedItem attributes:
         // 0: MappingSource (IfcRepresentationMap)
         // 1: MappingTarget (IfcCartesianTransformationOperator)

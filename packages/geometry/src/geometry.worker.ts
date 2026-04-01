@@ -98,43 +98,84 @@ self.onmessage = async (e: MessageEvent<GeometryWorkerRequest>) => {
       const localBytes = new Uint8Array(sharedBuffer.byteLength);
       localBytes.set(new Uint8Array(sharedBuffer));
 
-      // Call processGeometryBatch with pre-pass data
-      const collection = api.processGeometryBatch(
-        localBytes, jobsFlat, unitScale,
-        rtcX, rtcY, rtcZ, needsShift,
-        voidKeys, voidCounts, voidValues,
-        styleIds, styleColors,
-      );
+      const allMeshes: GeometryWorkerBatchMessage['meshes'] = [];
+      const allTransferBuffers: ArrayBuffer[] = [];
 
-      const meshes: GeometryWorkerBatchMessage['meshes'] = [];
-      const transferBuffers: ArrayBuffer[] = [];
+      /** Extract meshes from a MeshCollection into our arrays */
+      const collectMeshes = (collection: ReturnType<IfcAPI['processGeometryBatch']>) => {
+        for (let i = 0; i < collection.length; i++) {
+          const mesh = collection.get(i);
+          if (!mesh) continue;
+          const positions = new Float32Array(mesh.positions);
+          const normals = new Float32Array(mesh.normals);
+          const indices = new Uint32Array(mesh.indices);
+          allMeshes.push({
+            expressId: mesh.expressId,
+            ifcType: mesh.ifcType,
+            positions, normals, indices,
+            color: [mesh.color[0], mesh.color[1], mesh.color[2], mesh.color[3]],
+          });
+          allTransferBuffers.push(positions.buffer, normals.buffer, indices.buffer);
+          mesh.free();
+        }
+        collection.free();
+      };
 
-      for (let i = 0; i < collection.length; i++) {
-        const mesh = collection.get(i);
-        if (!mesh) continue;
+      /**
+       * Process a slice of jobsFlat with automatic sub-batch splitting on failure.
+       * Uses binary-split strategy: try the whole slice, if it fails split in half
+       * and recurse. Only falls back to single-entity processing for the smallest
+       * failing chunk. This avoids rebuilding the entity index per-entity (expensive
+       * for large files — each rebuild scans the entire file).
+       */
+      const processBatch = async (jobs: Uint32Array): Promise<void> => {
+        const numJobs = Math.floor(jobs.length / 3);
+        if (numJobs === 0) return;
 
-        const positions = new Float32Array(mesh.positions);
-        const normals = new Float32Array(mesh.normals);
-        const indices = new Uint32Array(mesh.indices);
+        try {
+          if (!api) {
+            await init();
+            api = new IfcAPI();
+          }
+          const collection = api.processGeometryBatch(
+            localBytes, jobs, unitScale,
+            rtcX, rtcY, rtcZ, needsShift,
+            voidKeys, voidCounts, voidValues,
+            styleIds, styleColors,
+          );
+          collectMeshes(collection);
+        } catch (err) {
+          const msg = (err as Error).message;
 
-        meshes.push({
-          expressId: mesh.expressId,
-          ifcType: mesh.ifcType,
-          positions, normals, indices,
-          color: [mesh.color[0], mesh.color[1], mesh.color[2], mesh.color[3]],
-        });
+          if (numJobs === 1) {
+            // Single entity failed — skip it
+            console.warn(`[Worker] Skipping entity #${jobs[0]}: ${msg}`);
+            // WASM instance may be corrupted after stack overflow — force re-init
+            api = null;
+            return;
+          }
 
-        transferBuffers.push(positions.buffer, normals.buffer, indices.buffer);
-        mesh.free();
-      }
-      collection.free();
+          // Split in half and retry each half
+          console.warn(
+            `[Worker] Batch of ${numJobs} entities failed (${msg}), splitting…`,
+          );
+          // WASM may be corrupted — force re-init before retrying
+          api = null;
+
+          const mid = Math.floor(numJobs / 2) * 3;
+          await processBatch(jobs.slice(0, mid));
+          await processBatch(jobs.slice(mid));
+        }
+      };
+
+      await processBatch(jobsFlat);
 
       (self as unknown as Worker).postMessage(
-        { type: 'batch', meshes } as GeometryWorkerBatchMessage,
-        transferBuffers,
+        { type: 'batch', meshes: allMeshes } as GeometryWorkerBatchMessage,
+        allTransferBuffers,
       );
       (self as unknown as Worker).postMessage(
-        { type: 'complete', totalMeshes: meshes.length } as GeometryWorkerCompleteMessage,
+        { type: 'complete', totalMeshes: allMeshes.length } as GeometryWorkerCompleteMessage,
       );
     }
   } catch (err) {
