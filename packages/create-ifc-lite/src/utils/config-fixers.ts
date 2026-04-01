@@ -120,6 +120,8 @@ export function fixViteConfig(targetDir: string) {
   // Write standalone vite config with WASM support
   const viteConfig = `import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import wasm from 'vite-plugin-wasm';
+import topLevelAwait from 'vite-plugin-top-level-await';
 import path from 'path';
 import { readFileSync } from 'fs';
 
@@ -128,22 +130,14 @@ const pkg = JSON.parse(readFileSync('./package.json', 'utf-8'));
 export default defineConfig({
   plugins: [
     react(),
-    {
-      name: 'wasm-mime-type',
-      configureServer(server) {
-        server.middlewares.use((req, res, next) => {
-          if (req.url?.endsWith('.wasm')) {
-            res.setHeader('Content-Type', 'application/wasm');
-          }
-          next();
-        });
-      },
-    },
+    wasm(),
+    topLevelAwait(),
   ],
   define: {
     __APP_VERSION__: JSON.stringify(pkg.version),
     __BUILD_DATE__: JSON.stringify(new Date().toISOString()),
     __RELEASE_HISTORY__: JSON.stringify([]),
+    __PACKAGE_VERSIONS__: JSON.stringify([]),
   },
   resolve: {
     alias: {
@@ -153,6 +147,10 @@ export default defineConfig({
   server: {
     port: 3000,
     open: true,
+    headers: {
+      'Cross-Origin-Opener-Policy': 'same-origin',
+      'Cross-Origin-Embedder-Policy': 'credentialless',
+    },
     fs: {
       allow: ['..'],
     },
@@ -161,7 +159,18 @@ export default defineConfig({
     target: 'esnext',
   },
   optimizeDeps: {
-    exclude: ['@duckdb/duckdb-wasm', '@ifc-lite/wasm'],
+    exclude: [
+      '@duckdb/duckdb-wasm',
+      '@ifc-lite/wasm',
+      'parquet-wasm',
+      'quickjs-emscripten',
+      '@jitl/quickjs-wasmfile-release-asyncify',
+      'esbuild-wasm',
+    ],
+  },
+  worker: {
+    format: 'es',
+    plugins: () => [wasm(), topLevelAwait()],
   },
   assetsInclude: ['**/*.wasm'],
 });

@@ -285,6 +285,28 @@ impl Mesh {
         self.indices.len() / 3
     }
 
+    /// Remove triangle indices that reference vertices beyond the positions array.
+    /// This prevents panics from malformed IFC data (e.g. Revit exports with invalid indices).
+    #[inline]
+    pub fn validate_indices(&mut self) {
+        let vertex_count = self.positions.len() / 3;
+        if vertex_count == 0 {
+            self.indices.clear();
+            return;
+        }
+        let mut valid = Vec::with_capacity(self.indices.len());
+        for chunk in self.indices.chunks(3) {
+            if chunk.len() == 3
+                && (chunk[0] as usize) < vertex_count
+                && (chunk[1] as usize) < vertex_count
+                && (chunk[2] as usize) < vertex_count
+            {
+                valid.extend_from_slice(chunk);
+            }
+        }
+        self.indices = valid;
+    }
+
     /// Check if mesh is empty
     #[inline]
     pub fn is_empty(&self) -> bool {
@@ -594,5 +616,53 @@ mod tests {
             error_shifted < error_direct || error_shifted < 0.0001,
             "Shifted precision should be better than direct conversion"
         );
+    }
+
+    #[test]
+    fn test_validate_indices_strips_out_of_bounds() {
+        let mut mesh = Mesh {
+            positions: vec![0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0], // 3 vertices
+            normals: vec![],
+            indices: vec![
+                0, 1, 2, // valid
+                0, 1, 5, // invalid: vertex 5 out of bounds
+                3, 4, 5, // invalid: all out of bounds
+            ],
+        };
+        mesh.validate_indices();
+        assert_eq!(mesh.indices, vec![0, 1, 2]);
+    }
+
+    #[test]
+    fn test_validate_indices_empty_positions() {
+        let mut mesh = Mesh {
+            positions: vec![],
+            normals: vec![],
+            indices: vec![0, 1, 2],
+        };
+        mesh.validate_indices();
+        assert!(mesh.indices.is_empty());
+    }
+
+    #[test]
+    fn test_validate_indices_incomplete_triangle() {
+        let mut mesh = Mesh {
+            positions: vec![0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0],
+            normals: vec![],
+            indices: vec![0, 1, 2, 0, 1], // trailing incomplete triangle
+        };
+        mesh.validate_indices();
+        assert_eq!(mesh.indices, vec![0, 1, 2]);
+    }
+
+    #[test]
+    fn test_validate_indices_all_valid() {
+        let mut mesh = Mesh {
+            positions: vec![0.0; 12], // 4 vertices
+            normals: vec![],
+            indices: vec![0, 1, 2, 1, 2, 3],
+        };
+        mesh.validate_indices();
+        assert_eq!(mesh.indices, vec![0, 1, 2, 1, 2, 3]);
     }
 }

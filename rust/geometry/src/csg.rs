@@ -109,11 +109,14 @@ impl Triangle {
     }
 }
 
+/// Maximum polygon count for either operand in a csgrs boolean operation.
+///
+/// Rectangular solids are 12 triangles, so this still allows the simple box-like
+/// boolean cases we expect while avoiding the complex BSP trees that can overflow
+/// the browser's native call stack in WASM.
+const MAX_CSG_POLYGONS_PER_MESH: usize = 24;
 /// Maximum combined polygon count for CSG operations.
-/// The csgrs BSP tree can infinite-recurse on certain polygon configurations
-/// (coplanar/near-coplanar faces cause repeated splitting with exponential growth).
-/// This limit prevents stack overflow in both native and WASM builds.
-const MAX_CSG_POLYGONS: usize = 2000;
+const MAX_CSG_POLYGONS: usize = MAX_CSG_POLYGONS_PER_MESH * 2;
 
 /// CSG Clipping Processor
 pub struct ClippingProcessor {
@@ -165,6 +168,25 @@ fn aabb_to_mesh(min: Point3<f64>, max: Point3<f64>) -> Mesh {
 }
 
 impl ClippingProcessor {
+    #[inline]
+    fn can_run_csgrs_operation(
+        csg_a: &csgrs::mesh::Mesh<()>,
+        csg_b: &csgrs::mesh::Mesh<()>,
+    ) -> bool {
+        let polygons_a = csg_a.polygons.len();
+        let polygons_b = csg_b.polygons.len();
+
+        if polygons_a < 4 || polygons_b < 4 {
+            return false;
+        }
+
+        if polygons_a > MAX_CSG_POLYGONS_PER_MESH || polygons_b > MAX_CSG_POLYGONS_PER_MESH {
+            return false;
+        }
+
+        polygons_a + polygons_b <= MAX_CSG_POLYGONS
+    }
+
     /// Create a new clipping processor
     pub fn new() -> Self {
         Self { epsilon: 1e-6 }
@@ -411,11 +433,7 @@ impl ClippingProcessor {
             let q2 = quantize(v2);
 
             // Three edges per triangle
-            for (qa, qb, pa, pb) in [
-                (q0, q1, *v0, *v1),
-                (q1, q2, *v1, *v2),
-                (q2, q0, *v2, *v0),
-            ] {
+            for (qa, qb, pa, pb) in [(q0, q1, *v0, *v1), (q1, q2, *v1, *v2), (q2, q0, *v2, *v0)] {
                 let key = make_edge_key(qa, qb);
                 edge_count
                     .entry(key)
@@ -443,8 +461,14 @@ impl ClippingProcessor {
         for (pa, pb) in &boundary_edges {
             let qa = quantize(pa);
             let qb = quantize(pb);
-            adjacency.entry(qa).or_default().push((qb.0, qb.1, qb.2, *pb));
-            adjacency.entry(qb).or_default().push((qa.0, qa.1, qa.2, *pa));
+            adjacency
+                .entry(qa)
+                .or_default()
+                .push((qb.0, qb.1, qb.2, *pb));
+            adjacency
+                .entry(qb)
+                .or_default()
+                .push((qa.0, qa.1, qa.2, *pa));
         }
 
         // Build ordered contour by walking the boundary
@@ -729,14 +753,9 @@ impl ClippingProcessor {
             return Ok(host_mesh.clone());
         }
 
-        // Additional validation: check for degenerate polygons that could cause panics
-        // Skip CSG if either mesh has suspicious polygon counts (too few for a solid)
-        if host_csg.polygons.len() < 4 || opening_csg.polygons.len() < 4 {
-            return Ok(host_mesh.clone());
-        }
-
-        // Safety: skip CSG if combined polygon count risks BSP infinite recursion
-        if host_csg.polygons.len() + opening_csg.polygons.len() > MAX_CSG_POLYGONS {
+        // Safety: only allow simple low-polygon CSG cases. Complex operands are
+        // left uncut rather than risking runaway BSP recursion in csgrs.
+        if !Self::can_run_csgrs_operation(&host_csg, &opening_csg) {
             return Ok(host_mesh.clone());
         }
 
@@ -758,19 +777,19 @@ impl ClippingProcessor {
                 let cleaned = Self::remove_degenerate_triangles(&result, host_mesh);
                 Ok(cleaned)
             }
-            Err(_) => Ok(host_mesh.clone())
+            Err(_) => Ok(host_mesh.clone()),
         }
     }
-    
+
     /// Remove degenerate triangles from CSG result
-    /// 
+    ///
     /// CSG operations can create thin "sliver" triangles at intersection boundaries
     /// due to numerical precision issues. This function removes triangles that:
     /// 1. Have very small area (thin slivers)
     /// 2. Are located inside the original host mesh bounds (not on the surface)
     fn remove_degenerate_triangles(mesh: &Mesh, host_mesh: &Mesh) -> Mesh {
         let (host_min, host_max) = host_mesh.bounds();
-        
+
         // Convert host bounds to f64 for calculations
         let host_min_x = host_min.x as f64;
         let host_min_y = host_min.y as f64;
@@ -778,17 +797,17 @@ impl ClippingProcessor {
         let host_max_x = host_max.x as f64;
         let host_max_y = host_max.y as f64;
         let host_max_z = host_max.z as f64;
-        
+
         // Calculate host dimensions to determine appropriate thresholds
         let host_size_x = (host_max_x - host_min_x).abs();
         let host_size_y = (host_max_y - host_min_y).abs();
         let host_size_z = (host_max_z - host_min_z).abs();
         let min_dim = host_size_x.min(host_size_y).min(host_size_z);
-        
+
         // Minimum area threshold - triangles smaller than this are likely artifacts
         // Use 0.1% of the smallest host dimension squared
         let min_area = (min_dim * 0.001).powi(2);
-        
+
         // Distance threshold for "inside" detection
         let epsilon = min_dim * 0.01;
 
@@ -825,36 +844,44 @@ impl ClippingProcessor {
                 mesh.positions[i2 * 3 + 1] as f64,
                 mesh.positions[i2 * 3 + 2] as f64,
             );
-            
+
             // Calculate triangle area using cross product
             let edge1 = v1 - v0;
             let edge2 = v2 - v0;
             let cross = edge1.cross(&edge2);
             let area = cross.norm() / 2.0;
-            
+
             // Check if triangle is degenerate (very small area)
             if area < min_area {
                 continue;
             }
-            
+
             // Check if any vertex is significantly OUTSIDE the host bounds
             // This catches CSG artifacts that create long thin triangles extending far from the model
             let expansion = min_dim.max(1.0); // At least 1 meter expansion allowed
-            let far_outside = 
-                v0.x < (host_min_x - expansion) || v0.x > (host_max_x + expansion) ||
-                v0.y < (host_min_y - expansion) || v0.y > (host_max_y + expansion) ||
-                v0.z < (host_min_z - expansion) || v0.z > (host_max_z + expansion) ||
-                v1.x < (host_min_x - expansion) || v1.x > (host_max_x + expansion) ||
-                v1.y < (host_min_y - expansion) || v1.y > (host_max_y + expansion) ||
-                v1.z < (host_min_z - expansion) || v1.z > (host_max_z + expansion) ||
-                v2.x < (host_min_x - expansion) || v2.x > (host_max_x + expansion) ||
-                v2.y < (host_min_y - expansion) || v2.y > (host_max_y + expansion) ||
-                v2.z < (host_min_z - expansion) || v2.z > (host_max_z + expansion);
-            
+            let far_outside = v0.x < (host_min_x - expansion)
+                || v0.x > (host_max_x + expansion)
+                || v0.y < (host_min_y - expansion)
+                || v0.y > (host_max_y + expansion)
+                || v0.z < (host_min_z - expansion)
+                || v0.z > (host_max_z + expansion)
+                || v1.x < (host_min_x - expansion)
+                || v1.x > (host_max_x + expansion)
+                || v1.y < (host_min_y - expansion)
+                || v1.y > (host_max_y + expansion)
+                || v1.z < (host_min_z - expansion)
+                || v1.z > (host_max_z + expansion)
+                || v2.x < (host_min_x - expansion)
+                || v2.x > (host_max_x + expansion)
+                || v2.y < (host_min_y - expansion)
+                || v2.y > (host_max_y + expansion)
+                || v2.z < (host_min_z - expansion)
+                || v2.z > (host_max_z + expansion);
+
             if far_outside {
                 continue;
             }
-            
+
             // Check if triangle center is strictly inside the host bounds
             // (not on the surface) - these are likely CSG artifacts
             let center = Point3::new(
@@ -862,19 +889,19 @@ impl ClippingProcessor {
                 (v0.y + v1.y + v2.y) / 3.0,
                 (v0.z + v1.z + v2.z) / 3.0,
             );
-            
+
             // Check if center is inside host bounds (with epsilon margin)
             let inside_x = center.x > (host_min_x + epsilon) && center.x < (host_max_x - epsilon);
             let inside_y = center.y > (host_min_y + epsilon) && center.y < (host_max_y - epsilon);
             let inside_z = center.z > (host_min_z + epsilon) && center.z < (host_max_z - epsilon);
-            
+
             // If triangle is strictly inside the host in ALL dimensions, it's likely an artifact
             // Only remove if it's also relatively small
             let max_area = min_dim * min_dim * 0.1; // 10% of smallest dimension squared
             if inside_x && inside_y && inside_z && area < max_area {
                 continue;
             }
-            
+
             // Get normals
             let n0 = Vector3::new(
                 mesh.normals[i0 * 3] as f64,
@@ -891,7 +918,7 @@ impl ClippingProcessor {
                 mesh.normals[i2 * 3 + 1] as f64,
                 mesh.normals[i2 * 3 + 2] as f64,
             );
-            
+
             // Add valid triangle to cleaned mesh
             let base_idx = cleaned.vertex_count() as u32;
             cleaned.add_vertex(v0, n0);
@@ -899,7 +926,7 @@ impl ClippingProcessor {
             cleaned.add_vertex(v2, n2);
             cleaned.add_triangle(base_idx, base_idx + 1, base_idx + 2);
         }
-        
+
         cleaned
     }
 
@@ -955,15 +982,19 @@ impl ClippingProcessor {
             let tri_max_y = v0.y.max(v1.y).max(v2.y);
             let tri_min_z = v0.z.min(v1.z).min(v2.z);
             let tri_max_z = v0.z.max(v1.z).max(v2.z);
-            
+
             // Check if triangle is completely inside opening bounds (remove it)
-            if tri_min_x >= open_min.x && tri_max_x <= open_max.x &&
-               tri_min_y >= open_min.y && tri_max_y <= open_max.y &&
-               tri_min_z >= open_min.z && tri_max_z <= open_max.z {
+            if tri_min_x >= open_min.x
+                && tri_max_x <= open_max.x
+                && tri_min_y >= open_min.y
+                && tri_max_y <= open_max.y
+                && tri_min_z >= open_min.z
+                && tri_max_z <= open_max.z
+            {
                 // Triangle is inside opening - remove it
                 continue;
             }
-            
+
             // Triangle is not completely inside - keep it
             let n0 = Vector3::new(
                 mesh.normals[i0 * 3] as f64,
@@ -980,14 +1011,14 @@ impl ClippingProcessor {
                 mesh.normals[i2 * 3 + 1] as f64,
                 mesh.normals[i2 * 3 + 2] as f64,
             );
-            
+
             let base_idx = cleaned.vertex_count() as u32;
             cleaned.add_vertex(v0, n0);
             cleaned.add_vertex(v1, n1);
             cleaned.add_vertex(v2, n2);
             cleaned.add_triangle(base_idx, base_idx + 1, base_idx + 2);
         }
-        
+
         cleaned
     }
 
@@ -1014,15 +1045,7 @@ impl ClippingProcessor {
             return Ok(merged);
         }
 
-        // Skip CSG if either mesh has too few polygons for a valid solid
-        if csg_a.polygons.len() < 4 || csg_b.polygons.len() < 4 {
-            let mut merged = mesh_a.clone();
-            merged.merge(mesh_b);
-            return Ok(merged);
-        }
-
-        // Safety: skip CSG if combined polygon count risks BSP infinite recursion
-        if csg_a.polygons.len() + csg_b.polygons.len() > MAX_CSG_POLYGONS {
+        if !Self::can_run_csgrs_operation(&csg_a, &csg_b) {
             let mut merged = mesh_a.clone();
             merged.merge(mesh_b);
             return Ok(merged);
@@ -1055,14 +1078,8 @@ impl ClippingProcessor {
             return Ok(Mesh::new());
         }
 
-        // Skip CSG if either mesh has too few polygons for a valid solid
-        if csg_a.polygons.len() < 4 || csg_b.polygons.len() < 4 {
+        if !Self::can_run_csgrs_operation(&csg_a, &csg_b) {
             return Ok(Mesh::new());
-        }
-
-        // Safety: skip CSG if combined polygon count risks BSP infinite recursion
-        if csg_a.polygons.len() + csg_b.polygons.len() > MAX_CSG_POLYGONS {
-            return Ok(mesh_a.clone());
         }
 
         // Perform CSG intersection
@@ -1354,7 +1371,9 @@ pub fn calculate_normals(mesh: &mut Mesh) {
     mesh.normals.reserve(vertex_count * 3);
 
     for normal in normals {
-        let normalized = normal.try_normalize(1e-6).unwrap_or_else(|| Vector3::new(0.0, 0.0, 1.0));
+        let normalized = normal
+            .try_normalize(1e-6)
+            .unwrap_or_else(|| Vector3::new(0.0, 0.0, 1.0));
         mesh.normals.push(normalized.x as f32);
         mesh.normals.push(normalized.y as f32);
         mesh.normals.push(normalized.z as f32);
@@ -1464,5 +1483,30 @@ mod tests {
 
         let area = triangle.area();
         assert!((area - 0.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_csgrs_operation_guard_allows_simple_boxes() {
+        let box_a = aabb_to_mesh(Point3::new(0.0, 0.0, 0.0), Point3::new(1.0, 1.0, 1.0));
+        let box_b = aabb_to_mesh(Point3::new(0.25, 0.25, 0.25), Point3::new(0.75, 0.75, 0.75));
+
+        let csg_a = ClippingProcessor::mesh_to_csgrs(&box_a).unwrap();
+        let csg_b = ClippingProcessor::mesh_to_csgrs(&box_b).unwrap();
+
+        assert!(ClippingProcessor::can_run_csgrs_operation(&csg_a, &csg_b));
+    }
+
+    #[test]
+    fn test_csgrs_operation_guard_rejects_complex_operands() {
+        let box_mesh = aabb_to_mesh(Point3::new(0.0, 0.0, 0.0), Point3::new(1.0, 1.0, 1.0));
+        let mut complex_mesh = Mesh::new();
+        complex_mesh.merge(&box_mesh);
+        complex_mesh.merge(&box_mesh);
+        complex_mesh.merge(&box_mesh);
+
+        let csg_a = ClippingProcessor::mesh_to_csgrs(&complex_mesh).unwrap();
+        let csg_b = ClippingProcessor::mesh_to_csgrs(&box_mesh).unwrap();
+
+        assert!(!ClippingProcessor::can_run_csgrs_operation(&csg_a, &csg_b));
     }
 }
