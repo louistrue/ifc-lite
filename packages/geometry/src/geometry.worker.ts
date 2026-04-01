@@ -121,54 +121,54 @@ self.onmessage = async (e: MessageEvent<GeometryWorkerRequest>) => {
         collection.free();
       };
 
-      try {
-        // Fast path: process all entities in a single WASM call
-        const collection = api.processGeometryBatch(
-          localBytes, jobsFlat, unitScale,
-          rtcX, rtcY, rtcZ, needsShift,
-          voidKeys, voidCounts, voidValues,
-          styleIds, styleColors,
-        );
-        collectMeshes(collection);
-      } catch (batchErr) {
-        // Native stack overflow ("too much recursion" in Firefox, "Maximum call
-        // stack size exceeded" in Chrome) kills the entire WASM call.
-        // Fall back to processing entities individually so one bad entity
-        // doesn't prevent all geometry from loading.
-        console.warn(
-          `[Worker] Batch geometry failed (${(batchErr as Error).message}), retrying entities individually…`,
-        );
+      /**
+       * Process a slice of jobsFlat with automatic sub-batch splitting on failure.
+       * Uses binary-split strategy: try the whole slice, if it fails split in half
+       * and recurse. Only falls back to single-entity processing for the smallest
+       * failing chunk. This avoids rebuilding the entity index per-entity (expensive
+       * for large files — each rebuild scans the entire file).
+       */
+      const processBatch = async (jobs: Uint32Array): Promise<void> => {
+        const numJobs = Math.floor(jobs.length / 3);
+        if (numJobs === 0) return;
 
-        const numJobs = Math.floor(jobsFlat.length / 3);
-        for (let j = 0; j < numJobs; j++) {
-          const singleJob = new Uint32Array([
-            jobsFlat[j * 3],
-            jobsFlat[j * 3 + 1],
-            jobsFlat[j * 3 + 2],
-          ]);
-          try {
-            // Re-init WASM after a native stack overflow — the linear-memory
-            // stack pointer may be corrupted.
-            if (!api) {
-              await init();
-              api = new IfcAPI();
-            }
-            const collection = api.processGeometryBatch(
-              localBytes, singleJob, unitScale,
-              rtcX, rtcY, rtcZ, needsShift,
-              voidKeys, voidCounts, voidValues,
-              styleIds, styleColors,
-            );
-            collectMeshes(collection);
-          } catch (entityErr) {
-            console.warn(
-              `[Worker] Skipping entity #${singleJob[0]}: ${(entityErr as Error).message}`,
-            );
+        try {
+          if (!api) {
+            await init();
+            api = new IfcAPI();
+          }
+          const collection = api.processGeometryBatch(
+            localBytes, jobs, unitScale,
+            rtcX, rtcY, rtcZ, needsShift,
+            voidKeys, voidCounts, voidValues,
+            styleIds, styleColors,
+          );
+          collectMeshes(collection);
+        } catch (err) {
+          const msg = (err as Error).message;
+
+          if (numJobs === 1) {
+            // Single entity failed — skip it
+            console.warn(`[Worker] Skipping entity #${jobs[0]}: ${msg}`);
             // WASM instance may be corrupted after stack overflow — force re-init
             api = null;
+            return;
           }
+
+          // Split in half and retry each half
+          console.warn(
+            `[Worker] Batch of ${numJobs} entities failed (${msg}), splitting…`,
+          );
+          // WASM may be corrupted — force re-init before retrying
+          api = null;
+
+          const mid = Math.floor(numJobs / 2) * 3;
+          await processBatch(jobs.slice(0, mid));
+          await processBatch(jobs.slice(mid));
         }
-      }
+      };
+
+      await processBatch(jobsFlat);
 
       (self as unknown as Worker).postMessage(
         { type: 'batch', meshes: allMeshes } as GeometryWorkerBatchMessage,
