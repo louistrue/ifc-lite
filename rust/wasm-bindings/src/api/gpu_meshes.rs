@@ -394,8 +394,14 @@ impl IfcAPI {
             .unwrap_or(1.0);
         let mut router = GeometryRouter::with_scale(unit_scale);
 
+        let all_jobs: Vec<_> = pre_pass
+            .simple_jobs
+            .iter()
+            .chain(pre_pass.complex_jobs.iter())
+            .copied()
+            .collect();
         let rtc_offset = router
-            .detect_rtc_offset_from_jobs(&pre_pass.simple_jobs, &mut decoder)
+            .detect_rtc_offset_from_jobs(&all_jobs, &mut decoder)
             .unwrap_or((0.0, 0.0, 0.0));
         let needs_shift = rtc_offset.0.abs() > 10000.0
             || rtc_offset.1.abs() > 10000.0
@@ -2214,8 +2220,14 @@ impl IfcAPI {
         let mut router = GeometryRouter::with_scale(unit_scale);
 
         // Detect RTC offset
+        let all_jobs: Vec<_> = pre_pass
+            .simple_jobs
+            .iter()
+            .chain(pre_pass.complex_jobs.iter())
+            .copied()
+            .collect();
         let rtc_offset = router
-            .detect_rtc_offset_from_jobs(&pre_pass.simple_jobs, &mut decoder)
+            .detect_rtc_offset_from_jobs(&all_jobs, &mut decoder)
             .unwrap_or((0.0, 0.0, 0.0));
         let needs_shift = rtc_offset.0.abs() > 10000.0
             || rtc_offset.1.abs() > 10000.0
@@ -2374,8 +2386,13 @@ impl IfcAPI {
             .unwrap_or(1.0);
         let mut router = GeometryRouter::with_scale(unit_scale);
 
+        let all_jobs: Vec<_> = simple_jobs
+            .iter()
+            .chain(complex_jobs.iter())
+            .copied()
+            .collect();
         let rtc_offset = router
-            .detect_rtc_offset_from_jobs(&simple_jobs, &mut decoder)
+            .detect_rtc_offset_from_jobs(&all_jobs, &mut decoder)
             .unwrap_or((0.0, 0.0, 0.0));
         let needs_shift = rtc_offset.0.abs() > 10000.0
             || rtc_offset.1.abs() > 10000.0
