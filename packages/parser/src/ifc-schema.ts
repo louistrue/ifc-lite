@@ -9,7 +9,7 @@
  * Do NOT hardcode entity types or attributes here; regenerate instead.
  */
 
-import { getAllAttributesForEntity, isKnownEntity } from './generated/schema-registry.js';
+import { getAllAttributesForEntity, isKnownEntity, getInheritanceChainForEntity } from './generated/schema-registry.js';
 
 /**
  * Get all attribute names for an IFC entity type in STEP positional order.
@@ -25,6 +25,14 @@ export function getAttributeNames(type: string): string[] {
  */
 export function isKnownType(type: string): boolean {
     return isKnownEntity(type);
+}
+
+/**
+ * Get the full inheritance chain for an IFC entity type (root → leaf).
+ * Returns PascalCase names, e.g. ['IfcRoot', ..., 'IfcFlowTerminal', 'IfcAirTerminal'].
+ */
+export function getInheritanceChain(type: string): string[] {
+    return getInheritanceChainForEntity(type);
 }
 
 /**
