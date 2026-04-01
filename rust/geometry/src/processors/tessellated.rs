@@ -98,11 +98,14 @@ impl GeometryProcessor for TriangulatedFaceSetProcessor {
         };
 
         // Create mesh (normals will be computed later)
-        Ok(Mesh {
+        let mut mesh = Mesh {
             positions,
             normals: Vec::new(),
             indices,
-        })
+        };
+        // Validate: IFC files (especially Revit exports) may have indices beyond vertex count
+        mesh.validate_indices();
+        Ok(mesh)
     }
 
     fn supported_types(&self) -> Vec<IfcType> {
@@ -191,25 +194,14 @@ impl PolygonalFaceSetProcessor {
             let v0 = match get_pos(outer_indices[i]) {
                 Some(p) => p,
                 None => {
-                    // Fallback to fan triangulation if indices are invalid
-                    let first = outer_indices[0] - 1;
-                    for j in 1..outer_indices.len() - 1 {
-                        output.push(first);
-                        output.push(outer_indices[j] - 1);
-                        output.push(outer_indices[j + 1] - 1);
-                    }
+                    // Invalid vertex index — skip this polygon entirely.
+                    // We cannot safely fan-triangulate with unresolvable vertices.
                     return;
                 }
             };
             let v1 = match get_pos(outer_indices[(i + 1) % outer_indices.len()]) {
                 Some(p) => p,
                 None => {
-                    let first = outer_indices[0] - 1;
-                    for j in 1..outer_indices.len() - 1 {
-                        output.push(first);
-                        output.push(outer_indices[j] - 1);
-                        output.push(outer_indices[j + 1] - 1);
-                    }
                     return;
                 }
             };
@@ -292,10 +284,7 @@ impl PolygonalFaceSetProcessor {
 
         for &idx in outer_indices {
             let Some(p) = get_pos(idx) else {
-                let first = outer_indices[0];
-                for i in 1..outer_indices.len() - 1 {
-                    push_oriented_triangle(first, outer_indices[i], outer_indices[i + 1]);
-                }
+                // Invalid vertex — skip polygon (fan-triangulate would include bad vertices)
                 return;
             };
             flattened_indices.push(idx);
@@ -320,10 +309,7 @@ impl PolygonalFaceSetProcessor {
             hole_starts.push(flattened_indices.len());
             for &idx in hole {
                 let Some(p) = get_pos(idx) else {
-                    let first = outer_indices[0];
-                    for i in 1..outer_indices.len() - 1 {
-                        push_oriented_triangle(first, outer_indices[i], outer_indices[i + 1]);
-                    }
+                    // Invalid hole vertex — skip polygon
                     return;
                 };
                 flattened_indices.push(idx);

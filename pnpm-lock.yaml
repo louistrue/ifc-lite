@@ -238,6 +238,9 @@ importers:
       '@ifc-lite/sandbox':
         specifier: workspace:^
         version: link:../../packages/sandbox
+      '@ifc-lite/sdk':
+        specifier: workspace:^
+        version: link:../../packages/sdk
       '@ifc-lite/server-client':
         specifier: workspace:^
         version: link:../../packages/server-client

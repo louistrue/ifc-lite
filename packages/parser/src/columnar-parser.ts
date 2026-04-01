@@ -14,7 +14,7 @@ import { SpatialHierarchyBuilder } from './spatial-hierarchy-builder.js';
 import { EntityExtractor } from './entity-extractor.js';
 import { extractLengthUnitScale } from './unit-extractor.js';
 import { decodeIfcString } from '@ifc-lite/encoding';
-import { getAttributeNames } from './ifc-schema.js';
+import { getAttributeNames, getInheritanceChain } from './ifc-schema.js';
 import { parsePropertyValue } from './on-demand-extractors.js';
 import { CompactEntityIndex, buildCompactEntityIndex } from './compact-entity-index.js';
 import {
@@ -589,14 +589,21 @@ export class ColumnarParser {
               CAT_PROPERTY_REL = 4, CAT_PROPERTY_ENTITY = 5, CAT_ASSOCIATION_REL = 6,
               CAT_TYPE_OBJECT = 7, CAT_RELEVANT = 8;
 
+
+        /** Returns true if `upper` (already uppercased) is a subtype of any type in `set`. */
+        function isSubtypeOfAny(upper: string, set: Set<string>): boolean {
+            const chain = getInheritanceChain(upper);
+            return chain.some(ancestor => set.has(ancestor.toUpperCase()));
+        }
+
         // Cache: type name → category (avoids 4.4M .toUpperCase() calls)
         const typeCategoryCache = new Map<string, number>();
         function getCategory(type: string): number {
             let cat = typeCategoryCache.get(type);
             if (cat !== undefined) return cat;
             const upper = type.toUpperCase();
-            if (SPATIAL_TYPES.has(upper)) cat = CAT_SPATIAL;
-            else if (GEOMETRY_TYPES.has(upper)) cat = CAT_GEOMETRY;
+            if (SPATIAL_TYPES.has(upper) || isSubtypeOfAny(upper, SPATIAL_TYPES)) cat = CAT_SPATIAL;
+            else if (GEOMETRY_TYPES.has(upper) || isSubtypeOfAny(upper, GEOMETRY_TYPES)) cat = CAT_GEOMETRY;        
             else if (HIERARCHY_REL_TYPES.has(upper)) cat = CAT_HIERARCHY_REL;
             else if (PROPERTY_REL_TYPES.has(upper)) cat = CAT_PROPERTY_REL;
             else if (PROPERTY_ENTITY_TYPES.has(upper)) cat = CAT_PROPERTY_ENTITY;
