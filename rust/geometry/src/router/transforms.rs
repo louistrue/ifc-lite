@@ -66,8 +66,9 @@ impl GeometryRouter {
         self.get_placement_transform_with_depth(placement, decoder, 0)
     }
 
-    /// Internal helper with depth tracking to prevent stack overflow
-    const MAX_PLACEMENT_DEPTH: usize = 100;
+    /// Internal helper with depth tracking to prevent stack overflow.
+    /// Keep low for WASM — each frame uses ~2KB+ of stack with Matrix4<f64> locals.
+    const MAX_PLACEMENT_DEPTH: usize = 32;
 
     fn get_placement_transform_with_depth(
         &self,
