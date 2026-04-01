@@ -15,6 +15,10 @@ use std::f64::consts::PI;
 /// Prevents stack overflow from deeply nested CompositeCurve → TrimmedCurve → CompositeCurve chains.
 const MAX_CURVE_DEPTH: u32 = 50;
 
+/// Maximum recursion depth for nested profile definitions (DerivedProfile → parent → parent...).
+/// Prevents stack overflow in WASM from Revit exports with deep profile nesting.
+const MAX_PROFILE_DEPTH: u32 = 16;
+
 /// Profile processor - processes IFC profiles into 2D contours
 pub struct ProfileProcessor {
     schema: IfcSchema,
@@ -33,14 +37,30 @@ impl ProfileProcessor {
         profile: &DecodedEntity,
         decoder: &mut EntityDecoder,
     ) -> Result<Profile2D> {
+        self.process_with_depth(profile, decoder, 0)
+    }
+
+    /// Process profile with depth tracking to prevent stack overflow from nested profiles.
+    fn process_with_depth(
+        &self,
+        profile: &DecodedEntity,
+        decoder: &mut EntityDecoder,
+        depth: u32,
+    ) -> Result<Profile2D> {
+        if depth > MAX_PROFILE_DEPTH {
+            return Err(Error::geometry(format!(
+                "Profile nesting depth {} exceeds limit {} at #{}",
+                depth, MAX_PROFILE_DEPTH, profile.id
+            )));
+        }
         match profile.ifc_type {
             IfcType::IfcDerivedProfileDef | IfcType::IfcMirroredProfileDef => {
-                self.process_derived(profile, decoder)
+                self.process_derived_with_depth(profile, decoder, depth)
             }
             _ => match self.schema.profile_category(&profile.ifc_type) {
                 Some(ProfileCategory::Parametric) => self.process_parametric(profile, decoder),
                 Some(ProfileCategory::Arbitrary) => self.process_arbitrary(profile, decoder),
-                Some(ProfileCategory::Composite) => self.process_composite(profile, decoder),
+                Some(ProfileCategory::Composite) => self.process_composite_with_depth(profile, decoder, depth),
                 _ => Err(Error::geometry(format!(
                     "Unsupported profile type: {}",
                     profile.ifc_type
@@ -182,10 +202,11 @@ impl ProfileProcessor {
 
     /// Process IfcDerivedProfileDef / IfcMirroredProfileDef.
     /// IfcDerivedProfileDef: ProfileType, ProfileName, ParentProfile, Operator, Label
-    fn process_derived(
+    fn process_derived_with_depth(
         &self,
         profile: &DecodedEntity,
         decoder: &mut EntityDecoder,
+        depth: u32,
     ) -> Result<Profile2D> {
         let parent_attr = profile
             .get(2)
@@ -194,7 +215,7 @@ impl ProfileProcessor {
             Error::geometry("Derived profile ParentProfile not found".to_string())
         })?;
 
-        let mut result = self.process(&parent_profile, decoder)?;
+        let mut result = self.process_with_depth(&parent_profile, decoder, depth + 1)?;
 
         let operator_attr = profile
             .get(3)
@@ -1561,10 +1582,11 @@ impl ProfileProcessor {
 
     /// Process composite profile (combination of profiles)
     /// IfcCompositeProfileDef: ProfileType, ProfileName, Profiles, Label
-    fn process_composite(
+    fn process_composite_with_depth(
         &self,
         profile: &DecodedEntity,
         decoder: &mut EntityDecoder,
+        depth: u32,
     ) -> Result<Profile2D> {
         // Get profiles list (attribute 2)
         let profiles_attr = profile
@@ -1580,11 +1602,11 @@ impl ProfileProcessor {
         }
 
         // Process first profile as base
-        let mut result = self.process(&sub_profiles[0], decoder)?;
+        let mut result = self.process_with_depth(&sub_profiles[0], decoder, depth + 1)?;
 
         // Add remaining profiles as holes (simplified - assumes they're holes)
         for sub_profile in &sub_profiles[1..] {
-            let hole = self.process(sub_profile, decoder)?;
+            let hole = self.process_with_depth(sub_profile, decoder, depth + 1)?;
             result.add_hole(hole.outer);
         }
 
