@@ -1,0 +1,573 @@
+<!--
+  This Source Code Form is subject to the terms of the Mozilla Public
+  License, v. 2.0. If a copy of the MPL was not distributed with this
+  file, You can obtain one at https://mozilla.org/MPL/2.0/.
+-->
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>IFC-Lite Desktop Download 1</title>
+    <meta
+      name="description"
+      content="Industrial control-room concept for IFC-Lite desktop downloads."
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Teko:wght@500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --bg: #070a0f;
+        --bg-2: #0d1420;
+        --panel: rgba(10, 16, 26, 0.9);
+        --panel-2: rgba(17, 27, 41, 0.92);
+        --line: rgba(115, 155, 255, 0.18);
+        --text: #f3f4ee;
+        --muted: #8d9ab2;
+        --accent: #ff9d57;
+        --accent-2: #78c3ff;
+        --accent-3: #d7ebff;
+        --shadow: 0 28px 70px rgba(0, 0, 0, 0.45);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        min-height: 100%;
+      }
+
+      body {
+        font-family: "IBM Plex Mono", monospace;
+        color: var(--text);
+        background:
+          radial-gradient(circle at top right, rgba(120, 195, 255, 0.18), transparent 24%),
+          radial-gradient(circle at 20% 0%, rgba(255, 157, 87, 0.16), transparent 28%),
+          linear-gradient(180deg, #0b1018 0%, #070a0f 100%);
+      }
+
+      body::before,
+      body::after {
+        content: "";
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+      }
+
+      body::before {
+        background-image:
+          linear-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(255, 255, 255, 0.04) 1px, transparent 1px);
+        background-size: 38px 38px;
+        opacity: 0.7;
+      }
+
+      body::after {
+        background: linear-gradient(180deg, transparent 0%, rgba(255, 255, 255, 0.02) 48%, transparent 100%);
+        background-size: 100% 220px;
+        animation: scan 8s linear infinite;
+        mix-blend-mode: screen;
+      }
+
+      @keyframes scan {
+        from { transform: translateY(-220px); }
+        to { transform: translateY(100vh); }
+      }
+
+      main {
+        padding: 28px 18px 64px;
+      }
+
+      .shell {
+        max-width: 1280px;
+        margin: 0 auto;
+      }
+
+      .nav,
+      .hero,
+      .panel,
+      .manifest,
+      .spec {
+        border: 1px solid var(--line);
+        background: var(--panel);
+        box-shadow: var(--shadow);
+        backdrop-filter: blur(18px);
+      }
+
+      .nav {
+        border-radius: 20px;
+        padding: 14px 16px;
+        display: flex;
+        justify-content: space-between;
+        gap: 16px;
+        align-items: center;
+      }
+
+      .nav a,
+      .version a {
+        color: inherit;
+        text-decoration: none;
+      }
+
+      .nav-left,
+      .nav-right,
+      .version {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+
+      .brand {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        text-transform: uppercase;
+        letter-spacing: 0.14em;
+        font-size: 12px;
+      }
+
+      .brand::before {
+        content: "";
+        width: 10px;
+        height: 10px;
+        border-radius: 999px;
+        background: var(--accent);
+        box-shadow: 0 0 18px rgba(255, 157, 87, 0.6);
+      }
+
+      .chip {
+        display: inline-flex;
+        min-height: 34px;
+        align-items: center;
+        padding: 0 12px;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        color: var(--muted);
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.14em;
+      }
+
+      .chip.active {
+        border-color: rgba(255, 157, 87, 0.55);
+        color: var(--accent-3);
+        background: rgba(255, 157, 87, 0.08);
+      }
+
+      .hero {
+        margin-top: 18px;
+        border-radius: 30px;
+        padding: 30px;
+        display: grid;
+        grid-template-columns: 1.15fr 0.85fr;
+        gap: 22px;
+      }
+
+      .hero-copy {
+        display: grid;
+        gap: 18px;
+      }
+
+      .eyebrow {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.16em;
+        font-size: 12px;
+      }
+
+      h1 {
+        margin: 0;
+        font-family: "Teko", sans-serif;
+        font-size: clamp(4.4rem, 12vw, 8.8rem);
+        line-height: 0.82;
+        text-transform: uppercase;
+        letter-spacing: -0.04em;
+      }
+
+      .lede {
+        max-width: 680px;
+        margin: 0;
+        color: var(--muted);
+        font-size: 15px;
+        line-height: 1.9;
+      }
+
+      .hero-actions {
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+
+      .button,
+      .button-ghost {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 52px;
+        padding: 0 18px;
+        border-radius: 12px;
+        text-decoration: none;
+        text-transform: uppercase;
+        letter-spacing: 0.14em;
+        font-size: 12px;
+      }
+
+      .button {
+        color: #0b1118;
+        background: linear-gradient(135deg, var(--accent-3), var(--accent-2) 46%, var(--accent) 100%);
+      }
+
+      .button-ghost {
+        color: var(--text);
+        border: 1px solid var(--line);
+      }
+
+      .telemetry {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .telemetry div {
+        padding: 14px 16px;
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.02);
+      }
+
+      .telemetry strong {
+        display: block;
+        font-family: "Teko", sans-serif;
+        font-size: 2.4rem;
+        line-height: 0.9;
+        color: var(--accent-3);
+      }
+
+      .telemetry span {
+        display: block;
+        margin-top: 8px;
+        color: var(--muted);
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.14em;
+      }
+
+      .manifest {
+        border-radius: 24px;
+        padding: 22px;
+        display: grid;
+        gap: 16px;
+        position: relative;
+        overflow: hidden;
+      }
+
+      .manifest::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background:
+          linear-gradient(90deg, rgba(255, 255, 255, 0.04) 1px, transparent 1px),
+          linear-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px);
+        background-size: 22px 22px;
+        opacity: 0.4;
+      }
+
+      .manifest > * {
+        position: relative;
+        z-index: 1;
+      }
+
+      .manifest-kicker,
+      .section-kicker {
+        color: var(--muted);
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.14em;
+      }
+
+      .manifest h2,
+      .section-head h2 {
+        margin: 0;
+        font-family: "Teko", sans-serif;
+        font-size: 3.2rem;
+        line-height: 0.86;
+        text-transform: uppercase;
+        letter-spacing: -0.03em;
+      }
+
+      .manifest p,
+      .spec p {
+        margin: 0;
+        color: var(--muted);
+        line-height: 1.9;
+      }
+
+      .manifest-list {
+        display: grid;
+        gap: 12px;
+      }
+
+      .manifest-list div {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        padding-top: 12px;
+        border-top: 1px solid var(--line);
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+      }
+
+      .section-head {
+        margin: 24px 0 14px;
+        display: flex;
+        justify-content: space-between;
+        gap: 16px;
+        align-items: end;
+      }
+
+      .section-note {
+        max-width: 520px;
+        color: var(--muted);
+        line-height: 1.8;
+      }
+
+      .spec-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 18px;
+      }
+
+      .spec {
+        border-radius: 22px;
+        padding: 20px;
+      }
+
+      .spec h3 {
+        margin: 14px 0 10px;
+        font-family: "Teko", sans-serif;
+        font-size: 2rem;
+        line-height: 0.9;
+        text-transform: uppercase;
+        letter-spacing: -0.03em;
+      }
+
+      .spec .buttons {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 16px;
+      }
+
+      .spec .buttons a {
+        display: inline-flex;
+        min-height: 42px;
+        align-items: center;
+        justify-content: center;
+        padding: 0 14px;
+        text-decoration: none;
+        color: inherit;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+        font-size: 11px;
+      }
+
+      .spec .buttons a.primary {
+        background: rgba(255, 157, 87, 0.1);
+        border-color: rgba(255, 157, 87, 0.4);
+      }
+
+      @media (max-width: 1000px) {
+        .hero,
+        .spec-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .section-head,
+        .nav {
+          flex-direction: column;
+          align-items: flex-start;
+        }
+      }
+
+      @media (max-width: 640px) {
+        h1 {
+          font-size: 4.8rem;
+        }
+
+        .telemetry {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="shell">
+        <nav class="nav">
+          <div class="nav-left">
+            <a class="brand" href="/download/">IFC-Lite Desktop</a>
+            <span class="chip">Control room release surface</span>
+          </div>
+          <div class="nav-right">
+            <div class="version">
+              <a class="chip active" href="/download1/">1</a>
+              <a class="chip" href="/download2/">2</a>
+              <a class="chip" href="/download3/">3</a>
+            </div>
+            <a class="chip" href="https://github.com/louistrue/ifc-lite-desktop/releases/latest">Release notes</a>
+          </div>
+        </nav>
+
+        <section class="hero">
+          <div class="hero-copy">
+            <div class="eyebrow">Version 1 / Signal Room</div>
+            <h1>Native IFC downloads with actual instrumentation.</h1>
+            <p class="lede">
+              This concept treats the release page like a control surface. Dense panels, luminous telemetry, and zero soft marketing language. If IFC-Lite is a serious desktop tool, the download page should signal that immediately.
+            </p>
+            <div class="hero-actions">
+              <a class="button" id="primary-download" href="#">Download for your OS</a>
+              <a class="button-ghost" href="/download/">View all concepts</a>
+            </div>
+            <div class="telemetry">
+              <div>
+                <strong>3</strong>
+                <span>installer tracks</span>
+              </div>
+              <div>
+                <strong>.IFC</strong>
+                <span>registered on launch</span>
+              </div>
+              <div>
+                <strong>GPU</strong>
+                <span>desktop tuned rendering</span>
+              </div>
+            </div>
+          </div>
+
+          <aside class="manifest">
+            <div class="manifest-kicker">Primary build selection</div>
+            <h2 id="primary-title">Matching platform</h2>
+            <p id="primary-copy">
+              Choosing the correct desktop installer for your machine.
+            </p>
+            <div class="hero-actions">
+              <a class="button" id="secondary-download" href="#">Start download</a>
+              <a class="button-ghost" href="https://github.com/louistrue/ifc-lite-desktop/releases/latest">Changelog</a>
+            </div>
+            <div class="manifest-list">
+              <div><span>Windows x64</span><span>EXE plus MSI</span></div>
+              <div><span>macOS</span><span>Apple Silicon plus Intel</span></div>
+              <div><span>Use case</span><span>offline, larger BIM models</span></div>
+            </div>
+          </aside>
+        </section>
+
+        <div class="section-head">
+          <div>
+            <div class="section-kicker">Installer manifest</div>
+            <h2>Choose the build path that matches the machine.</h2>
+          </div>
+          <p class="section-note">
+            Every artifact is linked directly from the latest GitHub release alias, so the page stays current without hand-editing version strings.
+          </p>
+        </div>
+
+        <section class="spec-grid">
+          <article class="spec">
+            <div class="section-kicker">Windows lane</div>
+            <h3>NSIS first. MSI ready.</h3>
+            <p>
+              Recommended for Windows 10 and 11 on x64 hardware. The EXE handles the standard install flow. The MSI remains available for managed environments and IT deployment.
+            </p>
+            <div class="buttons">
+              <a class="primary" href="https://github.com/louistrue/ifc-lite-desktop/releases/latest/download/IFC-Lite-Desktop-Windows-x64-setup.exe">Windows EXE</a>
+              <a href="https://github.com/louistrue/ifc-lite-desktop/releases/latest/download/IFC-Lite-Desktop-Windows-x64.msi">Windows MSI</a>
+            </div>
+          </article>
+
+          <article class="spec">
+            <div class="section-kicker">Apple Silicon lane</div>
+            <h3>DMG for M-series Macs.</h3>
+            <p>
+              Best for modern macOS systems on Apple Silicon. This is the default pick for current MacBook Air, MacBook Pro, Mac mini, iMac, and Mac Studio hardware.
+            </p>
+            <div class="buttons">
+              <a class="primary" href="https://github.com/louistrue/ifc-lite-desktop/releases/latest/download/IFC-Lite-Desktop-macOS-Apple-Silicon.dmg">Apple Silicon DMG</a>
+            </div>
+          </article>
+
+          <article class="spec">
+            <div class="section-kicker">Intel lane</div>
+            <h3>Legacy x64 Mac support.</h3>
+            <p>
+              For older Intel-based Macs still in active use. Keep this visible if your audience includes offices with longer hardware replacement cycles.
+            </p>
+            <div class="buttons">
+              <a class="primary" href="https://github.com/louistrue/ifc-lite-desktop/releases/latest/download/IFC-Lite-Desktop-macOS-Intel.dmg">Intel Mac DMG</a>
+            </div>
+          </article>
+        </section>
+      </div>
+    </main>
+
+    <script>
+      const downloads = {
+        winExe: "https://github.com/louistrue/ifc-lite-desktop/releases/latest/download/IFC-Lite-Desktop-Windows-x64-setup.exe",
+        macArm: "https://github.com/louistrue/ifc-lite-desktop/releases/latest/download/IFC-Lite-Desktop-macOS-Apple-Silicon.dmg",
+        macIntel: "https://github.com/louistrue/ifc-lite-desktop/releases/latest/download/IFC-Lite-Desktop-macOS-Intel.dmg"
+      };
+
+      const ua = navigator.userAgent.toLowerCase();
+      const isMac = ua.includes("mac");
+      const isWindows = ua.includes("win");
+      const isAppleSilicon = /arm|apple/.test(ua);
+      const primaryDownload = document.getElementById("primary-download");
+      const secondaryDownload = document.getElementById("secondary-download");
+      const primaryTitle = document.getElementById("primary-title");
+      const primaryCopy = document.getElementById("primary-copy");
+
+      let href = downloads.macArm;
+      let label = "Download for macOS";
+      let title = "Desktop build ready";
+      let copy = "The page will choose the Windows or macOS installer automatically whenever the browser exposes enough platform detail.";
+
+      if (isWindows) {
+        href = downloads.winExe;
+        label = "Download for Windows";
+        title = "Windows x64 installer selected";
+        copy = "Recommended for Windows 10 and 11. The installer can bootstrap WebView2 when it is missing, so first launch friction stays low.";
+      } else if (isMac && isAppleSilicon) {
+        href = downloads.macArm;
+        label = "Download for Apple Silicon";
+        title = "Apple Silicon DMG selected";
+        copy = "This is the right pick for M-series Macs and should be the most common macOS download going forward.";
+      } else if (isMac) {
+        href = downloads.macIntel;
+        label = "Download for Intel Mac";
+        title = "Intel Mac DMG selected";
+        copy = "Use this build for older x64 Macs. Apple Silicon machines should use the dedicated DMG instead.";
+      }
+
+      primaryDownload.href = href;
+      secondaryDownload.href = href;
+      primaryDownload.textContent = label;
+      secondaryDownload.textContent = label;
+      primaryTitle.textContent = title;
+      primaryCopy.textContent = copy;
+    </script>
+  </body>
+</html>
