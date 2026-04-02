@@ -1976,9 +1976,14 @@ export function useIfcLoader() {
         }
         await closeGeometryIterator();
       } catch (err) {
+        // Close the geometry iterator to release WASM resources on failure.
+        await closeGeometryIterator();
         if (loadSessionRef.current !== currentSession) return;
         console.error('[useIfc] Error in processing:', err);
         setError(err instanceof Error ? err.message : 'Unknown error during geometry processing');
+        setLoading(false);
+        setGeometryStreamingActive(false);
+        return;
       }
 
       if (loadSessionRef.current !== currentSession) return;

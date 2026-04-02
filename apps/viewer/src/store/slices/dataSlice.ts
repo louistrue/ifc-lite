@@ -9,7 +9,21 @@
 import type { StateCreator } from 'zustand';
 import type { IfcDataStore } from '@ifc-lite/parser';
 import type { GeometryResult, CoordinateInfo } from '@ifc-lite/geometry';
+import type { FederatedModel } from '../types.js';
 import { DATA_DEFAULTS } from '../constants.js';
+
+/**
+ * Cross-slice state that dataSlice reads/writes via the combined store.
+ *
+ * Data updaters sync `ifcDataStore` / `geometryResult` into the per-model
+ * entry inside the ModelSlice `models` map so that federation stays
+ * consistent.  The types below describe the minimal ModelSlice surface
+ * that dataSlice accesses through the merged Zustand state.
+ */
+interface DataCrossSliceState {
+  activeModelId: string | null;
+  models: Map<string, FederatedModel>;
+}
 
 export interface DataSlice {
   // State
@@ -57,7 +71,7 @@ const EMPTY_POSITIONS = new Float32Array(0);
 const EMPTY_NORMALS = new Float32Array(0);
 const EMPTY_INDICES = new Uint32Array(0);
 
-export const createDataSlice: StateCreator<DataSlice, [], [], DataSlice> = (set, get) => ({
+export const createDataSlice: StateCreator<DataSlice & DataCrossSliceState, [], [], DataSlice> = (set, get) => ({
   // Initial state
   ifcDataStore: null,
   geometryResult: null,

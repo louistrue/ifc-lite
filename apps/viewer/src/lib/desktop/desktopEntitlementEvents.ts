@@ -9,11 +9,31 @@ interface DesktopEntitlementRefreshDetail {
   reject: (error?: unknown) => void;
 }
 
+const ENTITLEMENT_REFRESH_TIMEOUT_MS = 10_000;
+
 export function requestDesktopEntitlementRefresh(): Promise<void> {
   return new Promise((resolve, reject) => {
+    const timeoutId = globalThis.setTimeout(() => {
+      reject(new Error(
+        `Desktop entitlement refresh timed out after ${ENTITLEMENT_REFRESH_TIMEOUT_MS}ms — ` +
+        'no listener responded to the refresh event.',
+      ));
+    }, ENTITLEMENT_REFRESH_TIMEOUT_MS);
+
     window.dispatchEvent(new CustomEvent<DesktopEntitlementRefreshDetail>(
       DESKTOP_ENTITLEMENT_REFRESH_EVENT,
-      { detail: { resolve, reject } },
+      {
+        detail: {
+          resolve: () => {
+            globalThis.clearTimeout(timeoutId);
+            resolve();
+          },
+          reject: (error?: unknown) => {
+            globalThis.clearTimeout(timeoutId);
+            reject(error);
+          },
+        },
+      },
     ));
   });
 }

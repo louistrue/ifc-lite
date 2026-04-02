@@ -25,7 +25,7 @@ export class WorkerParser {
 
   constructor(options: WorkerParserOptions = {}) {
     // Point directly at the source worker so Vite includes it reliably in app bundles.
-    this.workerUrl = options.workerUrl ?? new URL('./parser.worker.ts', import.meta.url).href;
+    this.workerUrl = options.workerUrl ?? new URL('./parser.worker.js', import.meta.url).href;
   }
 
   /**
