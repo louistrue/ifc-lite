@@ -7,6 +7,7 @@ import { useAuth, useUser } from '@clerk/clerk-react';
 import { getDefaultDesktopEntitlement, type DesktopEntitlement } from '@/lib/desktop-product';
 import { resolveDesktopEntitlement } from '@/lib/desktop-entitlement';
 import { useViewerStore } from '@/store';
+import { DESKTOP_ENTITLEMENT_REFRESH_EVENT } from './desktopEntitlementEvents';
 
 /**
  * Sync Clerk auth + entitlement state into the viewer store.
@@ -143,12 +144,20 @@ export function ClerkDesktopEntitlementSync() {
     const onWindowFocus = () => {
       void syncAuth();
     };
+    const onManualRefresh = (event: Event) => {
+      const detail = (event as CustomEvent<{ resolve: () => void; reject: (error?: unknown) => void }>).detail;
+      void syncAuth()
+        .then(() => detail?.resolve())
+        .catch((error) => detail?.reject(error));
+    };
     window.addEventListener('focus', onWindowFocus);
+    window.addEventListener(DESKTOP_ENTITLEMENT_REFRESH_EVENT, onManualRefresh);
 
     return () => {
       cancelled = true;
       window.clearInterval(timer);
       window.removeEventListener('focus', onWindowFocus);
+      window.removeEventListener(DESKTOP_ENTITLEMENT_REFRESH_EVENT, onManualRefresh);
     };
   }, [
     getToken,
