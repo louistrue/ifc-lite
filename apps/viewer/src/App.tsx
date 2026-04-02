@@ -7,6 +7,7 @@
  */
 
 import { ViewerLayout } from './components/viewer/ViewerLayout';
+import { SettingsPage } from './components/viewer/SettingsPage';
 import { UpgradePage } from './components/viewer/UpgradePage';
 import { BimProvider } from './sdk/BimProvider';
 import { Toaster } from './components/ui/toast';
@@ -42,11 +43,12 @@ export function App() {
   }, []);
 
   const isUpgradeRoute = pathname === '/upgrade';
+  const isSettingsRoute = pathname === '/settings';
 
   return (
     <BimProvider>
       {clerkEnabled && <ClerkChatSync />}
-      {isUpgradeRoute ? <UpgradePage /> : <ViewerLayout />}
+      {isUpgradeRoute ? <UpgradePage /> : isSettingsRoute ? <SettingsPage /> : <ViewerLayout />}
       <Toaster />
     </BimProvider>
   );

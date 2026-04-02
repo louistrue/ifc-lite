@@ -50,6 +50,7 @@ import type { ChatMessage, ChatRepairRequest, FileAttachment } from '@/lib/llm/t
 import { canUsePlainCodeBlockFallback, type ScriptMutationIntent } from '@/lib/llm/script-preservation';
 import { Image as ImageIcon } from 'lucide-react';
 import { isClerkConfigured } from '@/lib/llm/clerk-auth';
+import { navigateToPath } from '@/services/app-navigation';
 import { getModelById } from '@/lib/llm/models';
 import { useSandbox } from '@/hooks/useSandbox';
 
@@ -1047,8 +1048,7 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
   const openUpgradePage = useCallback(() => {
     const currentPath = `${window.location.pathname}${window.location.search}`;
     const target = `/upgrade?returnTo=${encodeURIComponent(currentPath)}`;
-    window.history.pushState({}, '', target);
-    window.dispatchEvent(new PopStateEvent('popstate'));
+    navigateToPath(target);
   }, []);
 
   return (

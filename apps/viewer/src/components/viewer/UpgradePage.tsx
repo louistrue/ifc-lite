@@ -7,6 +7,7 @@ import { useEffect, useMemo } from 'react';
 import { ArrowLeft } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useViewerStore } from '@/store';
+import { navigateToPath } from '@/services/app-navigation';
 
 export function UpgradePage() {
   const hasPro = useViewerStore((s) => s.chatHasPro);
@@ -17,8 +18,7 @@ export function UpgradePage() {
   }, []);
 
   const navigateBack = () => {
-    window.history.replaceState({}, '', returnTo);
-    window.dispatchEvent(new PopStateEvent('popstate'));
+    navigateToPath(returnTo, { replace: true });
   };
 
   // Automatically return to the previous app view once upgrade is active.
