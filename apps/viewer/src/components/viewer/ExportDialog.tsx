@@ -52,6 +52,7 @@ import { Progress } from '@/components/ui/progress';
 import { useViewerStore } from '@/store';
 import { configureMutationView } from '@/utils/configureMutationView';
 import { toast } from '@/components/ui/toast';
+import { ensureModelExportReady } from '@/services/desktop-export';
 import { StepExporter, MergedExporter, Ifc5Exporter, IFC5_KNOWN_PROP_NAMES, type MergeModelInput, type ExportProgress, type StepExportProgress } from '@ifc-lite/export';
 import { MutablePropertyView } from '@ifc-lite/mutations';
 import type { IfcDataStore } from '@ifc-lite/parser';
@@ -320,11 +321,21 @@ export function ExportDialog({ trigger }: ExportDialogProps) {
     try {
       // Handle merged export of all models (STEP only, not IFC5)
       if (!isIfc5 && exportScope === 'merged' && !changesOnly) {
-        const mergeInputs: MergeModelInput[] = Array.from(models.values()).map((m) => ({
-          id: m.id,
-          name: m.name,
-          dataStore: m.ifcDataStore,
-        }));
+        const hydratedModels = await Promise.all(Array.from(models.values()).map(async (model) => ({
+          model,
+          dataStore: await ensureModelExportReady(model.id),
+        })));
+        const mergeInputs: MergeModelInput[] = [];
+        for (const entry of hydratedModels) {
+          if (!entry.dataStore) {
+            continue;
+          }
+          mergeInputs.push({
+            id: entry.model.id,
+            name: entry.model.name,
+            dataStore: entry.dataStore,
+          });
+        }
 
         const mergedExporter = new MergedExporter(mergeInputs);
 
@@ -467,7 +478,12 @@ export function ExportDialog({ trigger }: ExportDialogProps) {
 
       // ── Pre-IFC5 full export → STEP ──────────────────────────────────
       } else {
-        const exporter = new StepExporter(selectedModel.ifcDataStore, mutationView || undefined);
+        const exportDataStore = await ensureModelExportReady(selectedModelId);
+        if (!exportDataStore) {
+          throw new Error('Model data is unavailable for export');
+        }
+
+        const exporter = new StepExporter(exportDataStore, mutationView || undefined);
 
         const localHidden = visibleOnly ? getLocalHiddenIds(selectedModelId) : undefined;
         const localIsolated = visibleOnly ? getLocalIsolatedIds(selectedModelId) : undefined;
