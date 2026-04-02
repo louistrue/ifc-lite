@@ -1,0 +1,289 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Download IFC-Lite Desktop</title>
+    <meta
+      name="description"
+      content="Download IFC-Lite Desktop for macOS and Windows."
+    />
+    <style>
+      :root {
+        --bg: #f7f1e8;
+        --bg-accent: #efe4d0;
+        --panel: rgba(255, 251, 245, 0.88);
+        --line: rgba(52, 39, 20, 0.14);
+        --text: #20170d;
+        --muted: #64523c;
+        --brand: #c2531f;
+        --brand-dark: #8f3912;
+        --shadow: 0 24px 70px rgba(62, 36, 11, 0.12);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        font-family: "Avenir Next", "Segoe UI", sans-serif;
+        color: var(--text);
+        background:
+          radial-gradient(circle at top left, rgba(255, 255, 255, 0.65), transparent 34%),
+          linear-gradient(135deg, var(--bg) 0%, var(--bg-accent) 100%);
+      }
+
+      main {
+        min-height: 100vh;
+        padding: 48px 20px 80px;
+      }
+
+      .shell {
+        max-width: 1120px;
+        margin: 0 auto;
+      }
+
+      .hero {
+        display: grid;
+        gap: 24px;
+        grid-template-columns: 1.15fr 0.85fr;
+        align-items: end;
+      }
+
+      .eyebrow {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        padding: 10px 14px;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.52);
+        color: var(--muted);
+        font-size: 13px;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }
+
+      h1 {
+        margin: 18px 0 14px;
+        font-size: clamp(42px, 7vw, 82px);
+        line-height: 0.95;
+        letter-spacing: -0.05em;
+      }
+
+      .lede {
+        max-width: 680px;
+        margin: 0;
+        color: var(--muted);
+        font-size: 18px;
+        line-height: 1.6;
+      }
+
+      .hero-card,
+      .platform-card,
+      .requirements {
+        border: 1px solid var(--line);
+        border-radius: 28px;
+        background: var(--panel);
+        backdrop-filter: blur(16px);
+        box-shadow: var(--shadow);
+      }
+
+      .hero-card {
+        padding: 26px;
+      }
+
+      .hero-card h2 {
+        margin: 0 0 12px;
+        font-size: 18px;
+        letter-spacing: -0.02em;
+      }
+
+      .hero-card p,
+      .requirements li,
+      .platform-copy {
+        margin: 0;
+        color: var(--muted);
+        line-height: 1.6;
+      }
+
+      .hero-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        margin-top: 20px;
+      }
+
+      .button,
+      .button-secondary {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 48px;
+        padding: 0 18px;
+        border-radius: 999px;
+        text-decoration: none;
+        font-weight: 700;
+      }
+
+      .button {
+        background: linear-gradient(180deg, #da6831, var(--brand));
+        color: white;
+        box-shadow: 0 18px 30px rgba(194, 83, 31, 0.28);
+      }
+
+      .button:hover {
+        background: linear-gradient(180deg, #e46f36, var(--brand-dark));
+      }
+
+      .button-secondary {
+        border: 1px solid var(--line);
+        color: var(--text);
+        background: rgba(255, 255, 255, 0.6);
+      }
+
+      .platform-grid {
+        display: grid;
+        gap: 18px;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        margin-top: 28px;
+      }
+
+      .platform-card {
+        padding: 26px;
+      }
+
+      .platform-card h2 {
+        margin: 0 0 10px;
+        font-size: 28px;
+        letter-spacing: -0.03em;
+      }
+
+      .platform-meta {
+        display: inline-flex;
+        margin-top: 16px;
+        margin-bottom: 18px;
+        padding: 7px 12px;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .button-group {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+      }
+
+      .requirements {
+        margin-top: 28px;
+        padding: 26px;
+      }
+
+      .requirements h2 {
+        margin: 0 0 16px;
+        font-size: 24px;
+        letter-spacing: -0.03em;
+      }
+
+      .requirements ul {
+        margin: 0;
+        padding-left: 20px;
+      }
+
+      .footer {
+        margin-top: 24px;
+        color: var(--muted);
+        font-size: 14px;
+      }
+
+      @media (max-width: 900px) {
+        .hero,
+        .platform-grid {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="shell">
+        <section class="hero">
+          <div>
+            <div class="eyebrow">IFC-Lite Desktop</div>
+            <h1>Download the native IFC viewer.</h1>
+            <p class="lede">
+              Open large IFC, IFCZIP, and IFCXML files offline with the Tauri desktop build of IFC-Lite. Windows and macOS installers are published from the same signed release pipeline.
+            </p>
+          </div>
+          <aside class="hero-card">
+            <h2 id="primary-title">Recommended download</h2>
+            <p id="primary-copy">
+              Choose the installer that matches your machine.
+            </p>
+            <div class="hero-actions">
+              <a class="button" id="primary-download" href="https://github.com/louistrue/ifc-lite-desktop/releases/latest/download/IFC-Lite-Desktop-Windows-x64-setup.exe">Download for Windows</a>
+              <a class="button-secondary" href="https://github.com/louistrue/ifc-lite-desktop/releases/latest">Release notes</a>
+            </div>
+          </aside>
+        </section>
+
+        <section class="platform-grid">
+          <article class="platform-card">
+            <h2>Windows</h2>
+            <p class="platform-copy">
+              Recommended for Windows 10 and Windows 11 on x64 hardware. The NSIS installer handles normal user installs and bootstraps WebView2 when it is missing.
+            </p>
+            <div class="platform-meta">Windows 10+ · x64</div>
+            <div class="button-group">
+              <a class="button" href="https://github.com/louistrue/ifc-lite-desktop/releases/latest/download/IFC-Lite-Desktop-Windows-x64-setup.exe">Download installer</a>
+              <a class="button-secondary" href="https://github.com/louistrue/ifc-lite-desktop/releases/latest/download/IFC-Lite-Desktop-Windows-x64.msi">MSI package</a>
+            </div>
+          </article>
+
+          <article class="platform-card">
+            <h2>macOS</h2>
+            <p class="platform-copy">
+              Choose the DMG that matches your Mac. Apple Silicon is recommended for M-series devices. Intel is for older x64 Macs.
+            </p>
+            <div class="platform-meta">macOS 12+ · Apple Silicon or Intel</div>
+            <div class="button-group">
+              <a class="button" href="https://github.com/louistrue/ifc-lite-desktop/releases/latest/download/IFC-Lite-Desktop-macOS-Apple-Silicon.dmg">Apple Silicon</a>
+              <a class="button-secondary" href="https://github.com/louistrue/ifc-lite-desktop/releases/latest/download/IFC-Lite-Desktop-macOS-Intel.dmg">Intel Mac</a>
+            </div>
+          </article>
+        </section>
+
+        <section class="requirements">
+          <h2>System requirements</h2>
+          <ul>
+            <li>Windows 10 or newer, 64-bit</li>
+            <li>macOS 12 Monterey or newer</li>
+            <li>At least 8 GB RAM recommended for larger BIM models</li>
+            <li>Internet required for AI, bSDD, and update checks; core model viewing works offline</li>
+          </ul>
+        </section>
+
+        <p class="footer">
+          Need another build or want to inspect checksums? Open the latest release on GitHub.
+        </p>
+      </div>
+    </main>
+
+    <script>
+      const primaryTitle = document.getElementById('primary-title');
+      const primaryCopy = document.getElementById('primary-copy');
+      const primaryDownload = document.getElementById('primary-download');
+      const userAgent = navigator.userAgent || '';
+
+      if (/Mac/i.test(userAgent)) {
+        primaryTitle.textContent = 'Recommended for macOS';
+        primaryCopy.textContent = 'Most new Macs use Apple Silicon. Intel remains available below for older machines.';
+        primaryDownload.textContent = 'Download for Apple Silicon';
+        primaryDownload.href = 'https://github.com/louistrue/ifc-lite-desktop/releases/latest/download/IFC-Lite-Desktop-macOS-Apple-Silicon.dmg';
+      }
+    </script>
+  </body>
+</html>
