@@ -16,7 +16,8 @@ import { useIfc } from '@/hooks/useIfc';
 import { useWebGPU } from '@/hooks/useWebGPU';
 import { openIfcFileDialog } from '@/services/file-dialog';
 import { logToDesktopTerminal } from '@/services/desktop-logger';
-import { Upload, MousePointer, Layers, Info, Command, AlertTriangle, ChevronDown, ExternalLink, Plus } from 'lucide-react';
+import { cacheFileBlobs, formatFileSize, getCachedFile, getRecentFiles, recordRecentFiles, type RecentFileEntry } from '@/lib/recent-files';
+import { Upload, MousePointer, Layers, Info, Command, AlertTriangle, ChevronDown, ExternalLink, Plus, Clock3 } from 'lucide-react';
 import type { MeshData, CoordinateInfo, GeometryResult } from '@ifc-lite/geometry';
 
 const ZERO_VEC3 = { x: 0, y: 0, z: 0 };
@@ -39,6 +40,7 @@ export function ViewportContainer() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [showTroubleshooting, setShowTroubleshooting] = useState(false);
+  const [recentFiles, setRecentFiles] = useState<RecentFileEntry[]>([]);
   const webgpu = useWebGPU();
 
   const viewerStoreApi = getViewerStoreApi();
@@ -161,6 +163,16 @@ export function ViewportContainer() {
     return geometryResult;
   }, [storeModels, geometryResult, modelIdToIndex]);
 
+  useEffect(() => {
+    const refreshRecentFiles = () => {
+      setRecentFiles(getRecentFiles().slice(0, 3));
+    };
+
+    refreshRecentFiles();
+    window.addEventListener('focus', refreshRecentFiles);
+    return () => window.removeEventListener('focus', refreshRecentFiles);
+  }, []);
+
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -193,6 +205,10 @@ export function ViewportContainer() {
 
     if (supportedFiles.length === 0) return;
 
+    recordRecentFiles(supportedFiles.map((file) => ({ name: file.name, size: file.size })));
+    void cacheFileBlobs(supportedFiles);
+    setRecentFiles(getRecentFiles().slice(0, 3));
+
     if (hasModelsLoaded) {
       // Models already loaded - add new files sequentially
       loadFilesSequentially(supportedFiles);
@@ -222,6 +238,10 @@ export function ViewportContainer() {
     );
 
     if (supportedFiles.length === 0) return;
+
+    recordRecentFiles(supportedFiles.map((file) => ({ name: file.name, size: file.size })));
+    void cacheFileBlobs(supportedFiles);
+    setRecentFiles(getRecentFiles().slice(0, 3));
 
     if (supportedFiles.length === 1) {
       // Single file - use loadFile (simpler single-model path)
@@ -645,6 +665,13 @@ export function ViewportContainer() {
                 const file = await openIfcFileDialog();
                 if (file) {
                   void logToDesktopTerminal('info', `[ViewportContainer] Native dialog selected ${file.path}`);
+                  recordRecentFiles([{
+                    name: file.name,
+                    size: file.size,
+                    path: file.path,
+                    modifiedMs: file.modifiedMs ?? null,
+                  }]);
+                  setRecentFiles(getRecentFiles().slice(0, 3));
                   loadFile(file);
                   return;
                 }
@@ -666,6 +693,37 @@ export function ViewportContainer() {
             <p className="mt-3 text-xs font-mono text-zinc-400 dark:text-[#565f89]">
               {webgpu.supported ? 'or drag & drop anywhere' : 'file upload disabled'}
             </p>
+
+            {recentFiles.length > 0 && (
+              <div className="mt-6 w-full border-t border-zinc-200 dark:border-[#3b4261] pt-4">
+                <div className="mb-3 flex items-center gap-2 text-xs font-mono uppercase tracking-[0.2em] text-zinc-400 dark:text-[#565f89]">
+                  <Clock3 className="h-3.5 w-3.5" />
+                  <span>Recent Files</span>
+                </div>
+                <div className="flex flex-col gap-2">
+                  {recentFiles.map((file) => (
+                    <button
+                      key={`${file.name}-${file.timestamp}`}
+                      type="button"
+                      onClick={async () => {
+                        const cached = await getCachedFile(file.name);
+                        if (cached) {
+                          await loadFile(cached);
+                          return;
+                        }
+                        fileInputRef.current?.click();
+                      }}
+                      className="flex items-center justify-between gap-3 border border-zinc-200 bg-zinc-50 px-3 py-2 text-left transition-colors hover:border-primary hover:text-primary dark:border-[#3b4261] dark:bg-[#1f2335] dark:hover:border-primary"
+                    >
+                      <span className="min-w-0 truncate font-mono text-xs">{file.name}</span>
+                      <span className="shrink-0 font-mono text-[10px] uppercase tracking-wide text-zinc-400 dark:text-[#565f89]">
+                        {formatFileSize(file.size)}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Feature Grid */}
