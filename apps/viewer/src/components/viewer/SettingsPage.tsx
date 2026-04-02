@@ -63,6 +63,7 @@ export function SettingsPage() {
   const planTier = getDesktopPlanTier(desktopEntitlement);
   const planSummary = getDesktopPlanSummary(desktopEntitlement, chatUsage);
   const featureCatalog = getDesktopFeatureCatalog(desktopEntitlement);
+  const canRestoreWorkspace = hasDesktopPro(desktopEntitlement);
   const usageSummary = useMemo(() => {
     if (!chatUsage) {
       return null;
@@ -196,14 +197,25 @@ export function SettingsPage() {
                     Restore workspace layout
                   </div>
                   <p className="text-sm text-muted-foreground">
-                    Restore panel visibility, camera view, sectioning, and other saved workspace state on launch.
+                    Restore panel visibility, camera view, sectioning, and other saved workspace state on launch. Desktop Pro feature.
                   </p>
                 </div>
                 <Switch
                   checked={preferences.restoreWorkspaceLayoutOnLaunch}
+                  disabled={!canRestoreWorkspace}
                   onCheckedChange={(checked) => updatePreference({ restoreWorkspaceLayoutOnLaunch: checked })}
                 />
               </div>
+              {!canRestoreWorkspace && (
+                <div className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">
+                  Workspace restore is included with Desktop Pro. Reopening the last model remains available on Free.
+                  <div className="mt-3">
+                    <Button size="sm" onClick={() => navigateToPath(buildDesktopUpgradeUrl('/settings'))}>
+                      Upgrade to Desktop Pro
+                    </Button>
+                  </div>
+                </div>
+              )}
             </div>
           </section>
 

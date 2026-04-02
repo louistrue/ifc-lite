@@ -10,6 +10,7 @@ export type DesktopEntitlementSource = 'anonymous' | 'clerk_claims' | 'cached';
 
 export type DesktopFeature =
   | 'viewer_basic'
+  | 'workspace_restore'
   | 'exports'
   | 'ids_validation'
   | 'bcf_issue_management'
@@ -44,6 +45,11 @@ const DESKTOP_FEATURES: Record<DesktopFeature, DesktopFeatureDefinition> = {
     label: 'Desktop viewer',
     description: 'Open IFC files, inspect hierarchy and properties, navigate, section, and measure offline.',
     free: true,
+  },
+  workspace_restore: {
+    label: 'Workspace restore',
+    description: 'Restore workspace layout, camera position, and saved desktop context across launches.',
+    free: false,
   },
   exports: {
     label: 'Exports',
