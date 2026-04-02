@@ -144,13 +144,18 @@ export const createDataSlice: StateCreator<DataSlice & DataCrossSliceState, [], 
       return { geometryResult, models, geometryUpdateTick: state.geometryUpdateTick + 1 };
     }
 
-    // Keep the append immutable so React/external-store consumers always observe
-    // a fresh geometry snapshot when the first visible batch lands.
-    const nextMeshes = state.geometryResult.meshes.concat(meshes);
+    // Mutate the existing array in-place (O(batch) per append) instead of
+    // .concat() (O(total) per append) to avoid O(N²) for large files.
+    // The new geometryResult object reference below is sufficient for
+    // Zustand/React change detection — array identity doesn't need to change.
+    const existingMeshes = state.geometryResult.meshes;
+    for (let i = 0; i < meshes.length; i++) {
+      existingMeshes.push(meshes[i]);
+    }
 
     const geometryResult = {
       ...state.geometryResult,
-      meshes: nextMeshes,
+      meshes: existingMeshes,
       totalTriangles: state.geometryResult.totalTriangles + batchTriangles,
       totalVertices: state.geometryResult.totalVertices + batchVertices,
       coordinateInfo: coordinateInfo || state.geometryResult.coordinateInfo,
