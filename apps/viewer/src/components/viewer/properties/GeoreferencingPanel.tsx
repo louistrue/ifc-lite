@@ -595,21 +595,36 @@ export function GeoreferencingPanel({ georef, modelId, enableEditing, schemaVers
 
       {/* Terrain clamp toggle — only when Cesium overlay is active */}
       {cesiumEnabled && mergedConversion && (
-        <div className="px-3 py-1.5 border-t border-zinc-100 dark:border-zinc-900 flex items-center gap-2">
-          <Mountain className="h-3 w-3 text-teal-500 shrink-0" />
-          <label className="flex items-center gap-1.5 cursor-pointer flex-1">
-            <input
-              type="checkbox"
-              checked={terrainClamp}
-              onChange={(e) => setCesiumTerrainClamp(e.target.checked)}
-              className="accent-teal-500 h-3 w-3"
-            />
-            <span className="text-[10px] text-zinc-600 dark:text-zinc-400">Clamp to terrain</span>
-          </label>
-          {cesiumTerrainHeight !== null && (
-            <span className="text-[9px] font-mono text-zinc-400">
-              {cesiumTerrainHeight.toFixed(1)} m
-            </span>
+        <div className="px-3 py-1.5 border-t border-zinc-100 dark:border-zinc-900 space-y-1">
+          <div className="flex items-center gap-2">
+            <Mountain className="h-3 w-3 text-teal-500 shrink-0" />
+            <label className="flex items-center gap-1.5 cursor-pointer flex-1">
+              <input
+                type="checkbox"
+                checked={terrainClamp}
+                onChange={(e) => setCesiumTerrainClamp(e.target.checked)}
+                className="accent-teal-500 h-3 w-3"
+              />
+              <span className="text-[10px] text-zinc-600 dark:text-zinc-400">Clamp to terrain</span>
+            </label>
+            {cesiumTerrainHeight !== null ? (
+              <span className="text-[9px] font-mono text-teal-500">
+                {cesiumTerrainHeight.toFixed(1)} m
+              </span>
+            ) : (
+              <span className="text-[9px] font-mono text-zinc-400">querying...</span>
+            )}
+          </div>
+          {cesiumTerrainHeight !== null && editable && modelId && (
+            <div className="flex items-center gap-1 ml-5">
+              <button
+                onClick={() => handleSave('mapConversion', 'orthogonalHeight', cesiumTerrainHeight)}
+                className="text-[9px] text-teal-500 hover:text-teal-700 dark:hover:text-teal-300 transition-colors flex items-center gap-0.5"
+              >
+                <Mountain className="h-2.5 w-2.5" />
+                Set OrthogonalHeight to {cesiumTerrainHeight.toFixed(1)} m
+              </button>
+            </div>
           )}
         </div>
       )}

@@ -253,21 +253,32 @@ export function CesiumOverlay({
   }, [status, mapConversion, projectedCRS, coordinateInfo]);
 
   // ─── Effect 2b: Query terrain height when bridge is ready ───────────────
+  // Also re-queries when terrainClamp is toggled on (in case first query failed)
   useEffect(() => {
     if (status !== 'ready') return;
     const bridge = bridgeRef.current;
     const viewer = viewerRef.current;
     const Cesium = cesiumModule;
-    if (!bridge || !viewer || !Cesium || !terrainEnabled) return;
+    if (!bridge || !viewer || !Cesium) return;
 
     let cancelled = false;
-    bridge.queryTerrainHeight(Cesium, viewer).then((h) => {
-      if (!cancelled && h !== null) {
-        setCesiumTerrainHeight(h);
-      }
-    });
-    return () => { cancelled = true; };
-  }, [status, terrainEnabled, mapConversion, projectedCRS]);
+
+    // Query immediately, then retry after a delay if terrain tiles weren't loaded yet
+    const doQuery = () => {
+      bridge.queryTerrainHeight(Cesium, viewer).then((h) => {
+        if (!cancelled && h !== null) {
+          setCesiumTerrainHeight(h);
+        }
+      });
+    };
+
+    // First attempt
+    doQuery();
+    // Retry after 5s in case terrain tiles were still loading
+    const retryTimer = setTimeout(doQuery, 5000);
+
+    return () => { cancelled = true; clearTimeout(retryTimer); };
+  }, [status, terrainEnabled, terrainClamp, mapConversion, projectedCRS]);
 
   // ─── Effect 3: Camera sync loop ─────────────────────────────────────────
   useEffect(() => {

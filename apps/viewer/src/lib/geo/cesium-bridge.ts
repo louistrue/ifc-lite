@@ -241,19 +241,38 @@ export async function createCesiumBridge(
     Cesium: typeof import('cesium'),
     viewer: InstanceType<typeof import('cesium').Viewer>,
   ): Promise<number | null> {
+    // Try multiple approaches since terrain data may take time to load
+    const position = Cesium.Cartographic.fromDegrees(originLon, originLat);
+
+    // Approach 1: Use globe.getHeight (returns cached terrain height if tiles loaded)
+    try {
+      const globeHeight = viewer.scene.globe.getHeight(position);
+      if (globeHeight !== undefined && Number.isFinite(globeHeight)) {
+        return globeHeight;
+      }
+    } catch { /* globe height not available yet */ }
+
+    // Approach 2: Use sampleTerrainMostDetailed (async, more reliable)
     try {
       const terrainProvider = viewer.terrainProvider;
-      if (!terrainProvider) return null;
-
-      const position = Cesium.Cartographic.fromDegrees(originLon, originLat);
-      const results = await Cesium.sampleTerrainMostDetailed(terrainProvider, [position]);
-      if (results && results.length > 0 && Number.isFinite(results[0].height)) {
-        return results[0].height;
+      if (terrainProvider) {
+        const results = await Cesium.sampleTerrainMostDetailed(terrainProvider, [position]);
+        if (results && results.length > 0 && Number.isFinite(results[0].height)) {
+          return results[0].height;
+        }
       }
-      return null;
-    } catch {
-      return null;
-    }
+    } catch { /* terrain sampling failed */ }
+
+    // Approach 3: Wait for tiles and retry globe.getHeight
+    await new Promise(r => setTimeout(r, 3000));
+    try {
+      const globeHeight = viewer.scene.globe.getHeight(position);
+      if (globeHeight !== undefined && Number.isFinite(globeHeight)) {
+        return globeHeight;
+      }
+    } catch { /* still not available */ }
+
+    return null;
   }
 
   return {
