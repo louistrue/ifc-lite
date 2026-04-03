@@ -832,7 +832,17 @@ impl GeometryRouter {
                     let overlaps_z = a_min.z <= b_max.z + MERGE_TOLERANCE
                         && a_max.z >= b_min.z - MERGE_TOLERANCE;
 
-                    if overlaps_x && overlaps_y && overlaps_z {
+                    // Check direction compatibility before merging
+                    let dirs_compatible = match (&rects[i].2, &rects[j].2) {
+                        (Some(a), Some(b)) => {
+                            let dot = a.x * b.x + a.y * b.y + a.z * b.z;
+                            dot.abs() > 0.99 // Nearly parallel directions
+                        }
+                        (None, None) => true,
+                        _ => false, // One has direction, other doesn't
+                    };
+
+                    if overlaps_x && overlaps_y && overlaps_z && dirs_compatible {
                         // Merge into box i
                         let dir = rects[i].2;
                         rects[i] = (

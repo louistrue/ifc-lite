@@ -245,7 +245,11 @@ export class GeometryProcessor {
   }
 
   private getStreamingBatchSize(buffer: Uint8Array, batchConfig: number | DynamicBatchConfig): number {
-    const fileSizeMB = typeof batchConfig !== 'number' && batchConfig.fileSizeMB
+    if (typeof batchConfig === 'number') {
+      return batchConfig;
+    }
+
+    const fileSizeMB = batchConfig.fileSizeMB
       ? batchConfig.fileSizeMB
       : buffer.length / (1024 * 1024);
 

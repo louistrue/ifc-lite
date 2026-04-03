@@ -198,45 +198,47 @@ pub fn extract_data_model(content: &str) -> DataModel {
     );
 
     // Debug: log sample entity types to diagnose issues
-    let sample_types: Vec<&str> = all_entities
-        .iter()
-        .take(20)
-        .map(|j| j.type_name.as_str())
-        .collect();
-    tracing::debug!(?sample_types, "Sample entity types from scan");
+    if tracing::enabled!(tracing::Level::DEBUG) {
+        let sample_types: Vec<&str> = all_entities
+            .iter()
+            .take(20)
+            .map(|j| j.type_name.as_str())
+            .collect();
+        tracing::debug!(?sample_types, "Sample entity types from scan");
 
-    // Check if any type contains "PROPERTY" or "REL" (case-insensitive)
-    let has_property_like = all_entities
-        .iter()
-        .any(|j| j.type_name.to_uppercase().contains("PROPERTY"));
-    let has_rel_like = all_entities
-        .iter()
-        .any(|j| j.type_name.to_uppercase().starts_with("IFCREL"));
-    tracing::debug!(
-        has_property_like = has_property_like,
-        has_rel_like = has_rel_like,
-        "Entity type pattern check"
-    );
+        // Check if any type contains "PROPERTY" or "REL" (case-insensitive)
+        let has_property_like = all_entities
+            .iter()
+            .any(|j| j.type_name.to_uppercase().contains("PROPERTY"));
+        let has_rel_like = all_entities
+            .iter()
+            .any(|j| j.type_name.to_uppercase().starts_with("IFCREL"));
+        tracing::debug!(
+            has_property_like = has_property_like,
+            has_rel_like = has_rel_like,
+            "Entity type pattern check"
+        );
 
-    // Debug: count property sets and relationships in scanned entities
-    let pset_count = all_entities
-        .iter()
-        .filter(|j| j.type_name.to_uppercase() == "IFCPROPERTYSET")
-        .count();
-    let rel_count = all_entities
-        .iter()
-        .filter(|j| {
-            let t = j.type_name.to_uppercase();
-            t == "IFCRELDEFINESBYPROPERTIES"
-                || t == "IFCRELAGGREGATES"
-                || t == "IFCRELCONTAINEDINSPATIALSTRUCTURE"
-        })
-        .count();
-    tracing::debug!(
-        pset_count = pset_count,
-        rel_count = rel_count,
-        "Entity type counts before extraction"
-    );
+        // Debug: count property sets and relationships in scanned entities
+        let pset_count = all_entities
+            .iter()
+            .filter(|j| j.type_name.to_uppercase() == "IFCPROPERTYSET")
+            .count();
+        let rel_count = all_entities
+            .iter()
+            .filter(|j| {
+                let t = j.type_name.to_uppercase();
+                t == "IFCRELDEFINESBYPROPERTIES"
+                    || t == "IFCRELAGGREGATES"
+                    || t == "IFCRELCONTAINEDINSPATIALSTRUCTURE"
+            })
+            .count();
+        tracing::debug!(
+            pset_count = pset_count,
+            rel_count = rel_count,
+            "Entity type counts before extraction"
+        );
+    }
 
     // Parallel extraction using rayon::join
     let content_arc = Arc::new(content.to_string());

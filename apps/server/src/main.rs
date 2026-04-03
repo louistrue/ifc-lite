@@ -136,14 +136,14 @@ async fn main() {
             post(routes::parse::parse_parquet_optimized),
         )
         .route(
-            "/api/v1/parse/data-model/:cache_key",
+            "/api/v1/parse/data-model/{cache_key}",
             get(routes::parse::get_data_model),
         )
         // Cache endpoints
         .route("/api/v1/cache/{key}", get(routes::cache::get_cached))
-        .route("/api/v1/cache/check/:hash", get(routes::parse::check_cache))
+        .route("/api/v1/cache/check/{hash}", get(routes::parse::check_cache))
         .route(
-            "/api/v1/cache/geometry/:hash",
+            "/api/v1/cache/geometry/{hash}",
             get(routes::parse::get_cached_geometry),
         )
         // Middleware
