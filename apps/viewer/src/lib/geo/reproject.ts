@@ -17,8 +17,10 @@
 
 import proj4 from 'proj4';
 import type { MapConversion, ProjectedCRS } from '@ifc-lite/parser';
-import type { CoordinateInfo } from '@ifc-lite/geometry';
+import type { CoordinateInfo, MeshData } from '@ifc-lite/geometry';
 import { lookupProj4 } from '@ifc-lite/data';
+import { SectionCutter, simplifyPolygon, polygonSignedArea } from '@ifc-lite/drawing-2d';
+import type { Point2D } from '@ifc-lite/drawing-2d';
 
 export interface LatLon {
   lat: number;
@@ -278,6 +280,117 @@ export async function reprojectFromLatLon(
   } catch {
     return null;
   }
+}
+
+/**
+ * Extract building footprint polygon(s) from model meshes and reproject to
+ * WGS84 GeoJSON coordinates for display on a web map.
+ *
+ * Uses the existing SectionCutter to cut meshes at ground level (Y-axis),
+ * then transforms each polygon vertex through the MapConversion pipeline
+ * to lat/lon coordinates.
+ *
+ * @returns GeoJSON-compatible coordinate rings: [lon, lat][][] (outer + holes per polygon)
+ */
+export async function computeFootprintGeoJSON(
+  meshes: MeshData[],
+  conversion: MapConversion,
+  crs: ProjectedCRS,
+  coordinateInfo: CoordinateInfo,
+): Promise<Array<{ outer: [number, number][]; holes: [number, number][][] }> | null> {
+  const projDef = await resolveProjection(crs);
+  if (!projDef) return null;
+
+  // Cut at ground level — slightly above shiftedBounds.min.y
+  const groundY = coordinateInfo.shiftedBounds.min.y + 0.5;
+  const cutter = new SectionCutter({ axis: 'y', position: groundY, flipped: false });
+  const result = cutter.cutMeshes(meshes);
+
+  if (result.polygons.length === 0) return null;
+
+  // Prepare MapConversion parameters
+  const scale = conversion.scale ?? 1.0;
+  const abscissa = conversion.xAxisAbscissa ?? 1.0;
+  const ordinate = conversion.xAxisOrdinate ?? 0.0;
+
+  const shift = coordinateInfo.originShift;
+  const rtc = coordinateInfo.wasmRtcOffset;
+  const rtcYup = rtc
+    ? { x: rtc.x, z: -rtc.y }
+    : { x: 0, z: 0 };
+
+  // Convert a 2D footprint point (from Y-axis section: x,z in scene-local Y-up)
+  // through the full pipeline to [lon, lat].
+  const pointToLonLat = (pt: Point2D): [number, number] | null => {
+    // Scene-local → world Y-up
+    const worldX = pt.x + shift.x + rtcYup.x;
+    const worldZ = pt.y + shift.z + rtcYup.z; // Point2D.y is the Z axis for Y-cut
+
+    // Y-up → IFC Z-up
+    const ifcX = worldX;
+    const ifcY = -worldZ;
+
+    // MapConversion: local IFC → projected CRS
+    const easting = conversion.eastings + scale * (abscissa * ifcX - ordinate * ifcY);
+    const northing = conversion.northings + scale * (ordinate * ifcX + abscissa * ifcY);
+
+    // Projected CRS → WGS84
+    try {
+      const [lon, lat] = proj4(projDef, 'WGS84', [easting, northing]);
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+      return [lon, lat];
+    } catch {
+      return null;
+    }
+  };
+
+  // Sort polygons by area (largest first) and take meaningful ones
+  const sorted = result.polygons
+    .map(p => ({
+      outer: simplifyPolygon(p.polygon.outer, 0.1),
+      holes: p.polygon.holes.map(h => simplifyPolygon(h, 0.1)),
+      area: Math.abs(polygonSignedArea(p.polygon.outer)),
+    }))
+    .filter(p => p.area > 0.5) // skip tiny fragments
+    .sort((a, b) => b.area - a.area);
+
+  if (sorted.length === 0) return null;
+
+  // Merge all significant polygons into GeoJSON rings
+  const features: Array<{ outer: [number, number][]; holes: [number, number][][] }> = [];
+
+  for (const poly of sorted) {
+    const outerCoords: [number, number][] = [];
+    let valid = true;
+
+    for (const pt of poly.outer) {
+      const ll = pointToLonLat(pt);
+      if (!ll) { valid = false; break; }
+      outerCoords.push(ll);
+    }
+    if (!valid || outerCoords.length < 3) continue;
+
+    // Close the ring (GeoJSON requirement)
+    outerCoords.push(outerCoords[0]);
+
+    const holeRings: [number, number][][] = [];
+    for (const hole of poly.holes) {
+      const holeCoords: [number, number][] = [];
+      for (const pt of hole) {
+        const ll = pointToLonLat(pt);
+        if (!ll) break;
+        holeCoords.push(ll);
+      }
+      if (holeCoords.length >= 3) {
+        holeCoords.push(holeCoords[0]);
+        holeRings.push(holeCoords);
+      }
+    }
+
+    features.push({ outer: outerCoords, holes: holeRings });
+  }
+
+  return features.length > 0 ? features : null;
 }
 
 /**

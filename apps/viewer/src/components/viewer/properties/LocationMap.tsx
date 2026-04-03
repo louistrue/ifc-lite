@@ -23,7 +23,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import type { MapConversion, ProjectedCRS } from '@ifc-lite/parser';
 import type { CoordinateInfo, GeometryResult } from '@ifc-lite/geometry';
 import { GLTFExporter } from '@ifc-lite/export';
-import { reprojectToLatLon, reprojectFromLatLon, queryTerrainElevation, type LatLon } from '@/lib/geo/reproject';
+import { reprojectToLatLon, reprojectFromLatLon, queryTerrainElevation, computeFootprintGeoJSON, type LatLon } from '@/lib/geo/reproject';
 import { buildKmz, ifcAngleToKmlHeading } from '@/lib/geo/kmz-exporter';
 
 // Lazy-load maplibre-gl to avoid bloating the initial bundle
@@ -113,6 +113,27 @@ export function LocationMap({
   const [searchResults, setSearchResults] = useState<Array<{ lat: number; lon: number; display_name: string }>>([]);
   const [searchLoading, setSearchLoading] = useState(false);
   const debouncedQuery = useDebouncedValue(searchQuery, 400);
+
+  // Building footprint state
+  type FootprintData = Array<{ outer: [number, number][]; holes: [number, number][][] }>;
+  const [footprint, setFootprint] = useState<FootprintData | null>(null);
+  const footprintComputedRef = useRef(false);
+  const [styleVersion, setStyleVersion] = useState(0);
+
+  // Compute building footprint (once, lazily)
+  useEffect(() => {
+    if (footprintComputedRef.current) return;
+    if (!mapConversion || !projectedCRS || !coordinateInfo || !geometryResult?.meshes?.length) return;
+
+    footprintComputedRef.current = true;
+    let cancelled = false;
+
+    computeFootprintGeoJSON(geometryResult.meshes, mapConversion, projectedCRS, coordinateInfo).then(fp => {
+      if (!cancelled) setFootprint(fp);
+    });
+
+    return () => { cancelled = true; };
+  }, [mapConversion, projectedCRS, coordinateInfo, geometryResult]);
 
   // Geocode search
   useEffect(() => {
@@ -289,6 +310,15 @@ export function LocationMap({
         .setLngLat([latLon.lon, latLon.lat])
         .addTo(map);
 
+      // Toggle marker vs footprint based on zoom level
+      map.on('zoomend', () => {
+        const zoom = map.getZoom();
+        if (markerRef.current) {
+          markerRef.current.getElement().style.opacity = zoom >= 17 ? '0' : '1';
+          markerRef.current.getElement().style.pointerEvents = zoom >= 17 ? 'none' : 'auto';
+        }
+      });
+
       // Map click to place pin (only in edit mode)
       map.on('click', handleMapClick);
 
@@ -300,6 +330,61 @@ export function LocationMap({
       cancelled = true;
     };
   }, [latLon, handleMapClick]);
+
+  // Add/update building footprint GeoJSON layer
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !footprint) return;
+
+    const addFootprintLayer = () => {
+      // Build GeoJSON MultiPolygon from all footprint polygons
+      const coordinates = footprint.map(f => [f.outer, ...f.holes]);
+      const geojson: GeoJSON.Feature = {
+        type: 'Feature',
+        properties: {},
+        geometry: {
+          type: 'MultiPolygon',
+          coordinates,
+        },
+      };
+
+      if (map.getSource('building-footprint')) {
+        (map.getSource('building-footprint') as import('maplibre-gl').GeoJSONSource).setData(geojson);
+      } else {
+        map.addSource('building-footprint', { type: 'geojson', data: geojson });
+
+        map.addLayer({
+          id: 'building-footprint-fill',
+          type: 'fill',
+          source: 'building-footprint',
+          minzoom: 16,
+          paint: {
+            'fill-color': '#14b8a6',
+            'fill-opacity': 0.2,
+          },
+        });
+
+        map.addLayer({
+          id: 'building-footprint-outline',
+          type: 'line',
+          source: 'building-footprint',
+          minzoom: 16,
+          paint: {
+            'line-color': '#0d9488',
+            'line-width': 2,
+            'line-opacity': 0.8,
+          },
+        });
+      }
+    };
+
+    // If style is already loaded, add now; otherwise wait for style.load
+    if (map.isStyleLoaded()) {
+      addFootprintLayer();
+    } else {
+      map.once('style.load', addFootprintLayer);
+    }
+  }, [footprint, styleVersion]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -358,7 +443,7 @@ export function LocationMap({
         ? 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json'
         : 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json',
     );
-    // Re-add markers after style fully loads
+    // Re-add markers and layers after style fully loads
     if (mapRef.current) {
       mapRef.current.once('style.load', () => {
         if (markerRef.current && mapRef.current) {
@@ -367,6 +452,8 @@ export function LocationMap({
         if (pickedMarkerRef.current && mapRef.current) {
           pickedMarkerRef.current.addTo(mapRef.current);
         }
+        // Trigger footprint layer re-add
+        setStyleVersion(v => v + 1);
       });
     }
   }, []);
