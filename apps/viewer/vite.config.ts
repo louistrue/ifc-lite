@@ -3,8 +3,11 @@ import react from '@vitejs/plugin-react';
 import wasm from 'vite-plugin-wasm';
 import topLevelAwait from 'vite-plugin-top-level-await';
 import { viteStaticCopy } from 'vite-plugin-static-copy';
+import { createRequire } from 'node:module';
 import path from 'path';
 import fs from 'fs';
+
+const require = createRequire(import.meta.url);
 
 // --- Build-time changelog parser ---
 
