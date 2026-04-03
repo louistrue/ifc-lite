@@ -1108,6 +1108,65 @@ pub fn process_geometry_streaming_filtered_with_options(
     while chunk_start < total_jobs {
         let chunk_end = (chunk_start + current_chunk_size).min(total_jobs);
         let jobs_chunk = &mut entity_jobs[chunk_start..chunk_end];
+
+        // ── Desktop: two-phase parallel metadata population ──
+        // Phase 1 (parallel): decode entities, extract GlobalId/Name/ProductDefinitionShapeId
+        // Phase 2 (serial): resolve colors from cache (cheap, cache-hit dominated)
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            // Phase 1: parallel decode with thread-local EntityDecoder
+            let entity_index_for_meta = entity_index_arc.clone();
+            jobs_chunk.par_iter_mut().for_each(|job| {
+                if job.global_id.is_some() || job.name.is_some()
+                    || job.product_definition_shape_id.is_some()
+                {
+                    return;
+                }
+                let mut local_decoder =
+                    EntityDecoder::with_arc_index(content, entity_index_for_meta.clone());
+                let Ok(entity) = local_decoder.decode_at(job.start, job.end) else {
+                    return;
+                };
+                job.global_id = normalize_optional_string(entity.get_string(0));
+                job.name = normalize_optional_string(entity.get_string(2));
+                job.product_definition_shape_id = entity.get_ref(6);
+            });
+
+            // Phase 2: serial color/layer resolution (cache-hit dominated, fast)
+            for job in jobs_chunk.iter_mut() {
+                let Some(pds_id) = job.product_definition_shape_id else {
+                    continue;
+                };
+                let resolved_color = color_cache_by_product_definition_shape
+                    .entry(pds_id)
+                    .or_insert_with(|| {
+                        resolve_element_color_for_product_definition_shape(
+                            pds_id,
+                            &geometry_style_index,
+                            &mut decoder,
+                        )
+                    });
+                if let Some(color) = resolved_color {
+                    job.element_color = *color;
+                }
+                if options.include_presentation_layers {
+                    let resolved_layer = layer_cache_by_product_definition_shape
+                        .entry(pds_id)
+                        .or_insert_with(|| {
+                            resolve_presentation_layer_for_product_definition_shape(
+                                pds_id,
+                                &presentation_layer_by_assigned_id,
+                                &mut layer_cache_by_representation,
+                                &mut decoder,
+                            )
+                        });
+                    job.presentation_layer = resolved_layer.clone();
+                }
+            }
+        }
+
+        // ── WASM: existing serial path (unchanged) ──
+        #[cfg(target_arch = "wasm32")]
         for job in jobs_chunk.iter_mut() {
             populate_entity_job_metadata(
                 job,
