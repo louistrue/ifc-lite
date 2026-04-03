@@ -8,7 +8,7 @@
  */
 
 import { useState, useCallback, useMemo } from 'react';
-import { Globe, MapPin, PenLine, Check, X, Search, ChevronRight } from 'lucide-react';
+import { Globe, MapPin, PenLine, Check, X, Search, ChevronRight, Mountain } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Badge } from '@/components/ui/badge';
 import { computeAngleToGridNorth, type GeoreferenceInfo, type MapConversion, type ProjectedCRS } from '@ifc-lite/parser';
@@ -71,9 +71,11 @@ interface GeorefRowProps {
   fieldEntity?: string;
   fieldName?: string;
   onSave?: (value: string | number) => void;
+  /** Extra inline content rendered after the value (e.g. terrain height button) */
+  children?: React.ReactNode;
 }
 
-function GeorefRow({ label, value, suffix, isComputed, isNumber, editable, isMutated, fieldEntity, fieldName, onSave }: GeorefRowProps) {
+function GeorefRow({ label, value, suffix, isComputed, isNumber, editable, isMutated, fieldEntity, fieldName, onSave, children }: GeorefRowProps) {
   const [editing, setEditing] = useState(false);
   const [editValue, setEditValue] = useState('');
 
@@ -214,6 +216,7 @@ function GeorefRow({ label, value, suffix, isComputed, isNumber, editable, isMut
             </>
           )}
         </div>
+        {children}
       </div>
     </div>
   );
@@ -322,6 +325,10 @@ export function GeoreferencingPanel({ georef, modelId, enableEditing, schemaVers
   const georefMutations = useViewerStore(s => s.georefMutations);
   const setGeorefField = useViewerStore(s => s.setGeorefField);
   const setGeorefFields = useViewerStore(s => s.setGeorefFields);
+  const cesiumEnabled = useViewerStore(s => s.cesiumEnabled);
+  const terrainClamp = useViewerStore(s => s.cesiumTerrainClamp);
+  const setCesiumTerrainClamp = useViewerStore(s => s.setCesiumTerrainClamp);
+  const cesiumTerrainHeight = useViewerStore(s => s.cesiumTerrainHeight);
   const [crsOpen, setCrsOpen] = useState(false);
   const [conversionOpen, setConversionOpen] = useState(false);
 
@@ -561,7 +568,9 @@ export function GeoreferencingPanel({ georef, modelId, enableEditing, schemaVers
               <GeorefRow label="Type" value="IfcMapConversion" />
               <GeorefRow label="Eastings" value={mergedConversion.eastings} suffix={mapUnitSuffix} isNumber editable={editable} isMutated={isMutated('mapConversion', 'eastings')} fieldEntity="mapConversion" fieldName="eastings" onSave={v => handleSave('mapConversion', 'eastings', v)} />
               <GeorefRow label="Northings" value={mergedConversion.northings} suffix={mapUnitSuffix} isNumber editable={editable} isMutated={isMutated('mapConversion', 'northings')} fieldEntity="mapConversion" fieldName="northings" onSave={v => handleSave('mapConversion', 'northings', v)} />
-              <GeorefRow label="OrthogonalHeight" value={mergedConversion.orthogonalHeight} suffix={mapUnitSuffix} isNumber editable={editable} isMutated={isMutated('mapConversion', 'orthogonalHeight')} fieldEntity="mapConversion" fieldName="orthogonalHeight" onSave={v => handleSave('mapConversion', 'orthogonalHeight', v)} />
+              <GeorefRow label="OrthogonalHeight" value={mergedConversion.orthogonalHeight} suffix={mapUnitSuffix} isNumber editable={editable} isMutated={isMutated('mapConversion', 'orthogonalHeight')} fieldEntity="mapConversion" fieldName="orthogonalHeight" onSave={v => handleSave('mapConversion', 'orthogonalHeight', v)}>
+                <TerrainHeightButton modelId={modelId} editable={editable} onApply={(h) => handleSave('mapConversion', 'orthogonalHeight', h)} />
+              </GeorefRow>
               <GeorefRow label="XAxisAbscissa" value={mergedConversion.xAxisAbscissa} isNumber editable={editable} isMutated={isMutated('mapConversion', 'xAxisAbscissa')} fieldEntity="mapConversion" fieldName="xAxisAbscissa" onSave={v => handleSave('mapConversion', 'xAxisAbscissa', v)} />
               <GeorefRow label="XAxisOrdinate" value={mergedConversion.xAxisOrdinate} isNumber editable={editable} isMutated={isMutated('mapConversion', 'xAxisOrdinate')} fieldEntity="mapConversion" fieldName="xAxisOrdinate" onSave={v => handleSave('mapConversion', 'xAxisOrdinate', v)} />
               <AngleRow angle={angleToGridNorth} editable={editable} onAngleChange={handleAngleChange} />
@@ -584,8 +593,59 @@ export function GeoreferencingPanel({ georef, modelId, enableEditing, schemaVers
         </div>
       )}
 
+      {/* Terrain clamp toggle — only when Cesium overlay is active */}
+      {cesiumEnabled && mergedConversion && (
+        <div className="px-3 py-1.5 border-t border-zinc-100 dark:border-zinc-900 flex items-center gap-2">
+          <Mountain className="h-3 w-3 text-teal-500 shrink-0" />
+          <label className="flex items-center gap-1.5 cursor-pointer flex-1">
+            <input
+              type="checkbox"
+              checked={terrainClamp}
+              onChange={(e) => setCesiumTerrainClamp(e.target.checked)}
+              className="accent-teal-500 h-3 w-3"
+            />
+            <span className="text-[10px] text-zinc-600 dark:text-zinc-400">Clamp to terrain</span>
+          </label>
+          {cesiumTerrainHeight !== null && (
+            <span className="text-[9px] font-mono text-zinc-400">
+              {cesiumTerrainHeight.toFixed(1)} m
+            </span>
+          )}
+        </div>
+      )}
+
       {/* Location minimap */}
       <LocationMap mapConversion={mergedConversion} projectedCRS={mergedCRS} coordinateInfo={coordinateInfo} geometryResult={geometryResult} />
     </div>
+  );
+}
+
+/** Small button to apply Cesium terrain height to OrthogonalHeight field */
+function TerrainHeightButton({ modelId, editable, onApply }: {
+  modelId?: string;
+  editable?: boolean;
+  onApply: (height: number) => void;
+}) {
+  const cesiumEnabled = useViewerStore(s => s.cesiumEnabled);
+  const terrainHeight = useViewerStore(s => s.cesiumTerrainHeight);
+
+  if (!cesiumEnabled || terrainHeight === null || !editable || !modelId) return null;
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onApply(terrainHeight);
+          }}
+          className="flex items-center gap-0.5 text-[9px] text-teal-500 hover:text-teal-700 dark:hover:text-teal-300 transition-colors mt-0.5"
+        >
+          <Mountain className="h-2.5 w-2.5" />
+          <span>{terrainHeight.toFixed(1)} m</span>
+        </button>
+      </TooltipTrigger>
+      <TooltipContent>Set OrthogonalHeight to Cesium terrain elevation ({terrainHeight.toFixed(1)} m)</TooltipContent>
+    </Tooltip>
   );
 }

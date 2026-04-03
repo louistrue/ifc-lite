@@ -45,7 +45,14 @@ export interface CesiumBridge {
     camTarget: { x: number; y: number; z: number },
     camUp: { x: number; y: number; z: number },
     fov: number,
+    terrainClampOffset?: number,
   ): void;
+
+  /** Query terrain height at model origin using Cesium's terrain provider. */
+  queryTerrainHeight(
+    Cesium: typeof import('cesium'),
+    viewer: InstanceType<typeof import('cesium').Viewer>,
+  ): Promise<number | null>;
 
   viewerToGeodetic(vx: number, vy: number, vz: number): GeodesicPosition | null;
 }
@@ -156,16 +163,21 @@ export async function createCesiumBridge(
     camTarget: { x: number; y: number; z: number },
     camUp: { x: number; y: number; z: number },
     fov: number,
+    terrainClampOffset?: number,
   ): void {
     ensureEcefCache(Cesium);
     if (!enuToEcefMatrix) return;
+
+    // When terrain clamping is active, shift the ENU frame up so the model
+    // sits on terrain. terrainClampOffset = terrainHeight - modelOriginHeight.
+    const clampUp = terrainClampOffset ?? 0;
 
     // Camera position offset from model center → ENU → ECEF
     const [pE, pN, pU] = viewerToENU.delta(
       camPos.x - modelVX, camPos.y - modelVY, camPos.z - modelVZ,
     );
     const posECEF = Cesium.Matrix4.multiplyByPoint(
-      enuToEcefMatrix, new Cesium.Cartesian3(pE, pN, pU), new Cesium.Cartesian3(),
+      enuToEcefMatrix, new Cesium.Cartesian3(pE, pN, pU + clampUp), new Cesium.Cartesian3(),
     );
 
     // View direction (target - position) as a delta vector → ENU → ECEF direction
@@ -221,10 +233,34 @@ export async function createCesiumBridge(
     }
   }
 
+  /**
+   * Query terrain height at the model origin using Cesium's terrain provider.
+   * Returns the terrain elevation in meters, or null if unavailable.
+   */
+  async function queryTerrainHeight(
+    Cesium: typeof import('cesium'),
+    viewer: InstanceType<typeof import('cesium').Viewer>,
+  ): Promise<number | null> {
+    try {
+      const terrainProvider = viewer.terrainProvider;
+      if (!terrainProvider) return null;
+
+      const position = Cesium.Cartographic.fromDegrees(originLon, originLat);
+      const results = await Cesium.sampleTerrainMostDetailed(terrainProvider, [position]);
+      if (results && results.length > 0 && Number.isFinite(results[0].height)) {
+        return results[0].height;
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
   return {
     modelOrigin,
     rotationAngle: rotAngle,
     syncCamera,
+    queryTerrainHeight,
     viewerToGeodetic,
   };
 }

@@ -29,6 +29,10 @@ export interface CesiumSlice {
   cesiumIonToken: string;
   /** Terrain enabled (Cesium World Terrain). */
   cesiumTerrainEnabled: boolean;
+  /** Clamp model to terrain height at its geodetic position. */
+  cesiumTerrainClamp: boolean;
+  /** Terrain height at model position (queried from Cesium, meters). null = not yet queried. */
+  cesiumTerrainHeight: number | null;
 
   // Actions
   setCesiumEnabled: (enabled: boolean) => void;
@@ -36,6 +40,8 @@ export interface CesiumSlice {
   setCesiumDataSource: (source: CesiumDataSource) => void;
   setCesiumIonToken: (token: string) => void;
   setCesiumTerrainEnabled: (enabled: boolean) => void;
+  setCesiumTerrainClamp: (clamp: boolean) => void;
+  setCesiumTerrainHeight: (height: number | null) => void;
 }
 
 const STORAGE_KEY_ION_TOKEN = 'ifc-lite:cesium-ion-token';
@@ -73,6 +79,8 @@ export const createCesiumSlice: StateCreator<CesiumSlice, [], [], CesiumSlice> =
   cesiumDataSource: loadFromStorage(STORAGE_KEY_DATA_SOURCE, 'osm-buildings') as CesiumDataSource,
   cesiumIonToken: resolveIonToken(),
   cesiumTerrainEnabled: true,
+  cesiumTerrainClamp: false,
+  cesiumTerrainHeight: null,
 
   setCesiumEnabled: (enabled) => set({ cesiumEnabled: enabled }),
   toggleCesium: () => set((s) => ({ cesiumEnabled: !s.cesiumEnabled })),
@@ -82,8 +90,9 @@ export const createCesiumSlice: StateCreator<CesiumSlice, [], [], CesiumSlice> =
   },
   setCesiumIonToken: (token) => {
     saveToStorage(STORAGE_KEY_ION_TOKEN, token);
-    // If user clears their override, fall back to default
     set({ cesiumIonToken: token || DEFAULT_ION_TOKEN });
   },
   setCesiumTerrainEnabled: (enabled) => set({ cesiumTerrainEnabled: enabled }),
+  setCesiumTerrainClamp: (clamp) => set({ cesiumTerrainClamp: clamp }),
+  setCesiumTerrainHeight: (height) => set({ cesiumTerrainHeight: height }),
 });

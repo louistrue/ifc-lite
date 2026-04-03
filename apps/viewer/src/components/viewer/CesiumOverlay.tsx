@@ -65,6 +65,9 @@ export function CesiumOverlay({
   const dataSource = useViewerStore((s) => s.cesiumDataSource);
   const ionToken = useViewerStore((s) => s.cesiumIonToken);
   const terrainEnabled = useViewerStore((s) => s.cesiumTerrainEnabled);
+  const terrainClamp = useViewerStore((s) => s.cesiumTerrainClamp);
+  const terrainHeight = useViewerStore((s) => s.cesiumTerrainHeight);
+  const setCesiumTerrainHeight = useViewerStore((s) => s.setCesiumTerrainHeight);
 
   // ─── Effect 1: Create/destroy the Cesium viewer (heavy, rare) ───────────
   // Only depends on cesiumEnabled, ionToken, terrainEnabled, dataSource.
@@ -249,6 +252,23 @@ export function CesiumOverlay({
     return () => { cancelled = true; };
   }, [status, mapConversion, projectedCRS, coordinateInfo]);
 
+  // ─── Effect 2b: Query terrain height when bridge is ready ───────────────
+  useEffect(() => {
+    if (status !== 'ready') return;
+    const bridge = bridgeRef.current;
+    const viewer = viewerRef.current;
+    const Cesium = cesiumModule;
+    if (!bridge || !viewer || !Cesium || !terrainEnabled) return;
+
+    let cancelled = false;
+    bridge.queryTerrainHeight(Cesium, viewer).then((h) => {
+      if (!cancelled && h !== null) {
+        setCesiumTerrainHeight(h);
+      }
+    });
+    return () => { cancelled = true; };
+  }, [status, terrainEnabled, mapConversion, projectedCRS]);
+
   // ─── Effect 3: Camera sync loop ─────────────────────────────────────────
   useEffect(() => {
     if (status !== 'ready') return;
@@ -275,9 +295,14 @@ export function CesiumOverlay({
       const camUp = camera.getUp();
       const fov = camera.getFOV();
 
+      // Compute terrain clamp offset: shift everything up so model sits on terrain
+      const clampOffset = (terrainClamp && terrainHeight !== null)
+        ? terrainHeight - bridge.modelOrigin.height
+        : undefined;
+
       // Sync Cesium camera: position, direction, up, right, FOV
       // All vectors transformed through Cesium's exact ENU→ECEF matrix
-      bridge.syncCamera(Cesium, viewer, camPos, camTarget, camUp, fov);
+      bridge.syncCamera(Cesium, viewer, camPos, camTarget, camUp, fov, clampOffset);
 
       rafRef.current = requestAnimationFrame(syncCamera);
     }
