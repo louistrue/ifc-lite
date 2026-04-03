@@ -326,27 +326,43 @@ export function CesiumOverlay({
 
     let cancelled = false;
 
-    // Defer the heavy GLB export to avoid blocking UI on initial load
-    const deferTimer = setTimeout(async () => {
+    // Defer the GLB export to avoid blocking UI on initial load.
+    // Uses requestIdleCallback (or setTimeout fallback) to run during
+    // idle time, and yields between steps to keep UI responsive.
+    const startExport = () => {
       if (cancelled) return;
-      try {
-        // Remove previous model
-        if (cesiumModelRef.current) {
-          viewer.scene.primitives.remove(cesiumModelRef.current);
-          cesiumModelRef.current = null;
-        }
 
-        // Export GLB (cached by mesh count)
-        const meshCount = geometryResult.meshes.length;
-        let glbBytes: Uint8Array;
-        if (glbCacheRef.current?.meshCount === meshCount) {
-          glbBytes = glbCacheRef.current.glb;
-        } else {
-          const exporter = new GLTFExporter(geometryResult);
-          glbBytes = exporter.exportGLB();
-          glbCacheRef.current = { meshCount, glb: glbBytes };
-        }
-        if (cancelled) return;
+      (async () => {
+        try {
+          if (cesiumModelRef.current) {
+            viewer.scene.primitives.remove(cesiumModelRef.current);
+            cesiumModelRef.current = null;
+          }
+
+          // Export GLB (cached by mesh count)
+          const meshCount = geometryResult.meshes.length;
+          let glbBytes: Uint8Array;
+          if (glbCacheRef.current?.meshCount === meshCount) {
+            glbBytes = glbCacheRef.current.glb;
+          } else {
+            // Yield before heavy export
+            await new Promise<void>(r => {
+              if (typeof requestIdleCallback === 'function') {
+                requestIdleCallback(() => r());
+              } else {
+                setTimeout(r, 100);
+              }
+            });
+            if (cancelled) return;
+            const exporter = new GLTFExporter(geometryResult);
+            glbBytes = exporter.exportGLB();
+            glbCacheRef.current = { meshCount, glb: glbBytes };
+          }
+          if (cancelled) return;
+
+          // Yield again after export before Cesium load
+          await new Promise(r => setTimeout(r, 0));
+          if (cancelled) return;
 
         // Build model matrix: IFC Z-up → ENU → ECEF
         const origin = Cesium.Cartesian3.fromDegrees(
@@ -384,7 +400,11 @@ export function CesiumOverlay({
       } catch (err) {
         console.warn('[CesiumOverlay] Failed to load IFC model into Cesium:', err);
       }
-    }, 2000); // 2s delay to let initial render complete first
+      })();
+    };
+
+    // Start after a short delay to let initial render complete
+    const deferTimer = setTimeout(startExport, 1000);
 
     return () => {
       cancelled = true;
