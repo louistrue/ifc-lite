@@ -335,36 +335,57 @@ export function CesiumOverlay({
         );
         const enuToEcef = Cesium.Transforms.eastNorthUpToFixedFrame(modelOriginCartesian);
 
-        // Build viewerToENU 4x4 using the same rotation as the bridge
+        // Build the model matrix that positions GLB geometry in ECEF.
+        //
+        // GLB vertices are in VIEWER Y-up space (same as WebGPU renderer).
+        // We need: viewer Y-up → ENU → ECEF
+        //
+        // Viewer Y-up:  X=right, Y=up, Z=towards-camera
+        // IFC Z-up:     X=right, Y=forward, Z=up
+        // ENU:          X=East, Y=North, Z=Up
+        //
+        // Step 1: Viewer Y-up → IFC Z-up (axis swap)
+        //   ifcX = viewerX, ifcY = -viewerZ, ifcZ = viewerY
+        //
+        // Step 2: IFC → ENU via Helmert rotation
+        //   East  = hScale * (absc * ifcX - ordi * ifcY)
+        //   North = hScale * (ordi * ifcX + absc * ifcY)
+        //   Up    = ifcZ
+        //
+        // Combined: viewer(vx, vy, vz) → ENU:
+        //   East  = hScale * (absc * vx - ordi * (-vz)) = hScale * (absc*vx + ordi*vz)
+        //   North = hScale * (ordi * vx + absc * (-vz)) = hScale * (ordi*vx - absc*vz)
+        //   Up    = vy
+        //
+        // As a 3x3 matrix [E,N,U] = M * [vx,vy,vz]:
+        //   M = [hScale*absc,   0,   hScale*ordi ]   // E from vx, vy, vz
+        //       [hScale*ordi,   0,  -hScale*absc ]   // N from vx, vy, vz
+        //       [0,             1,   0            ]   // U from vx, vy, vz
+
         const hScale = mapConversion?.scale ?? 1.0;
         const absc = mapConversion?.xAxisAbscissa ?? 1.0;
         const ordi = mapConversion?.xAxisOrdinate ?? 0.0;
-        const shift = coordinateInfo?.originShift ?? { x: 0, y: 0, z: 0 };
-        const rtc = coordinateInfo?.wasmRtcOffset;
-        const rtcYup = rtc ? { x: rtc.x, y: rtc.z, z: -rtc.y } : { x: 0, y: 0, z: 0 };
+
+        const me00 = hScale * absc;   // E from vx
+        const me02 = hScale * ordi;   // E from vz
+        const mn00 = hScale * ordi;   // N from vx
+        const mn02 = -hScale * absc;  // N from vz
+
+        // Translation: offset so model center maps to ENU origin
         const bounds = coordinateInfo?.originalBounds;
         const modelVX = bounds ? (bounds.min.x + bounds.max.x) / 2 : 0;
         const modelVY = bounds ? (bounds.min.y + bounds.max.y) / 2 : 0;
         const modelVZ = bounds ? (bounds.min.z + bounds.max.z) / 2 : 0;
 
-        // Viewer→ENU rotation columns (same as in bridge)
-        const m00 = hScale * absc, m02 = hScale * ordi;
-        const m10 = hScale * ordi, m12 = -hScale * absc;
-
-        // Translation component (centers on model origin)
-        const tx = m00 * (-modelVX) + m02 * (-modelVZ);
-        const ty = m10 * (-modelVX) + m12 * (-modelVZ);
+        const tx = me00 * (-modelVX) + me02 * (-modelVZ);
+        const ty = mn00 * (-modelVX) + mn02 * (-modelVZ);
         const tz = -modelVY;
 
-        // The GLB geometry has origin shift + RTC baked in by the geometry pipeline.
-        // We need to account for the full offset from viewer (0,0,0) to world origin.
-        // The viewer→ENU transform handles this via the translation.
-        // But the GLB geometry vertices are in the SAME viewer space as the WebGPU renderer.
         const viewerToEnu = new Cesium.Matrix4(
-          m00, 0, m02, tx,
-          m10, 0, m12, ty,
-          0,   1, 0,   tz,
-          0,   0, 0,   1,
+          me00, 0,  me02, tx,
+          mn00, 0,  mn02, ty,
+          0,    1,  0,    tz,
+          0,    0,  0,    1,
         );
 
         const modelMatrix = Cesium.Matrix4.multiply(
