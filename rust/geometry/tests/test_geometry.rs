@@ -5,8 +5,9 @@
 use std::fs;
 
 fn main() {
-    let content = fs::read_to_string("../../../tests/models/01_Snowdon_Towers_Sample_Structural(1).ifc")
-        .expect("Failed to read IFC file");
+    let content =
+        fs::read_to_string("../../../tests/models/01_Snowdon_Towers_Sample_Structural(1).ifc")
+            .expect("Failed to read IFC file");
 
     println!("File size: {} bytes", content.len());
 

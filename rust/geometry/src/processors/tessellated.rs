@@ -276,8 +276,11 @@ impl PolygonalFaceSetProcessor {
             .collect();
 
         // Flatten all loops for earcut (outer ring first, then holes)
-        let total_vertices =
-            outer_indices.len() + valid_holes.iter().map(|loop_indices| loop_indices.len()).sum::<usize>();
+        let total_vertices = outer_indices.len()
+            + valid_holes
+                .iter()
+                .map(|loop_indices| loop_indices.len())
+                .sum::<usize>();
         let mut coords_2d: Vec<f64> = Vec::with_capacity(total_vertices * 2);
         let mut flattened_indices: Vec<u32> = Vec::with_capacity(total_vertices);
         let mut hole_starts: Vec<usize> = Vec::with_capacity(valid_holes.len());
@@ -364,7 +367,10 @@ impl PolygonalFaceSetProcessor {
     }
 
     #[inline]
-    fn parse_face_inner_indices(face_entity: &DecodedEntity, pn_index: Option<&[u32]>) -> Vec<Vec<u32>> {
+    fn parse_face_inner_indices(
+        face_entity: &DecodedEntity,
+        pn_index: Option<&[u32]>,
+    ) -> Vec<Vec<u32>> {
         if face_entity.ifc_type != IfcType::IfcIndexedPolygonalFaceWithVoids {
             return Vec::new();
         }
@@ -541,9 +547,9 @@ impl GeometryProcessor for PolygonalFaceSetProcessor {
         // 3: PnIndex (optional - point index remapping)
 
         // Get coordinate entity reference
-        let coords_attr = entity.get(0).ok_or_else(|| {
-            Error::geometry("PolygonalFaceSet missing Coordinates".to_string())
-        })?;
+        let coords_attr = entity
+            .get(0)
+            .ok_or_else(|| Error::geometry("PolygonalFaceSet missing Coordinates".to_string()))?;
 
         let coord_entity_id = coords_attr.as_entity_ref().ok_or_else(|| {
             Error::geometry("Expected entity reference for Coordinates".to_string())
@@ -571,9 +577,9 @@ impl GeometryProcessor for PolygonalFaceSetProcessor {
         }
 
         // Get faces list (attribute 2)
-        let faces_attr = entity.get(2).ok_or_else(|| {
-            Error::geometry("PolygonalFaceSet missing Faces".to_string())
-        })?;
+        let faces_attr = entity
+            .get(2)
+            .ok_or_else(|| Error::geometry("PolygonalFaceSet missing Faces".to_string()))?;
 
         let face_refs = faces_attr
             .as_list()
@@ -581,25 +587,22 @@ impl GeometryProcessor for PolygonalFaceSetProcessor {
 
         // Optional point remapping list for IfcPolygonalFaceSet.
         // CoordIndex values refer to this list when present.
-        let pn_index = entity
-            .get(3)
-            .and_then(|attr| attr.as_list())
-            .map(|list| {
-                list.iter()
-                    .filter_map(|value| value.as_int())
-                    .filter(|v| *v > 0)
-                    .map(|v| v as u32)
-                    .collect::<Vec<u32>>()
-            });
+        let pn_index = entity.get(3).and_then(|attr| attr.as_list()).map(|list| {
+            list.iter()
+                .filter_map(|value| value.as_int())
+                .filter(|v| *v > 0)
+                .map(|v| v as u32)
+                .collect::<Vec<u32>>()
+        });
 
         // Pre-allocate indices - estimate 2 triangles per face average
         let mut indices = Vec::with_capacity(face_refs.len() * 6);
 
         // Process each face
         for face_ref in face_refs {
-            let face_id = face_ref.as_entity_ref().ok_or_else(|| {
-                Error::geometry("Expected entity reference for face".to_string())
-            })?;
+            let face_id = face_ref
+                .as_entity_ref()
+                .ok_or_else(|| Error::geometry("Expected entity reference for face".to_string()))?;
 
             let face_entity = decoder.decode_by_id(face_id)?;
 

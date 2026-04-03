@@ -19,12 +19,21 @@ fn test_tekla_single_entity_1991() {
     let mut scanner = ifc_lite_core::EntityScanner::new(&content);
     while let Some((id, _type_name, start, end)) = scanner.next_entity() {
         if id == 1991 {
-            let entity = decoder.decode_at_with_id(id, start, end).expect("decode failed");
+            let entity = decoder
+                .decode_at_with_id(id, start, end)
+                .expect("decode failed");
             match router.process_element(&entity, &mut decoder) {
                 Ok(mesh) => {
-                    eprintln!("SUCCESS: {} vertices, {} triangles", mesh.vertex_count(), mesh.triangle_count());
+                    eprintln!(
+                        "SUCCESS: {} vertices, {} triangles",
+                        mesh.vertex_count(),
+                        mesh.triangle_count()
+                    );
                     // Should produce geometry (even if CSG is skipped, the base extruded solid is returned)
-                    assert!(mesh.vertex_count() > 0, "Entity #1991 should produce geometry");
+                    assert!(
+                        mesh.vertex_count() > 0,
+                        "Entity #1991 should produce geometry"
+                    );
                 }
                 Err(e) => {
                     // Processing errors are acceptable (e.g., depth limit)
@@ -71,15 +80,25 @@ fn test_tekla_full_model_no_crash() {
 
             match router.process_element_with_voids(&entity, &mut decoder, &empty_voids) {
                 Ok(mesh) => {
-                    if !mesh.is_empty() { success += 1; }
+                    if !mesh.is_empty() {
+                        success += 1;
+                    }
                 }
-                Err(_) => { failed += 1; }
+                Err(_) => {
+                    failed += 1;
+                }
             }
         }
     }
 
-    eprintln!("\nTotal: {}, Success: {}, Failed: {}", total, success, failed);
+    eprintln!(
+        "\nTotal: {}, Success: {}, Failed: {}",
+        total, success, failed
+    );
     // Should process most entities successfully
-    assert!(success > 0, "Should have processed some entities successfully");
+    assert!(
+        success > 0,
+        "Should have processed some entities successfully"
+    );
     // The key assertion: we didn't crash with stack overflow
 }

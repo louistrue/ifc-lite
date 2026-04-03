@@ -10,8 +10,8 @@
 use crate::{Error, Mesh, Result};
 use ifc_lite_core::{DecodedEntity, EntityDecoder, IfcSchema, IfcType};
 
-use crate::router::GeometryProcessor;
 use super::advanced_face::process_advanced_face;
+use crate::router::GeometryProcessor;
 
 /// AdvancedBrep processor
 /// Handles IfcAdvancedBrep and IfcAdvancedBrepWithVoids - NURBS/B-spline surfaces

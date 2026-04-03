@@ -387,7 +387,10 @@ fn parse_knot_vectors(bspline: &DecodedEntity) -> Result<(Vec<f64>, Vec<f64>)> {
 // ---------- Surface-type-specific processors ----------
 
 /// Extract a CartesianPoint's coordinates from a VertexPoint entity.
-fn extract_vertex_coords(vertex: &DecodedEntity, decoder: &mut EntityDecoder) -> Option<Point3<f64>> {
+fn extract_vertex_coords(
+    vertex: &DecodedEntity,
+    decoder: &mut EntityDecoder,
+) -> Option<Point3<f64>> {
     let point_attr = vertex.get(0)?;
     let point = decoder.resolve_ref(point_attr).ok().flatten()?;
     let coords = point.get(0).and_then(|v| v.as_list())?;
@@ -489,7 +492,8 @@ fn sample_bspline_edge_curve(
         let pt = evaluate_bspline_curve(t_clamped, degree, &control_points, &knots);
         // Skip degenerate points (too close to previous)
         if let Some(prev) = points.last() {
-            let dist_sq = (pt.x - prev.x).powi(2) + (pt.y - prev.y).powi(2) + (pt.z - prev.z).powi(2);
+            let dist_sq =
+                (pt.x - prev.x).powi(2) + (pt.y - prev.y).powi(2) + (pt.z - prev.z).powi(2);
             if dist_sq < 1e-12 {
                 continue;
             }
@@ -551,8 +555,11 @@ fn extract_edge_loop_points(
         };
 
         // IfcEdgeCurve: EdgeStart(0), EdgeEnd(1), EdgeGeometry(2), SameSense(3)
-        let edge_same_sense = edge_curve.get(3).and_then(|a| a.as_enum())
-            .map(|e| e == "T" || e == "TRUE").unwrap_or(true);
+        let edge_same_sense = edge_curve
+            .get(3)
+            .and_then(|a| a.as_enum())
+            .map(|e| e == "T" || e == "TRUE")
+            .unwrap_or(true);
 
         // Orientation determines which direction we walk the edge in the loop:
         //   TRUE  → EdgeStart to EdgeEnd
@@ -571,8 +578,12 @@ fn extract_edge_loop_points(
             .get(1)
             .and_then(|attr| decoder.resolve_ref(attr).ok().flatten());
 
-        let edge_start_pt = start_vertex.as_ref().and_then(|v| extract_vertex_coords(v, decoder));
-        let edge_end_pt = end_vertex.as_ref().and_then(|v| extract_vertex_coords(v, decoder));
+        let edge_start_pt = start_vertex
+            .as_ref()
+            .and_then(|v| extract_vertex_coords(v, decoder));
+        let edge_end_pt = end_vertex
+            .as_ref()
+            .and_then(|v| extract_vertex_coords(v, decoder));
 
         // Walk direction is based on Orientation only (not SameSense):
         //   Orientation TRUE  → we encounter EdgeStart first
@@ -638,7 +649,11 @@ fn process_planar_face(
                 .resolve_ref(loop_attr)?
                 .ok_or_else(|| Error::geometry("Failed to resolve loop".to_string()))?;
 
-            if !loop_entity.ifc_type.as_str().eq_ignore_ascii_case("IFCEDGELOOP") {
+            if !loop_entity
+                .ifc_type
+                .as_str()
+                .eq_ignore_ascii_case("IFCEDGELOOP")
+            {
                 continue;
             }
 
@@ -779,23 +794,17 @@ fn process_cylindrical_face(
                                         // EdgeStart/EdgeEnd can be * (null), get from EdgeElement if needed
 
                                         // Try to get start vertex from OrientedEdge first
-                                        let start_vertex = oriented_edge
-                                            .get(0)
-                                            .and_then(|attr| {
-                                                decoder.resolve_ref(attr).ok().flatten()
-                                            });
+                                        let start_vertex = oriented_edge.get(0).and_then(|attr| {
+                                            decoder.resolve_ref(attr).ok().flatten()
+                                        });
 
                                         // If null, get from EdgeElement (attribute 2)
                                         let vertex = if start_vertex.is_some() {
                                             start_vertex
-                                        } else if let Some(edge_elem_attr) =
-                                            oriented_edge.get(2)
-                                        {
+                                        } else if let Some(edge_elem_attr) = oriented_edge.get(2) {
                                             // Get EdgeElement (IfcEdgeCurve)
-                                            if let Some(edge_curve) = decoder
-                                                .resolve_ref(edge_elem_attr)
-                                                .ok()
-                                                .flatten()
+                                            if let Some(edge_curve) =
+                                                decoder.resolve_ref(edge_elem_attr).ok().flatten()
                                             {
                                                 // IfcEdgeCurve: 0=EdgeStart, 1=EdgeEnd, 2=EdgeGeometry
                                                 edge_curve.get(0).and_then(|attr| {
@@ -811,10 +820,8 @@ fn process_cylindrical_face(
                                         if let Some(vertex) = vertex {
                                             // IfcVertexPoint: 0=VertexGeometry (IfcCartesianPoint)
                                             if let Some(point_attr) = vertex.get(0) {
-                                                if let Some(point) = decoder
-                                                    .resolve_ref(point_attr)
-                                                    .ok()
-                                                    .flatten()
+                                                if let Some(point) =
+                                                    decoder.resolve_ref(point_attr).ok().flatten()
                                                 {
                                                     if let Some(coords) =
                                                         point.get(0).and_then(|v| v.as_list())
@@ -831,8 +838,7 @@ fn process_cylindrical_face(
                                                             .get(2)
                                                             .and_then(|v| v.as_float())
                                                             .unwrap_or(0.0);
-                                                        boundary_points
-                                                            .push(Point3::new(x, y, z));
+                                                        boundary_points.push(Point3::new(x, y, z));
                                                     }
                                                 }
                                             }
@@ -852,9 +858,7 @@ fn process_cylindrical_face(
     }
 
     // Transform boundary points to local cylinder coordinates
-    let inv_transform = axis_transform
-        .try_inverse()
-        .unwrap_or(Matrix4::identity());
+    let inv_transform = axis_transform.try_inverse().unwrap_or(Matrix4::identity());
     let local_points: Vec<Point3<f64>> = boundary_points
         .iter()
         .map(|p| inv_transform.transform_point(p))

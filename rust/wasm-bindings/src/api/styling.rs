@@ -147,9 +147,7 @@ pub(crate) fn build_element_style_index(
                 };
 
                 // Check if this geometry has a style, following MappedItem references if needed
-                if let Some(color) =
-                    find_color_for_geometry(geom_id, geometry_styles, decoder)
-                {
+                if let Some(color) = find_color_for_geometry(geom_id, geometry_styles, decoder) {
                     element_styles.insert(element_id, color);
                     break 'repr_loop; // Found a color — stop all representation traversal
                 }
@@ -430,8 +428,7 @@ pub(crate) fn combined_pre_pass(
                         // Normal IfcStyledItem with Item reference → geometry_styles
                         if !geometry_styles.contains_key(&geometry_id) {
                             if let Some(styles_attr) = styled_item.get(1) {
-                                if let Some(color) =
-                                    extract_color_from_styles(styles_attr, decoder)
+                                if let Some(color) = extract_color_from_styles(styles_attr, decoder)
                                 {
                                     geometry_styles.insert(geometry_id, color);
                                 }
@@ -440,9 +437,7 @@ pub(crate) fn combined_pre_pass(
                     } else {
                         // Orphan IfcStyledItem (null Item) — material-based color
                         if let Some(styles_attr) = styled_item.get(1) {
-                            if let Some(color) =
-                                extract_color_from_styles(styles_attr, decoder)
-                            {
+                            if let Some(color) = extract_color_from_styles(styles_attr, decoder) {
                                 orphan_styled_items.insert(id, color);
                             }
                         }
@@ -451,7 +446,11 @@ pub(crate) fn combined_pre_pass(
             }
             "IFCMATERIALDEFINITIONREPRESENTATION" | "IFCRELASSOCIATESMATERIAL" => {
                 collect_material_entity(
-                    id, type_name, start, end, decoder,
+                    id,
+                    type_name,
+                    start,
+                    end,
+                    decoder,
                     &mut orphan_styled_items,
                     &mut material_def_reprs,
                     &mut element_to_material,
@@ -496,18 +495,12 @@ pub(crate) fn combined_pre_pass(
 
     // Build material style index: material_id → [color, ...]
     // Chain: material → IfcMaterialDefinitionRepresentation → IfcStyledRepresentation → orphan IfcStyledItem
-    let material_styles = build_material_style_index(
-        &material_def_reprs,
-        &orphan_styled_items,
-        decoder,
-    );
+    let material_styles =
+        build_material_style_index(&material_def_reprs, &orphan_styled_items, decoder);
 
     // Build element → material colors map
-    let element_material_styles = build_element_material_styles(
-        &element_to_material,
-        &material_styles,
-        decoder,
-    );
+    let element_material_styles =
+        build_element_material_styles(&element_to_material, &material_styles, decoder);
 
     // Propagate voids from aggregate parents (IfcWall) to children (IfcBuildingElementPart)
     // so that multilayer wall parts also get window/door cutouts.
@@ -560,10 +553,7 @@ fn build_material_style_index(
             for item in items_list {
                 if let Some(styled_item_id) = item.as_entity_ref() {
                     if let Some(&color) = orphan_styled_items.get(&styled_item_id) {
-                        material_styles
-                            .entry(material_id)
-                            .or_default()
-                            .push(color);
+                        material_styles.entry(material_id).or_default().push(color);
                     }
                 }
             }
@@ -667,8 +657,7 @@ fn resolve_material_ids_inner(
             // IfcMaterialProfile: Attr 2: Material (ref to IfcMaterial)
             extract_nested_material_ids(&entity, 2, 2, decoder)
         }
-        IfcType::IfcMaterialProfileSetUsage
-        | IfcType::IfcMaterialProfileSetUsageTapering => {
+        IfcType::IfcMaterialProfileSetUsage | IfcType::IfcMaterialProfileSetUsageTapering => {
             // Attr 0: ForProfileSet (ref to IfcMaterialProfileSet)
             // IfcMaterialProfileSetUsageTapering is a subtype with the same attr layout
             if let Some(profile_set_id) = entity.get_ref(0) {
@@ -879,12 +868,18 @@ pub(crate) fn pick_material_style_for_submesh(
 
     if prefer_transparent {
         // Prefer transparent (glass) — alpha < threshold
-        if let Some(color) = material_colors.iter().find(|c| c[3] < TRANSPARENCY_ALPHA_THRESHOLD) {
+        if let Some(color) = material_colors
+            .iter()
+            .find(|c| c[3] < TRANSPARENCY_ALPHA_THRESHOLD)
+        {
             return Some(*color);
         }
     } else {
         // Prefer opaque (frame) — alpha >= threshold
-        if let Some(color) = material_colors.iter().find(|c| c[3] >= TRANSPARENCY_ALPHA_THRESHOLD) {
+        if let Some(color) = material_colors
+            .iter()
+            .find(|c| c[3] >= TRANSPARENCY_ALPHA_THRESHOLD)
+        {
             return Some(*color);
         }
     }

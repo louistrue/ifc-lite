@@ -35,25 +35,23 @@ pub fn extrude_profile(
     };
 
     // Create mesh
-    let cap_vertex_count = triangulation.as_ref().map(|t| t.points.len() * 2).unwrap_or(0);
+    let cap_vertex_count = triangulation
+        .as_ref()
+        .map(|t| t.points.len() * 2)
+        .unwrap_or(0);
     let side_vertex_count = profile.outer.len() * 2;
     let total_vertices = cap_vertex_count + side_vertex_count;
 
-    let cap_index_count = triangulation.as_ref().map(|t| t.indices.len() * 2).unwrap_or(0);
-    let mut mesh = Mesh::with_capacity(
-        total_vertices,
-        cap_index_count + profile.outer.len() * 6,
-    );
+    let cap_index_count = triangulation
+        .as_ref()
+        .map(|t| t.indices.len() * 2)
+        .unwrap_or(0);
+    let mut mesh = Mesh::with_capacity(total_vertices, cap_index_count + profile.outer.len() * 6);
 
     // Create top and bottom caps (skip for extreme aspect ratio profiles)
     if let Some(ref tri) = triangulation {
         create_cap_mesh(tri, 0.0, Vector3::new(0.0, 0.0, -1.0), &mut mesh);
-        create_cap_mesh(
-            tri,
-            depth,
-            Vector3::new(0.0, 0.0, 1.0),
-            &mut mesh,
-        );
+        create_cap_mesh(tri, depth, Vector3::new(0.0, 0.0, 1.0), &mut mesh);
     }
 
     // Create side walls
@@ -147,7 +145,11 @@ pub fn extrude_profile_with_voids(
 
     let vertex_count = triangulation.points.len() * 2;
     let side_vertex_count = profile_with_holes.outer.len() * 2
-        + profile_with_holes.holes.iter().map(|h| h.len() * 2).sum::<usize>();
+        + profile_with_holes
+            .holes
+            .iter()
+            .map(|h| h.len() * 2)
+            .sum::<usize>();
     let partial_void_vertices = partial_void_count * 100; // Estimate
     let total_vertices = vertex_count + side_vertex_count + partial_void_vertices;
 
@@ -236,12 +238,7 @@ fn create_partial_void_geometry(void: &VoidInfo, total_depth: f64, mesh: &mut Me
 }
 
 /// Create side walls for a void opening between two depths
-fn create_void_side_walls(
-    contour: &[Point2<f64>],
-    z_start: f64,
-    z_end: f64,
-    mesh: &mut Mesh,
-) {
+fn create_void_side_walls(contour: &[Point2<f64>], z_start: f64, z_end: f64, mesh: &mut Mesh) {
     let base_index = mesh.vertex_count() as u32;
     let mut quad_count = 0u32;
 

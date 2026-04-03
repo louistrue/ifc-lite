@@ -196,10 +196,7 @@ fn test_ifc_with_materials_does_not_crash() {
         }
     }
 
-    println!(
-        "Processed {} elements, {} failed",
-        processed, failed
-    );
+    println!("Processed {} elements, {} failed", processed, failed);
     assert!(processed > 0, "Should have processed at least one element");
 }
 
@@ -212,8 +209,13 @@ fn test_styled_item_parsing() {
     let mut decoder = EntityDecoder::with_index(content, entity_index.into());
 
     // Decode IFCSURFACESTYLERENDERING with typed values
-    let rendering = decoder.decode_by_id(21).expect("Should decode IFCSURFACESTYLERENDERING #21");
-    assert_eq!(rendering.ifc_type, ifc_lite_core::IfcType::IfcSurfaceStyleRendering);
+    let rendering = decoder
+        .decode_by_id(21)
+        .expect("Should decode IFCSURFACESTYLERENDERING #21");
+    assert_eq!(
+        rendering.ifc_type,
+        ifc_lite_core::IfcType::IfcSurfaceStyleRendering
+    );
 
     // Attribute 0: SurfaceColour (entity ref to #20)
     let color_ref = rendering.get_ref(0);
@@ -231,24 +233,39 @@ fn test_styled_item_parsing() {
 
     // Attribute 7: SpecularHighlight (typed value IFCSPECULAREXPONENT(64.))
     let highlight = rendering.get(7);
-    assert!(highlight.is_some(), "SpecularHighlight attribute should exist");
+    assert!(
+        highlight.is_some(),
+        "SpecularHighlight attribute should exist"
+    );
     let highlight_float = highlight.unwrap().as_float();
-    assert_eq!(highlight_float, Some(64.0), "SpecularHighlight should be 64.0");
+    assert_eq!(
+        highlight_float,
+        Some(64.0),
+        "SpecularHighlight should be 64.0"
+    );
 
     // Attribute 8: ReflectanceMethod (enum NOTDEFINED)
     let method = rendering.get(8);
     assert!(method.is_some(), "ReflectanceMethod attribute should exist");
 
     // Decode IFCSTYLEDITEM
-    let styled_item = decoder.decode_by_id(92).expect("Should decode IFCSTYLEDITEM #92");
+    let styled_item = decoder
+        .decode_by_id(92)
+        .expect("Should decode IFCSTYLEDITEM #92");
     assert_eq!(styled_item.ifc_type, ifc_lite_core::IfcType::IfcStyledItem);
 
     // Attribute 0: Item (entity ref to geometry #39)
     let item_ref = styled_item.get_ref(0);
-    assert_eq!(item_ref, Some(39), "StyledItem should reference geometry #39");
+    assert_eq!(
+        item_ref,
+        Some(39),
+        "StyledItem should reference geometry #39"
+    );
 
     // Decode IfcColourRgb
-    let colour = decoder.decode_by_id(89).expect("Should decode IFCCOLOURRGB #89");
+    let colour = decoder
+        .decode_by_id(89)
+        .expect("Should decode IFCCOLOURRGB #89");
     assert_eq!(colour.ifc_type, ifc_lite_core::IfcType::IfcColourRgb);
 
     // Attr 1: Red, Attr 2: Green, Attr 3: Blue

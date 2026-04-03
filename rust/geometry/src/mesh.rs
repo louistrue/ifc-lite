@@ -87,7 +87,9 @@ pub struct SubMeshCollection {
 impl SubMeshCollection {
     /// Create a new empty collection
     pub fn new() -> Self {
-        Self { sub_meshes: Vec::new() }
+        Self {
+            sub_meshes: Vec::new(),
+        }
     }
 
     /// Add a sub-mesh
@@ -140,19 +142,36 @@ impl Mesh {
             indices: Vec::with_capacity(index_count),
         }
     }
-    
+
     /// Create a mesh from a single triangle
-    pub fn from_triangle(v0: &Point3<f64>, v1: &Point3<f64>, v2: &Point3<f64>, normal: &Vector3<f64>) -> Self {
+    pub fn from_triangle(
+        v0: &Point3<f64>,
+        v1: &Point3<f64>,
+        v2: &Point3<f64>,
+        normal: &Vector3<f64>,
+    ) -> Self {
         let mut mesh = Self::with_capacity(3, 3);
         mesh.positions = vec![
-            v0.x as f32, v0.y as f32, v0.z as f32,
-            v1.x as f32, v1.y as f32, v1.z as f32,
-            v2.x as f32, v2.y as f32, v2.z as f32,
+            v0.x as f32,
+            v0.y as f32,
+            v0.z as f32,
+            v1.x as f32,
+            v1.y as f32,
+            v1.z as f32,
+            v2.x as f32,
+            v2.y as f32,
+            v2.z as f32,
         ];
         mesh.normals = vec![
-            normal.x as f32, normal.y as f32, normal.z as f32,
-            normal.x as f32, normal.y as f32, normal.z as f32,
-            normal.x as f32, normal.y as f32, normal.z as f32,
+            normal.x as f32,
+            normal.y as f32,
+            normal.z as f32,
+            normal.x as f32,
+            normal.y as f32,
+            normal.z as f32,
+            normal.x as f32,
+            normal.y as f32,
+            normal.z as f32,
         ];
         mesh.indices = vec![0, 1, 2];
         mesh
@@ -522,10 +541,10 @@ mod tests {
         // p2 shifted: (0.223456, 0.754321, 0.211)
         assert!((mesh.positions[0] - 0.123456).abs() < 0.0001); // X1
         assert!((mesh.positions[1] - 0.654321).abs() < 0.0001); // Y1
-        assert!((mesh.positions[2] - 0.111).abs() < 0.0001);    // Z1
+        assert!((mesh.positions[2] - 0.111).abs() < 0.0001); // Z1
         assert!((mesh.positions[3] - 0.223456).abs() < 0.0001); // X2
         assert!((mesh.positions[4] - 0.754321).abs() < 0.0001); // Y2
-        assert!((mesh.positions[5] - 0.211).abs() < 0.0001);    // Z2
+        assert!((mesh.positions[5] - 0.211).abs() < 0.0001); // Z2
 
         // Verify relative distances are preserved with high precision
         let dx = mesh.positions[3] - mesh.positions[0];
@@ -543,10 +562,7 @@ mod tests {
         let mut mesh = Mesh::new();
 
         // Add vertices with large coordinates (already converted to f32 - some precision lost)
-        mesh.positions = vec![
-            500000.0, 5000000.0, 0.0,
-            500010.0, 5000010.0, 10.0,
-        ];
+        mesh.positions = vec![500000.0, 5000000.0, 0.0, 500010.0, 5000010.0, 10.0];
         mesh.normals = vec![0.0, 0.0, 1.0, 0.0, 0.0, 1.0];
 
         // Apply shift
@@ -563,11 +579,7 @@ mod tests {
     #[test]
     fn test_centroid_f64() {
         let mut mesh = Mesh::new();
-        mesh.positions = vec![
-            0.0, 0.0, 0.0,
-            10.0, 10.0, 10.0,
-            20.0, 20.0, 20.0,
-        ];
+        mesh.positions = vec![0.0, 0.0, 0.0, 10.0, 10.0, 10.0, 20.0, 20.0, 20.0];
         mesh.normals = vec![0.0; 9];
 
         let centroid = mesh.centroid_f64();
@@ -601,7 +613,10 @@ mod tests {
         let diff_shifted = p2_shifted.0 - p1_shifted.0;
 
         println!("Direct f32 difference (should be ~0.001): {}", diff_direct);
-        println!("Shifted f32 difference (should be ~0.001): {}", diff_shifted);
+        println!(
+            "Shifted f32 difference (should be ~0.001): {}",
+            diff_shifted
+        );
 
         // The shifted version should be much closer to the true 1mm difference
         let error_direct = (diff_direct - offset as f32).abs();

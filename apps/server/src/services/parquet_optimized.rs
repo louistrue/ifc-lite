@@ -14,7 +14,7 @@
 //! Typical additional compression: 3-5x over basic Parquet format.
 
 use crate::types::MeshData;
-use arrow::array::{Int32Array, UInt8Array, UInt32Array, Float32Array, StringArray};
+use arrow::array::{Float32Array, Int32Array, StringArray, UInt32Array, UInt8Array};
 use arrow::datatypes::{DataType, Field, Schema};
 use arrow::record_batch::RecordBatch;
 use bytes::Bytes;
@@ -210,14 +210,14 @@ pub fn serialize_to_parquet_optimized(
         // OPTIMIZATION: Apply coordinate transform server-side to eliminate client per-vertex loops
         // IFC uses Z-up, WebGL uses Y-up. Transform: X stays same, new Y = old Z, new Z = -old Y
         for i in 0..vert_count {
-            vertex_x.push(quantize_position(mesh.positions[i * 3]));           // X stays the same
-            vertex_y.push(quantize_position(mesh.positions[i * 3 + 2]));       // New Y = old Z (vertical)
-            vertex_z.push(quantize_position(-mesh.positions[i * 3 + 1]));      // New Z = -old Y (depth)
+            vertex_x.push(quantize_position(mesh.positions[i * 3])); // X stays the same
+            vertex_y.push(quantize_position(mesh.positions[i * 3 + 2])); // New Y = old Z (vertical)
+            vertex_z.push(quantize_position(-mesh.positions[i * 3 + 1])); // New Z = -old Y (depth)
 
             if include_normals {
-                normal_x.push(mesh.normals[i * 3]);           // X stays the same
-                normal_y.push(mesh.normals[i * 3 + 2]);       // New Y = old Z
-                normal_z.push(-mesh.normals[i * 3 + 1]);      // New Z = -old Y
+                normal_x.push(mesh.normals[i * 3]); // X stays the same
+                normal_y.push(mesh.normals[i * 3 + 2]); // New Y = old Z
+                normal_z.push(-mesh.normals[i * 3 + 1]); // New Z = -old Y
             }
         }
 
@@ -336,7 +336,8 @@ pub fn serialize_to_parquet_optimized(
     // Index table schema
     let index_schema = Arc::new(Schema::new(vec![Field::new("i", DataType::UInt32, false)]));
 
-    let index_batch = RecordBatch::try_new(index_schema, vec![Arc::new(UInt32Array::from(indices))])?;
+    let index_batch =
+        RecordBatch::try_new(index_schema, vec![Arc::new(UInt32Array::from(indices))])?;
 
     // Phase 4: Write to binary format
     // Header: [version:u8][flags:u8][instance_len:u32][mesh_len:u32][material_len:u32][vertex_len:u32][index_len:u32]
@@ -391,15 +392,19 @@ fn write_parquet_buffer(batch: &RecordBatch) -> Result<Vec<u8>, ParquetError> {
     for field in batch.schema().fields() {
         let is_numeric = matches!(
             field.data_type(),
-            DataType::Float32 | DataType::Float64 | DataType::UInt32 | DataType::UInt64
-                | DataType::Int32 | DataType::Int64 | DataType::UInt8 | DataType::Int8
+            DataType::Float32
+                | DataType::Float64
+                | DataType::UInt32
+                | DataType::UInt64
+                | DataType::Int32
+                | DataType::Int64
+                | DataType::UInt8
+                | DataType::Int8
         );
-        
+
         if is_numeric {
-            props_builder = props_builder.set_column_dictionary_enabled(
-                ColumnPath::from(field.name().as_str()),
-                false,
-            );
+            props_builder = props_builder
+                .set_column_dictionary_enabled(ColumnPath::from(field.name().as_str()), false);
         }
     }
 
@@ -516,7 +521,11 @@ mod tests {
 
         // Should be very compact
         // Note: Parquet has fixed overhead, so small test data may be larger
-        assert!(data.len() < 5000, "Expected compact output, got {} bytes", data.len());
+        assert!(
+            data.len() < 5000,
+            "Expected compact output, got {} bytes",
+            data.len()
+        );
     }
 
     #[test]

@@ -345,11 +345,8 @@ impl VoidAnalyzer {
         let start = points[start_idx];
 
         // Sort points by polar angle with respect to start
-        let mut sorted: Vec<Point2<f64>> = points
-            .iter()
-            .filter(|p| **p != start)
-            .cloned()
-            .collect();
+        let mut sorted: Vec<Point2<f64>> =
+            points.iter().filter(|p| **p != start).cloned().collect();
 
         sorted.sort_by(|a, b| {
             let angle_a = (a.y - start.y).atan2(a.x - start.x);
@@ -366,8 +363,8 @@ impl VoidAnalyzer {
                 let second = hull[hull.len() - 2];
 
                 // Cross product to check turn direction
-                let cross = (top.x - second.x) * (p.y - second.y)
-                    - (top.y - second.y) * (p.x - second.x);
+                let cross =
+                    (top.x - second.x) * (p.y - second.y) - (top.y - second.y) * (p.x - second.x);
 
                 if cross <= 0.0 {
                     hull.pop();
@@ -438,7 +435,12 @@ pub fn classify_voids_batch(
     void_meshes
         .iter()
         .map(|mesh| {
-            analyzer.classify_void(mesh, profile_transform, extrusion_direction, extrusion_depth)
+            analyzer.classify_void(
+                mesh,
+                profile_transform,
+                extrusion_direction,
+                extrusion_depth,
+            )
         })
         .collect()
 }
@@ -527,10 +529,7 @@ mod tests {
         let analyzer = VoidAnalyzer::new();
 
         // Create a vertical box void (aligned with Z-axis extrusion)
-        let void_mesh = create_box_mesh(
-            Point3::new(2.0, 2.0, 0.0),
-            Point3::new(4.0, 4.0, 10.0),
-        );
+        let void_mesh = create_box_mesh(Point3::new(2.0, 2.0, 0.0), Point3::new(4.0, 4.0, 10.0));
 
         let profile_transform = Matrix4::identity();
         let extrusion_direction = Vector3::new(0.0, 0.0, 1.0);
@@ -556,10 +555,7 @@ mod tests {
         let analyzer = VoidAnalyzer::new();
 
         // Create a box void that only goes halfway through
-        let void_mesh = create_box_mesh(
-            Point3::new(2.0, 2.0, 2.0),
-            Point3::new(4.0, 4.0, 8.0),
-        );
+        let void_mesh = create_box_mesh(Point3::new(2.0, 2.0, 2.0), Point3::new(4.0, 4.0, 8.0));
 
         let profile_transform = Matrix4::identity();
         let extrusion_direction = Vector3::new(0.0, 0.0, 1.0);
@@ -601,9 +597,7 @@ mod tests {
                 depth_end: 10.0,
                 is_through: true,
             },
-            VoidClassification::NonPlanar {
-                mesh: Mesh::new(),
-            },
+            VoidClassification::NonPlanar { mesh: Mesh::new() },
             VoidClassification::NonIntersecting,
         ];
 

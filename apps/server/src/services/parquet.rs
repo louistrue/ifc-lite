@@ -54,7 +54,7 @@ pub fn serialize_to_parquet(meshes: &[MeshData]) -> Result<Bytes, ParquetError> 
     let mut index_offsets = Vec::with_capacity(mesh_count);
     let mut vertex_offset: u32 = 0;
     let mut index_offset: u32 = 0;
-    
+
     for mesh in meshes {
         vertex_offsets.push(vertex_offset);
         index_offsets.push(index_offset);
@@ -124,13 +124,13 @@ pub fn serialize_to_parquet(meshes: &[MeshData]) -> Result<Bytes, ParquetError> 
 
             for i in 0..vert_count {
                 // Position: Z-up to Y-up transform
-                px.push(mesh.positions[i * 3]);           // X stays the same
-                py.push(mesh.positions[i * 3 + 2]);       // New Y = old Z (vertical)
-                pz.push(-mesh.positions[i * 3 + 1]);      // New Z = -old Y (depth)
-                // Normal: Same transform
-                nx.push(mesh.normals[i * 3]);             // X stays the same
-                ny.push(mesh.normals[i * 3 + 2]);         // New Y = old Z
-                nz.push(-mesh.normals[i * 3 + 1]);        // New Z = -old Y
+                px.push(mesh.positions[i * 3]); // X stays the same
+                py.push(mesh.positions[i * 3 + 2]); // New Y = old Z (vertical)
+                pz.push(-mesh.positions[i * 3 + 1]); // New Z = -old Y (depth)
+                                                     // Normal: Same transform
+                nx.push(mesh.normals[i * 3]); // X stays the same
+                ny.push(mesh.normals[i * 3 + 2]); // New Y = old Z
+                nz.push(-mesh.normals[i * 3 + 1]); // New Z = -old Y
             }
             (px, py, pz, nx, ny, nz)
         })
@@ -143,7 +143,7 @@ pub fn serialize_to_parquet(meshes: &[MeshData]) -> Result<Bytes, ParquetError> 
     let mut norm_x = Vec::with_capacity(total_vertices);
     let mut norm_y = Vec::with_capacity(total_vertices);
     let mut norm_z = Vec::with_capacity(total_vertices);
-    
+
     for (px, py, pz, nx, ny, nz) in vertex_data {
         pos_x.extend(px);
         pos_y.extend(py);
@@ -161,7 +161,7 @@ pub fn serialize_to_parquet(meshes: &[MeshData]) -> Result<Bytes, ParquetError> 
             let mut i0 = Vec::with_capacity(tri_count);
             let mut i1 = Vec::with_capacity(tri_count);
             let mut i2 = Vec::with_capacity(tri_count);
-            
+
             for i in 0..tri_count {
                 i0.push(mesh.indices[i * 3]);
                 i1.push(mesh.indices[i * 3 + 1]);
@@ -175,7 +175,7 @@ pub fn serialize_to_parquet(meshes: &[MeshData]) -> Result<Bytes, ParquetError> 
     let mut idx_0 = Vec::with_capacity(total_triangles);
     let mut idx_1 = Vec::with_capacity(total_triangles);
     let mut idx_2 = Vec::with_capacity(total_triangles);
-    
+
     for (i0, i1, i2) in index_data {
         idx_0.extend(i0);
         idx_1.extend(i1);
@@ -288,15 +288,17 @@ fn write_parquet_buffer(batch: &RecordBatch) -> Result<Vec<u8>, ParquetError> {
     for field in batch.schema().fields() {
         let is_numeric = matches!(
             field.data_type(),
-            DataType::Float32 | DataType::Float64 | DataType::UInt32 | DataType::UInt64
-                | DataType::Int32 | DataType::Int64
+            DataType::Float32
+                | DataType::Float64
+                | DataType::UInt32
+                | DataType::UInt64
+                | DataType::Int32
+                | DataType::Int64
         );
-        
+
         if is_numeric {
-            props_builder = props_builder.set_column_dictionary_enabled(
-                ColumnPath::from(field.name().as_str()),
-                false,
-            );
+            props_builder = props_builder
+                .set_column_dictionary_enabled(ColumnPath::from(field.name().as_str()), false);
         }
     }
 
@@ -341,6 +343,10 @@ mod tests {
         // Should be much smaller than JSON equivalent
         // Note: Parquet has fixed overhead (~4KB headers), so small test data may appear larger
         // Real-world compression is 15x+ on actual IFC geometry data
-        assert!(data.len() < 10000, "Expected compact output, got {} bytes", data.len());
+        assert!(
+            data.len() < 10000,
+            "Expected compact output, got {} bytes",
+            data.len()
+        );
     }
 }

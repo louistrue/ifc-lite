@@ -9,8 +9,7 @@
 use crate::types::mesh::MeshData;
 use crate::types::response::{CoordinateInfo, ModelMetadata, ProcessingStats};
 use ifc_lite_core::{
-    build_entity_index, AttributeValue, DecodedEntity, EntityDecoder,
-    EntityScanner, IfcType,
+    build_entity_index, AttributeValue, DecodedEntity, EntityDecoder, EntityScanner, IfcType,
 };
 use ifc_lite_geometry::{calculate_normals, GeometryRouter};
 use rayon::prelude::*;
@@ -74,10 +73,15 @@ fn apply_inverse_rotation_in_place(values: &mut [f32], column_major_matrix: &[f6
     let r22 = column_major_matrix[10];
 
     const EPS: f64 = 1e-9;
-    let is_identity =
-        (r00 - 1.0).abs() < EPS && r10.abs() < EPS && r20.abs() < EPS &&
-        r01.abs() < EPS && (r11 - 1.0).abs() < EPS && r21.abs() < EPS &&
-        r02.abs() < EPS && r12.abs() < EPS && (r22 - 1.0).abs() < EPS;
+    let is_identity = (r00 - 1.0).abs() < EPS
+        && r10.abs() < EPS
+        && r20.abs() < EPS
+        && r01.abs() < EPS
+        && (r11 - 1.0).abs() < EPS
+        && r21.abs() < EPS
+        && r02.abs() < EPS
+        && r12.abs() < EPS
+        && (r22 - 1.0).abs() < EPS;
     if is_identity {
         return;
     }
@@ -165,7 +169,11 @@ fn normalize_ifc_property_name(raw: Option<&str>) -> Option<String> {
 fn is_space_or_zone_type(ifc_type: &IfcType) -> bool {
     matches!(
         ifc_type,
-        IfcType::IfcSpace | IfcType::IfcSpaceType | IfcType::IfcZone | IfcType::IfcSpatialZone | IfcType::IfcSpatialZoneType
+        IfcType::IfcSpace
+            | IfcType::IfcSpaceType
+            | IfcType::IfcZone
+            | IfcType::IfcSpatialZone
+            | IfcType::IfcSpatialZoneType
     )
 }
 
@@ -380,7 +388,10 @@ pub fn process_geometry(content: &str) -> ProcessingResult {
 }
 
 /// Process IFC content with parallel geometry extraction and a configurable opening filter.
-pub fn process_geometry_filtered(content: &str, opening_filter: OpeningFilterMode) -> ProcessingResult {
+pub fn process_geometry_filtered(
+    content: &str,
+    opening_filter: OpeningFilterMode,
+) -> ProcessingResult {
     let total_start = std::time::Instant::now();
     let parse_start = std::time::Instant::now();
 
@@ -459,7 +470,8 @@ pub fn process_geometry_filtered(content: &str, opening_filter: OpeningFilterMod
         } else if type_name == "IFCRELFILLSELEMENT" {
             if let Ok(entity) = decoder.decode_at(start, end) {
                 // attr 4 = RelatingOpeningElement, attr 5 = RelatedBuildingElement (window/door)
-                if let (Some(opening_id), Some(filling_id)) = (entity.get_ref(4), entity.get_ref(5)) {
+                if let (Some(opening_id), Some(filling_id)) = (entity.get_ref(4), entity.get_ref(5))
+                {
                     filling_by_opening.insert(opening_id, filling_id);
                 }
             }
@@ -539,12 +551,16 @@ pub fn process_geometry_filtered(content: &str, opening_filter: OpeningFilterMod
     // positions end up in site-local coordinates (building origin preserved).
     let site_transform: Option<Vec<f64>> = site_entity_pos.and_then(|(start, end)| {
         let entity = decoder.decode_at(start, end).ok()?;
-        let matrix = router.resolve_scaled_placement(&entity, &mut decoder).ok()?;
+        let matrix = router
+            .resolve_scaled_placement(&entity, &mut decoder)
+            .ok()?;
         Some(matrix.to_vec())
     });
     let building_transform: Option<Vec<f64>> = building_entity_pos.and_then(|(start, end)| {
         let entity = decoder.decode_at(start, end).ok()?;
-        let matrix = router.resolve_scaled_placement(&entity, &mut decoder).ok()?;
+        let matrix = router
+            .resolve_scaled_placement(&entity, &mut decoder)
+            .ok()?;
         Some(matrix.to_vec())
     });
 
@@ -637,20 +653,20 @@ pub fn process_geometry_filtered(content: &str, opening_filter: OpeningFilterMod
                             });
 
                             let mut mesh_data = MeshData::new(
-                                    job.id,
-                                    job.ifc_type.name().to_string(),
-                                    sub_mesh.positions,
-                                    sub_mesh.normals,
-                                    sub_mesh.indices,
-                                    color,
-                                )
-                                .with_element_metadata(
-                                    global_id.clone(),
-                                    name.clone(),
-                                    presentation_layer.clone(),
-                                )
-                                .with_properties(space_zone_properties.clone())
-                                .with_style_metadata(material_name, Some(sub.geometry_id));
+                                job.id,
+                                job.ifc_type.name().to_string(),
+                                sub_mesh.positions,
+                                sub_mesh.normals,
+                                sub_mesh.indices,
+                                color,
+                            )
+                            .with_element_metadata(
+                                global_id.clone(),
+                                name.clone(),
+                                presentation_layer.clone(),
+                            )
+                            .with_properties(space_zone_properties.clone())
+                            .with_style_metadata(material_name, Some(sub.geometry_id));
                             convert_mesh_to_site_local(&mut mesh_data, site_transform.as_ref());
                             out.push(mesh_data);
                         }
@@ -1082,10 +1098,7 @@ fn apply_opening_filter(
     mode: OpeningFilterMode,
 ) -> (HashSet<u32>, FxHashMap<u32, Vec<u32>>) {
     if mode == OpeningFilterMode::Default {
-        return (
-            HashSet::default(),
-            void_index.clone(),
-        );
+        return (HashSet::default(), void_index.clone());
     }
 
     // Collect all IfcWindow / IfcDoor entity jobs.
@@ -1216,7 +1229,8 @@ fn is_opaque_opening(
                         if let Ok(source) = decoder.decode_by_id(source_id) {
                             if let Some(mapped_repr_id) = source.get_ref(1) {
                                 if let Ok(mapped_repr) = decoder.decode_by_id(mapped_repr_id) {
-                                    if let Some(mapped_items) = get_refs_from_list(&mapped_repr, 3) {
+                                    if let Some(mapped_items) = get_refs_from_list(&mapped_repr, 3)
+                                    {
                                         for mapped_item_id in mapped_items {
                                             if let Some(style) = styles.get(&mapped_item_id) {
                                                 if has_glass_style(style) {

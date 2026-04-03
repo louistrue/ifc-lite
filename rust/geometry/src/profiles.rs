@@ -8,7 +8,9 @@
 
 use crate::profile::Profile2D;
 use crate::{Error, Point2, Point3, Result, Vector3};
-use ifc_lite_core::{AttributeValue, DecodedEntity, EntityDecoder, IfcSchema, IfcType, ProfileCategory};
+use ifc_lite_core::{
+    AttributeValue, DecodedEntity, EntityDecoder, IfcSchema, IfcType, ProfileCategory,
+};
 use std::f64::consts::PI;
 
 /// Maximum recursion depth for nested curve processing.
@@ -60,7 +62,9 @@ impl ProfileProcessor {
             _ => match self.schema.profile_category(&profile.ifc_type) {
                 Some(ProfileCategory::Parametric) => self.process_parametric(profile, decoder),
                 Some(ProfileCategory::Arbitrary) => self.process_arbitrary(profile, decoder),
-                Some(ProfileCategory::Composite) => self.process_composite_with_depth(profile, decoder, depth),
+                Some(ProfileCategory::Composite) => {
+                    self.process_composite_with_depth(profile, decoder, depth)
+                }
                 _ => Err(Error::geometry(format!(
                     "Unsupported profile type: {}",
                     profile.ifc_type
@@ -738,8 +742,12 @@ impl ProfileProcessor {
         match curve.ifc_type {
             IfcType::IfcPolyline => self.process_polyline(curve, decoder),
             IfcType::IfcIndexedPolyCurve => self.process_indexed_polycurve(curve, decoder),
-            IfcType::IfcCompositeCurve => self.process_composite_curve_with_depth(curve, decoder, depth),
-            IfcType::IfcTrimmedCurve => self.process_trimmed_curve_with_depth(curve, decoder, depth),
+            IfcType::IfcCompositeCurve => {
+                self.process_composite_curve_with_depth(curve, decoder, depth)
+            }
+            IfcType::IfcTrimmedCurve => {
+                self.process_trimmed_curve_with_depth(curve, decoder, depth)
+            }
             IfcType::IfcCircle => self.process_circle_curve(curve, decoder),
             IfcType::IfcEllipse => self.process_ellipse_curve(curve, decoder),
             _ => Err(Error::geometry(format!(
@@ -774,7 +782,9 @@ impl ProfileProcessor {
         }
         match curve.ifc_type {
             IfcType::IfcPolyline => self.process_polyline_3d(curve, decoder),
-            IfcType::IfcCompositeCurve => self.process_composite_curve_3d_with_depth(curve, decoder, depth),
+            IfcType::IfcCompositeCurve => {
+                self.process_composite_curve_3d_with_depth(curve, decoder, depth)
+            }
             IfcType::IfcCircle => self.process_circle_3d(curve, decoder),
             IfcType::IfcTrimmedCurve => {
                 // For trimmed curve, get 2D points and convert to 3D
@@ -999,7 +1009,8 @@ impl ProfileProcessor {
                 .map(|e| e == "T" || e == "TRUE")
                 .unwrap_or(true);
 
-            let mut segment_points = self.get_curve_points_with_depth(&parent_curve, decoder, depth + 1)?;
+            let mut segment_points =
+                self.get_curve_points_with_depth(&parent_curve, decoder, depth + 1)?;
 
             if !same_sense {
                 segment_points.reverse();
@@ -1352,7 +1363,8 @@ impl ProfileProcessor {
                 // List([String("IFCLINEINDEX"), List([Integer(1), Integer(2)])])
                 if segment_list.len() >= 2 {
                     // First element is type name (String), second is the actual indices list
-                    let type_name = segment_list.first()
+                    let type_name = segment_list
+                        .first()
                         .and_then(|v| v.as_string())
                         .unwrap_or("");
                     let is_arc_type = type_name.to_uppercase().contains("ARC");
@@ -1563,7 +1575,8 @@ impl ProfileProcessor {
                 .unwrap_or(true);
 
             // Process the parent curve (with depth tracking)
-            let mut segment_points = self.process_curve_with_depth(&parent_curve, decoder, depth + 1)?;
+            let mut segment_points =
+                self.process_curve_with_depth(&parent_curve, decoder, depth + 1)?;
 
             if !same_sense {
                 segment_points.reverse();

@@ -360,8 +360,10 @@ impl GeometryRouter {
         let tx = transform[(0, 3)];
         let ty = transform[(1, 3)];
         let tz = transform[(2, 3)];
-        let needs_rtc = self.has_rtc_offset() &&
-            (tx.abs() > LARGE_COORD_THRESHOLD || ty.abs() > LARGE_COORD_THRESHOLD || tz.abs() > LARGE_COORD_THRESHOLD);
+        let needs_rtc = self.has_rtc_offset()
+            && (tx.abs() > LARGE_COORD_THRESHOLD
+                || ty.abs() > LARGE_COORD_THRESHOLD
+                || tz.abs() > LARGE_COORD_THRESHOLD);
 
         if needs_rtc {
             // Apply RTC offset to all vertices uniformly

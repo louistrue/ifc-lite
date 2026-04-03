@@ -83,10 +83,7 @@ pub fn subtract_multiple_2d(
     }
 
     // Filter out invalid contours
-    let valid_contours: Vec<_> = void_contours
-        .iter()
-        .filter(|c| c.len() >= 3)
-        .collect();
+    let valid_contours: Vec<_> = void_contours.iter().filter(|c| c.len() >= 3).collect();
 
     if valid_contours.is_empty() {
         return Ok(profile.clone());
@@ -96,10 +93,7 @@ pub fn subtract_multiple_2d(
     let subject = profile_to_paths(profile);
 
     // Convert all void contours - union them first if multiple
-    let clip: Vec<Vec<[f64; 2]>> = valid_contours
-        .iter()
-        .map(|c| contour_to_path(c))
-        .collect();
+    let clip: Vec<Vec<[f64; 2]>> = valid_contours.iter().map(|c| contour_to_path(c)).collect();
 
     // Perform boolean difference
     let result = subject.overlay(&clip, OverlayRule::Difference, FillRule::EvenOdd);
@@ -344,10 +338,8 @@ fn shapes_to_profile(shapes: &[Vec<Vec<[f64; 2]>>]) -> Result<Profile2D> {
             continue;
         }
         // First contour in shape is the outer boundary
-        let outer_contour: Vec<Point2<f64>> = shape[0]
-            .iter()
-            .map(|p| Point2::new(p[0], p[1]))
-            .collect();
+        let outer_contour: Vec<Point2<f64>> =
+            shape[0].iter().map(|p| Point2::new(p[0], p[1])).collect();
         let area = compute_signed_area(&outer_contour).abs();
         if area > largest_area {
             largest_area = area;
@@ -372,10 +364,7 @@ fn shapes_to_profile(shapes: &[Vec<Vec<[f64; 2]>>]) -> Result<Profile2D> {
     // Rest are holes
     let mut holes = Vec::new();
     for contour in best_shape.iter().skip(1) {
-        let hole: Vec<Point2<f64>> = contour
-            .iter()
-            .map(|p| Point2::new(p[0], p[1]))
-            .collect();
+        let hole: Vec<Point2<f64>> = contour.iter().map(|p| Point2::new(p[0], p[1])).collect();
 
         if is_valid_contour(&hole) {
             holes.push(ensure_cw(&hole));

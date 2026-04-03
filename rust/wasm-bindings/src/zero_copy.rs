@@ -83,8 +83,8 @@ impl MeshDataJs {
         for chunk in mesh.positions.chunks_exact_mut(3) {
             let y = chunk[1];
             let z = chunk[2];
-            chunk[1] = z;   // New Y = old Z (vertical)
-            chunk[2] = -y;  // New Z = -old Y (depth, negated for right-hand rule)
+            chunk[1] = z; // New Y = old Z (vertical)
+            chunk[2] = -y; // New Z = -old Y (depth, negated for right-hand rule)
         }
 
         // Convert normals the same way

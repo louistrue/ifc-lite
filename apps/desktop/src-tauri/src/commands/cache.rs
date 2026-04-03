@@ -32,7 +32,10 @@ fn validate_cache_key(key: &str) -> Result<(), String> {
         return Err("Invalid cache key: contains path separators or parent references".to_string());
     }
     // Only allow alphanumeric, hyphen, underscore (typical hash characters)
-    if !key.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_') {
+    if !key
+        .chars()
+        .all(|c| c.is_alphanumeric() || c == '-' || c == '_')
+    {
         return Err("Invalid cache key: contains disallowed characters".to_string());
     }
     Ok(())
@@ -46,7 +49,10 @@ fn get_cache_file_path(cache_dir: &PathBuf, cache_key: &str) -> Result<PathBuf, 
 
 /// Get cached geometry by key
 #[tauri::command]
-pub async fn get_cached(app: tauri::AppHandle, cache_key: String) -> Result<Option<Vec<u8>>, String> {
+pub async fn get_cached(
+    app: tauri::AppHandle,
+    cache_key: String,
+) -> Result<Option<Vec<u8>>, String> {
     let cache_dir = get_cache_dir(&app)?;
     let cache_file = get_cache_file_path(&cache_dir, &cache_key)?;
 

@@ -13,9 +13,8 @@ fn test_advanced_brep_file() {
     use crate::router::GeometryRouter;
 
     // Read the actual advanced_brep.ifc file
-    let content =
-        std::fs::read_to_string("../../tests/models/ifcopenshell/advanced_brep.ifc")
-            .expect("Failed to read test file");
+    let content = std::fs::read_to_string("../../tests/models/ifcopenshell/advanced_brep.ifc")
+        .expect("Failed to read test file");
 
     let entity_index = ifc_lite_core::build_entity_index(&content);
     let mut decoder = EntityDecoder::with_index(&content, entity_index);
@@ -144,7 +143,10 @@ fn test_polygonal_bounded_half_space_respects_boundary() {
     let entity = decoder.decode_by_id(16).unwrap();
     let mesh = processor.process(&entity, &mut decoder, &schema).unwrap();
 
-    assert!(!mesh.is_empty(), "Bounded half-space should still produce geometry");
+    assert!(
+        !mesh.is_empty(),
+        "Bounded half-space should still produce geometry"
+    );
 
     let mut has_outer_base = false;
     let mut has_outer_top = false;
@@ -409,7 +411,9 @@ fn test_catia_surface_model_file() {
 
     // IfcRamp #7963 has SurfaceModel with AdvancedFaces (B-spline, plane,
     // linear extrusion, cylindrical surfaces)
-    let ramp = decoder.decode_by_id(7963).expect("Failed to decode IfcRamp #7963");
+    let ramp = decoder
+        .decode_by_id(7963)
+        .expect("Failed to decode IfcRamp #7963");
     assert_eq!(ramp.ifc_type, IfcType::IfcRamp);
 
     let mesh = router
@@ -452,8 +456,15 @@ fn test_triangulated_face_set_out_of_bounds_indices() {
     // Should produce valid mesh — the out-of-bounds triangle (1,2,99) is stripped
     assert!(!mesh.is_empty());
     // Only 1 valid triangle should remain (indices 0,1,2)
-    assert_eq!(mesh.indices.len(), 3, "Should have exactly 1 valid triangle");
-    assert!(mesh.indices.iter().all(|&i| (i as usize) < mesh.positions.len() / 3));
+    assert_eq!(
+        mesh.indices.len(),
+        3,
+        "Should have exactly 1 valid triangle"
+    );
+    assert!(mesh
+        .indices
+        .iter()
+        .all(|&i| (i as usize) < mesh.positions.len() / 3));
 }
 
 #[test]
@@ -472,5 +483,8 @@ fn test_triangulated_face_set_all_invalid_indices() {
     let mesh = processor.process(&entity, &mut decoder, &schema).unwrap();
 
     // All indices invalid — mesh should have positions but no valid triangles
-    assert!(mesh.indices.is_empty(), "All invalid indices should be stripped");
+    assert!(
+        mesh.indices.is_empty(),
+        "All invalid indices should be stripped"
+    );
 }

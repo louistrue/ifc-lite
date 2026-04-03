@@ -4,10 +4,13 @@
 
 //! Parquet serialization for IFC data model (entities, properties, relationships, spatial hierarchy).
 
-use crate::services::data_model::{DataModel, EntityMetadata, PropertySet, QuantitySet, Relationship, SpatialHierarchyData, SpatialNode};
-use arrow::array::{BooleanArray, StringArray, UInt16Array, UInt32Array};
+use crate::services::data_model::{
+    DataModel, EntityMetadata, PropertySet, QuantitySet, Relationship, SpatialHierarchyData,
+    SpatialNode,
+};
 use arrow::array::builder::ListBuilder;
 use arrow::array::UInt32Builder;
+use arrow::array::{BooleanArray, StringArray, UInt16Array, UInt32Array};
 use arrow::datatypes::{DataType, Field, Schema};
 use arrow::record_batch::RecordBatch;
 use parquet::arrow::ArrowWriter;
@@ -38,21 +41,30 @@ pub enum DataModelParquetError {
 /// 4. Relationships (rel_type, relating_id, related_id)
 /// 5. Spatial (entity_id, parent_id, level, path, type_name, name, elevation, children_ids, element_ids)
 ///    Plus lookup tables: element_to_storey, element_to_building, element_to_site, element_to_space
-pub fn serialize_data_model_to_parquet(data_model: &DataModel) -> Result<Vec<u8>, DataModelParquetError> {
+pub fn serialize_data_model_to_parquet(
+    data_model: &DataModel,
+) -> Result<Vec<u8>, DataModelParquetError> {
     // Serialize all tables in parallel using rayon
-    let (entities_data, ((properties_data, quantities_data), (relationships_data, spatial_data))) = rayon::join(
-        || serialize_entities_table(&data_model.entities),
-        || rayon::join(
-            || rayon::join(
-                || serialize_properties_table(&data_model.property_sets),
-                || serialize_quantities_table(&data_model.quantity_sets),
-            ),
-            || rayon::join(
-                || serialize_relationships_table(&data_model.relationships),
-                || serialize_spatial_hierarchy(&data_model.spatial_hierarchy),
-            ),
-        ),
-    );
+    let (entities_data, ((properties_data, quantities_data), (relationships_data, spatial_data))) =
+        rayon::join(
+            || serialize_entities_table(&data_model.entities),
+            || {
+                rayon::join(
+                    || {
+                        rayon::join(
+                            || serialize_properties_table(&data_model.property_sets),
+                            || serialize_quantities_table(&data_model.quantity_sets),
+                        )
+                    },
+                    || {
+                        rayon::join(
+                            || serialize_relationships_table(&data_model.relationships),
+                            || serialize_spatial_hierarchy(&data_model.spatial_hierarchy),
+                        )
+                    },
+                )
+            },
+        );
 
     let entities_data = entities_data?;
     let properties_data = properties_data?;
@@ -79,7 +91,7 @@ pub fn serialize_data_model_to_parquet(data_model: &DataModel) -> Result<Vec<u8>
 /// Serialize entities table.
 fn serialize_entities_table(entities: &[EntityMetadata]) -> Result<Vec<u8>, DataModelParquetError> {
     let count = entities.len();
-    
+
     // Build arrays in parallel using rayon
     let results: Vec<(u32, String, String, String, bool)> = entities
         .par_iter()
@@ -93,14 +105,14 @@ fn serialize_entities_table(entities: &[EntityMetadata]) -> Result<Vec<u8>, Data
             )
         })
         .collect();
-    
+
     // Split into separate vectors
     let mut entity_ids = Vec::with_capacity(count);
     let mut type_names = Vec::with_capacity(count);
     let mut global_ids = Vec::with_capacity(count);
     let mut names = Vec::with_capacity(count);
     let mut has_geometry = Vec::with_capacity(count);
-    
+
     for (id, type_name, global_id, name, has_geom) in results {
         entity_ids.push(id);
         type_names.push(type_name);
@@ -132,7 +144,9 @@ fn serialize_entities_table(entities: &[EntityMetadata]) -> Result<Vec<u8>, Data
 }
 
 /// Serialize properties table.
-fn serialize_properties_table(property_sets: &[PropertySet]) -> Result<Vec<u8>, DataModelParquetError> {
+fn serialize_properties_table(
+    property_sets: &[PropertySet],
+) -> Result<Vec<u8>, DataModelParquetError> {
     // Flatten property sets into rows using parallel iteration
     let rows: Vec<(u32, String, String, String, String)> = property_sets
         .par_iter()
@@ -148,14 +162,14 @@ fn serialize_properties_table(property_sets: &[PropertySet]) -> Result<Vec<u8>, 
             })
         })
         .collect();
-    
+
     // Split into separate vectors
     let mut pset_ids = Vec::with_capacity(rows.len());
     let mut pset_names = Vec::with_capacity(rows.len());
     let mut property_names = Vec::with_capacity(rows.len());
     let mut property_values = Vec::with_capacity(rows.len());
     let mut property_types = Vec::with_capacity(rows.len());
-    
+
     for (pset_id, pset_name, prop_name, prop_value, prop_type) in rows {
         pset_ids.push(pset_id);
         pset_names.push(pset_name);
@@ -187,7 +201,9 @@ fn serialize_properties_table(property_sets: &[PropertySet]) -> Result<Vec<u8>, 
 }
 
 /// Serialize quantities table.
-fn serialize_quantities_table(quantity_sets: &[QuantitySet]) -> Result<Vec<u8>, DataModelParquetError> {
+fn serialize_quantities_table(
+    quantity_sets: &[QuantitySet],
+) -> Result<Vec<u8>, DataModelParquetError> {
     use arrow::array::Float64Array;
 
     // Flatten quantity sets into rows using parallel iteration
@@ -249,19 +265,21 @@ fn serialize_quantities_table(quantity_sets: &[QuantitySet]) -> Result<Vec<u8>, 
 }
 
 /// Serialize relationships table.
-fn serialize_relationships_table(relationships: &[Relationship]) -> Result<Vec<u8>, DataModelParquetError> {
+fn serialize_relationships_table(
+    relationships: &[Relationship],
+) -> Result<Vec<u8>, DataModelParquetError> {
     let count = relationships.len();
-    
+
     // Build arrays in parallel
     let results: Vec<(String, u32, u32)> = relationships
         .par_iter()
         .map(|rel| (rel.rel_type.clone(), rel.relating_id, rel.related_id))
         .collect();
-    
+
     let mut rel_types = Vec::with_capacity(count);
     let mut relating_ids = Vec::with_capacity(count);
     let mut related_ids = Vec::with_capacity(count);
-    
+
     for (rel_type, relating_id, related_id) in results {
         rel_types.push(rel_type);
         relating_ids.push(relating_id);
@@ -288,7 +306,9 @@ fn serialize_relationships_table(relationships: &[Relationship]) -> Result<Vec<u
 
 /// Serialize spatial hierarchy with nodes and lookup tables.
 /// Returns combined binary: [nodes_len][nodes_data][element_to_storey_len][element_to_storey_data]...
-fn serialize_spatial_hierarchy(hierarchy: &SpatialHierarchyData) -> Result<Vec<u8>, DataModelParquetError> {
+fn serialize_spatial_hierarchy(
+    hierarchy: &SpatialHierarchyData,
+) -> Result<Vec<u8>, DataModelParquetError> {
     let mut result = Vec::new();
 
     // Serialize nodes table
@@ -297,19 +317,23 @@ fn serialize_spatial_hierarchy(hierarchy: &SpatialHierarchyData) -> Result<Vec<u
     result.extend_from_slice(&nodes_data);
 
     // Serialize lookup tables
-    let element_to_storey_data = serialize_lookup_table(&hierarchy.element_to_storey, "element_to_storey")?;
+    let element_to_storey_data =
+        serialize_lookup_table(&hierarchy.element_to_storey, "element_to_storey")?;
     result.extend_from_slice(&(element_to_storey_data.len() as u32).to_le_bytes());
     result.extend_from_slice(&element_to_storey_data);
 
-    let element_to_building_data = serialize_lookup_table(&hierarchy.element_to_building, "element_to_building")?;
+    let element_to_building_data =
+        serialize_lookup_table(&hierarchy.element_to_building, "element_to_building")?;
     result.extend_from_slice(&(element_to_building_data.len() as u32).to_le_bytes());
     result.extend_from_slice(&element_to_building_data);
 
-    let element_to_site_data = serialize_lookup_table(&hierarchy.element_to_site, "element_to_site")?;
+    let element_to_site_data =
+        serialize_lookup_table(&hierarchy.element_to_site, "element_to_site")?;
     result.extend_from_slice(&(element_to_site_data.len() as u32).to_le_bytes());
     result.extend_from_slice(&element_to_site_data);
 
-    let element_to_space_data = serialize_lookup_table(&hierarchy.element_to_space, "element_to_space")?;
+    let element_to_space_data =
+        serialize_lookup_table(&hierarchy.element_to_space, "element_to_space")?;
     result.extend_from_slice(&(element_to_space_data.len() as u32).to_le_bytes());
     result.extend_from_slice(&element_to_space_data);
 
@@ -320,9 +344,11 @@ fn serialize_spatial_hierarchy(hierarchy: &SpatialHierarchyData) -> Result<Vec<u
 }
 
 /// Serialize spatial nodes table with all fields.
-fn serialize_spatial_nodes_table(spatial_nodes: &[SpatialNode]) -> Result<Vec<u8>, DataModelParquetError> {
+fn serialize_spatial_nodes_table(
+    spatial_nodes: &[SpatialNode],
+) -> Result<Vec<u8>, DataModelParquetError> {
     use arrow::array::Float64Array;
-    
+
     let count = spatial_nodes.len();
     let mut entity_ids = Vec::with_capacity(count);
     let mut parent_ids: Vec<Option<u32>> = Vec::with_capacity(count);
@@ -336,7 +362,11 @@ fn serialize_spatial_nodes_table(spatial_nodes: &[SpatialNode]) -> Result<Vec<u8
 
     for node in spatial_nodes {
         entity_ids.push(node.entity_id);
-        parent_ids.push(if node.parent_id == 0 { None } else { Some(node.parent_id) });
+        parent_ids.push(if node.parent_id == 0 {
+            None
+        } else {
+            Some(node.parent_id)
+        });
         levels.push(node.level);
         paths.push(node.path.as_str());
         type_names.push(node.type_name.as_str());
@@ -345,7 +375,6 @@ fn serialize_spatial_nodes_table(spatial_nodes: &[SpatialNode]) -> Result<Vec<u8
         children_ids_list.push(node.children_ids.clone());
         element_ids_list.push(node.element_ids.clone());
     }
-    
 
     // Build list arrays for children_ids and element_ids
     // Flatten all values and build offset array
@@ -353,25 +382,26 @@ fn serialize_spatial_nodes_table(spatial_nodes: &[SpatialNode]) -> Result<Vec<u8
     let mut children_offsets = vec![0i32];
     let mut element_values = Vec::new();
     let mut element_offsets = vec![0i32];
-    
+
     for children_ids in &children_ids_list {
         children_values.extend_from_slice(children_ids);
         children_offsets.push(children_values.len() as i32);
     }
-    
+
     for element_ids in &element_ids_list {
         element_values.extend_from_slice(element_ids);
         element_offsets.push(element_values.len() as i32);
     }
-    
+
     // Build ListArray using builder pattern
-    let mut children_builder = ListBuilder::new(UInt32Builder::with_capacity(children_values.len()));
+    let mut children_builder =
+        ListBuilder::new(UInt32Builder::with_capacity(children_values.len()));
     for children_ids in &children_ids_list {
         children_builder.values().append_slice(children_ids);
         children_builder.append(true);
     }
     let children_list_array = children_builder.finish();
-    
+
     let mut element_builder = ListBuilder::new(UInt32Builder::with_capacity(element_values.len()));
     for element_ids in &element_ids_list {
         element_builder.values().append_slice(element_ids);
@@ -388,8 +418,16 @@ fn serialize_spatial_nodes_table(spatial_nodes: &[SpatialNode]) -> Result<Vec<u8
         Field::new("type_name", DataType::Utf8, false),
         Field::new("name", DataType::Utf8, true), // Nullable
         Field::new("elevation", DataType::Float64, true), // Nullable
-        Field::new("children_ids", DataType::new_list(DataType::UInt32, true), false), // Inner items nullable
-        Field::new("element_ids", DataType::new_list(DataType::UInt32, true), false),  // Inner items nullable
+        Field::new(
+            "children_ids",
+            DataType::new_list(DataType::UInt32, true),
+            false,
+        ), // Inner items nullable
+        Field::new(
+            "element_ids",
+            DataType::new_list(DataType::UInt32, true),
+            false,
+        ), // Inner items nullable
     ]);
 
     let batch = RecordBatch::try_new(

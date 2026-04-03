@@ -18,29 +18,31 @@
 //! - `advanced_face`: Shared IfcAdvancedFace processing (B-spline, planar, cylindrical)
 //! - `helpers`: Shared parse functions used by multiple processors
 
-mod helpers;
-mod advanced_face;
-mod extrusion;
-mod tessellated;
-mod brep;
-mod surface;
-mod boolean;
-mod mapped;
-mod swept;
 mod advanced;
+mod advanced_face;
+mod boolean;
+mod brep;
+mod extrusion;
+mod helpers;
+mod mapped;
+mod surface;
+mod swept;
+mod tessellated;
 
 #[cfg(test)]
 mod tests;
 
 // Re-export all processor types
-pub use extrusion::ExtrudedAreaSolidProcessor;
-pub use tessellated::{TriangulatedFaceSetProcessor, PolygonalFaceSetProcessor};
-pub use brep::{FacetedBrepProcessor, FaceBasedSurfaceModelProcessor, ShellBasedSurfaceModelProcessor};
-pub use surface::SurfaceOfLinearExtrusionProcessor;
-pub use boolean::BooleanClippingProcessor;
-pub use mapped::MappedItemProcessor;
-pub use swept::{SweptDiskSolidProcessor, RevolvedAreaSolidProcessor};
 pub use advanced::AdvancedBrepProcessor;
+pub use boolean::BooleanClippingProcessor;
+pub use brep::{
+    FaceBasedSurfaceModelProcessor, FacetedBrepProcessor, ShellBasedSurfaceModelProcessor,
+};
+pub use extrusion::ExtrudedAreaSolidProcessor;
+pub use mapped::MappedItemProcessor;
+pub use surface::SurfaceOfLinearExtrusionProcessor;
+pub use swept::{RevolvedAreaSolidProcessor, SweptDiskSolidProcessor};
+pub use tessellated::{PolygonalFaceSetProcessor, TriangulatedFaceSetProcessor};
 
 /// Extract CoordIndex bytes from IfcTriangulatedFaceSet raw entity
 ///

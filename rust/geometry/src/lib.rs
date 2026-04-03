@@ -74,11 +74,11 @@ pub mod extrusion;
 pub mod mesh;
 pub mod processors;
 pub mod profile;
+pub mod profile_extractor;
 pub mod profiles;
 pub mod router;
 pub mod transform;
 pub mod triangulation;
-pub mod profile_extractor;
 pub mod void_analysis;
 pub mod void_index;
 
@@ -86,8 +86,8 @@ pub mod void_index;
 pub use nalgebra::{Point2, Point3, Vector2, Vector3};
 
 pub use bool2d::{
-    compute_signed_area, ensure_ccw, ensure_cw, is_valid_contour, point_in_contour,
-    subtract_2d, subtract_multiple_2d, union_contours,
+    compute_signed_area, ensure_ccw, ensure_cw, is_valid_contour, point_in_contour, subtract_2d,
+    subtract_multiple_2d, union_contours,
 };
 pub use csg::{calculate_normals, ClippingProcessor, Plane, Triangle};
 pub use error::{Error, Result};
@@ -100,6 +100,7 @@ pub use processors::{
     SweptDiskSolidProcessor, TriangulatedFaceSetProcessor,
 };
 pub use profile::{Profile2D, Profile2DWithVoids, ProfileType, VoidInfo};
+pub use profile_extractor::{extract_profiles, ExtractedProfile};
 pub use profiles::ProfileProcessor;
 pub use router::{GeometryProcessor, GeometryRouter};
 pub use transform::{
@@ -112,4 +113,3 @@ pub use void_analysis::{
     VoidClassification,
 };
 pub use void_index::{propagate_voids_to_parts, VoidIndex, VoidStatistics};
-pub use profile_extractor::{extract_profiles, ExtractedProfile};

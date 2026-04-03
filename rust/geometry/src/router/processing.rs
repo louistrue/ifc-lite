@@ -6,7 +6,9 @@
 
 use super::GeometryRouter;
 use crate::{Error, Mesh, Result, SubMeshCollection};
-use ifc_lite_core::{has_geometry_by_name, DecodedEntity, EntityDecoder, GeometryCategory, IfcType};
+use ifc_lite_core::{
+    has_geometry_by_name, DecodedEntity, EntityDecoder, GeometryCategory, IfcType,
+};
 use nalgebra::Matrix4;
 use rustc_hash::FxHashSet;
 use std::sync::Arc;
@@ -15,6 +17,22 @@ use std::sync::Arc;
 const MAX_MAPPED_ITEM_DEPTH: usize = 32;
 
 impl GeometryRouter {
+    /// Pick up to `max_samples` evenly spaced indices across a collection.
+    /// This avoids bias from IFC job order, which is often spatially clustered.
+    fn evenly_spaced_sample_indices(len: usize, max_samples: usize) -> Vec<usize> {
+        if len == 0 || max_samples == 0 {
+            return Vec::new();
+        }
+        if len <= max_samples {
+            return (0..len).collect();
+        }
+
+        let last = len - 1;
+        let steps = max_samples - 1;
+
+        (0..max_samples).map(|i| i * last / steps).collect()
+    }
+
     /// Compute median-based RTC offset from sampled translations.
     /// Returns `(0,0,0)` if empty or coordinates are within 10km of origin.
     fn rtc_offset_from_translations(translations: &[(f64, f64, f64)]) -> (f64, f64, f64) {
@@ -115,14 +133,15 @@ impl GeometryRouter {
         decoder: &mut EntityDecoder,
     ) -> Option<(f64, f64, f64)> {
         const MAX_SAMPLES: usize = 50;
-        let translations: Vec<(f64, f64, f64)> = jobs
-            .iter()
-            .take(MAX_SAMPLES)
-            .filter_map(|&(id, start, end, _)| {
-                let entity = decoder.decode_at_with_id(id, start, end).ok()?;
-                self.sample_element_translation(&entity, decoder)
-            })
-            .collect();
+        let translations: Vec<(f64, f64, f64)> =
+            Self::evenly_spaced_sample_indices(jobs.len(), MAX_SAMPLES)
+                .into_iter()
+                .filter_map(|idx| {
+                    let (id, start, end, _) = jobs[idx];
+                    let entity = decoder.decode_at_with_id(id, start, end).ok()?;
+                    self.sample_element_translation(&entity, decoder)
+                })
+                .collect();
 
         if translations.is_empty() {
             return None;
@@ -792,5 +811,46 @@ impl GeometryRouter {
         }
 
         Ok(mesh)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::GeometryRouter;
+
+    #[test]
+    fn evenly_spaced_indices_return_all_values_when_under_limit() {
+        assert_eq!(
+            GeometryRouter::evenly_spaced_sample_indices(5, 50),
+            vec![0, 1, 2, 3, 4]
+        );
+    }
+
+    #[test]
+    fn evenly_spaced_indices_cover_full_range_when_sampling() {
+        assert_eq!(
+            GeometryRouter::evenly_spaced_sample_indices(200, 5),
+            vec![0, 49, 99, 149, 199]
+        );
+    }
+
+    #[test]
+    fn evenly_spaced_sampling_keeps_median_representative() {
+        let translations: Vec<(f64, f64, f64)> =
+            GeometryRouter::evenly_spaced_sample_indices(200, 50)
+                .into_iter()
+                .map(|idx| {
+                    if idx < 50 {
+                        (0.0, 0.0, 0.0)
+                    } else {
+                        (100_000.0, 200_000.0, 0.0)
+                    }
+                })
+                .collect();
+
+        assert_eq!(
+            GeometryRouter::rtc_offset_from_translations(&translations),
+            (100_000.0, 200_000.0, 0.0)
+        );
     }
 }

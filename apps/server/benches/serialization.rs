@@ -50,7 +50,11 @@ impl MeshData {
 }
 
 /// Generate synthetic mesh data for benchmarking.
-fn generate_meshes(mesh_count: usize, vertices_per_mesh: usize, duplicate_ratio: f32) -> Vec<MeshData> {
+fn generate_meshes(
+    mesh_count: usize,
+    vertices_per_mesh: usize,
+    duplicate_ratio: f32,
+) -> Vec<MeshData> {
     let mut meshes = Vec::with_capacity(mesh_count);
     let unique_count = (mesh_count as f32 * (1.0 - duplicate_ratio)) as usize;
     let unique_count = unique_count.max(1);
@@ -65,7 +69,9 @@ fn generate_meshes(mesh_count: usize, vertices_per_mesh: usize, duplicate_ratio:
             .map(|j| if j % 3 == 2 { 1.0 } else { 0.0 })
             .collect();
         let triangles = vertices_per_mesh / 3;
-        let indices: Vec<u32> = (0..triangles * 3).map(|j| (j % vertices_per_mesh) as u32).collect();
+        let indices: Vec<u32> = (0..triangles * 3)
+            .map(|j| (j % vertices_per_mesh) as u32)
+            .collect();
 
         base_meshes.push(MeshData::new(
             i as u32,
@@ -262,7 +268,7 @@ fn serialize_parquet_basic(meshes: &[MeshData]) -> Vec<u8> {
 
 /// Optimized Parquet serialization (ara3d BOS format)
 fn serialize_parquet_optimized(meshes: &[MeshData]) -> Vec<u8> {
-    use arrow::array::{Int32Array, UInt8Array, UInt32Array, StringArray};
+    use arrow::array::{Int32Array, StringArray, UInt32Array, UInt8Array};
     use arrow::datatypes::{DataType, Field, Schema};
     use arrow::record_batch::RecordBatch;
     use parquet::arrow::ArrowWriter;
@@ -444,10 +450,18 @@ fn serialize_parquet_optimized(meshes: &[MeshData]) -> Vec<u8> {
     let material_batch = RecordBatch::try_new(
         material_schema,
         vec![
-            Arc::new(UInt8Array::from(unique_materials.iter().map(|m| m.r).collect::<Vec<_>>())),
-            Arc::new(UInt8Array::from(unique_materials.iter().map(|m| m.g).collect::<Vec<_>>())),
-            Arc::new(UInt8Array::from(unique_materials.iter().map(|m| m.b).collect::<Vec<_>>())),
-            Arc::new(UInt8Array::from(unique_materials.iter().map(|m| m.a).collect::<Vec<_>>())),
+            Arc::new(UInt8Array::from(
+                unique_materials.iter().map(|m| m.r).collect::<Vec<_>>(),
+            )),
+            Arc::new(UInt8Array::from(
+                unique_materials.iter().map(|m| m.g).collect::<Vec<_>>(),
+            )),
+            Arc::new(UInt8Array::from(
+                unique_materials.iter().map(|m| m.b).collect::<Vec<_>>(),
+            )),
+            Arc::new(UInt8Array::from(
+                unique_materials.iter().map(|m| m.a).collect::<Vec<_>>(),
+            )),
         ],
     )
     .unwrap();
@@ -462,14 +476,21 @@ fn serialize_parquet_optimized(meshes: &[MeshData]) -> Vec<u8> {
     )
     .unwrap();
 
-    let index_batch = RecordBatch::try_new(index_schema, vec![Arc::new(UInt32Array::from(indices))]).unwrap();
+    let index_batch =
+        RecordBatch::try_new(index_schema, vec![Arc::new(UInt32Array::from(indices))]).unwrap();
 
     // Write output
     let mut output = Vec::new();
     output.push(2u8); // version
     output.push(0u8); // flags (no normals)
 
-    let batches = [&instance_batch, &mesh_batch, &material_batch, &vertex_batch, &index_batch];
+    let batches = [
+        &instance_batch,
+        &mesh_batch,
+        &material_batch,
+        &vertex_batch,
+        &index_batch,
+    ];
     let mut lengths = Vec::new();
 
     for batch in &batches {
@@ -519,11 +540,9 @@ fn bench_serialization(c: &mut Criterion) {
 
         group.throughput(Throughput::Elements(total_vertices as u64));
 
-        group.bench_with_input(
-            BenchmarkId::new("json", name),
-            &meshes,
-            |b, meshes| b.iter(|| serialize_json(black_box(meshes))),
-        );
+        group.bench_with_input(BenchmarkId::new("json", name), &meshes, |b, meshes| {
+            b.iter(|| serialize_json(black_box(meshes)))
+        });
 
         group.bench_with_input(
             BenchmarkId::new("parquet_basic", name),
@@ -546,7 +565,10 @@ fn bench_output_size(_c: &mut Criterion) {
     println!("\n╔════════════════════════════════════════════════════════════════════════════╗");
     println!("║                    SERIALIZATION OUTPUT SIZE COMPARISON                   ║");
     println!("╠════════════════════════════════════════════════════════════════════════════╣");
-    println!("║ {:30} │ {:10} │ {:10} │ {:10} │ {:6} ║", "Scenario", "JSON", "Parquet", "Optimized", "Ratio");
+    println!(
+        "║ {:30} │ {:10} │ {:10} │ {:10} │ {:6} ║",
+        "Scenario", "JSON", "Parquet", "Optimized", "Ratio"
+    );
     println!("╠════════════════════════════════════════════════════════════════════════════╣");
 
     let scenarios = [
