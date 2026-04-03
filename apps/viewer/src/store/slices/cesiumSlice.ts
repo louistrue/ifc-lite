@@ -1,0 +1,89 @@
+/* This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
+
+/**
+ * Cesium 3D Tiles overlay state slice.
+ *
+ * Manages the enabled/disabled state, selected data source, and Cesium ion
+ * access token for the optional real-world 3D context overlay.
+ *
+ * Token resolution:
+ *   1. User-provided override in localStorage
+ *   2. Build-time default token via VITE_CESIUM_ION_TOKEN env var
+ *   → Users never need to configure anything; the app ships with a working token.
+ */
+
+import type { StateCreator } from 'zustand';
+
+export type CesiumDataSource =
+  | 'osm-buildings'        // Cesium OSM Buildings (free via Cesium ion)
+  | 'bing-aerial'          // Bing Maps aerial imagery draped on terrain
+  | 'google-photorealistic'; // Google Photorealistic 3D Tiles (requires API key)
+
+export interface CesiumSlice {
+  // State
+  cesiumEnabled: boolean;
+  cesiumDataSource: CesiumDataSource;
+  /** Resolved Cesium ion access token (user override or build-time default). */
+  cesiumIonToken: string;
+  /** Terrain enabled (Cesium World Terrain). */
+  cesiumTerrainEnabled: boolean;
+
+  // Actions
+  setCesiumEnabled: (enabled: boolean) => void;
+  toggleCesium: () => void;
+  setCesiumDataSource: (source: CesiumDataSource) => void;
+  setCesiumIonToken: (token: string) => void;
+  setCesiumTerrainEnabled: (enabled: boolean) => void;
+}
+
+const STORAGE_KEY_ION_TOKEN = 'ifc-lite:cesium-ion-token';
+const STORAGE_KEY_DATA_SOURCE = 'ifc-lite:cesium-data-source';
+
+/**
+ * Default Cesium ion token provided at build time.
+ * Set via VITE_CESIUM_ION_TOKEN in .env or CI environment.
+ * This means users never need to configure a token manually.
+ */
+const DEFAULT_ION_TOKEN: string = (import.meta as any).env?.VITE_CESIUM_ION_TOKEN ?? '';
+
+function loadFromStorage(key: string, fallback: string): string {
+  try {
+    return localStorage.getItem(key) ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function saveToStorage(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value);
+  } catch { /* storage unavailable */ }
+}
+
+/** Resolve the Cesium ion token: user override > build-time default */
+function resolveIonToken(): string {
+  const userToken = loadFromStorage(STORAGE_KEY_ION_TOKEN, '');
+  return userToken || DEFAULT_ION_TOKEN;
+}
+
+export const createCesiumSlice: StateCreator<CesiumSlice, [], [], CesiumSlice> = (set) => ({
+  cesiumEnabled: false,
+  cesiumDataSource: loadFromStorage(STORAGE_KEY_DATA_SOURCE, 'osm-buildings') as CesiumDataSource,
+  cesiumIonToken: resolveIonToken(),
+  cesiumTerrainEnabled: true,
+
+  setCesiumEnabled: (enabled) => set({ cesiumEnabled: enabled }),
+  toggleCesium: () => set((s) => ({ cesiumEnabled: !s.cesiumEnabled })),
+  setCesiumDataSource: (source) => {
+    saveToStorage(STORAGE_KEY_DATA_SOURCE, source);
+    set({ cesiumDataSource: source });
+  },
+  setCesiumIonToken: (token) => {
+    saveToStorage(STORAGE_KEY_ION_TOKEN, token);
+    // If user clears their override, fall back to default
+    set({ cesiumIonToken: token || DEFAULT_ION_TOKEN });
+  },
+  setCesiumTerrainEnabled: (enabled) => set({ cesiumTerrainEnabled: enabled }),
+});

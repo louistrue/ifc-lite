@@ -9,6 +9,7 @@ import { ToolOverlays } from './ToolOverlays';
 import { Section2DPanel } from './Section2DPanel';
 import { BasketPresentationDock } from './BasketPresentationDock';
 import { BCFOverlay } from './bcf/BCFOverlay';
+import { CesiumOverlay } from './CesiumOverlay';
 import { useViewerStore } from '@/store';
 import { toGlobalIdFromModels } from '@/store/globalId';
 import { collectIfcBuildingStoreyElementsWithIfcSpace } from '@/store/basketVisibleSet';
@@ -16,6 +17,7 @@ import { useIfc } from '@/hooks/useIfc';
 import { useWebGPU } from '@/hooks/useWebGPU';
 import { Upload, MousePointer, Layers, Info, Command, AlertTriangle, ChevronDown, ExternalLink, Plus } from 'lucide-react';
 import type { MeshData, CoordinateInfo, GeometryResult } from '@ifc-lite/geometry';
+import { extractGeoreferencingOnDemand, type IfcDataStore } from '@ifc-lite/parser';
 
 const ZERO_VEC3 = { x: 0, y: 0, z: 0 };
 const DEFAULT_COORDINATE_INFO: CoordinateInfo = {
@@ -35,6 +37,7 @@ export function ViewportContainer() {
   const storeModels = useViewerStore((s) => s.models);
   const resetViewerState = useViewerStore((s) => s.resetViewerState);
   const bcfOverlayVisible = useViewerStore((s) => s.bcfOverlayVisible);
+  const cesiumEnabled = useViewerStore((s) => s.cesiumEnabled);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [showTroubleshooting, setShowTroubleshooting] = useState(false);
@@ -95,6 +98,31 @@ export function ViewportContainer() {
     // Legacy mode (no federation): use original geometryResult
     return geometryResult;
   }, [storeModels, geometryResult, modelIdToIndex]);
+
+  // Extract georeferencing info from first model that has it (for Cesium overlay)
+  const georef = useMemo(() => {
+    if (!cesiumEnabled) return null;
+
+    // Check federated models first
+    for (const [, model] of storeModels) {
+      const ds = model.ifcDataStore;
+      if (!ds) continue;
+      const info = extractGeoreferencingOnDemand(ds as IfcDataStore);
+      if (info?.hasGeoreference && info.mapConversion && info.projectedCRS) {
+        return info;
+      }
+    }
+
+    // Fallback to legacy single-model
+    if (ifcDataStore) {
+      const info = extractGeoreferencingOnDemand(ifcDataStore as IfcDataStore);
+      if (info?.hasGeoreference && info.mapConversion && info.projectedCRS) {
+        return info;
+      }
+    }
+
+    return null;
+  }, [cesiumEnabled, storeModels, ifcDataStore]);
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -607,12 +635,21 @@ export function ViewportContainer() {
         </div>
       )}
 
+      {/* Cesium 3D world context overlay — rendered behind the WebGPU canvas */}
+      {cesiumEnabled && georef && (
+        <CesiumOverlay
+          mapConversion={georef.mapConversion}
+          projectedCRS={georef.projectedCRS}
+          coordinateInfo={mergedGeometryResult?.coordinateInfo}
+        />
+      )}
       <Viewport
         geometry={filteredGeometry}
         geometryVersion={geometryVersion}
         coordinateInfo={mergedGeometryResult?.coordinateInfo}
         computedIsolatedIds={computedIsolatedIds}
         modelIdToIndex={modelIdToIndex}
+        cesiumActive={cesiumEnabled && georef !== null}
       />
       {bcfOverlayVisible && <BCFOverlay />}
       <ViewportOverlays />

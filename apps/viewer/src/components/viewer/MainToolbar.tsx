@@ -37,6 +37,7 @@ import {
   Layout,
   LayoutTemplate,
   FileCode2,
+  Globe2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
@@ -64,6 +65,7 @@ import { ExportDialog } from './ExportDialog';
 import { BulkPropertyEditor } from './BulkPropertyEditor';
 import { DataConnector } from './DataConnector';
 import { ExportChangesButton } from './ExportChangesButton';
+import { CesiumSettingsDialog } from './CesiumSettingsDialog';
 import { useFloorplanView } from '@/hooks/useFloorplanView';
 import { recordRecentFiles, cacheFileBlobs } from '@/lib/recent-files';
 import { ThemeSwitch } from './ThemeSwitch';
@@ -195,6 +197,10 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
   const setLensPanelVisible = useViewerStore((state) => state.setLensPanelVisible);
   const scriptPanelVisible = useViewerStore((state) => state.scriptPanelVisible);
   const setScriptPanelVisible = useViewerStore((state) => state.setScriptPanelVisible);
+  // Cesium 3D overlay state
+  const cesiumEnabled = useViewerStore((state) => state.cesiumEnabled);
+  const toggleCesium = useViewerStore((state) => state.toggleCesium);
+  const storeModels = useViewerStore((state) => state.models);
 
   // Check which type geometries exist across ALL loaded models (federation-aware).
   // PERF: Use meshes.length as dep proxy instead of full geometryResult, and
@@ -883,6 +889,31 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
           {projectionMode === 'orthographic' ? 'Switch to Perspective' : 'Switch to Orthographic'}
         </TooltipContent>
       </Tooltip>
+
+      {/* Cesium 3D Context toggle + settings */}
+      {hasModelsLoaded && (
+        <div className="flex items-center">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant={cesiumEnabled ? 'default' : 'ghost'}
+                size="icon-sm"
+                onClick={(e) => {
+                  (e.currentTarget as HTMLButtonElement).blur();
+                  toggleCesium();
+                }}
+                className={cn(cesiumEnabled && 'bg-teal-600 text-white hover:bg-teal-700')}
+              >
+                <Globe2 className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              {cesiumEnabled ? 'Hide' : 'Show'} 3D World Context (Cesium)
+            </TooltipContent>
+          </Tooltip>
+          <CesiumSettingsDialog />
+        </div>
+      )}
 
       {/* Hover Tooltips toggle */}
       <Tooltip>

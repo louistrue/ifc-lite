@@ -2,6 +2,7 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import wasm from 'vite-plugin-wasm';
 import topLevelAwait from 'vite-plugin-top-level-await';
+import { viteStaticCopy } from 'vite-plugin-static-copy';
 import path from 'path';
 import fs from 'fs';
 
@@ -213,12 +214,28 @@ export default defineConfig({
     react(),
     wasm(),
     topLevelAwait(),
+    // Copy Cesium static assets (Workers, ThirdParty, Assets) to public path
+    // so CesiumJS can load them at runtime via CESIUM_BASE_URL.
+    // Use require.resolve to handle pnpm's .pnpm store structure.
+    (() => {
+      const cesiumPkg = path.dirname(require.resolve('cesium/package.json'));
+      const cesiumBuild = path.join(cesiumPkg, 'Build', 'Cesium');
+      return viteStaticCopy({
+        targets: [
+          { src: path.join(cesiumBuild, 'Workers'), dest: 'cesium' },
+          { src: path.join(cesiumBuild, 'ThirdParty'), dest: 'cesium' },
+          { src: path.join(cesiumBuild, 'Assets'), dest: 'cesium' },
+          { src: path.join(cesiumBuild, 'Widgets'), dest: 'cesium' },
+        ],
+      });
+    })(),
   ],
   define: {
     __APP_VERSION__: JSON.stringify(appVersion),
     __BUILD_DATE__: JSON.stringify(new Date().toISOString()),
     __RELEASE_HISTORY__: JSON.stringify(parseChangelogs()),
     __PACKAGE_VERSIONS__: JSON.stringify(collectPackageVersions()),
+    CESIUM_BASE_URL: JSON.stringify('/cesium'),
   },
   resolve: {
     alias: {
@@ -288,6 +305,7 @@ export default defineConfig({
           if (id.includes('/node_modules/jszip/')) return 'zip';
           if (id.includes('/node_modules/apache-arrow/')) return 'arrow';
           if (id.includes('/node_modules/parquet-wasm/')) return 'parquet';
+          if (id.includes('/node_modules/cesium/')) return 'cesium';
           return undefined;
         },
       },

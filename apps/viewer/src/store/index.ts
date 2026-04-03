@@ -32,6 +32,7 @@ import { createPinboardSlice, type PinboardSlice } from './slices/pinboardSlice.
 import { createLensSlice, type LensSlice } from './slices/lensSlice.js';
 import { createScriptSlice, type ScriptSlice } from './slices/scriptSlice.js';
 import { createChatSlice, type ChatSlice } from './slices/chatSlice.js';
+import { createCesiumSlice, type CesiumSlice } from './slices/cesiumSlice.js';
 import { invalidateVisibleBasketCache } from './basketVisibleSet.js';
 
 // Import constants for reset function
@@ -77,6 +78,9 @@ export type { ScriptSlice } from './slices/scriptSlice.js';
 // Re-export Chat types
 export type { ChatSlice } from './slices/chatSlice.js';
 
+// Re-export Cesium types
+export type { CesiumSlice, CesiumDataSource } from './slices/cesiumSlice.js';
+
 // Combined store type
 export type ViewerState = LoadingSlice &
   SelectionSlice &
@@ -97,7 +101,8 @@ export type ViewerState = LoadingSlice &
   PinboardSlice &
   LensSlice &
   ScriptSlice &
-  ChatSlice & {
+  ChatSlice &
+  CesiumSlice & {
     resetViewerState: () => void;
   };
 
@@ -126,6 +131,7 @@ export const useViewerStore = create<ViewerState>()((...args) => ({
   ...createLensSlice(...args),
   ...createScriptSlice(...args),
   ...createChatSlice(...args),
+  ...createCesiumSlice(...args),
 
   // Reset all viewer state when loading new file
   // Note: Does NOT clear models - use clearAllModels() for that
@@ -205,6 +211,9 @@ export const useViewerStore = create<ViewerState>()((...args) => ({
       separationLinesQuality: UI_DEFAULTS.SEPARATION_LINES_QUALITY,
       separationLinesIntensity: UI_DEFAULTS.SEPARATION_LINES_INTENSITY,
       separationLinesRadius: UI_DEFAULTS.SEPARATION_LINES_RADIUS,
+
+      // Cesium
+      cesiumEnabled: false,
 
       // Drawing 2D
       drawing2D: null,

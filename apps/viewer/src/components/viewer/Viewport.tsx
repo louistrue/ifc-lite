@@ -46,9 +46,12 @@ interface ViewportProps {
   coordinateInfo?: CoordinateInfo;
   computedIsolatedIds?: Set<number> | null;
   modelIdToIndex?: Map<string, number>;
+  /** When true, the WebGPU canvas uses a transparent clear color so the
+   *  CesiumJS globe behind it is visible. */
+  cesiumActive?: boolean;
 }
 
-export function Viewport({ geometry, geometryVersion, coordinateInfo, computedIsolatedIds, modelIdToIndex }: ViewportProps) {
+export function Viewport({ geometry, geometryVersion, coordinateInfo, computedIsolatedIds, modelIdToIndex, cesiumActive }: ViewportProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rendererRef = useRef<Renderer | null>(null);
   const [isInitialized, setIsInitialized] = useState(false);
@@ -291,6 +294,17 @@ export function Viewport({ geometry, geometryVersion, coordinateInfo, computedIs
     separationLinesIntensity,
     separationLinesRadius,
   ]);
+
+  // Override clear color when Cesium overlay is active (transparent background)
+  useEffect(() => {
+    if (cesiumActive) {
+      clearColorRef.current = [0, 0, 0, 0]; // fully transparent
+    } else {
+      clearColorRef.current = getThemeClearColor(theme as 'light' | 'dark');
+    }
+    rendererRef.current?.requestRender();
+  }, [cesiumActive, theme]);
+
   // Animation frame ref
   const animationFrameRef = useRef<number | null>(null);
   const lastFrameTimeRef = useRef<number>(0);
@@ -843,7 +857,7 @@ export function Viewport({ geometry, geometryVersion, coordinateInfo, computedIs
       ref={canvasRef}
       data-viewport="main"
       tabIndex={-1}
-      className="w-full h-full block"
+      className={`w-full h-full block ${cesiumActive ? 'relative z-[1]' : ''}`}
       onPointerDown={focusViewportForKeyboardShortcuts}
     />
   );
