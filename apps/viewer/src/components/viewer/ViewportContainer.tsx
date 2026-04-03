@@ -706,6 +706,7 @@ export function ViewportContainer() {
           mapConversion={georef.mapConversion}
           projectedCRS={georef.projectedCRS}
           coordinateInfo={georef.coordinateInfo}
+          geometryResult={mergedGeometryResult}
         />
       )}
       <Viewport

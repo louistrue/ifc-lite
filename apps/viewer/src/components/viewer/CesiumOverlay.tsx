@@ -23,9 +23,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { useViewerStore } from '@/store';
 import type { MapConversion, ProjectedCRS } from '@ifc-lite/parser';
-import type { CoordinateInfo } from '@ifc-lite/geometry';
+import type { CoordinateInfo, GeometryResult } from '@ifc-lite/geometry';
 import { getGlobalRenderer } from '@/hooks/useBCF';
 import { createCesiumBridge, type CesiumBridge } from '@/lib/geo/cesium-bridge';
+import { GLTFExporter } from '@ifc-lite/export';
 
 // Lazy-loaded Cesium module and CSS
 let cesiumPromise: Promise<typeof import('cesium')> | null = null;
@@ -47,12 +48,15 @@ export interface CesiumOverlayProps {
   mapConversion?: MapConversion;
   projectedCRS?: ProjectedCRS;
   coordinateInfo?: CoordinateInfo;
+  /** Geometry result for loading the IFC model into Cesium as a glTF model. */
+  geometryResult?: GeometryResult | null;
 }
 
 export function CesiumOverlay({
   mapConversion,
   projectedCRS,
   coordinateInfo,
+  geometryResult,
 }: CesiumOverlayProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<InstanceType<typeof import('cesium').Viewer> | null>(null);
@@ -72,11 +76,13 @@ export function CesiumOverlay({
   const setCesiumTerrainHeight = useViewerStore((s) => s.setCesiumTerrainHeight);
 
   // Use refs so the camera sync loop always reads the latest values
-  // without needing to restart the loop (which would cause jank).
   const terrainClampRef = useRef(terrainClamp);
   const terrainHeightRef = useRef(terrainHeight);
   terrainClampRef.current = terrainClamp;
   terrainHeightRef.current = terrainHeight;
+
+  // Track the Cesium model primitive (IFC geometry loaded as glTF)
+  const cesiumModelRef = useRef<any>(null);
 
   // ─── Effect 1: Create/destroy the Cesium viewer (heavy, rare) ───────────
   // Only depends on cesiumEnabled, ionToken, terrainEnabled, dataSource.
@@ -293,6 +299,110 @@ export function CesiumOverlay({
 
     return () => { cancelled = true; clearTimeout(retryTimer); };
   }, [status, terrainEnabled, terrainClamp, bridgeVersion]);
+
+  // ─── Effect 2c: Load IFC model INTO Cesium as a glTF model ──────────────
+  // This makes the IFC model a first-class Cesium entity with proper
+  // depth testing against terrain and other 3D tiles (OSM buildings).
+  useEffect(() => {
+    if (status !== 'ready' || !geometryResult?.meshes?.length) return;
+    const viewer = viewerRef.current;
+    const bridge = bridgeRef.current;
+    const Cesium = cesiumModule;
+    if (!viewer || !bridge || !Cesium) return;
+
+    let cancelled = false;
+
+    (async () => {
+      try {
+        // Remove previous model if any
+        if (cesiumModelRef.current) {
+          viewer.scene.primitives.remove(cesiumModelRef.current);
+          cesiumModelRef.current = null;
+        }
+
+        // Export IFC geometry as GLB
+        const exporter = new GLTFExporter(geometryResult);
+        const glbBytes = exporter.exportGLB();
+        if (cancelled) return;
+
+        // Build the model matrix: viewerToECEF
+        // This positions the glTF geometry (which is in IFC viewer space)
+        // at the correct ECEF location on the globe.
+        const modelOriginCartesian = Cesium.Cartesian3.fromDegrees(
+          bridge.modelOrigin.longitude,
+          bridge.modelOrigin.latitude,
+          bridge.modelOrigin.height,
+        );
+        const enuToEcef = Cesium.Transforms.eastNorthUpToFixedFrame(modelOriginCartesian);
+
+        // Build viewerToENU 4x4 using the same rotation as the bridge
+        const hScale = mapConversion?.scale ?? 1.0;
+        const absc = mapConversion?.xAxisAbscissa ?? 1.0;
+        const ordi = mapConversion?.xAxisOrdinate ?? 0.0;
+        const shift = coordinateInfo?.originShift ?? { x: 0, y: 0, z: 0 };
+        const rtc = coordinateInfo?.wasmRtcOffset;
+        const rtcYup = rtc ? { x: rtc.x, y: rtc.z, z: -rtc.y } : { x: 0, y: 0, z: 0 };
+        const bounds = coordinateInfo?.originalBounds;
+        const modelVX = bounds ? (bounds.min.x + bounds.max.x) / 2 : 0;
+        const modelVY = bounds ? (bounds.min.y + bounds.max.y) / 2 : 0;
+        const modelVZ = bounds ? (bounds.min.z + bounds.max.z) / 2 : 0;
+
+        // Viewer→ENU rotation columns (same as in bridge)
+        const m00 = hScale * absc, m02 = hScale * ordi;
+        const m10 = hScale * ordi, m12 = -hScale * absc;
+
+        // Translation component (centers on model origin)
+        const tx = m00 * (-modelVX) + m02 * (-modelVZ);
+        const ty = m10 * (-modelVX) + m12 * (-modelVZ);
+        const tz = -modelVY;
+
+        // The GLB geometry has origin shift + RTC baked in by the geometry pipeline.
+        // We need to account for the full offset from viewer (0,0,0) to world origin.
+        // The viewer→ENU transform handles this via the translation.
+        // But the GLB geometry vertices are in the SAME viewer space as the WebGPU renderer.
+        const viewerToEnu = new Cesium.Matrix4(
+          m00, 0, m02, tx,
+          m10, 0, m12, ty,
+          0,   1, 0,   tz,
+          0,   0, 0,   1,
+        );
+
+        const modelMatrix = Cesium.Matrix4.multiply(
+          enuToEcef, viewerToEnu, new Cesium.Matrix4(),
+        );
+
+        // Create a Blob URL for the GLB so Cesium can load it
+        const blob = new Blob([glbBytes as BlobPart], { type: 'model/gltf-binary' });
+        const glbUrl = URL.createObjectURL(blob);
+
+        // Load as Cesium Model
+        const model = await Cesium.Model.fromGltfAsync({
+          url: glbUrl,
+          modelMatrix: modelMatrix,
+          shadows: Cesium.ShadowMode.DISABLED,
+        });
+
+        // Clean up the Blob URL after model is loaded
+        URL.revokeObjectURL(glbUrl);
+
+        if (cancelled) return;
+
+        viewer.scene.primitives.add(model);
+        cesiumModelRef.current = model;
+        viewer.scene.requestRender();
+      } catch (err) {
+        console.warn('[CesiumOverlay] Failed to load IFC model into Cesium:', err);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      if (cesiumModelRef.current && viewerRef.current) {
+        viewerRef.current.scene.primitives.remove(cesiumModelRef.current);
+        cesiumModelRef.current = null;
+      }
+    };
+  }, [status, bridgeVersion, geometryResult]);
 
   // ─── Effect 3: Camera sync loop ─────────────────────────────────────────
   useEffect(() => {
