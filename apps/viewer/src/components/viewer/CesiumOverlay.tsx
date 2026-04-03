@@ -158,6 +158,48 @@ function buildMergedGLB(meshes: import('@ifc-lite/geometry').MeshData[]): Uint8A
   return new Uint8Array(glb);
 }
 
+/**
+ * Build a Cesium model matrix for placing the IFC model in ECEF.
+ * Extracted as a pure function so it can be called from both
+ * the GLB load effect (initial) and the matrix update effect (instant).
+ */
+function buildModelMatrix(
+  Cesium: typeof import('cesium'),
+  bridge: CesiumBridge,
+  mapConversion: MapConversion | undefined,
+  coordinateInfo: CoordinateInfo | undefined,
+  clamp: boolean,
+  terrainH: number | null,
+) {
+  const hScale = mapConversion?.scale ?? 1.0;
+  const absc = mapConversion?.xAxisAbscissa ?? 1.0;
+  const ordi = mapConversion?.xAxisOrdinate ?? 0.0;
+  const bounds = coordinateInfo?.originalBounds;
+  const mvx = bounds ? (bounds.min.x + bounds.max.x) / 2 : 0;
+  const mvy = bounds ? (bounds.min.y + bounds.max.y) / 2 : 0;
+  const mvz = bounds ? (bounds.min.z + bounds.max.z) / 2 : 0;
+
+  let placementHeight = bridge.modelOrigin.height;
+  if (clamp && terrainH !== null) {
+    const minY = bounds?.min.y ?? 0;
+    const bottomOffset = mvy - minY;
+    placementHeight = terrainH + bottomOffset;
+  }
+
+  const origin = Cesium.Cartesian3.fromDegrees(
+    bridge.modelOrigin.longitude, bridge.modelOrigin.latitude, placementHeight,
+  );
+  const enuToEcef = Cesium.Transforms.eastNorthUpToFixedFrame(origin);
+  const sa = hScale * absc, so = hScale * ordi;
+  const ifcToEnu = new Cesium.Matrix4(
+    sa, -so, 0, -(sa * mvx + so * mvz),
+    so,  sa, 0, -(so * mvx - sa * mvz),
+    0,   0,  1, -mvy,
+    0,   0,  0, 1,
+  );
+  return Cesium.Matrix4.multiply(enuToEcef, ifcToEnu, new Cesium.Matrix4());
+}
+
 export interface CesiumOverlayProps {
   mapConversion?: MapConversion;
   projectedCRS?: ProjectedCRS;
@@ -412,10 +454,8 @@ export function CesiumOverlay({
     return () => { cancelled = true; clearTimeout(retryTimer); };
   }, [status, terrainEnabled, terrainClamp, bridgeVersion]);
 
-  // ─── Effect 2c: DEFERRED GLB load for correct world positioning ─────────
-  // The GLB model is loaded into Cesium for pixel-perfect alignment with
-  // terrain and OSM buildings. Deferred by 2s to avoid blocking initial load.
-  // Once loaded, the WebGPU canvas is hidden and Cesium renders the model.
+  // ─── Effect 2c: Load GLB into Cesium (only when geometry changes) ───────
+  // This is the heavy operation — only re-runs when geometry actually changes.
   useEffect(() => {
     if (status !== 'ready' || !geometryResult?.meshes?.length) return;
     const viewer = viewerRef.current;
@@ -428,19 +468,23 @@ export function CesiumOverlay({
     const startExport = async () => {
       if (cancelled) return;
       try {
+        // Export GLB (cached by mesh count — skip if already loaded)
+        const meshCount = geometryResult.meshes.length;
+        if (cesiumModelRef.current && glbCacheRef.current?.meshCount === meshCount) {
+          // Model already loaded with same geometry — just update matrix
+          return;
+        }
+
+        // Remove previous model
         if (cesiumModelRef.current) {
           viewer.scene.primitives.remove(cesiumModelRef.current);
           cesiumModelRef.current = null;
         }
 
-        // Fast merged GLB export: creates a SINGLE mesh from all geometry.
-        // Much faster than GLTFExporter which creates one node per IFC element.
-        const meshCount = geometryResult.meshes.length;
         let glbBytes: Uint8Array;
         if (glbCacheRef.current?.meshCount === meshCount) {
           glbBytes = glbCacheRef.current.glb;
         } else {
-          // Yield before heavy work
           await new Promise(r => setTimeout(r, 50));
           if (cancelled) return;
           glbBytes = buildMergedGLB(geometryResult.meshes);
@@ -451,49 +495,8 @@ export function CesiumOverlay({
         await new Promise(r => setTimeout(r, 0));
         if (cancelled) return;
 
-        // Build model matrix: IFC Z-up → ENU → ECEF
-        // When terrain clamping is active, shift the model up so its
-        // lowest point sits on the terrain surface.
-        const currentClamp = terrainClampRef.current;
-        const currentTerrainH = terrainHeightRef.current;
-        let placementHeight = bridge.modelOrigin.height;
-
-        if (currentClamp && currentTerrainH !== null) {
-          // The ifcToEnu matrix translates by -mvy in Up, so a vertex at
-          // viewer Y=minY ends up at ENU Z = (minY - mvy) = -bottomOffset.
-          // In ECEF that's at height: placementHeight - bottomOffset.
-          // For bottom to touch terrain: placementHeight - bottomOffset = terrainH
-          // So: placementHeight = terrainH + bottomOffset
-          const cmvy = coordinateInfo?.originalBounds
-            ? (coordinateInfo.originalBounds.min.y + coordinateInfo.originalBounds.max.y) / 2 : 0;
-          const minY = coordinateInfo?.originalBounds?.min.y ?? 0;
-          const bottomOffset = cmvy - minY;
-          placementHeight = currentTerrainH + bottomOffset;
-          console.log('[CesiumOverlay] Terrain clamp:', {
-            terrainH: currentTerrainH, modelOriginH: bridge.modelOrigin.height,
-            mvy: cmvy, minY, bottomOffset, placementHeight,
-          });
-        }
-
-        const origin = Cesium.Cartesian3.fromDegrees(
-          bridge.modelOrigin.longitude, bridge.modelOrigin.latitude, placementHeight,
-        );
-        const enuToEcef = Cesium.Transforms.eastNorthUpToFixedFrame(origin);
-        const hScale = mapConversion?.scale ?? 1.0;
-        const absc = mapConversion?.xAxisAbscissa ?? 1.0;
-        const ordi = mapConversion?.xAxisOrdinate ?? 0.0;
-        const bounds = coordinateInfo?.originalBounds;
-        const mvx = bounds ? (bounds.min.x + bounds.max.x) / 2 : 0;
-        const mvy = bounds ? (bounds.min.y + bounds.max.y) / 2 : 0;
-        const mvz = bounds ? (bounds.min.z + bounds.max.z) / 2 : 0;
-        const sa = hScale * absc, so = hScale * ordi;
-        const ifcToEnu = new Cesium.Matrix4(
-          sa, -so, 0, -(sa * mvx + so * mvz),
-          so,  sa, 0, -(so * mvx - sa * mvz),
-          0,   0,  1, -mvy,
-          0,   0,  0, 1,
-        );
-        const modelMatrix = Cesium.Matrix4.multiply(enuToEcef, ifcToEnu, new Cesium.Matrix4());
+        // Build initial model matrix
+        const modelMatrix = buildModelMatrix(Cesium, bridge, mapConversion, coordinateInfo, terrainClampRef.current, terrainHeightRef.current);
 
         const blob = new Blob([glbBytes as BlobPart], { type: 'model/gltf-binary' });
         const glbUrl = URL.createObjectURL(blob);
@@ -512,7 +515,6 @@ export function CesiumOverlay({
       }
     };
 
-    // Start after a short delay to let initial render complete
     const deferTimer = setTimeout(startExport, 1000);
 
     return () => {
@@ -524,7 +526,22 @@ export function CesiumOverlay({
       }
       setCesiumGlbLoaded(false);
     };
-  }, [status, bridgeVersion, geometryResult, terrainClamp, terrainHeight]);
+  }, [status, bridgeVersion, geometryResult]);
+
+  // ─── Effect 2d: Update model matrix (instant, no reload) ────────────────
+  // When terrain clamp, terrain height, or georef changes, just update the
+  // existing model's matrix — no GLB re-export, no flicker.
+  useEffect(() => {
+    const model = cesiumModelRef.current;
+    const bridge = bridgeRef.current;
+    const viewer = viewerRef.current;
+    const Cesium = cesiumModule;
+    if (!model || !bridge || !viewer || !Cesium) return;
+
+    const newMatrix = buildModelMatrix(Cesium, bridge, mapConversion, coordinateInfo, terrainClamp, terrainHeight);
+    model.modelMatrix = newMatrix;
+    viewer.scene.requestRender();
+  }, [terrainClamp, terrainHeight, mapConversion, coordinateInfo]);
 
   // ─── Effect 3: Camera sync loop ─────────────────────────────────────────
   useEffect(() => {
