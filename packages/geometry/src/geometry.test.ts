@@ -280,6 +280,29 @@ describe('CoordinateHandler', () => {
       const info = handler.getCurrentCoordinateInfo();
       expect(info).toBeNull();
     });
+
+    it('should accumulate trusted native bounds without applying a shift', () => {
+      handler.processTrustedMeshesIncremental([
+        createTestMesh({
+          expressId: 1,
+          positions: new Float32Array([100, 200, 300, 110, 210, 310]),
+        }),
+      ]);
+
+      handler.processTrustedMeshesIncremental([
+        createTestMesh({
+          expressId: 2,
+          positions: new Float32Array([-20, -10, 5, 40, 50, 60]),
+        }),
+      ]);
+
+      const info = handler.getFinalCoordinateInfo();
+
+      expect(info.hasLargeCoordinates).toBe(false);
+      expect(info.originShift).toEqual({ x: 0, y: 0, z: 0 });
+      expect(info.originalBounds.min.x).toBe(-20);
+      expect(info.originalBounds.max.z).toBe(310);
+    });
   });
 });
 

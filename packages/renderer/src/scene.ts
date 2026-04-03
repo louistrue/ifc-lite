@@ -70,6 +70,7 @@ export class Scene {
   // via queueMeshes() (instant, no GPU), and the animation loop drains
   // the queue via flushPending() with a per-frame time budget.
   private meshQueue: MeshData[] = [];
+  private meshQueueReadIndex: number = 0;
 
   // ─── GPU-resident mode ──────────────────────────────────────────────
   // After releaseGeometryData(), JS-side typed arrays are freed.
@@ -379,7 +380,7 @@ export class Scene {
 
   /** True if the mesh queue has pending work. */
   hasQueuedMeshes(): boolean {
-    return this.meshQueue.length > 0;
+    return this.meshQueueReadIndex < this.meshQueue.length;
   }
 
   setEphemeralStreamingMode(enabled: boolean): void {
@@ -394,7 +395,7 @@ export class Scene {
    * @returns true if any meshes were processed (caller should render)
    */
   flushPending(device: GPUDevice, pipeline: RenderPipeline): boolean {
-    if (this.meshQueue.length === 0) return false;
+    if (!this.hasQueuedMeshes()) return false;
 
     // Drain the queue in moderately sized chunks instead of one mesh at a time.
     // This preserves the per-frame time budget while cutting appendToBatches()
@@ -405,18 +406,27 @@ export class Scene {
     const start = performance.now();
     let processed = 0;
 
-    while (this.meshQueue.length > 0 && processed < MAX_MESHES_PER_FLUSH) {
+    while (this.meshQueueReadIndex < this.meshQueue.length && processed < MAX_MESHES_PER_FLUSH) {
       const chunkSize = Math.min(
         MESHES_PER_APPEND,
         MAX_MESHES_PER_FLUSH - processed,
-        this.meshQueue.length,
+        this.meshQueue.length - this.meshQueueReadIndex,
       );
-      const chunk = this.meshQueue.splice(0, chunkSize);
+      const chunk = this.meshQueue.slice(this.meshQueueReadIndex, this.meshQueueReadIndex + chunkSize);
+      this.meshQueueReadIndex += chunkSize;
       this.appendToBatches(chunk, device, pipeline, true);
       processed += chunk.length;
       if (processed >= MESHES_PER_APPEND && performance.now() - start >= FLUSH_BUDGET_MS) {
         break;
       }
+    }
+
+    if (this.meshQueueReadIndex >= this.meshQueue.length) {
+      this.meshQueue.length = 0;
+      this.meshQueueReadIndex = 0;
+    } else if (this.meshQueueReadIndex >= 8192 && this.meshQueueReadIndex * 2 >= this.meshQueue.length) {
+      this.meshQueue = this.meshQueue.slice(this.meshQueueReadIndex);
+      this.meshQueueReadIndex = 0;
     }
 
     return processed > 0;
@@ -719,11 +729,39 @@ export class Scene {
       return;
     }
 
+    // Preserve lightweight per-entity bounds so large-model picking and
+    // selection can continue to work after we discard CPU mesh arrays.
+    for (const [expressId, pieces] of this.meshDataMap) {
+      if (this.boundingBoxes.has(expressId)) continue;
+
+      let minX = Infinity, minY = Infinity, minZ = Infinity;
+      let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+
+      for (const piece of pieces) {
+        const positions = piece.positions;
+        for (let i = 0; i < positions.length; i += 3) {
+          const x = positions[i];
+          const y = positions[i + 1];
+          const z = positions[i + 2];
+          if (x < minX) minX = x;
+          if (y < minY) minY = y;
+          if (z < minZ) minZ = z;
+          if (x > maxX) maxX = x;
+          if (y > maxY) maxY = y;
+          if (z > maxZ) maxZ = z;
+        }
+      }
+
+      this.boundingBoxes.set(expressId, {
+        min: { x: minX, y: minY, z: minZ },
+        max: { x: maxX, y: maxY, z: maxZ },
+      });
+    }
+
     this.streamingFragments = [];
     this.buckets.clear();
     this.meshDataBucket = new Map();
     this.meshDataMap.clear();
-    this.boundingBoxes.clear();
     this.activeBucketKey.clear();
     this.pendingBatchKeys.clear();
     for (const batch of this.partialBatchCache.values()) {
@@ -1431,6 +1469,7 @@ export class Scene {
     this.partialBatchCache.clear();
     this.partialBatchCacheKeys.clear();
     this.meshQueue = [];
+    this.meshQueueReadIndex = 0;
     this.geometryReleased = false;
     this.ephemeralStreamingMode = false;
   }

@@ -1018,7 +1018,9 @@ export class GeometryProcessor {
         }
 
         queueState.queuedMeshes = Math.max(0, queueState.queuedMeshes - event.meshes.length);
-        this.coordinateHandler.processMeshesIncremental(event.meshes);
+        // Native desktop streaming already produces site-local geometry, so
+        // avoid the generic JS RTC/outlier scan on every streamed batch.
+        this.coordinateHandler.processTrustedMeshesIncremental(event.meshes);
         totalMeshes += event.meshes.length;
         const coordinateInfo = this.coordinateHandler.getCurrentCoordinateInfo();
         yield {
