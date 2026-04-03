@@ -242,3 +242,42 @@ export async function reprojectToLatLon(
     return null;
   }
 }
+
+/**
+ * Reverse-project a WGS84 lat/lon back into easting/northing in the projected CRS.
+ *
+ * This is the inverse of reprojectToLatLon — it takes a map click position
+ * and converts it into the values that should be stored in IfcMapConversion.
+ */
+export async function reprojectFromLatLon(
+  latLon: LatLon,
+  crs: ProjectedCRS,
+): Promise<{ easting: number; northing: number } | null> {
+  const projDef = await resolveProjection(crs);
+  if (!projDef) return null;
+
+  try {
+    const [easting, northing] = proj4('WGS84', projDef, [latLon.lon, latLon.lat]);
+    if (!Number.isFinite(easting) || !Number.isFinite(northing)) return null;
+    return { easting, northing };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Query terrain elevation at a given lat/lon using the Open-Meteo elevation API.
+ * Returns height in metres above sea level, or null on failure.
+ */
+export async function queryTerrainElevation(latLon: LatLon): Promise<number | null> {
+  try {
+    const url = `https://api.open-meteo.com/v1/elevation?latitude=${latLon.lat}&longitude=${latLon.lon}`;
+    const resp = await fetch(url);
+    if (!resp.ok) return null;
+    const data = await resp.json();
+    const elev = data?.elevation?.[0];
+    return typeof elev === 'number' && Number.isFinite(elev) ? elev : null;
+  } catch {
+    return null;
+  }
+}

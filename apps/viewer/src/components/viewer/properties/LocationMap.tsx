@@ -6,17 +6,24 @@
  * LocationMap — a compact MapLibre GL JS minimap that shows the model's
  * real-world position derived from IfcMapConversion + IfcProjectedCRS.
  *
- * Renders as a collapsible panel below the georeferencing fields.
- * Includes links to Google Maps, OpenStreetMap, and Google Earth (KMZ export).
+ * Features:
+ *   - Place/drag pin on map to reposition the model
+ *   - Search for places via Nominatim geocoding
+ *   - Query terrain elevation at pin location
+ *   - Apply pin position back to IfcMapConversion (eastings/northings/height)
+ *   - Links to Google Maps, OpenStreetMap, and Google Earth (KMZ export)
  */
 
 import { useEffect, useRef, useState, useMemo, useCallback } from 'react';
-import { Map as MapIcon, ExternalLink, Loader2, MapPinOff, Globe2 } from 'lucide-react';
+import {
+  Map as MapIcon, ExternalLink, Loader2, MapPinOff, Globe2,
+  Search, Mountain, MapPin, X, Check,
+} from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import type { MapConversion, ProjectedCRS } from '@ifc-lite/parser';
 import type { CoordinateInfo, GeometryResult } from '@ifc-lite/geometry';
 import { GLTFExporter } from '@ifc-lite/export';
-import { reprojectToLatLon, type LatLon } from '@/lib/geo/reproject';
+import { reprojectToLatLon, reprojectFromLatLon, queryTerrainElevation, type LatLon } from '@/lib/geo/reproject';
 import { buildKmz, ifcAngleToKmlHeading } from '@/lib/geo/kmz-exporter';
 
 // Lazy-load maplibre-gl to avoid bloating the initial bundle
@@ -28,6 +35,13 @@ function loadMaplibre() {
   return maplibrePromise;
 }
 
+/** Position picked on the map, ready to be applied to IfcMapConversion */
+export interface PickedPosition {
+  easting: number;
+  northing: number;
+  terrainHeight: number | null;
+}
+
 export interface LocationMapProps {
   mapConversion?: MapConversion;
   projectedCRS?: ProjectedCRS;
@@ -35,19 +49,89 @@ export interface LocationMapProps {
   coordinateInfo?: CoordinateInfo;
   /** Geometry result for KMZ export (optional — KMZ button hidden if not provided) */
   geometryResult?: GeometryResult | null;
+  /** Whether the map is in edit mode (allows repositioning) */
+  editable?: boolean;
+  /** Called when the user applies a new position from the map */
+  onApplyPosition?: (position: PickedPosition) => void;
 }
 
 type MapState = 'idle' | 'loading' | 'ready' | 'error';
 
-export function LocationMap({ mapConversion, projectedCRS, coordinateInfo, geometryResult }: LocationMapProps) {
+// Debounce helper
+function useDebouncedValue<T>(value: T, delayMs: number): T {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const timer = setTimeout(() => setDebounced(value), delayMs);
+    return () => clearTimeout(timer);
+  }, [value, delayMs]);
+  return debounced;
+}
+
+/** Geocode a query string via Nominatim */
+async function geocodeSearch(query: string): Promise<Array<{ lat: number; lon: number; display_name: string }>> {
+  if (!query.trim()) return [];
+  try {
+    const q = encodeURIComponent(query.trim());
+    const resp = await fetch(
+      `https://nominatim.openstreetmap.org/search?format=json&limit=5&q=${q}`,
+      { headers: { 'Accept-Language': 'en' } },
+    );
+    if (!resp.ok) return [];
+    const data = await resp.json();
+    return data.map((r: { lat: string; lon: string; display_name: string }) => ({
+      lat: parseFloat(r.lat),
+      lon: parseFloat(r.lon),
+      display_name: r.display_name,
+    }));
+  } catch {
+    return [];
+  }
+}
+
+export function LocationMap({
+  mapConversion, projectedCRS, coordinateInfo, geometryResult,
+  editable, onApplyPosition,
+}: LocationMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<InstanceType<typeof import('maplibre-gl').Map> | null>(null);
   const markerRef = useRef<InstanceType<typeof import('maplibre-gl').Marker> | null>(null);
+  const pickedMarkerRef = useRef<InstanceType<typeof import('maplibre-gl').Marker> | null>(null);
 
   const [mapState, setMapState] = useState<MapState>('idle');
   const [latLon, setLatLon] = useState<LatLon | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // Picked position state (user-placed pin)
+  const [pickedLatLon, setPickedLatLon] = useState<LatLon | null>(null);
+  const [pickedElevation, setPickedElevation] = useState<number | null>(null);
+  const [elevationLoading, setElevationLoading] = useState(false);
+  const [projectedCoords, setProjectedCoords] = useState<{ easting: number; northing: number } | null>(null);
+
+  // Search state
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<Array<{ lat: number; lon: number; display_name: string }>>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const debouncedQuery = useDebouncedValue(searchQuery, 400);
+
+  // Geocode search
+  useEffect(() => {
+    if (!debouncedQuery.trim()) {
+      setSearchResults([]);
+      return;
+    }
+    let cancelled = false;
+    setSearchLoading(true);
+    geocodeSearch(debouncedQuery).then(results => {
+      if (!cancelled) {
+        setSearchResults(results);
+        setSearchLoading(false);
+      }
+    });
+    return () => { cancelled = true; };
+  }, [debouncedQuery]);
+
+  // Reproject model position to lat/lon
   useEffect(() => {
     if (!mapConversion || !projectedCRS) {
       setLatLon(null);
@@ -73,6 +157,100 @@ export function LocationMap({ mapConversion, projectedCRS, coordinateInfo, geome
 
     return () => { cancelled = true; };
   }, [mapConversion, projectedCRS, coordinateInfo]);
+
+  // When a picked position changes, reverse-project and query elevation
+  useEffect(() => {
+    if (!pickedLatLon || !projectedCRS) {
+      setProjectedCoords(null);
+      setPickedElevation(null);
+      return;
+    }
+
+    let cancelled = false;
+
+    // Reverse-project to get easting/northing
+    reprojectFromLatLon(pickedLatLon, projectedCRS).then(coords => {
+      if (!cancelled && coords) setProjectedCoords(coords);
+    });
+
+    // Query terrain elevation
+    setElevationLoading(true);
+    queryTerrainElevation(pickedLatLon).then(elev => {
+      if (!cancelled) {
+        setPickedElevation(elev);
+        setElevationLoading(false);
+      }
+    });
+
+    return () => { cancelled = true; };
+  }, [pickedLatLon, projectedCRS]);
+
+  // Place or move the picked marker on the map
+  const updatePickedMarker = useCallback((pos: LatLon, maplibregl: typeof import('maplibre-gl')) => {
+    if (!mapRef.current) return;
+    if (pickedMarkerRef.current) {
+      pickedMarkerRef.current.setLngLat([pos.lon, pos.lat]);
+    } else {
+      const el = document.createElement('div');
+      el.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="#7c3aed" stroke="white" stroke-width="2"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>`;
+      el.style.cursor = 'grab';
+      const marker = new maplibregl.Marker({ element: el, draggable: true })
+        .setLngLat([pos.lon, pos.lat])
+        .addTo(mapRef.current);
+      marker.on('dragend', () => {
+        const lngLat = marker.getLngLat();
+        setPickedLatLon({ lat: lngLat.lat, lon: lngLat.lng });
+      });
+      pickedMarkerRef.current = marker;
+    }
+  }, []);
+
+  // Handle map click to place pin
+  const handleMapClick = useCallback((e: { lngLat: { lat: number; lng: number } }) => {
+    if (!editable) return;
+    const pos = { lat: e.lngLat.lat, lon: e.lngLat.lng };
+    setPickedLatLon(pos);
+    loadMaplibre().then(ml => updatePickedMarker(pos, ml));
+  }, [editable, updatePickedMarker]);
+
+  // Handle search result selection
+  const handleSearchSelect = useCallback((result: { lat: number; lon: number; display_name: string }) => {
+    const pos = { lat: result.lat, lon: result.lon };
+    setPickedLatLon(pos);
+    setSearchOpen(false);
+    setSearchQuery('');
+    setSearchResults([]);
+
+    loadMaplibre().then(ml => {
+      updatePickedMarker(pos, ml);
+      mapRef.current?.flyTo({ center: [pos.lon, pos.lat], zoom: 16, duration: 1200 });
+    });
+  }, [updatePickedMarker]);
+
+  // Handle apply position
+  const handleApply = useCallback(() => {
+    if (!projectedCoords || !onApplyPosition) return;
+    onApplyPosition({
+      easting: Math.round(projectedCoords.easting * 1000) / 1000,
+      northing: Math.round(projectedCoords.northing * 1000) / 1000,
+      terrainHeight: pickedElevation,
+    });
+    // Clear picked state after applying
+    pickedMarkerRef.current?.remove();
+    pickedMarkerRef.current = null;
+    setPickedLatLon(null);
+    setProjectedCoords(null);
+    setPickedElevation(null);
+  }, [projectedCoords, pickedElevation, onApplyPosition]);
+
+  // Clear picked pin
+  const handleClearPick = useCallback(() => {
+    pickedMarkerRef.current?.remove();
+    pickedMarkerRef.current = null;
+    setPickedLatLon(null);
+    setProjectedCoords(null);
+    setPickedElevation(null);
+  }, []);
 
   // Initialize/update the map when we have a valid lat/lon
   useEffect(() => {
@@ -105,10 +283,13 @@ export function LocationMap({ mapConversion, projectedCRS, coordinateInfo, geome
       map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
       map.addControl(new maplibregl.AttributionControl({ compact: false }), 'bottom-right');
 
-      // Add marker at model location
+      // Add marker at model location (teal = current model position)
       const marker = new maplibregl.Marker({ color: '#14b8a6' })
         .setLngLat([latLon.lon, latLon.lat])
         .addTo(map);
+
+      // Map click to place pin (only in edit mode)
+      map.on('click', handleMapClick);
 
       mapRef.current = map;
       markerRef.current = marker;
@@ -117,11 +298,13 @@ export function LocationMap({ mapConversion, projectedCRS, coordinateInfo, geome
     return () => {
       cancelled = true;
     };
-  }, [latLon]);
+  }, [latLon, handleMapClick]);
 
   // Cleanup on unmount
   useEffect(() => {
     return () => {
+      pickedMarkerRef.current?.remove();
+      pickedMarkerRef.current = null;
       markerRef.current?.remove();
       markerRef.current = null;
       mapRef.current?.remove();
@@ -174,11 +357,14 @@ export function LocationMap({ mapConversion, projectedCRS, coordinateInfo, geome
         ? 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json'
         : 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json',
     );
-    // Re-add marker after style fully loads
-    if (markerRef.current && mapRef.current) {
+    // Re-add markers after style fully loads
+    if (mapRef.current) {
       mapRef.current.once('style.load', () => {
         if (markerRef.current && mapRef.current) {
           markerRef.current.addTo(mapRef.current);
+        }
+        if (pickedMarkerRef.current && mapRef.current) {
+          pickedMarkerRef.current.addTo(mapRef.current);
         }
       });
     }
@@ -191,18 +377,72 @@ export function LocationMap({ mapConversion, projectedCRS, coordinateInfo, geome
 
   return (
     <div className="border-t border-zinc-100 dark:border-zinc-900">
-      {/* Header */}
+      {/* Header with search */}
       <div className="flex items-center gap-2 px-3 py-1.5">
         <MapIcon className="h-3 w-3 text-teal-500 shrink-0" />
         <span className="font-bold text-[11px] text-zinc-700 dark:text-zinc-300 uppercase tracking-wide flex-1">
           Location
         </span>
-        {latLon && (
+        {latLon && !searchOpen && (
           <span className="text-[10px] font-mono text-teal-600/70 dark:text-teal-500/60">
             {latLon.lat.toFixed(5)}, {latLon.lon.toFixed(5)}
           </span>
         )}
+        {editable && (
+          <button
+            onClick={() => { setSearchOpen(!searchOpen); setSearchQuery(''); setSearchResults([]); }}
+            className="p-0.5 text-zinc-400 hover:text-teal-600 dark:hover:text-teal-400 transition-colors"
+            title="Search for a place"
+          >
+            <Search className="h-3 w-3" />
+          </button>
+        )}
       </div>
+
+      {/* Search bar */}
+      {searchOpen && (
+        <div className="px-3 pb-1.5 relative">
+          <div className="flex items-center gap-1">
+            <div className="flex-1 relative">
+              <input
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                placeholder="Search for a place..."
+                className="w-full text-[11px] px-2 py-1 border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 outline-none focus:ring-1 focus:ring-teal-400 focus:border-teal-400 placeholder:text-zinc-400/60"
+                autoFocus
+                onKeyDown={e => { if (e.key === 'Escape') { setSearchOpen(false); setSearchQuery(''); setSearchResults([]); } }}
+              />
+              {searchLoading && (
+                <Loader2 className="absolute right-2 top-1/2 -translate-y-1/2 h-3 w-3 text-teal-500 animate-spin" />
+              )}
+            </div>
+            <button
+              onClick={() => { setSearchOpen(false); setSearchQuery(''); setSearchResults([]); }}
+              className="p-0.5 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300"
+            >
+              <X className="h-3 w-3" />
+            </button>
+          </div>
+
+          {/* Search results dropdown */}
+          {searchResults.length > 0 && (
+            <div className="absolute left-3 right-3 top-full z-50 mt-0.5 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 shadow-lg max-h-[160px] overflow-y-auto">
+              {searchResults.map((r, i) => (
+                <button
+                  key={i}
+                  onClick={() => handleSearchSelect(r)}
+                  className="w-full text-left px-2 py-1.5 text-[10px] text-zinc-700 dark:text-zinc-300 hover:bg-teal-50 dark:hover:bg-teal-950/50 border-b border-zinc-100 dark:border-zinc-800 last:border-0 transition-colors"
+                >
+                  <div className="flex items-start gap-1.5">
+                    <MapPin className="h-3 w-3 text-teal-500 shrink-0 mt-0.5" />
+                    <span className="line-clamp-2">{r.display_name}</span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Map container */}
       {mapState === 'loading' && (
@@ -221,11 +461,84 @@ export function LocationMap({ mapConversion, projectedCRS, coordinateInfo, geome
 
       {(mapState === 'ready' || (mapState === 'loading' && latLon)) && (
         <>
-          <div
-            ref={containerRef}
-            className="h-[180px] w-full [&_.maplibregl-ctrl-attrib]:!text-[7px] [&_.maplibregl-ctrl-attrib]:!bg-white/40 [&_.maplibregl-ctrl-attrib]:dark:!bg-black/30 [&_.maplibregl-ctrl-attrib]:!py-0 [&_.maplibregl-ctrl-attrib]:!px-1 [&_.maplibregl-ctrl-attrib]:!shadow-none [&_.maplibregl-ctrl-attrib]:!text-zinc-400/70 [&_.maplibregl-ctrl-attrib_a]:!text-zinc-400/70 [&_.maplibregl-ctrl-attrib]:!leading-normal"
-            style={{ minHeight: 180 }}
-          />
+          <div className="relative">
+            <div
+              ref={containerRef}
+              className="h-[180px] w-full [&_.maplibregl-ctrl-attrib]:!text-[7px] [&_.maplibregl-ctrl-attrib]:!bg-white/40 [&_.maplibregl-ctrl-attrib]:dark:!bg-black/30 [&_.maplibregl-ctrl-attrib]:!py-0 [&_.maplibregl-ctrl-attrib]:!px-1 [&_.maplibregl-ctrl-attrib]:!shadow-none [&_.maplibregl-ctrl-attrib]:!text-zinc-400/70 [&_.maplibregl-ctrl-attrib_a]:!text-zinc-400/70 [&_.maplibregl-ctrl-attrib]:!leading-normal"
+              style={{ minHeight: 180 }}
+            />
+            {/* Edit mode hint overlay */}
+            {editable && !pickedLatLon && (
+              <div className="absolute top-2 left-2 bg-white/90 dark:bg-zinc-900/90 backdrop-blur-sm px-2 py-1 text-[9px] text-zinc-500 dark:text-zinc-400 pointer-events-none shadow-sm border border-zinc-200/50 dark:border-zinc-700/50">
+                Click map to place pin
+              </div>
+            )}
+          </div>
+
+          {/* Picked position info bar */}
+          {pickedLatLon && editable && (
+            <div className="bg-purple-50/80 dark:bg-purple-950/30 border-t border-purple-200/50 dark:border-purple-800/30 px-3 py-2">
+              <div className="flex items-center gap-2 mb-1.5">
+                <MapPin className="h-3 w-3 text-purple-600 dark:text-purple-400 shrink-0" />
+                <span className="text-[10px] font-semibold text-purple-700 dark:text-purple-300 flex-1">
+                  New Position
+                </span>
+                <button
+                  onClick={handleClearPick}
+                  className="p-0.5 text-purple-400 hover:text-purple-600 dark:hover:text-purple-300 transition-colors"
+                  title="Remove pin"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </div>
+
+              <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-[10px] font-mono mb-2">
+                <div className="text-zinc-500 dark:text-zinc-400">Lat/Lon</div>
+                <div className="text-purple-700 dark:text-purple-300 text-right">
+                  {pickedLatLon.lat.toFixed(6)}, {pickedLatLon.lon.toFixed(6)}
+                </div>
+
+                {projectedCoords && (
+                  <>
+                    <div className="text-zinc-500 dark:text-zinc-400">Easting</div>
+                    <div className="text-purple-700 dark:text-purple-300 text-right tabular-nums">
+                      {projectedCoords.easting.toFixed(3)}
+                    </div>
+                    <div className="text-zinc-500 dark:text-zinc-400">Northing</div>
+                    <div className="text-purple-700 dark:text-purple-300 text-right tabular-nums">
+                      {projectedCoords.northing.toFixed(3)}
+                    </div>
+                  </>
+                )}
+
+                <div className="text-zinc-500 dark:text-zinc-400 flex items-center gap-1">
+                  <Mountain className="h-2.5 w-2.5" />
+                  Elevation
+                </div>
+                <div className="text-purple-700 dark:text-purple-300 text-right tabular-nums">
+                  {elevationLoading ? (
+                    <Loader2 className="h-2.5 w-2.5 animate-spin inline" />
+                  ) : pickedElevation !== null ? (
+                    `${pickedElevation.toFixed(1)} m`
+                  ) : (
+                    <span className="text-zinc-400">—</span>
+                  )}
+                </div>
+              </div>
+
+              {/* Apply button */}
+              {onApplyPosition && projectedCoords && (
+                <button
+                  onClick={handleApply}
+                  className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 text-[10px] font-semibold text-white bg-purple-600 hover:bg-purple-700 dark:bg-purple-700 dark:hover:bg-purple-600 transition-colors"
+                >
+                  <Check className="h-3 w-3" />
+                  Apply to Eastings / Northings
+                  {pickedElevation !== null && ' / Height'}
+                </button>
+              )}
+            </div>
+          )}
 
           {/* Action links */}
           <div className="flex items-center gap-3 px-3 py-1.5 border-t border-zinc-100 dark:border-zinc-900">

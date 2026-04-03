@@ -15,7 +15,7 @@ import { computeAngleToGridNorth, type GeoreferenceInfo, type MapConversion, typ
 import { useViewerStore } from '@/store';
 import type { CoordinateInfo, GeometryResult } from '@ifc-lite/geometry';
 import { EpsgLookupDialog, type EpsgResult } from './EpsgLookupDialog';
-import { LocationMap } from './LocationMap';
+import { LocationMap, type PickedPosition } from './LocationMap';
 
 // ── Field-specific assistance data ─────────────────────────────────────
 
@@ -399,6 +399,20 @@ export function GeoreferencingPanel({ georef, modelId, enableEditing, schemaVers
     ]);
   }, [modelId, setGeorefFields, georef]);
 
+  // Handle position picked from the map (reverse-projected easting/northing + optional terrain height)
+  const handleApplyPosition = useCallback((position: PickedPosition) => {
+    if (!modelId || !setGeorefFields) return;
+    const fields: Array<{ field: string; value: number; oldValue?: number }> = [
+      { field: 'eastings', value: position.easting, oldValue: georef?.mapConversion?.eastings },
+      { field: 'northings', value: position.northing, oldValue: georef?.mapConversion?.northings },
+    ];
+    if (position.terrainHeight !== null) {
+      fields.push({ field: 'orthogonalHeight', value: Math.round(position.terrainHeight * 10) / 10, oldValue: georef?.mapConversion?.orthogonalHeight });
+    }
+    setGeorefFields(modelId, 'mapConversion', fields);
+    setConversionOpen(true);
+  }, [modelId, setGeorefFields, georef]);
+
   const initializeMapConversionDefaults = useCallback(() => {
     if (!modelId || !setGeorefFields) return;
     setGeorefFields(modelId, 'mapConversion', [
@@ -585,7 +599,14 @@ export function GeoreferencingPanel({ georef, modelId, enableEditing, schemaVers
       )}
 
       {/* Location minimap */}
-      <LocationMap mapConversion={mergedConversion} projectedCRS={mergedCRS} coordinateInfo={coordinateInfo} geometryResult={geometryResult} />
+      <LocationMap
+        mapConversion={mergedConversion}
+        projectedCRS={mergedCRS}
+        coordinateInfo={coordinateInfo}
+        geometryResult={geometryResult}
+        editable={editable}
+        onApplyPosition={editable ? handleApplyPosition : undefined}
+      />
     </div>
   );
 }
