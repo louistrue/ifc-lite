@@ -1,5 +1,13 @@
 # @ifc-lite/renderer
 
+## 1.14.9
+
+### Patch Changes
+
+- [#507](https://github.com/louistrue/ifc-lite/pull/507) [`7b0a5f6`](https://github.com/louistrue/ifc-lite/commit/7b0a5f6a395e49d2dc846b3c955b0ba01b75c88b) Thanks [@louistrue](https://github.com/louistrue)! - Fix partial batch cache key collision by using unique batch id instead of expressIds
+
+- [#507](https://github.com/louistrue/ifc-lite/pull/507) [`7b0a5f6`](https://github.com/louistrue/ifc-lite/commit/7b0a5f6a395e49d2dc846b3c955b0ba01b75c88b) Thanks [@louistrue](https://github.com/louistrue)! - Fix diagonal line artifacts on coplanar entity boundaries in separation lines shader
+
 ## 1.14.8
 
 ### Patch Changes
