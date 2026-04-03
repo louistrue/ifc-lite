@@ -134,11 +134,13 @@ export function CesiumOverlay({
         // Disable terrain-based camera adjustment
         scene.globe.depthTestAgainstTerrain = false;
 
-        // Disable skybox/atmosphere for transparent compositing
+        // Disable skybox/atmosphere/fog for transparent compositing
         if (scene.skyBox) (scene.skyBox as any).show = false;
         if (scene.sun) scene.sun.show = false;
         if (scene.moon) scene.moon.show = false;
         if (scene.skyAtmosphere) scene.skyAtmosphere.show = false;
+        scene.fog.enabled = false;
+        scene.globe.showGroundAtmosphere = false;
         scene.backgroundColor = Cesium.Color.TRANSPARENT;
         scene.globe.baseColor = Cesium.Color.TRANSPARENT;
 
