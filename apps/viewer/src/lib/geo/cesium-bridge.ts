@@ -220,10 +220,23 @@ export async function createCesiumBridge(
     Cesium.Cartesian3.normalize(right, right);
     viewer.camera.right = right;
 
-    // Sync FOV
+    // Sync FOV — CRITICAL for preventing model drift.
+    // IFC renderer uses `fov` as VERTICAL FOV always.
+    // Cesium's PerspectiveFrustum.fov is HORIZONTAL when aspect > 1 (landscape).
+    // If we set Cesium's fov = IFC's vertical fov, Cesium treats it as horizontal,
+    // producing a completely different projection — the model slides during orbit.
+    // Fix: convert vertical FOV → horizontal FOV.
     const frustum = viewer.camera.frustum;
     if (frustum instanceof Cesium.PerspectiveFrustum) {
-      frustum.fov = fov;
+      const aspect = frustum.aspectRatio || (viewer.canvas.width / viewer.canvas.height);
+      if (aspect > 1) {
+        // Landscape: Cesium expects horizontal FOV
+        // horizontal_fov = 2 * atan(aspect * tan(vertical_fov / 2))
+        frustum.fov = 2 * Math.atan(aspect * Math.tan(fov / 2));
+      } else {
+        // Portrait: Cesium uses fov as vertical — pass through
+        frustum.fov = fov;
+      }
     }
 
     viewer.scene.requestRender();
