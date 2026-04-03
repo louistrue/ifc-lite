@@ -69,6 +69,13 @@ export function CesiumOverlay({
   const terrainHeight = useViewerStore((s) => s.cesiumTerrainHeight);
   const setCesiumTerrainHeight = useViewerStore((s) => s.setCesiumTerrainHeight);
 
+  // Use refs so the camera sync loop always reads the latest values
+  // without needing to restart the loop (which would cause jank).
+  const terrainClampRef = useRef(terrainClamp);
+  const terrainHeightRef = useRef(terrainHeight);
+  terrainClampRef.current = terrainClamp;
+  terrainHeightRef.current = terrainHeight;
+
   // ─── Effect 1: Create/destroy the Cesium viewer (heavy, rare) ───────────
   // Only depends on cesiumEnabled, ionToken, terrainEnabled, dataSource.
   // NOT on mapConversion/projectedCRS — those are handled by Effect 2.
@@ -307,8 +314,11 @@ export function CesiumOverlay({
       const fov = camera.getFOV();
 
       // Compute terrain clamp offset: shift everything up so model sits on terrain
-      const clampOffset = (terrainClamp && terrainHeight !== null)
-        ? terrainHeight - bridge.modelOrigin.height
+      // Uses refs to always read latest values without restarting the loop
+      const currentClamp = terrainClampRef.current;
+      const currentTerrainH = terrainHeightRef.current;
+      const clampOffset = (currentClamp && currentTerrainH !== null)
+        ? currentTerrainH - bridge.modelOrigin.height
         : undefined;
 
       // Sync Cesium camera: position, direction, up, right, FOV

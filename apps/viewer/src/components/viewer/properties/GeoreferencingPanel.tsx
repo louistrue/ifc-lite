@@ -618,7 +618,7 @@ export function GeoreferencingPanel({ georef, modelId, enableEditing, schemaVers
           {cesiumTerrainHeight !== null && editable && modelId && (
             <div className="flex items-center gap-1 ml-5">
               <button
-                onClick={() => handleSave('mapConversion', 'orthogonalHeight', cesiumTerrainHeight)}
+                onClick={() => handleSave('mapConversion', 'orthogonalHeight', Math.round(cesiumTerrainHeight * 100) / 100)}
                 className="text-[9px] text-teal-500 hover:text-teal-700 dark:hover:text-teal-300 transition-colors flex items-center gap-0.5"
               >
                 <Mountain className="h-2.5 w-2.5" />
@@ -652,7 +652,7 @@ function TerrainHeightButton({ modelId, editable, onApply }: {
         <button
           onClick={(e) => {
             e.stopPropagation();
-            onApply(terrainHeight);
+            onApply(Math.round(terrainHeight * 100) / 100);
           }}
           className="flex items-center gap-0.5 text-[9px] text-teal-500 hover:text-teal-700 dark:hover:text-teal-300 transition-colors mt-0.5"
         >
