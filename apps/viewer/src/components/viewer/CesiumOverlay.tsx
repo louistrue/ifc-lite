@@ -350,35 +350,20 @@ export function CesiumOverlay({
       if (viewer && Cesium) {
         const { modelOrigin } = bridge;
 
-        // Determine if this is a significant location change worth flying to
         const isFirstPosition = !prevBridge;
-        const movedSignificantly = prevBridge && (
-          Math.abs(modelOrigin.latitude - prevBridge.modelOrigin.latitude) > 0.00001 ||
-          Math.abs(modelOrigin.longitude - prevBridge.modelOrigin.longitude) > 0.00001 ||
-          Math.abs(modelOrigin.height - prevBridge.modelOrigin.height) > 1
+        const target = Cesium.Cartesian3.fromDegrees(
+          modelOrigin.longitude, modelOrigin.latitude, modelOrigin.height,
         );
 
-        if (isFirstPosition || movedSignificantly) {
-          // Use the bridge's syncCamera with a default isometric view,
-          // or fly to the new location on georef edit
-          const target = Cesium.Cartesian3.fromDegrees(
-            modelOrigin.longitude,
-            modelOrigin.latitude,
-            modelOrigin.height,
-          );
-          if (isFirstPosition) {
-            const hpr = new Cesium.HeadingPitchRange(0, Cesium.Math.toRadians(-45), 300);
-            viewer.camera.lookAt(target, hpr);
-            viewer.camera.lookAtTransform(Cesium.Matrix4.IDENTITY);
-          } else {
-            viewer.camera.flyTo({
-              destination: Cesium.Cartesian3.fromDegrees(
-                modelOrigin.longitude, modelOrigin.latitude, modelOrigin.height + 200,
-              ),
-              orientation: { heading: 0, pitch: Cesium.Math.toRadians(-45), roll: 0 },
-              duration: 1.5,
-            });
-          }
+        if (isFirstPosition) {
+          // First time: instant jump to isometric view
+          const hpr = new Cesium.HeadingPitchRange(0, Cesium.Math.toRadians(-45), 300);
+          viewer.camera.lookAt(target, hpr);
+          viewer.camera.lookAtTransform(Cesium.Matrix4.IDENTITY);
+          viewer.scene.requestRender();
+        } else if (prevBridge) {
+          // Georef edit: just re-render, the camera sync loop will pick
+          // up the new bridge on the next frame. No dramatic fly animation.
           viewer.scene.requestRender();
         }
       }
