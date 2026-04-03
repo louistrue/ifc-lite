@@ -300,6 +300,16 @@ export function CesiumOverlay({
         // by terrain — prevents seeing underground portions.
         scene.globe.depthTestAgainstTerrain = true;
 
+        // Move credit/logo from bottom-left to top-left to avoid overlap
+        // with other UI elements.
+        const bottomContainer = viewer.bottomContainer as HTMLElement;
+        if (bottomContainer) {
+          bottomContainer.style.top = '0';
+          bottomContainer.style.bottom = 'auto';
+          bottomContainer.style.left = '0';
+          bottomContainer.style.right = 'auto';
+        }
+
         // Disable skybox/atmosphere/fog for transparent compositing
         if (scene.skyBox) (scene.skyBox as any).show = false;
         if (scene.sun) scene.sun.show = false;
