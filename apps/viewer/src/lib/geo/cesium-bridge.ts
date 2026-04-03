@@ -43,6 +43,8 @@ export interface CesiumBridge {
     viewer: InstanceType<typeof import('cesium').Viewer>,
     camPos: { x: number; y: number; z: number },
     camTarget: { x: number; y: number; z: number },
+    camUp: { x: number; y: number; z: number },
+    fov: number,
   ): void;
 
   viewerToGeodetic(vx: number, vy: number, vz: number): GeodesicPosition | null;
@@ -145,69 +147,61 @@ export async function createCesiumBridge(
    * Sync the Cesium camera using ECEF math.
    * This converts the IFC camera to ENU, then uses Cesium's own
    * ENU→ECEF transform to get exact ECEF positions.
+   * Also syncs the frustum (FOV) so the projection matches exactly.
    */
   function syncCamera(
     Cesium: typeof import('cesium'),
     viewer: InstanceType<typeof import('cesium').Viewer>,
     camPos: { x: number; y: number; z: number },
     camTarget: { x: number; y: number; z: number },
+    camUp: { x: number; y: number; z: number },
+    fov: number,
   ): void {
     ensureEcefCache(Cesium);
     if (!enuToEcefMatrix) return;
 
-    // Camera target offset from model center → ENU
-    const [tE, tN, tU] = viewerToENU.delta(
-      camTarget.x - modelVX,
-      camTarget.y - modelVY,
-      camTarget.z - modelVZ,
-    );
-
-    // Camera position offset from model center → ENU
+    // Camera position offset from model center → ENU → ECEF
     const [pE, pN, pU] = viewerToENU.delta(
-      camPos.x - modelVX,
-      camPos.y - modelVY,
-      camPos.z - modelVZ,
-    );
-
-    // Convert ENU points to ECEF using Cesium's exact transform
-    const targetENU = new Cesium.Cartesian3(tE, tN, tU);
-    const posENU = new Cesium.Cartesian3(pE, pN, pU);
-
-    const targetECEF = Cesium.Matrix4.multiplyByPoint(
-      enuToEcefMatrix, targetENU, new Cesium.Cartesian3(),
+      camPos.x - modelVX, camPos.y - modelVY, camPos.z - modelVZ,
     );
     const posECEF = Cesium.Matrix4.multiplyByPoint(
-      enuToEcefMatrix, posENU, new Cesium.Cartesian3(),
+      enuToEcefMatrix, new Cesium.Cartesian3(pE, pN, pU), new Cesium.Cartesian3(),
     );
 
-    // Compute up direction in ECEF (ENU "up" = [0,0,1] → ECEF)
-    const upENU = new Cesium.Cartesian3(0, 0, 1);
+    // View direction (target - position) as a delta vector → ENU → ECEF direction
+    const dirViewerX = camTarget.x - camPos.x;
+    const dirViewerY = camTarget.y - camPos.y;
+    const dirViewerZ = camTarget.z - camPos.z;
+    const [dE, dN, dU] = viewerToENU.delta(dirViewerX, dirViewerY, dirViewerZ);
+    const dirECEF = Cesium.Matrix4.multiplyByPointAsVector(
+      enuToEcefMatrix, new Cesium.Cartesian3(dE, dN, dU), new Cesium.Cartesian3(),
+    );
+    Cesium.Cartesian3.normalize(dirECEF, dirECEF);
+
+    // Up vector → ENU → ECEF
+    const [uE, uN, uU] = viewerToENU.delta(camUp.x, camUp.y, camUp.z);
     const upECEF = Cesium.Matrix4.multiplyByPointAsVector(
-      enuToEcefMatrix, upENU, new Cesium.Cartesian3(),
+      enuToEcefMatrix, new Cesium.Cartesian3(uE, uN, uU), new Cesium.Cartesian3(),
     );
     Cesium.Cartesian3.normalize(upECEF, upECEF);
 
-    // Set Cesium camera directly from ECEF position + target
-    const direction = Cesium.Cartesian3.subtract(
-      targetECEF, posECEF, new Cesium.Cartesian3(),
-    );
-    Cesium.Cartesian3.normalize(direction, direction);
-
-    // Compute right vector = direction × up, then recompute up = right × direction
-    const right = Cesium.Cartesian3.cross(
-      direction, upECEF, new Cesium.Cartesian3(),
-    );
+    // Orthonormalize: right = direction × up, then up = right × direction
+    const right = Cesium.Cartesian3.cross(dirECEF, upECEF, new Cesium.Cartesian3());
     Cesium.Cartesian3.normalize(right, right);
-
-    const correctedUp = Cesium.Cartesian3.cross(
-      right, direction, new Cesium.Cartesian3(),
-    );
+    const correctedUp = Cesium.Cartesian3.cross(right, dirECEF, new Cesium.Cartesian3());
     Cesium.Cartesian3.normalize(correctedUp, correctedUp);
 
     viewer.camera.position = posECEF;
-    viewer.camera.direction = direction;
+    viewer.camera.direction = dirECEF;
     viewer.camera.up = correctedUp;
     viewer.camera.right = right;
+
+    // Sync frustum FOV so perspective projection matches the IFC renderer exactly.
+    // Without this, the same 3D point projects to different screen pixels.
+    const frustum = viewer.camera.frustum;
+    if (frustum instanceof Cesium.PerspectiveFrustum) {
+      frustum.fov = fov;
+    }
 
     viewer.scene.requestRender();
   }

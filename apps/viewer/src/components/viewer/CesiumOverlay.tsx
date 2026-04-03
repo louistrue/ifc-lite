@@ -264,10 +264,12 @@ export function CesiumOverlay({
       const camera = renderer.getCamera();
       const camPos = camera.getPosition();
       const camTarget = camera.getTarget();
+      const camUp = camera.getUp();
+      const fov = camera.getFOV();
 
-      // Directly set Cesium camera position + orientation in ECEF
-      // using Cesium's own ENU→ECEF transform — zero approximation drift
-      bridge.syncCamera(Cesium, viewer, camPos, camTarget);
+      // Sync Cesium camera: position, direction, up, right, FOV
+      // All vectors transformed through Cesium's exact ENU→ECEF matrix
+      bridge.syncCamera(Cesium, viewer, camPos, camTarget, camUp, fov);
 
       rafRef.current = requestAnimationFrame(syncCamera);
     }
