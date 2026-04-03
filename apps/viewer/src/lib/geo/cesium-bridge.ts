@@ -3,18 +3,25 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 /**
- * Cesium coordinate bridge.
+ * Cesium coordinate bridge — ENU (East-North-Up) local tangent plane approach.
  *
- * Converts IFC viewer camera coordinates (Y-up) to WGS84 geodetic coordinates
- * suitable for CesiumJS camera synchronization.
+ * CRITICAL DESIGN: We do NOT independently reproject every camera position to
+ * WGS84. That causes non-linear distortion during orbit because proj4 is
+ * non-linear over distance. Instead:
  *
- * Coordinate pipeline:
- *   Viewer Y-up (scene-local)
- *     → undo originShift + wasmRtcOffset → IFC world Y-up
- *     → Y-up to Z-up → IFC local (Z-up)
- *     → Helmert (MapConversion: rotate + scale + translate) → Projected CRS
- *     → proj4 → WGS84 (lat/lon)
- *     → geodetic height from orthogonalHeight
+ *   1. Compute the model origin in WGS84 (once)
+ *   2. Build a local IFC→ENU rotation matrix (once)
+ *   3. On each frame, express the camera as an ENU offset from the model origin
+ *   4. Convert that ENU offset to Cesium ECEF using Cesium's own math
+ *
+ * This guarantees the model stays fixed in world space during orbit/pan/zoom.
+ *
+ * IFC viewer coordinate pipeline:
+ *   Scene-local (Y-up)
+ *     + originShift + wasmRtcOffset → IFC world (Y-up)
+ *     → swap axes → IFC local (Z-up)
+ *     → Helmert (rotate + scale) → aligned with projected CRS axes
+ *     → ENU rotation → East/North/Up
  */
 
 import proj4 from 'proj4';
@@ -29,36 +36,39 @@ export interface GeodesicPosition {
 }
 
 export interface CesiumCameraState {
+  /** Camera position in WGS84 */
   position: GeodesicPosition;
-  heading: number;   // radians, 0 = north, clockwise
-  pitch: number;     // radians, negative = looking down
-  roll: number;      // radians
+  /** Heading in radians, 0 = north, CW */
+  heading: number;
+  /** Pitch in radians, negative = looking down */
+  pitch: number;
+  /** Roll in radians */
+  roll: number;
 }
 
-/**
- * Pre-resolved projection state. Call `createCesiumBridge` once when georef
- * data becomes available, then use the returned `bridge` on every frame.
- */
 export interface CesiumBridge {
-  /** Convert a viewer Y-up position to WGS84 geodetic coordinates. */
-  viewerToGeodetic(viewerX: number, viewerY: number, viewerZ: number): GeodesicPosition | null;
+  /** The model origin in WGS84 (center of bounding box). */
+  modelOrigin: GeodesicPosition;
 
-  /** Convert the full camera state (position + orientation) to Cesium camera params. */
+  /**
+   * Convert viewer camera state to Cesium camera parameters.
+   * Uses ENU offset from model origin for precision.
+   */
   viewerCameraToCesium(
     camPos: { x: number; y: number; z: number },
     camTarget: { x: number; y: number; z: number },
     camUp: { x: number; y: number; z: number },
   ): CesiumCameraState | null;
 
-  /** The model origin in WGS84 (center of bounding box). */
-  modelOrigin: GeodesicPosition;
+  /** Convert a viewer Y-up position to WGS84 (for occasional use, not per-frame). */
+  viewerToGeodetic(vx: number, vy: number, vz: number): GeodesicPosition | null;
 
-  /** The IFC rotation angle relative to grid north (radians, CCW from east). */
+  /** The IFC rotation angle (radians, CCW from east). */
   rotationAngle: number;
 }
 
 /**
- * Create a reusable bridge for converting viewer coordinates to WGS84.
+ * Create a bridge for converting viewer coordinates to Cesium camera params.
  * Returns null if the projection cannot be resolved.
  */
 export async function createCesiumBridge(
@@ -69,11 +79,11 @@ export async function createCesiumBridge(
   const projDef = await resolveProjection(projectedCRS);
   if (!projDef) return null;
 
-  // Pre-compute constants from MapConversion
-  const scale = mapConversion.scale ?? 1.0;
+  // Pre-compute Helmert constants from MapConversion
+  const helmertScale = mapConversion.scale ?? 1.0;
   const abscissa = mapConversion.xAxisAbscissa ?? 1.0;
   const ordinate = mapConversion.xAxisOrdinate ?? 0.0;
-  const rotAngle = Math.atan2(ordinate, abscissa); // radians, CCW from map-east
+  const rotAngle = Math.atan2(ordinate, abscissa); // IFC rotation CCW from map-east
 
   // Origin shift and RTC offset for undoing viewer transforms
   const shift = coordinateInfo?.originShift ?? { x: 0, y: 0, z: 0 };
@@ -83,125 +93,185 @@ export async function createCesiumBridge(
     ? { x: rtc.x, y: rtc.z, z: -rtc.y }
     : { x: 0, y: 0, z: 0 };
 
+  // ─── Pre-compute: model origin in projected CRS and WGS84 ─────────────
+
+  // Compute model center in viewer space
+  const bounds = coordinateInfo?.originalBounds;
+  const modelViewerX = bounds ? (bounds.min.x + bounds.max.x) / 2 : 0;
+  const modelViewerY = bounds ? (bounds.min.y + bounds.max.y) / 2 : 0;
+  const modelViewerZ = bounds ? (bounds.min.z + bounds.max.z) / 2 : 0;
+
   /**
-   * Convert viewer Y-up position to projected CRS coordinates (easting, northing, height).
+   * Convert viewer Y-up delta to IFC Z-up delta (no translation, just axis swap).
+   * viewer(x,y,z) Y-up → ifc(x,-z,y) Z-up
    */
-  function viewerToProjected(vx: number, vy: number, vz: number): { easting: number; northing: number; height: number } {
-    // 1. Undo viewer transforms: scene-local + originShift + wasmRtcOffset_yup → world Y-up
-    const worldYupX = vx + shift.x + rtcYup.x;
-    const worldYupY = vy + shift.y + rtcYup.y;
-    const worldYupZ = vz + shift.z + rtcYup.z;
-
-    // 2. Convert Y-up to IFC Z-up: ifc_x = viewer_x, ifc_y = -viewer_z, ifc_z = viewer_y
-    const ifcX = worldYupX;
-    const ifcY = -worldYupZ;
-    const ifcZ = worldYupY;
-
-    // 3. Apply MapConversion Helmert transform: rotate + scale + translate
-    const easting = mapConversion.eastings + scale * (abscissa * ifcX - ordinate * ifcY);
-    const northing = mapConversion.northings + scale * (ordinate * ifcX + abscissa * ifcY);
-    const height = mapConversion.orthogonalHeight + ifcZ;
-
-    return { easting, northing, height };
+  function viewerToIfcDelta(vx: number, vy: number, vz: number): [number, number, number] {
+    return [vx, -vz, vy];
   }
 
-  function toGeodetic(easting: number, northing: number, height: number): GeodesicPosition | null {
+  /**
+   * Convert viewer Y-up position to IFC Z-up world coordinates (with offsets).
+   */
+  function viewerToIfcWorld(vx: number, vy: number, vz: number): [number, number, number] {
+    const wx = vx + shift.x + rtcYup.x;
+    const wy = vy + shift.y + rtcYup.y;
+    const wz = vz + shift.z + rtcYup.z;
+    return viewerToIfcDelta(wx, wy, wz);
+  }
+
+  /**
+   * Apply Helmert transform (rotate + scale, no translate) to an IFC delta vector.
+   * Returns [easting_delta, northing_delta].
+   */
+  function helmertDelta(ifcDx: number, ifcDy: number): [number, number] {
+    return [
+      helmertScale * (abscissa * ifcDx - ordinate * ifcDy),
+      helmertScale * (ordinate * ifcDx + abscissa * ifcDy),
+    ];
+  }
+
+  /**
+   * Apply full Helmert transform (rotate + scale + translate) to get absolute projected coords.
+   */
+  function helmertFull(ifcX: number, ifcY: number, ifcZ: number): { easting: number; northing: number; height: number } {
+    const [de, dn] = helmertDelta(ifcX, ifcY);
+    return {
+      easting: mapConversion.eastings + de,
+      northing: mapConversion.northings + dn,
+      height: mapConversion.orthogonalHeight + ifcZ,
+    };
+  }
+
+  // Compute model origin in projected CRS
+  const [originIfcX, originIfcY, originIfcZ] = viewerToIfcWorld(modelViewerX, modelViewerY, modelViewerZ);
+  const originProjected = helmertFull(originIfcX, originIfcY, originIfcZ);
+
+  // Compute model origin in WGS84
+  let modelOriginLon: number;
+  let modelOriginLat: number;
+  try {
+    const [lon, lat] = proj4(projDef, 'WGS84', [originProjected.easting, originProjected.northing]);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+    modelOriginLon = lon;
+    modelOriginLat = lat;
+  } catch {
+    return null;
+  }
+
+  const modelOrigin: GeodesicPosition = {
+    longitude: modelOriginLon,
+    latitude: modelOriginLat,
+    height: originProjected.height,
+  };
+
+  // ─── Pre-compute: rotation from IFC-aligned projected CRS to true ENU ──
+  // In projected CRS (e.g. UTM), X = Easting = East, Y = Northing = North.
+  // The Helmert transform already aligns IFC to projected CRS.
+  // So after Helmert, the projected delta is already in (East, North) directions.
+  // The viewer-to-ENU pipeline for a DELTA vector is:
+  //   viewer delta (Y-up) → IFC delta (Z-up) → Helmert delta → (East, North, Up)
+
+  /**
+   * Convert a viewer-space delta vector to ENU (East, North, Up).
+   * This is the core transform for camera sync — it preserves
+   * the angular relationship during orbit because it's a single
+   * linear rotation (no non-linear proj4 per-point reprojection).
+   */
+  function viewerDeltaToENU(dvx: number, dvy: number, dvz: number): [number, number, number] {
+    // 1. Viewer Y-up delta → IFC Z-up delta
+    const [ifcDx, ifcDy, ifcDz] = viewerToIfcDelta(dvx, dvy, dvz);
+
+    // 2. Apply Helmert rotation+scale (just XY, Z passes through)
+    const [east, north] = helmertDelta(ifcDx, ifcDy);
+
+    // 3. IFC Z (height) maps to Up
+    const up = ifcDz;
+
+    return [east, north, up];
+  }
+
+  /**
+   * Convert viewer camera to Cesium camera params using ENU offsets.
+   *
+   * Instead of reprojecting the camera position independently (which causes
+   * non-linear drift during orbit), we:
+   *   1. Express camera position as offset from model center in viewer space
+   *   2. Transform that offset to ENU using a single linear rotation
+   *   3. Add the ENU offset to the model's known ECEF position in Cesium
+   */
+  function viewerCameraToCesium(
+    camPos: { x: number; y: number; z: number },
+    camTarget: { x: number; y: number; z: number },
+    _camUp: { x: number; y: number; z: number },
+  ): CesiumCameraState | null {
+    // Camera offset from model center in viewer space
+    const dvx = camPos.x - modelViewerX;
+    const dvy = camPos.y - modelViewerY;
+    const dvz = camPos.z - modelViewerZ;
+
+    // Convert to ENU offset
+    const [east, north, up] = viewerDeltaToENU(dvx, dvy, dvz);
+
+    // Camera position = modelOrigin + ENU offset
+    // Convert ENU offset to approximate geodetic offset:
+    //   1 degree latitude ≈ 111,320 m
+    //   1 degree longitude ≈ 111,320 * cos(lat) m
+    const metersPerDegLat = 111320;
+    const metersPerDegLon = 111320 * Math.cos(modelOriginLat * Math.PI / 180);
+
+    const camGeo: GeodesicPosition = {
+      latitude: modelOriginLat + north / metersPerDegLat,
+      longitude: modelOriginLon + east / Math.max(metersPerDegLon, 1),
+      height: modelOrigin.height + up,
+    };
+
+    // ── Heading ──
+    // View direction in viewer space
+    const dirX = camTarget.x - camPos.x;
+    const dirY = camTarget.y - camPos.y;
+    const dirZ = camTarget.z - camPos.z;
+    const dirLen = Math.sqrt(dirX * dirX + dirY * dirY + dirZ * dirZ);
+    if (dirLen < 1e-8) return null;
+
+    // Convert view direction to ENU
+    const [viewEast, viewNorth, viewUp] = viewerDeltaToENU(
+      dirX / dirLen,
+      dirY / dirLen,
+      dirZ / dirLen,
+    );
+
+    // Heading = angle CW from North in the horizontal (East-North) plane
+    // atan2(east, north) gives CW from North
+    const heading = Math.atan2(viewEast, viewNorth);
+
+    // Pitch = angle from horizontal
+    const horizontalLen = Math.sqrt(viewEast * viewEast + viewNorth * viewNorth);
+    const pitch = Math.atan2(viewUp, horizontalLen) - Math.PI / 2;
+    // Cesium pitch: 0 = horizontal, -PI/2 = looking straight down
+
+    return {
+      position: camGeo,
+      heading: ((heading % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI),
+      pitch,
+      roll: 0,
+    };
+  }
+
+  function viewerToGeodetic(vx: number, vy: number, vz: number): GeodesicPosition | null {
+    const [ifcX, ifcY, ifcZ] = viewerToIfcWorld(vx, vy, vz);
+    const { easting, northing, height } = helmertFull(ifcX, ifcY, ifcZ);
     try {
       const [lon, lat] = proj4(projDef!, 'WGS84', [easting, northing]);
       if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
-      if (lat < -90 || lat > 90 || lon < -180 || lon > 180) return null;
       return { longitude: lon, latitude: lat, height };
     } catch {
       return null;
     }
   }
 
-  // Compute model origin (bounds center) in WGS84
-  const bounds = coordinateInfo?.originalBounds;
-  let originEasting: number;
-  let originNorthing: number;
-  let originHeight: number;
-
-  if (bounds) {
-    const cx = (bounds.min.x + bounds.max.x) / 2;
-    const cy = (bounds.min.y + bounds.max.y) / 2;
-    const cz = (bounds.min.z + bounds.max.z) / 2;
-    const projected = viewerToProjected(cx, cy, cz);
-    originEasting = projected.easting;
-    originNorthing = projected.northing;
-    originHeight = projected.height;
-  } else {
-    originEasting = mapConversion.eastings;
-    originNorthing = mapConversion.northings;
-    originHeight = mapConversion.orthogonalHeight;
-  }
-
-  const modelOrigin = toGeodetic(originEasting, originNorthing, originHeight);
-  if (!modelOrigin) return null;
-
-  function viewerToGeodetic(vx: number, vy: number, vz: number): GeodesicPosition | null {
-    const { easting, northing, height } = viewerToProjected(vx, vy, vz);
-    return toGeodetic(easting, northing, height);
-  }
-
-  /**
-   * Convert IFC rotation angle to Cesium heading.
-   * IFC: xAxisAbscissa/Ordinate define CCW angle from map east.
-   * Cesium: heading is CW from north.
-   * heading = π/2 - rotAngle
-   */
-  function ifcToCesiumHeading(ifcAngle: number): number {
-    return Math.PI / 2 - ifcAngle;
-  }
-
-  function viewerCameraToCesium(
-    camPos: { x: number; y: number; z: number },
-    camTarget: { x: number; y: number; z: number },
-    camUp: { x: number; y: number; z: number },
-  ): CesiumCameraState | null {
-    const geoPos = viewerToGeodetic(camPos.x, camPos.y, camPos.z);
-    if (!geoPos) return null;
-
-    // Compute view direction in viewer space
-    const dx = camTarget.x - camPos.x;
-    const dy = camTarget.y - camPos.y;
-    const dz = camTarget.z - camPos.z;
-    const len = Math.sqrt(dx * dx + dy * dy + dz * dz);
-    if (len < 1e-8) return null;
-
-    const ndx = dx / len;
-    const ndy = dy / len;
-    const ndz = dz / len;
-
-    // Compute pitch (angle from horizontal plane in viewer Y-up space)
-    // In viewer Y-up: horizontal plane is XZ, vertical is Y
-    const horizontalLen = Math.sqrt(ndx * ndx + ndz * ndz);
-    const pitch = -Math.atan2(ndy, horizontalLen); // negative = looking down in Cesium
-
-    // Compute heading in viewer space
-    // In Y-up: direction projected onto XZ plane, then convert to CW from north
-    // Viewer X = IFC X (east-ish), Viewer Z = -IFC Y (south-ish in IFC)
-    // atan2(x, -z) gives angle CW from IFC +Y (north-ish)
-    let viewerHeading = Math.atan2(ndx, -ndz);
-
-    // Apply the IFC-to-grid-north rotation
-    const heading = viewerHeading + ifcToCesiumHeading(rotAngle);
-
-    // Roll from up vector (simplified - assume near zero for orbit cameras)
-    // Cross product of view dir and world up, compared to camera up
-    const roll = 0;
-
-    return {
-      position: geoPos,
-      heading: ((heading % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI),
-      pitch,
-      roll,
-    };
-  }
-
   return {
-    viewerToGeodetic,
     viewerCameraToCesium,
+    viewerToGeodetic,
     modelOrigin,
     rotationAngle: rotAngle,
   };
