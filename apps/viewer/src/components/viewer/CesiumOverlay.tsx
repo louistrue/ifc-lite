@@ -60,6 +60,8 @@ export function CesiumOverlay({
   const rafRef = useRef<number | null>(null);
   const [status, setStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
   const [error, setError] = useState<string | null>(null);
+  // Tracks bridge readiness as state (not just a ref) so terrain query effect re-runs
+  const [bridgeVersion, setBridgeVersion] = useState(0);
 
   const cesiumEnabled = useViewerStore((s) => s.cesiumEnabled);
   const dataSource = useViewerStore((s) => s.cesiumDataSource);
@@ -218,6 +220,8 @@ export function CesiumOverlay({
 
       const prevBridge = bridgeRef.current;
       bridgeRef.current = bridge;
+      // Bump version so terrain query effect re-runs now that bridge is ready
+      setBridgeVersion((v) => v + 1);
 
       // Fly to the new model location (smooth animation)
       const viewer = viewerRef.current;
@@ -288,7 +292,7 @@ export function CesiumOverlay({
     const retryTimer = setTimeout(doQuery, 5000);
 
     return () => { cancelled = true; clearTimeout(retryTimer); };
-  }, [status, terrainEnabled, terrainClamp, mapConversion, projectedCRS]);
+  }, [status, terrainEnabled, terrainClamp, bridgeVersion]);
 
   // ─── Effect 3: Camera sync loop ─────────────────────────────────────────
   useEffect(() => {

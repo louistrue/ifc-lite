@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-import { useMemo, useRef, useState, useCallback } from 'react';
+import { useMemo, useRef, useState, useCallback, useEffect } from 'react';
 import { Viewport } from './Viewport';
 import { ViewportOverlays } from './ViewportOverlays';
 import { ToolOverlays } from './ToolOverlays';
@@ -39,6 +39,7 @@ export function ViewportContainer() {
   const bcfOverlayVisible = useViewerStore((s) => s.bcfOverlayVisible);
   const cesiumEnabled = useViewerStore((s) => s.cesiumEnabled);
   const georefMutations = useViewerStore((s) => s.georefMutations);
+  const setCesiumSourceModelId = useViewerStore((s) => s.setCesiumSourceModelId);
   // Subscribe to mutationVersion so Cesium reacts to georef edits
   const mutationVersion = useViewerStore((s) => s.mutationVersion);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -182,6 +183,11 @@ export function ViewportContainer() {
 
     return null;
   }, [cesiumEnabled, storeModels, ifcDataStore, georefMutations, mutationVersion, mergedGeometryResult]);
+
+  // Sync the active Cesium source model ID so terrain actions are scoped correctly
+  useEffect(() => {
+    setCesiumSourceModelId(georef?.sourceModelId ?? null);
+  }, [georef?.sourceModelId, setCesiumSourceModelId]);
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();

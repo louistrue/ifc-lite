@@ -33,6 +33,8 @@ export interface CesiumSlice {
   cesiumTerrainClamp: boolean;
   /** Terrain height at model position (queried from Cesium, meters). null = not yet queried. */
   cesiumTerrainHeight: number | null;
+  /** Model ID that the Cesium overlay is currently displaying. */
+  cesiumSourceModelId: string | null;
 
   // Actions
   setCesiumEnabled: (enabled: boolean) => void;
@@ -42,6 +44,7 @@ export interface CesiumSlice {
   setCesiumTerrainEnabled: (enabled: boolean) => void;
   setCesiumTerrainClamp: (clamp: boolean) => void;
   setCesiumTerrainHeight: (height: number | null) => void;
+  setCesiumSourceModelId: (modelId: string | null) => void;
 }
 
 const STORAGE_KEY_ION_TOKEN = 'ifc-lite:cesium-ion-token';
@@ -90,6 +93,7 @@ export const createCesiumSlice: StateCreator<CesiumSlice, [], [], CesiumSlice> =
   cesiumTerrainEnabled: true,
   cesiumTerrainClamp: false,
   cesiumTerrainHeight: null,
+  cesiumSourceModelId: null,
 
   setCesiumEnabled: (enabled) => set({ cesiumEnabled: enabled }),
   toggleCesium: () => set((s) => ({ cesiumEnabled: !s.cesiumEnabled })),
@@ -104,4 +108,5 @@ export const createCesiumSlice: StateCreator<CesiumSlice, [], [], CesiumSlice> =
   setCesiumTerrainEnabled: (enabled) => set({ cesiumTerrainEnabled: enabled }),
   setCesiumTerrainClamp: (clamp) => set({ cesiumTerrainClamp: clamp }),
   setCesiumTerrainHeight: (height) => set({ cesiumTerrainHeight: height }),
+  setCesiumSourceModelId: (modelId) => set({ cesiumSourceModelId: modelId }),
 });

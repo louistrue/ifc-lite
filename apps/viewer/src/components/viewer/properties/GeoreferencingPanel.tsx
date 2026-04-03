@@ -329,6 +329,9 @@ export function GeoreferencingPanel({ georef, modelId, enableEditing, schemaVers
   const terrainClamp = useViewerStore(s => s.cesiumTerrainClamp);
   const setCesiumTerrainClamp = useViewerStore(s => s.setCesiumTerrainClamp);
   const cesiumTerrainHeight = useViewerStore(s => s.cesiumTerrainHeight);
+  const cesiumSourceModelId = useViewerStore(s => s.cesiumSourceModelId);
+  // Only show terrain actions when this panel's model is the one backing the Cesium overlay
+  const isActiveCesiumModel = !!modelId && modelId === cesiumSourceModelId;
   const [crsOpen, setCrsOpen] = useState(false);
   const [conversionOpen, setConversionOpen] = useState(false);
 
@@ -601,7 +604,7 @@ export function GeoreferencingPanel({ georef, modelId, enableEditing, schemaVers
       )}
 
       {/* Terrain clamp toggle — only when Cesium overlay is active */}
-      {cesiumEnabled && mergedConversion && (
+      {cesiumEnabled && isActiveCesiumModel && mergedConversion && (
         <div className="px-3 py-1.5 border-t border-zinc-100 dark:border-zinc-900 space-y-1">
           <div className="flex items-center gap-2">
             <Mountain className="h-3 w-3 text-teal-500 shrink-0" />
@@ -650,8 +653,10 @@ function TerrainHeightButton({ modelId, editable, onApply }: {
 }) {
   const cesiumEnabled = useViewerStore(s => s.cesiumEnabled);
   const terrainHeight = useViewerStore(s => s.cesiumTerrainHeight);
+  const sourceModelId = useViewerStore(s => s.cesiumSourceModelId);
 
-  if (!cesiumEnabled || terrainHeight === null || !editable || !modelId) return null;
+  // Only show when this panel's model is the active Cesium model
+  if (!cesiumEnabled || terrainHeight === null || !editable || !modelId || modelId !== sourceModelId) return null;
 
   return (
     <Tooltip>
