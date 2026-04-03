@@ -39,7 +39,7 @@ export function CesiumSettingsDialog() {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button variant="ghost" size="icon-sm" className="h-6 w-6">
+        <Button variant="ghost" size="icon-sm" className="h-6 w-6" aria-label="Cesium settings">
           <Settings2 className="h-3 w-3" />
         </Button>
       </DialogTrigger>

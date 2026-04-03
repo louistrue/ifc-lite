@@ -160,7 +160,11 @@ export function ViewportContainer() {
         original?.mapConversion,
         modelId,
       );
-      if (merged) return { hasGeoreference: true, ...merged };
+      if (merged) {
+        // Return coordinateInfo from the SAME model to avoid mismatched transforms
+        const coordInfo = model.geometryResult?.coordinateInfo;
+        return { hasGeoreference: true, ...merged, sourceModelId: modelId, coordinateInfo: coordInfo };
+      }
     }
 
     // Fallback to legacy single-model
@@ -171,11 +175,13 @@ export function ViewportContainer() {
         original?.mapConversion,
         '__legacy__',
       );
-      if (merged) return { hasGeoreference: true, ...merged };
+      if (merged) {
+        return { hasGeoreference: true, ...merged, sourceModelId: '__legacy__', coordinateInfo: mergedGeometryResult?.coordinateInfo };
+      }
     }
 
     return null;
-  }, [cesiumEnabled, storeModels, ifcDataStore, georefMutations, mutationVersion]);
+  }, [cesiumEnabled, storeModels, ifcDataStore, georefMutations, mutationVersion, mergedGeometryResult]);
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -693,7 +699,7 @@ export function ViewportContainer() {
         <CesiumOverlay
           mapConversion={georef.mapConversion}
           projectedCRS={georef.projectedCRS}
-          coordinateInfo={mergedGeometryResult?.coordinateInfo}
+          coordinateInfo={georef.coordinateInfo}
         />
       )}
       <Viewport

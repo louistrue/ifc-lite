@@ -68,6 +68,15 @@ function saveToStorage(key: string, value: string): void {
   } catch { /* storage unavailable */ }
 }
 
+const VALID_DATA_SOURCES = new Set<CesiumDataSource>(['osm-buildings', 'bing-aerial', 'google-photorealistic']);
+
+function loadDataSource(): CesiumDataSource {
+  const stored = loadFromStorage(STORAGE_KEY_DATA_SOURCE, '');
+  return VALID_DATA_SOURCES.has(stored as CesiumDataSource)
+    ? (stored as CesiumDataSource)
+    : 'osm-buildings';
+}
+
 /** Resolve the Cesium ion token: user override > build-time default */
 function resolveIonToken(): string {
   const userToken = loadFromStorage(STORAGE_KEY_ION_TOKEN, '');
@@ -76,7 +85,7 @@ function resolveIonToken(): string {
 
 export const createCesiumSlice: StateCreator<CesiumSlice, [], [], CesiumSlice> = (set) => ({
   cesiumEnabled: false,
-  cesiumDataSource: loadFromStorage(STORAGE_KEY_DATA_SOURCE, 'osm-buildings') as CesiumDataSource,
+  cesiumDataSource: loadDataSource(),
   cesiumIonToken: resolveIonToken(),
   cesiumTerrainEnabled: true,
   cesiumTerrainClamp: false,

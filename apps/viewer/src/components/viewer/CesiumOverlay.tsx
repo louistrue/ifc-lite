@@ -108,7 +108,8 @@ export function CesiumOverlay({
           timeline: false,
           navigationHelpButton: false,
           navigationInstructionsInitiallyVisible: false,
-          creditContainer: document.createElement('div'),
+          // Cesium ion ToS requires visible attribution — use a small container
+          // at bottom of the overlay rather than hiding credits entirely.
           msaaSamples: 1,
           requestRenderMode: true,
           maximumRenderTimeChange: Infinity,
@@ -398,6 +399,7 @@ async function addDataSourceLayer(
       }
       case 'bing-aerial':
       default:
+        // No 3D tileset for Bing — imagery is added separately via imageryLayers
         break;
     }
   } catch (err) {

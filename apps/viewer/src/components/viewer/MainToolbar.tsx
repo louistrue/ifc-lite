@@ -898,6 +898,8 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
               <Button
                 variant={cesiumEnabled ? 'default' : 'ghost'}
                 size="icon-sm"
+                aria-label={cesiumEnabled ? 'Hide 3D World Context (Cesium)' : 'Show 3D World Context (Cesium)'}
+                aria-pressed={cesiumEnabled}
                 onClick={(e) => {
                   (e.currentTarget as HTMLButtonElement).blur();
                   toggleCesium();
