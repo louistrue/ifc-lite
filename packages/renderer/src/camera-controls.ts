@@ -351,35 +351,48 @@ export class CameraControls {
   }
 
   /**
-   * Perspective zoom — "infinity dolly" pattern (yomotsu/camera-controls).
+   * Perspective zoom — hybrid distance-reduction + forward dolly.
    *
-   * Primary: pure multiplicative distance reduction (sharp, objects grow).
-   * When the camera reaches MIN_WORK_DIST, the target is pushed forward along
-   * the view direction so the camera can keep traveling. The push is invisible
-   * (camera position stays the same) and only changes the orbit center.
+   * Distance reduction gives the sharp "objects grow" feel.
+   * Forward dolly translates the whole rig through the scene so the camera
+   * never stalls (solves Zeno's paradox).
+   *
+   * A reference-distance floor on the dolly speed guarantees that close-range
+   * forward travel stays responsive instead of decaying to near-zero.
+   * The forward direction is recomputed from current state (post mouse-shift)
+   * so the dolly is always aligned with the actual view direction.
    */
-  private zoomPerspective(distance: number, forward: Vec3, zoomFactor: number): void {
-    // Pure multiplicative zoom — sharp and wobble-free.
-    let newDistance = distance * zoomFactor;
+  private zoomPerspective(_distance: number, _forward: Vec3, zoomFactor: number): void {
+    // Recompute direction from live state (after shiftTargetTowardsMouse)
+    // so dolly is aligned with the actual view direction — prevents wobble.
+    const liveDir = sub(this.state.camera.position, this.state.camera.target);
+    const dist = length(liveDir);
+    if (dist < 1e-6) return;
+    const fwd = scale(liveDir, -1 / dist);
 
-    // Infinity dolly: when zooming in past the working-distance floor,
-    // push the target (orbit center) forward and restore distance.
-    // Camera position is unchanged so there is no visible jump.
-    const MIN_WORK_DIST = 0.5;
-    if (newDistance < MIN_WORK_DIST && zoomFactor < 1) {
-      const push = distance - newDistance; // how far we wanted to go
-      const pushOffset = scale(forward, push);
-      addInPlace(this.state.camera.target, pushOffset);
-      if (this.orbitCenter) addInPlace(this.orbitCenter, pushOffset);
-      newDistance = distance; // keep original distance (push absorbed it)
-    }
+    // 1) Multiplicative distance reduction — sharp zoom feel, objects grow.
+    const newDist = Math.max(1e-4, dist * zoomFactor);
 
-    // Position camera at the new distance from target
+    // 2) Forward dolly — translate the rig so the camera traverses the scene.
+    //    A reference distance of 5 m ensures ~0.25 m/tick at close range
+    //    (full mouse-wheel notch). Above 5 m, dolly is proportional to the
+    //    actual distance (natural speed). The transition is seamless because
+    //    max(dist, 5) equals dist when dist >= 5.
+    //    Only applied when zooming in; zoom-out uses proportional dolly only.
+    const DOLLY_REF = 5.0;
+    const effectiveDist = (zoomFactor < 1) ? Math.max(dist, DOLLY_REF) : dist;
+    const dolly = effectiveDist * (1 - zoomFactor) * 0.5;
+
+    const dollyOffset = scale(fwd, dolly);
+    addInPlace(this.state.camera.target, dollyOffset);
+    if (this.orbitCenter) addInPlace(this.orbitCenter, dollyOffset);
+
+    // Position camera at the reduced distance from the moved target.
     const t = this.state.camera.target;
     copyInto(this.state.camera.position, {
-      x: t.x - forward.x * newDistance,
-      y: t.y - forward.y * newDistance,
-      z: t.z - forward.z * newDistance,
+      x: t.x - fwd.x * newDist,
+      y: t.y - fwd.y * newDist,
+      z: t.z - fwd.z * newDist,
     });
   }
 
