@@ -43,6 +43,7 @@ export class Scene {
   // all downstream maps single-valued and the rendering code unchanged.
   private activeBucketKey: Map<string, string> = new Map(); // base colorKey -> current active bucket key
   private nextSplitId: number = 0; // Monotonic counter for sub-bucket keys
+  private nextBatchId: number = 0; // Monotonic counter for unique batch identifiers
   private cachedMaxBufferSize: number = 0; // device.limits.maxBufferSize * safety factor (set on first use)
 
   // Sub-batch cache for partially visible batches (PERFORMANCE FIX)
@@ -862,6 +863,7 @@ export class Scene {
     });
 
     return {
+      id: this.nextBatchId++,
       colorKey: bucketKey ?? this.colorKey(color),
       vertexBuffer,
       indexBuffer,

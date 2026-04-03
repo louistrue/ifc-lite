@@ -1018,7 +1018,7 @@ export class Renderer {
                             }
                             if (visibleIds.size > 0) {
                                 partiallyVisibleBatches.push({
-                                    sourceBatchKey: `${batch.colorKey}:${batch.expressIds.join(',')}`,
+                                    sourceBatchKey: `${batch.colorKey}:${batch.id}`,
                                     colorKey: batch.colorKey,
                                     visibleIds,
                                     color: batch.color,

@@ -78,6 +78,7 @@ export interface InstancedMesh {
  * "base#N"), so the rest of the pipeline stays unchanged.
  */
 export interface BatchedMesh {
+  id: number;        // Unique monotonic identifier for this batch instance
   colorKey: string;  // Unique batch key (base color hash, or "hash#N" for overflow buckets)
   vertexBuffer: GPUBuffer;
   indexBuffer: GPUBuffer;
