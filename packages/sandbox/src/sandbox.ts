@@ -29,7 +29,7 @@ function getModule(): Promise<QuickJSWASMModule> {
   if (!modulePromise) {
     modulePromise = getQuickJS();
   }
-  return modulePromise;
+  return modulePromise!;
 }
 
 function createSandboxSessionId(): string {
