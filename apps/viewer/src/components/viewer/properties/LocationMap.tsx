@@ -148,8 +148,22 @@ export function LocationMap({
   const pickedMarkerRef = useRef<InstanceType<typeof import('maplibre-gl').Marker> | null>(null);
   const editableRef = useRef(editable);
 
-  // Keep editableRef in sync so the map click handler reads fresh value
-  useEffect(() => { editableRef.current = editable; }, [editable]);
+  // Keep editableRef in sync; clean up edit-only state when leaving edit mode
+  useEffect(() => {
+    editableRef.current = editable;
+    if (!editable) {
+      setSearchOpen(false);
+      setSearchQuery('');
+      setSearchResults([]);
+      setSearchLoading(false);
+      pickedMarkerRef.current?.remove();
+      pickedMarkerRef.current = null;
+      setPickedLatLon(null);
+      setProjectedCoords(null);
+      setPickedElevation(null);
+      setElevationLoading(false);
+    }
+  }, [editable]);
 
   const [mapState, setMapState] = useState<MapState>('idle');
   const [latLon, setLatLon] = useState<LatLon | null>(null);
@@ -523,7 +537,7 @@ export function LocationMap({
       </div>
 
       {/* Search bar */}
-      {searchOpen && (
+      {editable && searchOpen && (
         <div className="px-3 pb-1.5 relative">
           <div className="flex items-center gap-1">
             <div className="flex-1 relative">
