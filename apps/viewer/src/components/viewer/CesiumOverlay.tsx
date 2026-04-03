@@ -126,10 +126,8 @@ export function CesiumOverlay({
 
         if (cancelled) { viewer.destroy(); return; }
 
-        // CRITICAL: Fully disable Cesium's camera controller.
-        // Without this, Cesium's ScreenSpaceCameraController fights against
-        // our manually-set camera — it clamps to terrain, adjusts height,
-        // and applies inertia, causing the model to slide along terrain.
+        // Disable Cesium's user input — the IFC viewer controls the camera.
+        // Keep collision detection off since we set the camera programmatically.
         const scene = viewer.scene;
         const sscc = scene.screenSpaceCameraController;
         sscc.enableRotate = false;
@@ -137,11 +135,12 @@ export function CesiumOverlay({
         sscc.enableZoom = false;
         sscc.enableTilt = false;
         sscc.enableLook = false;
-        sscc.enableCollisionDetection = false;  // CRITICAL: prevents terrain clamping
+        sscc.enableCollisionDetection = false;
         sscc.minimumZoomDistance = 0;
         sscc.maximumZoomDistance = Infinity;
-        // Disable terrain-based camera adjustment
-        scene.globe.depthTestAgainstTerrain = false;
+        // Enable depth testing so the model (and other objects) get clipped
+        // by terrain — prevents seeing underground portions.
+        scene.globe.depthTestAgainstTerrain = true;
 
         // Disable skybox/atmosphere/fog for transparent compositing
         if (scene.skyBox) (scene.skyBox as any).show = false;
