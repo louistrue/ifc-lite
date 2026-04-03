@@ -10,10 +10,9 @@ import { join } from 'path';
 import { createBasicTemplate } from './templates/basic.js';
 import { createThreejsTemplate } from './templates/threejs.js';
 import { createBabylonjsTemplate } from './templates/babylonjs.js';
+import { createReactTemplate } from './templates/react.js';
 import { createServerTemplate } from './templates/server.js';
 import { createServerNativeTemplate } from './templates/server-native.js';
-import { fixViewerTemplate } from './utils/config-fixers.js';
-import { downloadViewer } from './utils/download.js';
 
 const TEMPLATES = {
   basic: 'basic',
@@ -49,7 +48,7 @@ function printUsage() {
     basic          Minimal TypeScript project for parsing IFC files
     threejs        Three.js viewer (WebGL, no WebGPU required)
     babylonjs      Babylon.js viewer (WebGL, no WebGPU required)
-    react          Full-featured React + Vite viewer with WebGPU rendering
+    react          React + Vite viewer with WebGPU rendering
     server         Docker-based IFC processing server with TypeScript client
     server-native  Native binary server (no Docker required)
 `);
@@ -98,15 +97,8 @@ async function main() {
     mkdirSync(targetDir, { recursive: true });
     createBabylonjsTemplate(targetDir, projectName);
   } else if (template === 'react') {
-    // Download the actual viewer from GitHub
-    const success = await downloadViewer(targetDir, projectName);
-    if (success) {
-      fixViewerTemplate(targetDir, projectName);
-    } else {
-      console.error('  Failed to download viewer. Creating minimal fallback...');
-      mkdirSync(targetDir, { recursive: true });
-      createBasicTemplate(targetDir, projectName);
-    }
+    mkdirSync(targetDir, { recursive: true });
+    createReactTemplate(targetDir, projectName);
   } else if (template === 'server') {
     mkdirSync(targetDir, { recursive: true });
     createServerTemplate(targetDir, projectName);
@@ -140,4 +132,7 @@ async function main() {
   console.log();
 }
 
-main().catch(console.error);
+main().catch((error) => {
+  console.error(error instanceof Error ? `\n  ${error.message}\n` : error);
+  process.exit(1);
+});

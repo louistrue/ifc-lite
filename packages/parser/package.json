@@ -1,6 +1,6 @@
 {
   "name": "@ifc-lite/parser",
-  "version": "2.1.5",
+  "version": "2.1.6",
   "description": "IFC/STEP parser for IFC-Lite",
   "type": "module",
   "main": "./dist/index.js",
@@ -16,9 +16,8 @@
     }
   },
   "scripts": {
-    "prebuild": "pnpm --filter @ifc-lite/parser^... build",
-    "build": "tsc",
-    "dev": "tsc --watch",
+    "build": "pnpm exec tsc",
+    "dev": "pnpm exec tsc --watch",
     "test": "vitest run"
   },
   "dependencies": {

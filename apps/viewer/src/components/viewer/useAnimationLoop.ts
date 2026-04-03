@@ -29,6 +29,8 @@ export interface UseAnimationLoopParams {
   lastFrameTimeRef: MutableRefObject<number>;
   mouseIsDraggingRef: MutableRefObject<boolean>;
   activeToolRef: MutableRefObject<string>;
+  /** When set, clips model below this Y value (terrain clipping for Cesium overlay). */
+  terrainClipYRef: MutableRefObject<number | null>;
   hiddenEntitiesRef: MutableRefObject<Set<number>>;
   isolatedEntitiesRef: MutableRefObject<Set<number> | null>;
   selectedEntityIdRef: MutableRefObject<number | null>;
@@ -62,6 +64,7 @@ export function useAnimationLoop(params: UseAnimationLoopParams): void {
     lastFrameTimeRef,
     mouseIsDraggingRef,
     activeToolRef,
+    terrainClipYRef,
     hiddenEntitiesRef,
     isolatedEntitiesRef,
     selectedEntityIdRef,
@@ -171,6 +174,7 @@ export function useAnimationLoop(params: UseAnimationLoopParams): void {
             min: sectionRangeRef.current?.min,
             max: sectionRangeRef.current?.max,
           } : undefined,
+          terrainClipY: terrainClipYRef.current ?? undefined,
         });
         lastRenderTime = currentTime;
       }

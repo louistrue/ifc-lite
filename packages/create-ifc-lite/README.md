@@ -21,7 +21,7 @@ npm install
 npm run parse ./model.ifc
 ```
 
-**React** - React + Vite project with drag-and-drop viewer:
+**React** - React + Vite project with WebGPU rendering and drag-and-drop loading:
 
 ```bash
 npx create-ifc-lite my-viewer --template react
@@ -34,7 +34,7 @@ npm run dev
 
 | Flag | Description |
 |------|-------------|
-| `--template <type>` | Template to use: `basic`, `react` (default: `basic`) |
+| `--template <type>` | Template to use: `basic`, `threejs`, `babylonjs`, `react`, `server`, `server-native` (default: `basic`) |
 | `--help` | Show help |
 
 ## Learn More

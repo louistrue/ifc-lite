@@ -654,8 +654,8 @@ export function PropertiesPanel() {
 
   // Separate occurrence (instance) and inherited type properties.
   // Occurrence properties are displayed first, type properties in a separate section.
-  // When a pset exists at both levels, occurrence takes precedence; the type-only
-  // properties (not overridden at instance level) are shown in the inherited section.
+  // All type property sets are always shown in the inherited section so users can see
+  // what the type defines, even when the same pset exists at occurrence level.
   const { occurrenceProperties, inheritedTypeProperties } = useMemo(() => {
     const occ: PropertySet[] = properties.map(p => ({ ...p, source: 'instance' as const }));
 
@@ -663,23 +663,10 @@ export function PropertiesPanel() {
       return { occurrenceProperties: occ, inheritedTypeProperties: [] as PropertySet[] };
     }
 
-    const instanceByName = new Set(properties.map(p => p.name));
-    const inherited: PropertySet[] = [];
-
-    for (const typePset of typeProperties.psets) {
-      if (instanceByName.has(typePset.name)) {
-        // Pset exists at instance level - add type-only props that aren't overridden
-        const instancePset = properties.find(p => p.name === typePset.name)!;
-        const instancePropNames = new Set(instancePset.properties.map(p => p.name));
-        const extraProps = typePset.properties.filter(p => !instancePropNames.has(p.name));
-        if (extraProps.length > 0) {
-          inherited.push({ ...typePset, properties: extraProps, source: 'type' });
-        }
-      } else {
-        // Type-only pset - show fully in inherited section
-        inherited.push({ ...typePset, source: 'type' });
-      }
-    }
+    const inherited: PropertySet[] = typeProperties.psets.map(typePset => ({
+      ...typePset,
+      source: 'type' as const,
+    }));
 
     return { occurrenceProperties: occ, inheritedTypeProperties: inherited };
   }, [properties, typeProperties]);
@@ -835,6 +822,13 @@ export function PropertiesPanel() {
               {entityName || `${entityType}`}
             </h3>
             <p className="text-xs font-mono text-zinc-500 dark:text-zinc-400">{entityType}</p>
+            {/* Show associated type entity for occurrences */}
+            {!isTypeEntity && typeProperties && (
+              <p className="text-[11px] font-mono text-indigo-500 dark:text-indigo-400 truncate" title={`${activeDataStore?.entities.getTypeName(typeProperties.typeId) || 'Type'}: ${typeProperties.typeName}`}>
+                <Building2 className="inline h-3 w-3 mr-1 -mt-0.5" />
+                {activeDataStore?.entities.getTypeName(typeProperties.typeId) || 'Type'}: {typeProperties.typeName}
+              </p>
+            )}
           </div>
           <div className="flex gap-1 shrink-0">
             <Tooltip>
@@ -1173,7 +1167,7 @@ export function PropertiesPanel() {
                     )}
                     <div className="flex items-center gap-2 px-1 pb-0.5 text-[11px] text-indigo-600/70 dark:text-indigo-400/60 uppercase tracking-wider font-semibold">
                       <Building2 className="h-3 w-3 shrink-0" />
-                      <span className="truncate">Inherited Type Properties</span>
+                      <span className="truncate">Type Properties ({typeProperties.typeName})</span>
                     </div>
                     {inheritedTypeProperties.map((pset: PropertySet) => (
                       <PropertySetCard

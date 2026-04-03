@@ -46,9 +46,12 @@ interface ViewportProps {
   coordinateInfo?: CoordinateInfo;
   computedIsolatedIds?: Set<number> | null;
   modelIdToIndex?: Map<string, number>;
+  /** When true, the WebGPU canvas uses a transparent clear color so the
+   *  CesiumJS globe behind it is visible. */
+  cesiumActive?: boolean;
 }
 
-export function Viewport({ geometry, geometryVersion, coordinateInfo, computedIsolatedIds, modelIdToIndex }: ViewportProps) {
+export function Viewport({ geometry, geometryVersion, coordinateInfo, computedIsolatedIds, modelIdToIndex, cesiumActive }: ViewportProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rendererRef = useRef<Renderer | null>(null);
   const [isInitialized, setIsInitialized] = useState(false);
@@ -291,6 +294,17 @@ export function Viewport({ geometry, geometryVersion, coordinateInfo, computedIs
     separationLinesIntensity,
     separationLinesRadius,
   ]);
+
+  // Override clear color when Cesium overlay is active (transparent background)
+  useEffect(() => {
+    if (cesiumActive) {
+      clearColorRef.current = [0, 0, 0, 0]; // fully transparent
+    } else {
+      clearColorRef.current = getThemeClearColor(theme as 'light' | 'dark');
+    }
+    rendererRef.current?.requestRender();
+  }, [cesiumActive, theme]);
+
   // Animation frame ref
   const animationFrameRef = useRef<number | null>(null);
   const lastFrameTimeRef = useRef<number>(0);
@@ -356,6 +370,10 @@ export function Viewport({ geometry, geometryVersion, coordinateInfo, computedIs
   const sectionPlaneRef = useLatestRef(sectionPlane);
   const sectionRangeRef = useLatestRef(sectionRange);
   const visualEnhancementRef = useLatestRef(visualEnhancement);
+
+  // Terrain clip Y from Cesium store (read as ref for animation loop)
+  const cesiumTerrainClipY = useViewerStore((s) => s.cesiumTerrainClipY);
+  const terrainClipYRef = useLatestRef(cesiumActive ? cesiumTerrainClipY : null);
   const geometryRef = useLatestRef(geometry);
 
   // Hover throttling
@@ -777,6 +795,7 @@ export function Viewport({ geometry, geometryVersion, coordinateInfo, computedIs
     lastFrameTimeRef,
     mouseIsDraggingRef,
     activeToolRef,
+    terrainClipYRef,
     hiddenEntitiesRef,
     isolatedEntitiesRef,
     selectedEntityIdRef,
@@ -838,12 +857,17 @@ export function Viewport({ geometry, geometryVersion, coordinateInfo, computedIs
     showHiddenLines,
   });
 
+  // Hide WebGPU canvas immediately when Cesium is active.
+  // The model will be rendered by Cesium (as GLB) for correct positioning.
+  // Canvas stays in the DOM for picking/interaction.
+
   return (
     <canvas
       ref={canvasRef}
       data-viewport="main"
       tabIndex={-1}
-      className="w-full h-full block"
+      className={`w-full h-full block ${cesiumActive ? 'relative z-[1]' : ''}`}
+      style={cesiumActive ? { opacity: 0 } : undefined}
       onPointerDown={focusViewportForKeyboardShortcuts}
     />
   );

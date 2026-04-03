@@ -118,7 +118,7 @@ async function readTopics(zip: JSZip): Promise<Map<string, BCFTopic>> {
   // Find all topic folders (folders with markup.bcf)
   const topicFolders = new Set<string>();
 
-  zip.forEach((relativePath) => {
+  zip.forEach((relativePath: string) => {
     const match = relativePath.match(/^([^/]+)\/markup\.bcf$/i);
     if (match) {
       topicFolders.add(match[1]);
@@ -354,7 +354,7 @@ async function parseViewpoints(
 
   // Find viewpoint files directly in the folder
   const viewpointFiles: string[] = [];
-  zip.forEach((relativePath) => {
+  zip.forEach((relativePath: string) => {
     if (relativePath.startsWith(`${topicFolder}/`) && relativePath.endsWith('.bcfv')) {
       viewpointFiles.push(relativePath);
     }

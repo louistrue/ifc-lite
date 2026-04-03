@@ -221,7 +221,9 @@ export const mainShaderSource = `
           ));
 
           if (uniforms.flags.z == 1u) {
-            let edgeFactor = smoothstep(0.0, 0.1, depthGradient * 10.0 + normalGradient * 5.0);
+            // Threshold filters subtle normal discontinuities at internal
+            // triangle edges between coplanar entities in the same batch.
+            let edgeFactor = smoothstep(0.02, 0.12, depthGradient * 10.0 + normalGradient * 5.0);
             let edgeIntensity = f32(uniforms.flags.w) / 1000.0;
             let edgeDarkenStrength = clamp(0.25 * edgeIntensity, 0.0, 0.85);
             let edgeDarken = mix(1.0, 1.0 - edgeDarkenStrength, edgeFactor);

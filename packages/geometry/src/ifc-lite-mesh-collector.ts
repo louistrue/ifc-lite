@@ -308,7 +308,7 @@ export class IfcLiteMeshCollector {
           resolveWaiting = null;
         }
       },
-    }).catch((error) => {
+    }).catch((error: unknown) => {
       processingError = error instanceof Error ? error : new Error(String(error));
       log.error('WASM streaming parsing failed', processingError, { operation: 'collectMeshesStreaming' });
       isComplete = true;
@@ -438,7 +438,7 @@ export class IfcLiteMeshCollector {
           resolveWaiting = null;
         }
       },
-    }).catch((error) => {
+    }).catch((error: unknown) => {
       processingError = error instanceof Error ? error : new Error(String(error));
       log.error('WASM instanced streaming parsing failed', processingError, { operation: 'collectInstancedGeometryStreaming' });
       isComplete = true;

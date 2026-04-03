@@ -1,6 +1,6 @@
 {
   "name": "@ifc-lite/server-bin",
-  "version": "1.14.3",
+  "version": "1.14.4",
   "description": "Pre-built IFC-Lite server binary - run without Docker or Rust",
   "type": "module",
   "bin": {
@@ -15,8 +15,8 @@
     }
   },
   "scripts": {
-    "build": "tsc",
-    "dev": "tsc --watch",
+    "build": "pnpm exec tsc",
+    "dev": "pnpm exec tsc --watch",
     "start": "node dist/cli.js",
     "postinstall": "node -e \"import('./dist/postinstall.js').catch(() => {})\" || true"
   },

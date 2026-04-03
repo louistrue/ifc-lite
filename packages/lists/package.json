@@ -1,6 +1,6 @@
 {
   "name": "@ifc-lite/lists",
-  "version": "1.14.8",
+  "version": "1.14.9",
   "description": "Configurable property tables and schedules from IFC data for IFC-Lite",
   "type": "module",
   "main": "./dist/index.js",
@@ -12,8 +12,8 @@
     }
   },
   "scripts": {
-    "build": "tsc",
-    "dev": "tsc --watch",
+    "build": "pnpm exec tsc",
+    "dev": "pnpm exec tsc --watch",
     "test": "vitest run"
   },
   "dependencies": {

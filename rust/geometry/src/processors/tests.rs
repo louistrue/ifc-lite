@@ -271,3 +271,208 @@ fn test_wall_with_opening_file() {
         }
     }
 }
+
+/// Test that ShellBasedSurfaceModel with IfcAdvancedFace produces geometry.
+///
+/// CATIA and similar NURBS-based CAD exporters produce SurfaceModel representations
+/// containing IfcOpenShell with IfcAdvancedFace entities (B-spline surfaces, planes,
+/// cylindrical surfaces). This test verifies the processor handles that correctly
+/// instead of silently skipping the faces.
+///
+/// Addresses: https://github.com/louistrue/ifc-lite/issues/472
+#[test]
+fn test_shell_based_surface_model_with_advanced_faces() {
+    // Minimal IFC snippet: ShellBasedSurfaceModel -> OpenShell -> AdvancedFace (planar)
+    // This mimics the CATIA export pattern from issue #472
+    let content = r#"
+#1=IFCCARTESIANPOINT((0.,0.,0.));
+#2=IFCCARTESIANPOINT((100.,0.,0.));
+#3=IFCCARTESIANPOINT((100.,100.,0.));
+#4=IFCCARTESIANPOINT((0.,100.,0.));
+#5=IFCVERTEXPOINT(#1);
+#6=IFCVERTEXPOINT(#2);
+#7=IFCVERTEXPOINT(#3);
+#8=IFCVERTEXPOINT(#4);
+#9=IFCDIRECTION((0.,0.,1.));
+#10=IFCDIRECTION((1.,0.,0.));
+#11=IFCAXIS2PLACEMENT3D(#1,#9,#10);
+#12=IFCPLANE(#11);
+#13=IFCLINE(#1,#20);
+#14=IFCLINE(#2,#21);
+#15=IFCLINE(#3,#22);
+#16=IFCLINE(#4,#23);
+#20=IFCVECTOR(#24,1.);
+#21=IFCVECTOR(#25,1.);
+#22=IFCVECTOR(#26,1.);
+#23=IFCVECTOR(#27,1.);
+#24=IFCDIRECTION((1.,0.,0.));
+#25=IFCDIRECTION((0.,1.,0.));
+#26=IFCDIRECTION((-1.,0.,0.));
+#27=IFCDIRECTION((0.,-1.,0.));
+#30=IFCEDGECURVE(#5,#6,#13,.T.);
+#31=IFCEDGECURVE(#6,#7,#14,.T.);
+#32=IFCEDGECURVE(#7,#8,#15,.T.);
+#33=IFCEDGECURVE(#8,#5,#16,.T.);
+#40=IFCORIENTEDEDGE(*,*,#30,.T.);
+#41=IFCORIENTEDEDGE(*,*,#31,.T.);
+#42=IFCORIENTEDEDGE(*,*,#32,.T.);
+#43=IFCORIENTEDEDGE(*,*,#33,.T.);
+#50=IFCEDGELOOP((#40,#41,#42,#43));
+#51=IFCFACEOUTERBOUND(#50,.T.);
+#52=IFCADVANCEDFACE((#51),#12,.T.);
+#53=IFCOPENSHELL((#52));
+#54=IFCSHELLBASEDSURFACEMODEL((#53));
+"#;
+
+    let mut decoder = EntityDecoder::new(content);
+    let schema = IfcSchema::new();
+    let processor = ShellBasedSurfaceModelProcessor::new();
+
+    let entity = decoder.decode_by_id(54).unwrap();
+    assert_eq!(entity.ifc_type, IfcType::IfcShellBasedSurfaceModel);
+
+    let mesh = processor
+        .process(&entity, &mut decoder, &schema)
+        .expect("Failed to process ShellBasedSurfaceModel with AdvancedFace");
+
+    // Should produce geometry from the planar AdvancedFace
+    assert!(
+        !mesh.is_empty(),
+        "ShellBasedSurfaceModel with AdvancedFace should produce geometry"
+    );
+    assert!(
+        mesh.positions.len() >= 12,
+        "Should have at least 4 vertices (quad face): got {} floats",
+        mesh.positions.len()
+    );
+    assert!(
+        mesh.indices.len() >= 6,
+        "Should have at least 2 triangles: got {} indices",
+        mesh.indices.len()
+    );
+}
+
+/// Test that ShellBasedSurfaceModel still works with simple PolyLoop faces
+/// (regression test to ensure AdvancedFace support doesn't break simple faces)
+#[test]
+fn test_shell_based_surface_model_with_polyloop() {
+    let content = r#"
+#1=IFCCARTESIANPOINT((0.,0.,0.));
+#2=IFCCARTESIANPOINT((100.,0.,0.));
+#3=IFCCARTESIANPOINT((100.,100.,0.));
+#4=IFCCARTESIANPOINT((0.,100.,0.));
+#10=IFCPOLYLOOP((#1,#2,#3,#4));
+#11=IFCFACEOUTERBOUND(#10,.T.);
+#12=IFCFACE((#11));
+#13=IFCOPENSHELL((#12));
+#14=IFCSHELLBASEDSURFACEMODEL((#13));
+"#;
+
+    let mut decoder = EntityDecoder::new(content);
+    let schema = IfcSchema::new();
+    let processor = ShellBasedSurfaceModelProcessor::new();
+
+    let entity = decoder.decode_by_id(14).unwrap();
+    let mesh = processor
+        .process(&entity, &mut decoder, &schema)
+        .expect("Failed to process ShellBasedSurfaceModel with PolyLoop");
+
+    assert!(
+        !mesh.is_empty(),
+        "ShellBasedSurfaceModel with PolyLoop should still produce geometry"
+    );
+    assert_eq!(
+        mesh.positions.len(),
+        12,
+        "Should have 4 vertices (12 floats)"
+    );
+    assert_eq!(mesh.indices.len(), 6, "Should have 2 triangles (6 indices)");
+}
+
+/// Test with the actual CATIA file from issue #472.
+/// Verifies that all 306 AdvancedFaces (145 B-spline, 115 planar,
+/// 38 linear extrusion, 8 cylindrical) produce geometry.
+#[test]
+fn test_catia_surface_model_file() {
+    use crate::router::GeometryRouter;
+
+    let path = "../../tests/models/various/2222.ifc";
+    let content = match std::fs::read_to_string(path) {
+        Ok(c) => c,
+        Err(_) => {
+            eprintln!("Skipping test_catia_surface_model_file: {} not found", path);
+            return;
+        }
+    };
+
+    let entity_index = ifc_lite_core::build_entity_index(&content);
+    let mut decoder = EntityDecoder::with_index(&content, entity_index);
+    let router = GeometryRouter::with_units(&content, &mut decoder);
+
+    // IfcRamp #7963 has SurfaceModel with AdvancedFaces (B-spline, plane,
+    // linear extrusion, cylindrical surfaces)
+    let ramp = decoder.decode_by_id(7963).expect("Failed to decode IfcRamp #7963");
+    assert_eq!(ramp.ifc_type, IfcType::IfcRamp);
+
+    let mesh = router
+        .process_element(&ramp, &mut decoder)
+        .expect("Failed to process CATIA IfcRamp SurfaceModel");
+
+    println!(
+        "CATIA IfcRamp: {} vertices, {} triangles",
+        mesh.positions.len() / 3,
+        mesh.indices.len() / 3
+    );
+
+    // Should produce significant geometry from all surface types
+    assert!(
+        !mesh.is_empty(),
+        "CATIA SurfaceModel should produce geometry"
+    );
+    assert!(
+        mesh.positions.len() / 3 > 500,
+        "Should have >500 vertices from AdvancedFaces, got {}",
+        mesh.positions.len() / 3
+    );
+}
+
+#[test]
+fn test_triangulated_face_set_out_of_bounds_indices() {
+    // Simulates a Revit export with indices beyond vertex count (issue #471)
+    let content = r#"
+#1=IFCCARTESIANPOINTLIST3D(((0.0,0.0,0.0),(100.0,0.0,0.0),(50.0,100.0,0.0)));
+#2=IFCTRIANGULATEDFACESET(#1,$,$,((1,2,3),(1,2,99)),$);
+"#;
+
+    let mut decoder = EntityDecoder::new(content);
+    let schema = IfcSchema::new();
+    let processor = TriangulatedFaceSetProcessor::new();
+
+    let entity = decoder.decode_by_id(2).unwrap();
+    let mesh = processor.process(&entity, &mut decoder, &schema).unwrap();
+
+    // Should produce valid mesh — the out-of-bounds triangle (1,2,99) is stripped
+    assert!(!mesh.is_empty());
+    // Only 1 valid triangle should remain (indices 0,1,2)
+    assert_eq!(mesh.indices.len(), 3, "Should have exactly 1 valid triangle");
+    assert!(mesh.indices.iter().all(|&i| (i as usize) < mesh.positions.len() / 3));
+}
+
+#[test]
+fn test_triangulated_face_set_all_invalid_indices() {
+    // All indices are beyond vertex count — should produce empty mesh
+    let content = r#"
+#1=IFCCARTESIANPOINTLIST3D(((0.0,0.0,0.0),(1.0,0.0,0.0),(0.0,1.0,0.0)));
+#2=IFCTRIANGULATEDFACESET(#1,$,$,((10,20,30)),$);
+"#;
+
+    let mut decoder = EntityDecoder::new(content);
+    let schema = IfcSchema::new();
+    let processor = TriangulatedFaceSetProcessor::new();
+
+    let entity = decoder.decode_by_id(2).unwrap();
+    let mesh = processor.process(&entity, &mut decoder, &schema).unwrap();
+
+    // All indices invalid — mesh should have positions but no valid triangles
+    assert!(mesh.indices.is_empty(), "All invalid indices should be stripped");
+}

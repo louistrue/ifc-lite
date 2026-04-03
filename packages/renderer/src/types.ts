@@ -78,6 +78,7 @@ export interface InstancedMesh {
  * "base#N"), so the rest of the pipeline stays unchanged.
  */
 export interface BatchedMesh {
+  id: number;        // Unique monotonic identifier for this batch instance
   colorKey: string;  // Unique batch key (base color hash, or "hash#N" for overflow buckets)
   vertexBuffer: GPUBuffer;
   indexBuffer: GPUBuffer;
@@ -139,6 +140,9 @@ export interface RenderOptions {
   selectedModelIndex?: number;    // Model index for multi-model selection (must match mesh.modelIndex)
   // Section plane clipping
   sectionPlane?: SectionPlane;
+  // Terrain clipping: discard fragments below this Y value in viewer space.
+  // Used by Cesium overlay to prevent model from showing below terrain.
+  terrainClipY?: number;
   // Optional visual effects for better subelement readability
   visualEnhancement?: VisualEnhancementOptions;
   // Streaming state

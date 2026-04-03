@@ -200,11 +200,22 @@ fn fs_main(@builtin(position) fragPos: vec4<f32>) -> @location(0) vec4<f32> {
       let idY1 = sampleIdClamped(p + vec2<i32>(0,  rs), dims);
       let idY0 = sampleIdClamped(p + vec2<i32>(0, -rs), dims);
 
+      // Sample depths at same positions to filter coplanar entity boundaries.
+      // Coplanar surfaces from different entities only differ by the z-hash
+      // anti-z-fighting offset (~2.5e-4 relative), so a relative threshold
+      // of 5e-4 filters those while keeping real geometric edges.
+      let sX1 = sampleDepthClamped(p + vec2<i32>( rs, 0), dims);
+      let sX0 = sampleDepthClamped(p + vec2<i32>(-rs, 0), dims);
+      let sY1 = sampleDepthClamped(p + vec2<i32>(0,  rs), dims);
+      let sY0 = sampleDepthClamped(p + vec2<i32>(0, -rs), dims);
+      let depthRef = max(center, 0.0001);
+      let depthRelThreshold = 5e-4;
+
       let edge4Count =
-        f32(idX1 != idCenter && idX1 != 0u) +
-        f32(idX0 != idCenter && idX0 != 0u) +
-        f32(idY1 != idCenter && idY1 != 0u) +
-        f32(idY0 != idCenter && idY0 != 0u);
+        f32(idX1 != idCenter && idX1 != 0u && abs(sX1 - center) / depthRef > depthRelThreshold) +
+        f32(idX0 != idCenter && idX0 != 0u && abs(sX0 - center) / depthRef > depthRelThreshold) +
+        f32(idY1 != idCenter && idY1 != 0u && abs(sY1 - center) / depthRef > depthRelThreshold) +
+        f32(idY0 != idCenter && idY0 != 0u && abs(sY0 - center) / depthRef > depthRelThreshold);
       seam = edge4Count * 0.25;
 
       if (params.flags.y == 1u) {
@@ -212,11 +223,15 @@ fn fs_main(@builtin(position) fragPos: vec4<f32>) -> @location(0) vec4<f32> {
         let idD2 = sampleIdClamped(p + vec2<i32>(-rs,  rs), dims);
         let idD3 = sampleIdClamped(p + vec2<i32>( rs, -rs), dims);
         let idD4 = sampleIdClamped(p + vec2<i32>(-rs, -rs), dims);
+        let sD1 = sampleDepthClamped(p + vec2<i32>( rs,  rs), dims);
+        let sD2 = sampleDepthClamped(p + vec2<i32>(-rs,  rs), dims);
+        let sD3 = sampleDepthClamped(p + vec2<i32>( rs, -rs), dims);
+        let sD4 = sampleDepthClamped(p + vec2<i32>(-rs, -rs), dims);
         let edgeDiagCount =
-          f32(idD1 != idCenter && idD1 != 0u) +
-          f32(idD2 != idCenter && idD2 != 0u) +
-          f32(idD3 != idCenter && idD3 != 0u) +
-          f32(idD4 != idCenter && idD4 != 0u);
+          f32(idD1 != idCenter && idD1 != 0u && abs(sD1 - center) / depthRef > depthRelThreshold) +
+          f32(idD2 != idCenter && idD2 != 0u && abs(sD2 - center) / depthRef > depthRelThreshold) +
+          f32(idD3 != idCenter && idD3 != 0u && abs(sD3 - center) / depthRef > depthRelThreshold) +
+          f32(idD4 != idCenter && idD4 != 0u && abs(sD4 - center) / depthRef > depthRelThreshold);
         let edgeDiag = edgeDiagCount * 0.25;
         seam = max(seam, (seam + edgeDiag) * 0.5);
       }

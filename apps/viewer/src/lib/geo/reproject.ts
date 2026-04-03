@@ -176,31 +176,7 @@ function computeProjectedCenter(
   conversion: MapConversion,
   coordinateInfo?: CoordinateInfo,
 ): { easting: number; northing: number } {
-  let ifcX = 0;
-  let ifcY = 0;
-
-  if (coordinateInfo) {
-    const bounds = coordinateInfo.originalBounds;
-    const shift = coordinateInfo.originShift;
-    const rtc = coordinateInfo.wasmRtcOffset;
-
-    // Convert WASM RTC offset from IFC Z-up to viewer Y-up
-    const rtcYup = rtc
-      ? { x: rtc.x, y: rtc.z, z: -rtc.y }
-      : { x: 0, y: 0, z: 0 };
-
-    // Bounds center in viewer Y-up (scene-local)
-    const cx = (bounds.min.x + bounds.max.x) / 2;
-    const cz = (bounds.min.z + bounds.max.z) / 2;
-
-    // World Y-up = scene_local + originShift + wasmRtcOffset_yup
-    const worldYupX = cx + shift.x + rtcYup.x;
-    const worldYupZ = cz + shift.z + rtcYup.z;
-
-    // Convert Y-up to IFC Z-up: ifc_x = viewer_x, ifc_y = -viewer_z
-    ifcX = worldYupX;
-    ifcY = -worldYupZ;
-  }
+  const { ifcX, ifcY } = computeLocalIfcCenter(coordinateInfo);
 
   // Apply MapConversion rotation + scale + offset
   const scale = conversion.scale ?? 1.0;
@@ -238,6 +214,160 @@ export async function reprojectToLatLon(
     if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
     if (lat < -90 || lat > 90 || lon < -180 || lon > 180) return null;
     return { lat, lon };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Compute the model's local IFC center offset (ifcX, ifcY) from coordinate info.
+ * This is the geometry center in IFC Z-up coordinates, before MapConversion is applied.
+ */
+function computeLocalIfcCenter(coordinateInfo?: CoordinateInfo): { ifcX: number; ifcY: number } {
+  if (!coordinateInfo) return { ifcX: 0, ifcY: 0 };
+
+  const bounds = coordinateInfo.originalBounds;
+  const shift = coordinateInfo.originShift;
+  const rtc = coordinateInfo.wasmRtcOffset;
+
+  const rtcYup = rtc
+    ? { x: rtc.x, y: rtc.z, z: -rtc.y }
+    : { x: 0, y: 0, z: 0 };
+
+  const cx = (bounds.min.x + bounds.max.x) / 2;
+  const cz = (bounds.min.z + bounds.max.z) / 2;
+
+  const worldYupX = cx + shift.x + rtcYup.x;
+  const worldYupZ = cz + shift.z + rtcYup.z;
+
+  return { ifcX: worldYupX, ifcY: -worldYupZ };
+}
+
+/**
+ * Reverse-project a WGS84 lat/lon into the IfcMapConversion eastings/northings
+ * values that would place the model center at the given location.
+ *
+ * This accounts for the model's local geometry offset, rotation, and scale:
+ *   projected = eastings + scale * (cos*ifcX - sin*ifcY)
+ *   ⟹ eastings = projected - scale * (cos*ifcX - sin*ifcY)
+ */
+export async function reprojectFromLatLon(
+  latLon: LatLon,
+  crs: ProjectedCRS,
+  conversion?: MapConversion,
+  coordinateInfo?: CoordinateInfo,
+): Promise<{ easting: number; northing: number } | null> {
+  const projDef = await resolveProjection(crs);
+  if (!projDef) return null;
+
+  try {
+    const [projE, projN] = proj4('WGS84', projDef, [latLon.lon, latLon.lat]);
+    if (!Number.isFinite(projE) || !Number.isFinite(projN)) return null;
+
+    // Subtract the rotated/scaled local geometry offset so that
+    // the resulting eastings/northings place the model center at this position
+    const { ifcX, ifcY } = computeLocalIfcCenter(coordinateInfo);
+    const scale = conversion?.scale ?? 1.0;
+    const abscissa = conversion?.xAxisAbscissa ?? 1.0;
+    const ordinate = conversion?.xAxisOrdinate ?? 0.0;
+
+    const easting = projE - scale * (abscissa * ifcX - ordinate * ifcY);
+    const northing = projN - scale * (ordinate * ifcX + abscissa * ifcY);
+
+    return { easting, northing };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Compute a building footprint rectangle from the model's bounding box and
+ * reproject each corner to WGS84 for display as a GeoJSON polygon on a web map.
+ *
+ * Uses the shiftedBounds (scene-local after RTC) from CoordinateInfo, transforms
+ * each corner through the MapConversion pipeline (rotation + scale + offset),
+ * then reprojects to lat/lon. The result is a rotated rectangle matching the
+ * model's XZ extent on the map.
+ *
+ * @returns A single GeoJSON-compatible polygon: closed ring of [lon, lat] pairs
+ */
+export async function computeFootprintGeoJSON(
+  conversion: MapConversion,
+  crs: ProjectedCRS,
+  coordinateInfo: CoordinateInfo,
+): Promise<[number, number][] | null> {
+  const projDef = await resolveProjection(crs);
+  if (!projDef) {
+    console.warn('[footprint] failed to resolve projection for CRS:', crs.name);
+    return null;
+  }
+
+  const scale = conversion.scale ?? 1.0;
+  const abscissa = conversion.xAxisAbscissa ?? 1.0;
+  const ordinate = conversion.xAxisOrdinate ?? 0.0;
+
+  const shift = coordinateInfo.originShift;
+  const rtc = coordinateInfo.wasmRtcOffset;
+  const rtcYup = rtc
+    ? { x: rtc.x, z: -rtc.y }
+    : { x: 0, z: 0 };
+
+  const bounds = coordinateInfo.shiftedBounds;
+  console.debug('[footprint] bounds:', JSON.stringify(bounds));
+  console.debug('[footprint] shift:', JSON.stringify(shift), 'rtcYup:', JSON.stringify(rtcYup));
+  console.debug('[footprint] conversion:', { eastings: conversion.eastings, northings: conversion.northings, scale, abscissa, ordinate });
+
+  // Four corners of the bounding box on the XZ plane (viewer Y-up)
+  const corners = [
+    { x: bounds.min.x, z: bounds.min.z },
+    { x: bounds.max.x, z: bounds.min.z },
+    { x: bounds.max.x, z: bounds.max.z },
+    { x: bounds.min.x, z: bounds.max.z },
+  ];
+
+  const ring: [number, number][] = [];
+
+  for (const c of corners) {
+    // Scene-local → world Y-up
+    const worldX = c.x + shift.x + rtcYup.x;
+    const worldZ = c.z + shift.z + rtcYup.z;
+
+    // Y-up → IFC Z-up: ifcX = worldX, ifcY = -worldZ
+    const ifcX = worldX;
+    const ifcY = -worldZ;
+
+    // MapConversion: local IFC → projected CRS
+    const easting = conversion.eastings + scale * (abscissa * ifcX - ordinate * ifcY);
+    const northing = conversion.northings + scale * (ordinate * ifcX + abscissa * ifcY);
+
+    // Projected CRS → WGS84
+    try {
+      const [lon, lat] = proj4(projDef, 'WGS84', [easting, northing]);
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+      ring.push([lon, lat]);
+    } catch {
+      return null;
+    }
+  }
+
+  // Close the ring (GeoJSON requirement)
+  ring.push(ring[0]);
+  console.debug('[footprint] result ring:', ring);
+  return ring;
+}
+
+/**
+ * Query terrain elevation at a given lat/lon using the Open-Meteo elevation API.
+ * Returns height in metres above sea level, or null on failure.
+ */
+export async function queryTerrainElevation(latLon: LatLon): Promise<number | null> {
+  try {
+    const url = `https://api.open-meteo.com/v1/elevation?latitude=${latLon.lat}&longitude=${latLon.lon}`;
+    const resp = await fetch(url);
+    if (!resp.ok) return null;
+    const data = await resp.json();
+    const elev = data?.elevation?.[0];
+    return typeof elev === 'number' && Number.isFinite(elev) ? elev : null;
   } catch {
     return null;
   }

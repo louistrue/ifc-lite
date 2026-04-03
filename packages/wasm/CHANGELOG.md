@@ -1,5 +1,11 @@
 # @ifc-lite/wasm
 
+## 1.16.1
+
+### Patch Changes
+
+- [#474](https://github.com/louistrue/ifc-lite/pull/474) [`7a1aeb7`](https://github.com/louistrue/ifc-lite/commit/7a1aeb7fabdb4b9692d02186fe4254fc561bece4) Thanks [@louistrue](https://github.com/louistrue)! - Fix advanced face tessellation: add rational B-spline (NURBS) weight support, SameSense winding correction, and knot vector validation
+
 ## 1.16.0
 
 ### Minor Changes

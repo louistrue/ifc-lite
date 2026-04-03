@@ -2,13 +2,14 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-import { useMemo, useRef, useState, useCallback } from 'react';
+import { useMemo, useRef, useState, useCallback, useEffect } from 'react';
 import { Viewport } from './Viewport';
 import { ViewportOverlays } from './ViewportOverlays';
 import { ToolOverlays } from './ToolOverlays';
 import { Section2DPanel } from './Section2DPanel';
 import { BasketPresentationDock } from './BasketPresentationDock';
 import { BCFOverlay } from './bcf/BCFOverlay';
+import { CesiumOverlay } from './CesiumOverlay';
 import { useViewerStore } from '@/store';
 import { toGlobalIdFromModels } from '@/store/globalId';
 import { collectIfcBuildingStoreyElementsWithIfcSpace } from '@/store/basketVisibleSet';
@@ -16,6 +17,7 @@ import { useIfc } from '@/hooks/useIfc';
 import { useWebGPU } from '@/hooks/useWebGPU';
 import { Upload, MousePointer, Layers, Info, Command, AlertTriangle, ChevronDown, ExternalLink, Plus } from 'lucide-react';
 import type { MeshData, CoordinateInfo, GeometryResult } from '@ifc-lite/geometry';
+import { extractGeoreferencingOnDemand, type IfcDataStore, type MapConversion, type ProjectedCRS } from '@ifc-lite/parser';
 
 const ZERO_VEC3 = { x: 0, y: 0, z: 0 };
 const DEFAULT_COORDINATE_INFO: CoordinateInfo = {
@@ -35,6 +37,11 @@ export function ViewportContainer() {
   const storeModels = useViewerStore((s) => s.models);
   const resetViewerState = useViewerStore((s) => s.resetViewerState);
   const bcfOverlayVisible = useViewerStore((s) => s.bcfOverlayVisible);
+  const cesiumEnabled = useViewerStore((s) => s.cesiumEnabled);
+  const georefMutations = useViewerStore((s) => s.georefMutations);
+  const setCesiumSourceModelId = useViewerStore((s) => s.setCesiumSourceModelId);
+  // Subscribe to mutationVersion so Cesium reacts to georef edits
+  const mutationVersion = useViewerStore((s) => s.mutationVersion);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [showTroubleshooting, setShowTroubleshooting] = useState(false);
@@ -95,6 +102,92 @@ export function ViewportContainer() {
     // Legacy mode (no federation): use original geometryResult
     return geometryResult;
   }, [storeModels, geometryResult, modelIdToIndex]);
+
+  // Extract georeferencing info merged with any live mutations (for Cesium overlay).
+  // Reacts to: model load, Cesium toggle, and every georef field edit.
+  const georef = useMemo(() => {
+    if (!cesiumEnabled) return null;
+
+    // Helper: merge original georef with mutations for a model
+    function mergeGeoref(
+      originalCRS: ProjectedCRS | undefined,
+      originalConv: MapConversion | undefined,
+      modelId: string,
+    ): { mapConversion: MapConversion; projectedCRS: ProjectedCRS } | null {
+      const muts = georefMutations.get(modelId);
+      const mutCRS = muts?.projectedCRS;
+      const mutConv = muts?.mapConversion;
+
+      // Build merged ProjectedCRS — mutation fields override originals
+      const hasCRS = originalCRS || mutCRS;
+      if (!hasCRS) return null;
+      const projectedCRS: ProjectedCRS = {
+        id: originalCRS?.id ?? 0,
+        name: (mutCRS?.name ?? originalCRS?.name ?? '') as string,
+        description: mutCRS?.description ?? originalCRS?.description,
+        geodeticDatum: mutCRS?.geodeticDatum ?? originalCRS?.geodeticDatum,
+        verticalDatum: mutCRS?.verticalDatum ?? originalCRS?.verticalDatum,
+        mapProjection: mutCRS?.mapProjection ?? originalCRS?.mapProjection,
+        mapZone: mutCRS?.mapZone ?? originalCRS?.mapZone,
+        mapUnit: mutCRS?.mapUnit ?? originalCRS?.mapUnit,
+      };
+
+      // Need at least an EPSG name to resolve projection
+      if (!projectedCRS.name) return null;
+
+      // Build merged MapConversion
+      const mapConversion: MapConversion = {
+        id: originalConv?.id ?? 0,
+        sourceCRS: originalConv?.sourceCRS ?? 0,
+        targetCRS: originalConv?.targetCRS ?? 0,
+        eastings: (mutConv?.eastings ?? originalConv?.eastings ?? 0) as number,
+        northings: (mutConv?.northings ?? originalConv?.northings ?? 0) as number,
+        orthogonalHeight: (mutConv?.orthogonalHeight ?? originalConv?.orthogonalHeight ?? 0) as number,
+        xAxisAbscissa: mutConv?.xAxisAbscissa ?? originalConv?.xAxisAbscissa,
+        xAxisOrdinate: mutConv?.xAxisOrdinate ?? originalConv?.xAxisOrdinate,
+        scale: mutConv?.scale ?? originalConv?.scale,
+      };
+
+      return { mapConversion, projectedCRS };
+    }
+
+    // Check federated models first
+    for (const [modelId, model] of storeModels) {
+      const ds = model.ifcDataStore;
+      if (!ds) continue;
+      const original = extractGeoreferencingOnDemand(ds as IfcDataStore);
+      const merged = mergeGeoref(
+        original?.projectedCRS,
+        original?.mapConversion,
+        modelId,
+      );
+      if (merged) {
+        // Return coordinateInfo from the SAME model to avoid mismatched transforms
+        const coordInfo = model.geometryResult?.coordinateInfo;
+        return { hasGeoreference: true, ...merged, sourceModelId: modelId, coordinateInfo: coordInfo };
+      }
+    }
+
+    // Fallback to legacy single-model
+    if (ifcDataStore) {
+      const original = extractGeoreferencingOnDemand(ifcDataStore as IfcDataStore);
+      const merged = mergeGeoref(
+        original?.projectedCRS,
+        original?.mapConversion,
+        '__legacy__',
+      );
+      if (merged) {
+        return { hasGeoreference: true, ...merged, sourceModelId: '__legacy__', coordinateInfo: mergedGeometryResult?.coordinateInfo };
+      }
+    }
+
+    return null;
+  }, [cesiumEnabled, storeModels, ifcDataStore, georefMutations, mutationVersion, mergedGeometryResult]);
+
+  // Sync the active Cesium source model ID so terrain actions are scoped correctly
+  useEffect(() => {
+    setCesiumSourceModelId(georef?.sourceModelId ?? null);
+  }, [georef?.sourceModelId, setCesiumSourceModelId]);
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -607,12 +700,22 @@ export function ViewportContainer() {
         </div>
       )}
 
+      {/* Cesium 3D world context overlay — rendered behind the WebGPU canvas */}
+      {cesiumEnabled && georef && (
+        <CesiumOverlay
+          mapConversion={georef.mapConversion}
+          projectedCRS={georef.projectedCRS}
+          coordinateInfo={georef.coordinateInfo}
+          geometryResult={mergedGeometryResult}
+        />
+      )}
       <Viewport
         geometry={filteredGeometry}
         geometryVersion={geometryVersion}
         coordinateInfo={mergedGeometryResult?.coordinateInfo}
         computedIsolatedIds={computedIsolatedIds}
         modelIdToIndex={modelIdToIndex}
+        cesiumActive={cesiumEnabled && georef !== null}
       />
       {bcfOverlayVisible && <BCFOverlay />}
       <ViewportOverlays />

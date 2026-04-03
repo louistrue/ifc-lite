@@ -10,7 +10,11 @@ use ifc_lite_core::{
     has_geometry_by_name, DecodedEntity, EntityDecoder, GeometryCategory, IfcType,
 };
 use nalgebra::Matrix4;
+use rustc_hash::FxHashSet;
 use std::sync::Arc;
+
+/// Maximum nested IfcMappedItem depth we will traverse for a single geometry item.
+const MAX_MAPPED_ITEM_DEPTH: usize = 32;
 
 impl GeometryRouter {
     /// Compute median-based RTC offset from sampled translations.
@@ -396,8 +400,34 @@ impl GeometryRouter {
         decoder: &mut EntityDecoder,
         sub_meshes: &mut SubMeshCollection,
     ) -> Result<()> {
+        let mut visited = FxHashSet::default();
+        self.collect_submeshes_from_item_inner(item, decoder, sub_meshes, 0, &mut visited)
+    }
+
+    fn collect_submeshes_from_item_inner(
+        &self,
+        item: &DecodedEntity,
+        decoder: &mut EntityDecoder,
+        sub_meshes: &mut SubMeshCollection,
+        depth: usize,
+        visited: &mut FxHashSet<u32>,
+    ) -> Result<()> {
+        if depth >= MAX_MAPPED_ITEM_DEPTH {
+            return Err(Error::geometry(format!(
+                "MappedItem nesting exceeded maximum depth of {} at #{}",
+                MAX_MAPPED_ITEM_DEPTH, item.id
+            )));
+        }
+
         // For MappedItem, recurse into the mapped representation
         if item.ifc_type == IfcType::IfcMappedItem {
+            if !visited.insert(item.id) {
+                return Err(Error::geometry(format!(
+                    "Detected cyclic IfcMappedItem reference at #{}",
+                    item.id
+                )));
+            }
+
             // Get MappingSource (RepresentationMap)
             let source_attr = item
                 .get(0)
@@ -437,9 +467,13 @@ impl GeometryRouter {
                 for nested_item in items {
                     // Recursively collect sub-meshes (skip unsupported geometry types)
                     let count_before = sub_meshes.len();
-                    if let Err(_e) =
-                        self.collect_submeshes_from_item(&nested_item, decoder, sub_meshes)
-                    {
+                    if let Err(_e) = self.collect_submeshes_from_item_inner(
+                        &nested_item,
+                        decoder,
+                        sub_meshes,
+                        depth + 1,
+                        visited,
+                    ) {
                         #[cfg(debug_assertions)]
                         eprintln!(
                             "[ifc-lite] Skipping unsupported nested geometry #{} ({:?}): {}",
@@ -457,6 +491,8 @@ impl GeometryRouter {
                     }
                 }
             }
+
+            visited.remove(&item.id);
         } else {
             // Regular geometry item - process and record with its ID
             // Skip unsupported geometry types (e.g. IfcGeometricSet) instead of failing
@@ -621,6 +657,8 @@ impl GeometryRouter {
         // Check if we have a processor for this type
         if let Some(processor) = self.processors.get(&item.ifc_type) {
             let mut mesh = processor.process(item, decoder, &self.schema)?;
+            // Safety net: strip any out-of-bounds indices before downstream use
+            mesh.validate_indices();
             self.scale_mesh(&mut mesh);
 
             // Deduplicate by hash - buildings with repeated floors have identical geometry
@@ -736,6 +774,7 @@ impl GeometryRouter {
             }
             if let Some(processor) = self.processors.get(&sub_item.ifc_type) {
                 if let Ok(mut sub_mesh) = processor.process(&sub_item, decoder, &self.schema) {
+                    sub_mesh.validate_indices();
                     self.scale_mesh(&mut sub_mesh);
                     mesh.merge(&sub_mesh);
                 }

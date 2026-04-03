@@ -4,41 +4,98 @@
 
 import { existsSync, readFileSync, writeFileSync, rmSync } from 'fs';
 import { join } from 'path';
-import { execSync } from 'child_process';
+import { execFileSync } from 'child_process';
 
 /** Cache of npm-resolved versions to avoid redundant registry queries. */
 const versionCache = new Map<string, string>();
+const publishedVersionsCache = new Map<string, Set<string>>();
+const VALID_PACKAGE_NAME = /^(?:@[\w.-]+\/)?[\w.-]+$/;
+const NPM_TIMEOUT_MS = 30000;
+const MAX_VERSION_CANDIDATES = 10;
+
+function readJsonFromNpm(args: string[]): unknown {
+  const result = execFileSync('npm', args, {
+    stdio: 'pipe',
+    timeout: NPM_TIMEOUT_MS,
+  }).toString().trim();
+  return result ? JSON.parse(result) : {};
+}
+
+function getPublishedVersions(packageName: string): Set<string> {
+  if (!VALID_PACKAGE_NAME.test(packageName)) {
+    throw new Error(`Invalid package name: ${packageName}`);
+  }
+
+  if (publishedVersionsCache.has(packageName)) {
+    return publishedVersionsCache.get(packageName)!;
+  }
+
+  const json = readJsonFromNpm(['view', packageName, 'versions', '--json']);
+  const versions = Array.isArray(json) ? json : [json];
+  const set = new Set(versions.filter((value): value is string => typeof value === 'string'));
+  publishedVersionsCache.set(packageName, set);
+  return set;
+}
+
+function extractPinnedVersion(range: string): string | null {
+  const match = range.match(/\d+\.\d+\.\d+/);
+  return match ? match[0] : null;
+}
+
+function getVersionDependencies(packageName: string, version: string): Record<string, string> {
+  const json = readJsonFromNpm(['view', `${packageName}@${version}`, 'dependencies', '--json']);
+  if (!json || typeof json !== 'object' || Array.isArray(json)) {
+    return {};
+  }
+  return json as Record<string, string>;
+}
+
+function isInstallablePublishedVersion(packageName: string, version: string): boolean {
+  const dependencies = getVersionDependencies(packageName, version);
+
+  for (const [dependencyName, dependencyRange] of Object.entries(dependencies)) {
+    if (!dependencyName.startsWith('@ifc-lite/')) continue;
+    const pinnedVersion = extractPinnedVersion(dependencyRange);
+    if (!pinnedVersion) continue;
+    if (!getPublishedVersions(dependencyName).has(pinnedVersion)) {
+      return false;
+    }
+  }
+
+  return true;
+}
 
 /**
- * Fetch the latest published version of a specific npm package.
+ * Fetch the latest installable published version of a specific npm package.
  * Results are cached so repeated calls for the same package are free.
- * Falls back to '^1.0.0' when the registry is unreachable.
+ * Throws when the registry is unreachable so scaffolds never emit broken
+ * placeholder versions.
  */
 export function getPackageVersion(packageName: string): string {
   if (versionCache.has(packageName)) {
     return versionCache.get(packageName)!;
   }
   try {
-    const result = execSync(`npm view ${packageName} version`, { stdio: 'pipe' });
-    const version = `^${result.toString().trim()}`;
+    const versions = [...getPublishedVersions(packageName)];
+    const recentVersions = versions.slice(-MAX_VERSION_CANDIDATES).reverse();
+    const selectedVersion = recentVersions.find((version) =>
+      isInstallablePublishedVersion(packageName, version)
+    );
+
+    if (!selectedVersion) {
+      throw new Error(`No installable published version found for ${packageName}.`);
+    }
+
+    const version = `^${selectedVersion}`;
     versionCache.set(packageName, version);
     return version;
-  } catch {
-    const fallback = '^1.0.0';
-    versionCache.set(packageName, fallback);
-    return fallback;
+  } catch (cause) {
+    throw new Error(
+      `Failed to resolve the latest published version of ${packageName}. ` +
+      'Check your npm registry access and try again.',
+      { cause }
+    );
   }
-}
-
-/**
- * Fetch the latest published version of @ifc-lite/parser from npm.
- * Falls back to '^1.0.0' when the registry is unreachable.
- *
- * @deprecated Use getPackageVersion(packageName) to query each package
- * individually and avoid version mismatches between packages.
- */
-export function getLatestVersion(): string {
-  return getPackageVersion('@ifc-lite/parser');
 }
 
 /**

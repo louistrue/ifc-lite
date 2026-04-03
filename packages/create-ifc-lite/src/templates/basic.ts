@@ -4,25 +4,25 @@
 
 import { mkdirSync, writeFileSync } from 'fs';
 import { join } from 'path';
-import { getLatestVersion } from '../utils/config-fixers.js';
+import { getPackageVersion } from '../utils/config-fixers.js';
 
 /**
  * Scaffold a minimal TypeScript project for parsing IFC files.
  */
 export function createBasicTemplate(targetDir: string, projectName: string) {
-  const latestVersion = getLatestVersion();
+  const parserVersion = getPackageVersion('@ifc-lite/parser');
 
   // package.json
   writeFileSync(join(targetDir, 'package.json'), JSON.stringify({
     name: projectName,
-    version: latestVersion.replace('^', ''),
+    version: parserVersion.replace('^', ''),
     type: 'module',
     scripts: {
       parse: 'npx tsx src/index.ts',
       build: 'tsc',
     },
     dependencies: {
-      '@ifc-lite/parser': latestVersion,
+      '@ifc-lite/parser': parserVersion,
     },
     devDependencies: {
       '@types/node': '^22.0.0',

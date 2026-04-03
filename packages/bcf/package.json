@@ -1,6 +1,6 @@
 {
   "name": "@ifc-lite/bcf",
-  "version": "1.15.1",
+  "version": "1.15.2",
   "description": "BIM Collaboration Format (BCF) support for IFC-Lite",
   "type": "module",
   "main": "./dist/index.js",
@@ -12,9 +12,8 @@
     }
   },
   "scripts": {
-    "prebuild": "pnpm --filter @ifc-lite/bcf^... build",
-    "build": "tsc",
-    "dev": "tsc --watch",
+    "build": "pnpm exec tsc",
+    "dev": "pnpm exec tsc --watch",
     "test": "vitest run"
   },
   "dependencies": {
