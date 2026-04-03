@@ -114,26 +114,22 @@ export function LocationMap({
   const [searchLoading, setSearchLoading] = useState(false);
   const debouncedQuery = useDebouncedValue(searchQuery, 400);
 
-  // Building footprint state
-  type FootprintData = Array<{ outer: [number, number][]; holes: [number, number][][] }>;
-  const [footprint, setFootprint] = useState<FootprintData | null>(null);
-  const footprintComputedRef = useRef(false);
+  // Building footprint state (bounding box polygon in WGS84)
+  const [footprint, setFootprint] = useState<[number, number][] | null>(null);
   const [styleVersion, setStyleVersion] = useState(0);
 
-  // Compute building footprint (once, lazily)
+  // Compute building footprint from bounding box
   useEffect(() => {
-    if (footprintComputedRef.current) return;
-    if (!mapConversion || !projectedCRS || !coordinateInfo || !geometryResult?.meshes?.length) return;
+    if (!mapConversion || !projectedCRS || !coordinateInfo) return;
 
-    footprintComputedRef.current = true;
     let cancelled = false;
 
-    computeFootprintGeoJSON(geometryResult.meshes, mapConversion, projectedCRS, coordinateInfo).then(fp => {
+    computeFootprintGeoJSON(mapConversion, projectedCRS, coordinateInfo).then(fp => {
       if (!cancelled) setFootprint(fp);
     });
 
     return () => { cancelled = true; };
-  }, [mapConversion, projectedCRS, coordinateInfo, geometryResult]);
+  }, [mapConversion, projectedCRS, coordinateInfo]);
 
   // Geocode search
   useEffect(() => {
@@ -337,45 +333,45 @@ export function LocationMap({
     if (!map || !footprint) return;
 
     const addFootprintLayer = () => {
-      // Build GeoJSON MultiPolygon from all footprint polygons
-      const coordinates = footprint.map(f => [f.outer, ...f.holes]);
       const geojson: GeoJSON.Feature = {
         type: 'Feature',
         properties: {},
         geometry: {
-          type: 'MultiPolygon',
-          coordinates,
+          type: 'Polygon',
+          coordinates: [footprint],
         },
       };
 
+      // Remove old layers/source on style change before re-adding
       if (map.getSource('building-footprint')) {
         (map.getSource('building-footprint') as import('maplibre-gl').GeoJSONSource).setData(geojson);
-      } else {
-        map.addSource('building-footprint', { type: 'geojson', data: geojson });
-
-        map.addLayer({
-          id: 'building-footprint-fill',
-          type: 'fill',
-          source: 'building-footprint',
-          minzoom: 16,
-          paint: {
-            'fill-color': '#14b8a6',
-            'fill-opacity': 0.2,
-          },
-        });
-
-        map.addLayer({
-          id: 'building-footprint-outline',
-          type: 'line',
-          source: 'building-footprint',
-          minzoom: 16,
-          paint: {
-            'line-color': '#0d9488',
-            'line-width': 2,
-            'line-opacity': 0.8,
-          },
-        });
+        return;
       }
+
+      map.addSource('building-footprint', { type: 'geojson', data: geojson });
+
+      map.addLayer({
+        id: 'building-footprint-fill',
+        type: 'fill',
+        source: 'building-footprint',
+        minzoom: 15.5,
+        paint: {
+          'fill-color': '#14b8a6',
+          'fill-opacity': ['interpolate', ['linear'], ['zoom'], 15.5, 0, 16, 0.15, 18, 0.25],
+        },
+      });
+
+      map.addLayer({
+        id: 'building-footprint-outline',
+        type: 'line',
+        source: 'building-footprint',
+        minzoom: 15.5,
+        paint: {
+          'line-color': '#0d9488',
+          'line-width': ['interpolate', ['linear'], ['zoom'], 15.5, 1, 18, 2.5],
+          'line-opacity': ['interpolate', ['linear'], ['zoom'], 15.5, 0, 16, 0.7, 18, 1],
+        },
+      });
     };
 
     // If style is already loaded, add now; otherwise wait for style.load
