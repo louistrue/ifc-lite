@@ -858,7 +858,6 @@ export function Viewport({ geometry, geometryVersion, coordinateInfo, computedIs
       data-viewport="main"
       tabIndex={-1}
       className={`w-full h-full block ${cesiumActive ? 'relative z-[1]' : ''}`}
-      style={cesiumActive ? { opacity: 0 } : undefined}
       onPointerDown={focusViewportForKeyboardShortcuts}
     />
   );
