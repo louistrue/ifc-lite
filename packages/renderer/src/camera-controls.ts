@@ -316,7 +316,15 @@ export class CameraControls {
   zoom(delta: number, mouseX?: number, mouseY?: number, canvasWidth?: number, canvasHeight?: number): void {
     const dir = sub(this.state.camera.position, this.state.camera.target);
     const distance = length(dir);
-    if (distance < 1e-6) return; // Degenerate: position ≈ target
+    // When almost on top of the target, nudge the target forward so the camera
+    // can keep making progress rather than freezing in place.
+    if (distance < 1e-6) {
+      const fallbackFwd = normalize(sub(this.state.camera.target, this.state.camera.position));
+      const fwd = length(fallbackFwd) > 0.5 ? fallbackFwd : { x: 0, y: 0, z: -1 };
+      addInPlace(this.state.camera.target, scale(fwd, 0.01));
+      this.updateMatrices();
+      return;
+    }
 
     const normalizedDelta = Math.sign(delta) * Math.min(Math.abs(delta) * CC.ZOOM_SENSITIVITY, CC.MAX_ZOOM_DELTA);
     const zoomFactor = 1 + normalizedDelta;
@@ -334,14 +342,19 @@ export class CameraControls {
       this.zoomOrthographic(dir, nextOrthoSize);
     } else {
       if (mouseX !== undefined && mouseY !== undefined && canvasWidth && canvasHeight) {
+        // Rig translation: shift BOTH camera and target toward the cursor
+        // world point. This gives zoom-to-cursor anchoring without changing
+        // the camera-to-target direction, which prevents lateral wobble
+        // when combined with the pure dolly in zoomPerspective.
+        const tx = this.state.camera.target.x;
+        const ty = this.state.camera.target.y;
+        const tz = this.state.camera.target.z;
         this.shiftTargetTowardsMouse(dir, distance, forward, zoomFactor, mouseX, mouseY, canvasWidth, canvasHeight);
+        this.state.camera.position.x += this.state.camera.target.x - tx;
+        this.state.camera.position.y += this.state.camera.target.y - ty;
+        this.state.camera.position.z += this.state.camera.target.z - tz;
       }
-      // Recompute direction after mouse-shift so dolly goes straight
-      // toward the (possibly shifted) target — eliminates wobble.
-      const postDir = sub(this.state.camera.position, this.state.camera.target);
-      const postDist = length(postDir);
-      const postFwd = postDist > 1e-6 ? scale(postDir, -1 / postDist) : forward;
-      this.zoomPerspective(postDist > 1e-6 ? postDist : distance, postFwd, zoomFactor);
+      this.zoomPerspective(distance, forward, zoomFactor);
     }
 
     this.updateMatrices();
