@@ -336,7 +336,12 @@ export class CameraControls {
       if (mouseX !== undefined && mouseY !== undefined && canvasWidth && canvasHeight) {
         this.shiftTargetTowardsMouse(dir, distance, forward, zoomFactor, mouseX, mouseY, canvasWidth, canvasHeight);
       }
-      this.zoomPerspective(distance, forward, zoomFactor);
+      // Recompute direction after mouse-shift so dolly goes straight
+      // toward the (possibly shifted) target — eliminates wobble.
+      const postDir = sub(this.state.camera.position, this.state.camera.target);
+      const postDist = length(postDir);
+      const postFwd = postDist > 1e-6 ? scale(postDir, -1 / postDist) : forward;
+      this.zoomPerspective(postDist > 1e-6 ? postDist : distance, postFwd, zoomFactor);
     }
 
     this.updateMatrices();
@@ -351,48 +356,31 @@ export class CameraControls {
   }
 
   /**
-   * Perspective zoom — hybrid distance-reduction + forward dolly.
-   *
-   * Distance reduction gives the sharp "objects grow" feel.
-   * Forward dolly translates the whole rig through the scene so the camera
-   * never stalls (solves Zeno's paradox).
-   *
-   * A reference-distance floor on the dolly speed guarantees that close-range
-   * forward travel stays responsive instead of decaying to near-zero.
-   * The forward direction is recomputed from current state (post mouse-shift)
-   * so the dolly is always aligned with the actual view direction.
+   * Perspective: pure dolly — translates the entire camera rig (target + position)
+   * forward/backward by the full zoom step. Distance between camera and target
+   * stays constant; the camera traverses the scene without any Zeno slow-down.
    */
-  private zoomPerspective(_distance: number, _forward: Vec3, zoomFactor: number): void {
-    // Recompute direction from live state (after shiftTargetTowardsMouse)
-    // so dolly is aligned with the actual view direction — prevents wobble.
-    const liveDir = sub(this.state.camera.position, this.state.camera.target);
-    const dist = length(liveDir);
-    if (dist < 1e-6) return;
-    const fwd = scale(liveDir, -1 / dist);
+  private zoomPerspective(distance: number, forward: Vec3, zoomFactor: number): void {
+    const zoomStep = distance * (1 - zoomFactor); // positive when zooming in
 
-    // 1) Multiplicative distance reduction — sharp zoom feel, objects grow.
-    const newDist = Math.max(1e-4, dist * zoomFactor);
+    // Use the full zoomStep as a dolly (forward translation of both target and
+    // camera) so the camera traverses the scene at a consistent rate.
+    // A small minimum dolly prevents stalling when very close to the target.
+    const minDolly = zoomFactor < 1 ? Math.max(0.05, distance * 0.01) : 0;
+    const dolly = Math.max(minDolly, Math.abs(zoomStep)) * Math.sign(zoomStep);
 
-    // 2) Forward dolly — translate the rig so the camera traverses the scene.
-    //    A reference distance of 5 m ensures ~0.25 m/tick at close range
-    //    (full mouse-wheel notch). Above 5 m, dolly is proportional to the
-    //    actual distance (natural speed). The transition is seamless because
-    //    max(dist, 5) equals dist when dist >= 5.
-    //    Only applied when zooming in; zoom-out uses proportional dolly only.
-    const DOLLY_REF = 5.0;
-    const effectiveDist = (zoomFactor < 1) ? Math.max(dist, DOLLY_REF) : dist;
-    const dolly = effectiveDist * (1 - zoomFactor) * 0.5;
-
-    const dollyOffset = scale(fwd, dolly);
+    // Move target (and orbit center) forward to traverse the scene
+    const dollyOffset = scale(forward, dolly);
     addInPlace(this.state.camera.target, dollyOffset);
     if (this.orbitCenter) addInPlace(this.orbitCenter, dollyOffset);
 
-    // Position camera at the reduced distance from the moved target.
+    // Keep camera at the same distance from the (now-moved) target —
+    // the entire rig translates forward, giving unrestricted zoom.
     const t = this.state.camera.target;
     copyInto(this.state.camera.position, {
-      x: t.x - fwd.x * newDist,
-      y: t.y - fwd.y * newDist,
-      z: t.z - fwd.z * newDist,
+      x: t.x - forward.x * distance,
+      y: t.y - forward.y * distance,
+      z: t.z - forward.z * distance,
     });
   }
 
