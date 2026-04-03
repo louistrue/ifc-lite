@@ -10,7 +10,6 @@
 use crate::{Error, Mesh, Result};
 use ifc_lite_core::{DecodedEntity, EntityDecoder, IfcSchema, IfcType};
 
-use super::helpers::get_axis2_placement_transform_by_id;
 use crate::router::GeometryProcessor;
 use super::advanced_face::process_advanced_face;
 
