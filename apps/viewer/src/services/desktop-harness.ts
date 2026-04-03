@@ -25,6 +25,12 @@ export interface DesktopTelemetryReport {
   mode: 'startup-harness' | 'manual';
   success: boolean;
   runLabel?: string;
+  cache?: {
+    key?: string | null;
+    hit?: boolean | null;
+    manifestMeshCount?: number | null;
+    manifestShardCount?: number | null;
+  } | null;
   file: {
     path: string;
     name: string;

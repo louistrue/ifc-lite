@@ -559,6 +559,12 @@ export function useIfcLoader() {
           mode: harnessRequest ? 'startup-harness' : 'manual',
           success: true,
           runLabel: harnessRequest?.runLabel,
+          cache: {
+            key: nativeCacheKey,
+            hit: nativeGeometryCacheHit,
+            manifestMeshCount: null,
+            manifestShardCount: null,
+          },
           file: {
             path: file.path,
             name: file.name,
@@ -757,7 +763,7 @@ export function useIfcLoader() {
           void totalMeshesSoFar;
 
           const appendMeshesToStore = (meshesToAppend: MeshData[]) => {
-          const appendGeometryBatchToStore = getViewerStoreApi().getState().appendGeometryBatch;
+            const appendGeometryBatchToStore = getViewerStoreApi().getState().appendGeometryBatch;
             if (hugeNativeMode) {
               flushSync(() => {
                 appendGeometryBatchToStore(meshesToAppend, coordinateInfo ?? undefined);
@@ -1441,6 +1447,12 @@ export function useIfcLoader() {
           mode: harnessRequest ? 'startup-harness' : 'manual',
           success: true,
           runLabel: harnessRequest?.runLabel,
+          cache: {
+            key: nativeCacheKey,
+            hit: nativeGeometryCacheHit,
+            manifestMeshCount: null,
+            manifestShardCount: null,
+          },
           file: {
             path: file.path,
             name: file.name,
@@ -2032,6 +2044,12 @@ export function useIfcLoader() {
           mode: harnessRequest ? 'startup-harness' : 'manual',
           success: false,
           runLabel: harnessRequest?.runLabel,
+          cache: {
+            key: computeNativeCacheKey(file),
+            hit: null,
+            manifestMeshCount: null,
+            manifestShardCount: null,
+          },
           file: {
             path: file.path,
             name: file.name,

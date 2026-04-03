@@ -37,6 +37,29 @@ export interface NativeBatchTelemetry {
   jsReceivedTimeMs?: number;
 }
 
+export interface MetadataBootstrapEntitySummary {
+  expressId: number;
+  typeName: string;
+  name: string;
+  globalId?: string | null;
+  kind: string;
+  hasChildren: boolean;
+  elementCount?: number;
+  elevation?: number | null;
+}
+
+export interface MetadataBootstrapSpatialNode extends MetadataBootstrapEntitySummary {
+  children: MetadataBootstrapSpatialNode[];
+  elements: MetadataBootstrapEntitySummary[];
+}
+
+export interface MetadataBootstrapPayload {
+  cacheKey: string;
+  schemaVersion: string;
+  entityCount: number;
+  spatialTree: MetadataBootstrapSpatialNode | null;
+}
+
 /**
  * Batch of meshes emitted during streaming
  */
@@ -81,6 +104,8 @@ export interface GeometryProcessingResult {
 export interface StreamingOptions {
   /** Callback for each batch of meshes */
   onBatch?: (batch: GeometryBatch) => void;
+  /** Callback for early metadata bootstrap when available */
+  onMetadataBootstrap?: (bootstrap: MetadataBootstrapPayload) => void;
   /** Callback for deferred color updates */
   onColorUpdate?: (updates: Map<number, [number, number, number, number]>) => void;
   /** Callback when processing is complete */

@@ -8,7 +8,7 @@
 //! without needing to know about WASM bindings or Tauri command shapes.
 
 use ifc_lite_processing::{
-    process_geometry, process_geometry_filtered, process_geometry_streaming_with_options,
+    process_geometry, process_geometry_filtered, process_geometry_streaming_with_options_and_bootstrap,
     CoordinateInfo, ModelMetadata, ProcessingResult, ProcessingStats,
     StreamingOptions as ProcessingStreamingOptions,
 };
@@ -29,6 +29,10 @@ pub struct StreamOptions {
     pub include_properties: bool,
     /// Include presentation-layer resolution on the first-frame path.
     pub include_presentation_layers: bool,
+    /// Emit a lightweight metadata bootstrap during the scan phase.
+    pub emit_quick_metadata_bootstrap: bool,
+    /// Retain emitted meshes in the returned EngineResult.
+    pub retain_emitted_meshes: bool,
 }
 
 impl Default for StreamOptions {
@@ -39,6 +43,8 @@ impl Default for StreamOptions {
             fast_first_batch: false,
             include_properties: true,
             include_presentation_layers: true,
+            emit_quick_metadata_bootstrap: false,
+            retain_emitted_meshes: true,
         }
     }
 }
@@ -122,10 +128,20 @@ pub fn process_ifc_bytes_filtered(
 pub fn stream_ifc_text(
     content: &str,
     options: StreamOptions,
-    mut on_chunk: impl FnMut(GeometryChunk),
+    on_chunk: impl FnMut(GeometryChunk),
     on_color_update: impl FnMut(&[(u32, [f32; 4])]),
 ) -> EngineResult {
-    process_geometry_streaming_with_options(
+    stream_ifc_text_with_bootstrap(content, options, on_chunk, on_color_update, |_| {})
+}
+
+pub fn stream_ifc_text_with_bootstrap(
+    content: &str,
+    options: StreamOptions,
+    mut on_chunk: impl FnMut(GeometryChunk),
+    on_color_update: impl FnMut(&[(u32, [f32; 4])]),
+    on_quick_metadata_bootstrap: impl FnMut(&QuickMetadataBootstrap),
+) -> EngineResult {
+    process_geometry_streaming_with_options_and_bootstrap(
         content,
         ProcessingStreamingOptions {
             initial_batch_size: options.batch_size.max(1),
@@ -133,6 +149,8 @@ pub fn stream_ifc_text(
             fast_first_batch: options.fast_first_batch,
             include_properties: options.include_properties,
             include_presentation_layers: options.include_presentation_layers,
+            emit_quick_metadata_bootstrap: options.emit_quick_metadata_bootstrap,
+            retain_emitted_meshes: options.retain_emitted_meshes,
         },
         |meshes, processed, total| {
         on_chunk(GeometryChunk {
@@ -147,6 +165,7 @@ pub fn stream_ifc_text(
         });
     },
         on_color_update,
+        on_quick_metadata_bootstrap,
     )
     .into()
 }
@@ -162,6 +181,23 @@ pub fn stream_ifc_bytes(
     Ok(stream_ifc_text(content, options, on_chunk, on_color_update))
 }
 
+pub fn stream_ifc_bytes_with_bootstrap(
+    buffer: &[u8],
+    options: StreamOptions,
+    on_chunk: impl FnMut(GeometryChunk),
+    on_color_update: impl FnMut(&[(u32, [f32; 4])]),
+    on_quick_metadata_bootstrap: impl FnMut(&QuickMetadataBootstrap),
+) -> Result<EngineResult, Utf8Error> {
+    let content = std::str::from_utf8(buffer)?;
+    Ok(stream_ifc_text_with_bootstrap(
+        content,
+        options,
+        on_chunk,
+        on_color_update,
+        on_quick_metadata_bootstrap,
+    ))
+}
+
 /// Emit geometry chunks from an IFC file on disk using the stable engine contract.
 pub fn stream_ifc_file(
     path: impl AsRef<Path>,
@@ -169,10 +205,26 @@ pub fn stream_ifc_file(
     on_chunk: impl FnMut(GeometryChunk),
     on_color_update: impl FnMut(&[(u32, [f32; 4])]),
 ) -> io::Result<EngineResult> {
+    stream_ifc_file_with_bootstrap(path, options, on_chunk, on_color_update, |_| {})
+}
+
+pub fn stream_ifc_file_with_bootstrap(
+    path: impl AsRef<Path>,
+    options: StreamOptions,
+    on_chunk: impl FnMut(GeometryChunk),
+    on_color_update: impl FnMut(&[(u32, [f32; 4])]),
+    on_quick_metadata_bootstrap: impl FnMut(&QuickMetadataBootstrap),
+) -> io::Result<EngineResult> {
     let mmap = map_ifc_file(path.as_ref())?;
     let content = std::str::from_utf8(&mmap)
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
-    Ok(stream_ifc_text(content, options, on_chunk, on_color_update))
+    Ok(stream_ifc_text_with_bootstrap(
+        content,
+        options,
+        on_chunk,
+        on_color_update,
+        on_quick_metadata_bootstrap,
+    ))
 }
 
 fn map_ifc_file(path: &Path) -> io::Result<Mmap> {
@@ -181,4 +233,7 @@ fn map_ifc_file(path: &Path) -> io::Result<Mmap> {
     unsafe { Mmap::map(&file) }
 }
 
-pub use ifc_lite_processing::{MeshData, OpeningFilterMode};
+pub use ifc_lite_processing::{
+    MeshData, OpeningFilterMode, QuickMetadataBootstrap, QuickMetadataEntitySummary,
+    QuickMetadataSpatialNode,
+};

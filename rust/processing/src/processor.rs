@@ -7,7 +7,10 @@
 //! Originally contributed by Mathias Søndergaard (Sonderwoods/Linkajou).
 
 use crate::types::mesh::MeshData;
-use crate::types::response::{CoordinateInfo, ModelMetadata, ProcessingStats};
+use crate::types::response::{
+    CoordinateInfo, ModelMetadata, ProcessingStats, QuickMetadataBootstrap,
+    QuickMetadataEntitySummary, QuickMetadataSpatialNode,
+};
 use ifc_lite_core::{
     build_entity_index, AttributeValue, DecodedEntity, EntityDecoder, EntityIndex,
     EntityScanner, IfcType,
@@ -15,7 +18,7 @@ use ifc_lite_core::{
 use ifc_lite_geometry::{calculate_normals, GeometryRouter};
 use rayon::prelude::*;
 use rustc_hash::FxHashMap;
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 
 /// Controls how IfcWindow / IfcDoor openings are exported.
@@ -69,6 +72,10 @@ pub struct StreamingOptions {
     pub include_properties: bool,
     /// Include expensive presentation-layer resolution on the first-frame path.
     pub include_presentation_layers: bool,
+    /// Emit a lightweight spatial bootstrap during the scan phase.
+    pub emit_quick_metadata_bootstrap: bool,
+    /// Retain emitted meshes in the returned ProcessingResult.
+    pub retain_emitted_meshes: bool,
 }
 
 impl Default for StreamingOptions {
@@ -79,6 +86,8 @@ impl Default for StreamingOptions {
             fast_first_batch: false,
             include_properties: true,
             include_presentation_layers: true,
+            emit_quick_metadata_bootstrap: false,
+            retain_emitted_meshes: true,
         }
     }
 }
@@ -455,6 +464,161 @@ fn assign_space_zone_properties(
     }
 }
 
+#[derive(Clone)]
+struct QuickSpatialNodeEntry {
+    express_id: u32,
+    type_name: String,
+    name: String,
+    elevation: Option<f64>,
+    children: Vec<u32>,
+    elements: Vec<u32>,
+    parent: Option<u32>,
+}
+
+fn is_quick_spatial_type(type_upper: &str) -> bool {
+    matches!(
+        type_upper,
+        "IFCPROJECT"
+            | "IFCSITE"
+            | "IFCBUILDING"
+            | "IFCBUILDINGSTOREY"
+            | "IFCSPACE"
+            | "IFCFACILITY"
+            | "IFCFACILITYPART"
+            | "IFCBRIDGE"
+            | "IFCBRIDGEPART"
+            | "IFCROAD"
+            | "IFCROADPART"
+            | "IFCRAILWAY"
+            | "IFCRAILWAYPART"
+    )
+}
+
+fn parse_step_arguments<'a>(entity_text: &'a str) -> Vec<&'a str> {
+    let Some(open_idx) = entity_text.find('(') else {
+        return Vec::new();
+    };
+    let Some(close_idx) = entity_text.rfind(')') else {
+        return Vec::new();
+    };
+    if close_idx <= open_idx {
+        return Vec::new();
+    }
+    let args = &entity_text[open_idx + 1..close_idx];
+    let mut parts = Vec::new();
+    let mut in_string = false;
+    let mut depth = 0i32;
+    let mut start = 0usize;
+    let bytes = args.as_bytes();
+    let mut index = 0usize;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'\'' => {
+                if in_string && index + 1 < bytes.len() && bytes[index + 1] == b'\'' {
+                    index += 1;
+                } else {
+                    in_string = !in_string;
+                }
+            }
+            b'(' if !in_string => depth += 1,
+            b')' if !in_string => depth -= 1,
+            b',' if !in_string && depth == 0 => {
+                parts.push(args[start..index].trim());
+                start = index + 1;
+            }
+            _ => {}
+        }
+        index += 1;
+    }
+    if start <= args.len() {
+        parts.push(args[start..].trim());
+    }
+    parts
+}
+
+fn parse_step_string(token: &str) -> Option<String> {
+    let trimmed = token.trim();
+    if trimmed.len() < 2 || !trimmed.starts_with('\'') || !trimmed.ends_with('\'') {
+        return None;
+    }
+    Some(trimmed[1..trimmed.len() - 1].replace("''", "'"))
+}
+
+fn parse_step_ref(token: &str) -> Option<u32> {
+    token.trim().strip_prefix('#')?.parse::<u32>().ok()
+}
+
+fn parse_step_ref_list(token: &str) -> Vec<u32> {
+    let trimmed = token.trim();
+    let inner = trimmed
+        .strip_prefix('(')
+        .and_then(|value| value.strip_suffix(')'))
+        .unwrap_or(trimmed);
+    inner.split(',').filter_map(parse_step_ref).collect()
+}
+
+fn extract_name_from_args(args: &[&str], fallback: &str) -> String {
+    args.get(2)
+        .and_then(|token| parse_step_string(token))
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| fallback.to_string())
+}
+
+fn extract_storey_elevation_from_args(args: &[&str]) -> Option<f64> {
+    for index in [9usize, 8usize] {
+        if let Some(value) = args.get(index).and_then(|token| token.trim().parse::<f64>().ok()) {
+            return Some(value);
+        }
+    }
+    args.iter()
+        .filter_map(|token| token.trim().parse::<f64>().ok())
+        .find(|value| value.abs() < 10_000.0)
+}
+
+fn build_quick_spatial_tree_node(
+    express_id: u32,
+    nodes: &HashMap<u32, QuickSpatialNodeEntry>,
+    element_summaries: &HashMap<u32, QuickMetadataEntitySummary>,
+) -> Result<QuickMetadataSpatialNode, String> {
+    let node = nodes
+        .get(&express_id)
+        .ok_or_else(|| format!("Quick spatial node #{express_id} not found"))?;
+    let mut children = Vec::with_capacity(node.children.len());
+    for child_id in &node.children {
+        children.push(build_quick_spatial_tree_node(*child_id, nodes, element_summaries)?);
+    }
+    let elements = node
+        .elements
+        .iter()
+        .map(|element_id| {
+            element_summaries.get(element_id).cloned().unwrap_or(QuickMetadataEntitySummary {
+                express_id: *element_id,
+                type_name: "IfcProduct".to_string(),
+                name: format!("IfcProduct #{}", element_id),
+                global_id: None,
+                kind: "element".to_string(),
+                has_children: false,
+                element_count: None,
+                elevation: None,
+            })
+        })
+        .collect();
+    Ok(QuickMetadataSpatialNode {
+        summary: QuickMetadataEntitySummary {
+            express_id: node.express_id,
+            type_name: node.type_name.clone(),
+            name: node.name.clone(),
+            global_id: None,
+            kind: "spatial".to_string(),
+            has_children: !node.children.is_empty() || !node.elements.is_empty(),
+            element_count: Some(node.elements.len()),
+            elevation: node.elevation,
+        },
+        children,
+        elements,
+    })
+}
+
 fn geometry_priority_score(ifc_type: &IfcType) -> u8 {
     match ifc_type {
         IfcType::IfcWall | IfcType::IfcWallStandardCase => 100,
@@ -501,12 +665,31 @@ pub fn process_geometry_streaming_with_options(
     on_batch: impl FnMut(&[MeshData], usize, usize),
     on_color_update: impl FnMut(&[(u32, [f32; 4])]),
 ) -> ProcessingResult {
+    process_geometry_streaming_with_options_and_bootstrap(
+        content,
+        options,
+        on_batch,
+        on_color_update,
+        |_| {},
+    )
+}
+
+/// Process IFC content with parallel geometry extraction and emit a quick metadata bootstrap
+/// once the scan phase completes.
+pub fn process_geometry_streaming_with_options_and_bootstrap(
+    content: &str,
+    options: StreamingOptions,
+    on_batch: impl FnMut(&[MeshData], usize, usize),
+    on_color_update: impl FnMut(&[(u32, [f32; 4])]),
+    on_quick_metadata_bootstrap: impl FnMut(&QuickMetadataBootstrap),
+) -> ProcessingResult {
     process_geometry_streaming_filtered_with_options(
         content,
         OpeningFilterMode::Default,
         options,
         on_batch,
         on_color_update,
+        on_quick_metadata_bootstrap,
     )
 }
 
@@ -521,6 +704,7 @@ pub fn process_geometry_filtered(content: &str, opening_filter: OpeningFilterMod
             ..StreamingOptions::default()
         },
         |_, _, _| {},
+        |_| {},
         |_| {},
     )
 }
@@ -543,6 +727,7 @@ pub fn process_geometry_streaming_filtered(
         },
         on_batch,
         on_color_update,
+        |_| {},
     )
 }
 
@@ -553,6 +738,7 @@ pub fn process_geometry_streaming_filtered_with_options(
     options: StreamingOptions,
     mut on_batch: impl FnMut(&[MeshData], usize, usize),
     mut on_color_update: impl FnMut(&[(u32, [f32; 4])]),
+    mut on_quick_metadata_bootstrap: impl FnMut(&QuickMetadataBootstrap),
 ) -> ProcessingResult {
     let total_start = std::time::Instant::now();
     let parse_start = std::time::Instant::now();
@@ -580,6 +766,23 @@ pub fn process_geometry_streaming_filtered_with_options(
     let mut void_index: FxHashMap<u32, Vec<u32>> = FxHashMap::default();
     let mut filling_by_opening: FxHashMap<u32, u32> = FxHashMap::default();
     let mut entity_jobs: Vec<EntityJob> = Vec::with_capacity(2000);
+    let quick_metadata_enabled = options.emit_quick_metadata_bootstrap;
+    let mut quick_spatial_nodes = quick_metadata_enabled.then(HashMap::<u32, QuickSpatialNodeEntry>::new);
+    let mut quick_aggregate_links = if quick_metadata_enabled {
+        Vec::<(u32, Vec<u32>)>::new()
+    } else {
+        Vec::new()
+    };
+    let mut quick_containment_links = if quick_metadata_enabled {
+        Vec::<(u32, Vec<u32>)>::new()
+    } else {
+        Vec::new()
+    };
+    let mut quick_element_summaries = if quick_metadata_enabled {
+        HashMap::<u32, QuickMetadataEntitySummary>::new()
+    } else {
+        HashMap::new()
+    };
     let mut schema_version = "IFC2X3".to_string();
     let mut total_entities = 0usize;
     let mut site_entity_pos: Option<(usize, usize)> = None;
@@ -592,6 +795,47 @@ pub fn process_geometry_streaming_filtered_with_options(
 
     while let Some((id, type_name, start, end)) = scanner.next_entity() {
         total_entities += 1;
+        if let Some(spatial_nodes) = quick_spatial_nodes.as_mut() {
+            let type_upper = type_name.to_ascii_uppercase();
+            if is_quick_spatial_type(&type_upper) {
+                let args = parse_step_arguments(&content[start..end]);
+                spatial_nodes.entry(id).or_insert(QuickSpatialNodeEntry {
+                    express_id: id,
+                    type_name: type_name.to_string(),
+                    name: extract_name_from_args(&args, &format!("{type_name} #{id}")),
+                    elevation: if type_name == "IfcBuildingStorey" {
+                        extract_storey_elevation_from_args(&args)
+                    } else {
+                        None
+                    },
+                    children: Vec::new(),
+                    elements: Vec::new(),
+                    parent: None,
+                });
+            } else if type_upper == "IFCRELAGGREGATES" {
+                let args = parse_step_arguments(&content[start..end]);
+                if let Some(parent_id) = args.get(4).and_then(|token| parse_step_ref(token)) {
+                    quick_aggregate_links.push((
+                        parent_id,
+                        args.get(5)
+                            .map(|token| parse_step_ref_list(token))
+                            .unwrap_or_default(),
+                    ));
+                }
+            } else if type_upper == "IFCRELCONTAINEDINSPATIALSTRUCTURE"
+                || type_upper == "IFCRELREFERENCEDINSPATIALSTRUCTURE"
+            {
+                let args = parse_step_arguments(&content[start..end]);
+                if let Some(parent_id) = args.get(5).and_then(|token| parse_step_ref(token)) {
+                    quick_containment_links.push((
+                        parent_id,
+                        args.get(4)
+                            .map(|token| parse_step_ref_list(token))
+                            .unwrap_or_default(),
+                    ));
+                }
+            }
+        }
 
         if type_name == "IFCSTYLEDITEM" {
             if defer_style_updates {
@@ -665,6 +909,21 @@ pub fn process_geometry_streaming_filtered_with_options(
 
         if ifc_lite_core::has_geometry_by_name(type_name) {
             let ifc_type = IfcType::from_str(type_name);
+            if quick_metadata_enabled {
+                quick_element_summaries.insert(
+                    id,
+                    QuickMetadataEntitySummary {
+                        express_id: id,
+                        type_name: type_name.to_string(),
+                        name: format!("{type_name} #{id}"),
+                        global_id: None,
+                        kind: "element".to_string(),
+                        has_children: false,
+                        element_count: None,
+                        elevation: None,
+                    },
+                );
+            }
             entity_jobs.push(EntityJob {
                 id,
                 ifc_type: ifc_type.clone(),
@@ -724,6 +983,49 @@ pub fn process_geometry_streaming_filtered_with_options(
         "Entity scanning complete"
     );
 
+    if let Some(mut spatial_nodes) = quick_spatial_nodes.take() {
+        for (parent_id, child_ids) in quick_aggregate_links {
+            if !spatial_nodes.contains_key(&parent_id) {
+                continue;
+            }
+            for child_id in child_ids {
+                if !spatial_nodes.contains_key(&child_id) {
+                    continue;
+                }
+                if let Some(parent) = spatial_nodes.get_mut(&parent_id) {
+                    parent.children.push(child_id);
+                }
+                if let Some(child) = spatial_nodes.get_mut(&child_id) {
+                    child.parent = Some(parent_id);
+                }
+            }
+        }
+        for (parent_id, element_ids) in quick_containment_links {
+            if let Some(parent) = spatial_nodes.get_mut(&parent_id) {
+                parent.elements.extend(element_ids);
+            }
+        }
+        let mut root_id = spatial_nodes
+            .values()
+            .find(|node| node.type_name == "IfcProject")
+            .map(|node| node.express_id);
+        if root_id.is_none() {
+            root_id = spatial_nodes
+                .values()
+                .find(|node| node.parent.is_none())
+                .map(|node| node.express_id);
+        }
+        let spatial_tree = root_id
+            .map(|root| build_quick_spatial_tree_node(root, &spatial_nodes, &quick_element_summaries))
+            .transpose()
+            .unwrap_or(None);
+        on_quick_metadata_bootstrap(&QuickMetadataBootstrap {
+            schema_version: schema_version.clone(),
+            entity_count: total_entities,
+            spatial_tree,
+        });
+    }
+
     // Preprocess complex geometry
     let preprocess_start = std::time::Instant::now();
     let mut router = GeometryRouter::with_units(content, &mut decoder);
@@ -751,7 +1053,10 @@ pub fn process_geometry_streaming_filtered_with_options(
         (0.0, 0.0, 0.0)
     };
     router.set_rtc_offset(rtc_offset);
-    if !faceted_brep_ids.is_empty() {
+    let should_preprocess_faceted_breps =
+        !faceted_brep_ids.is_empty()
+            && !(options.fast_first_batch && options.initial_batch_size < usize::MAX);
+    if should_preprocess_faceted_breps {
         tracing::debug!(count = faceted_brep_ids.len(), "Preprocessing FacetedBreps");
         router.preprocess_faceted_breps(&faceted_brep_ids, &mut decoder);
     }
@@ -788,6 +1093,7 @@ pub fn process_geometry_streaming_filtered_with_options(
     let mut layer_cache_by_representation: FxHashMap<u32, Option<String>> = FxHashMap::default();
     let mut meshes: Vec<MeshData> = Vec::new();
     let mut processed_jobs = 0usize;
+    let mut total_meshes = 0usize;
     let mut total_vertices = 0usize;
     let mut total_triangles = 0usize;
     let mut chunk_start = 0usize;
@@ -832,11 +1138,14 @@ pub fn process_geometry_streaming_filtered_with_options(
         total_triangles += chunk_meshes.iter().map(|m| m.triangle_count()).sum::<usize>();
 
         if !chunk_meshes.is_empty() {
+            total_meshes += chunk_meshes.len();
             let emit_mesh_chunk_size = current_chunk_size.max(1);
             for emitted_meshes in chunk_meshes.chunks(emit_mesh_chunk_size) {
                 on_batch(emitted_meshes, processed_jobs, total_jobs);
             }
-            meshes.extend(chunk_meshes);
+            if options.retain_emitted_meshes {
+                meshes.extend(chunk_meshes);
+            }
 
             if !deferred_styles_applied {
                 geometry_style_index = Arc::new(build_geometry_style_index(content, &entity_index_arc));
@@ -867,8 +1176,6 @@ pub fn process_geometry_streaming_filtered_with_options(
         total_time_ms = total_time.as_millis(),
         "Geometry processing complete"
     );
-
-    let total_meshes = meshes.len();
 
     ProcessingResult {
         meshes,

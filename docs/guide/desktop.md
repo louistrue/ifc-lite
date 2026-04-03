@@ -98,3 +98,7 @@ The desktop and web versions share the same React UI, but differ in:
 - **Memory**: No WASM 4GB limit
 - **Caching**: Disk-based binary cache vs browser cache/IndexedDB
 - **Startup**: No WASM download needed
+
+## Current Fast Path Status
+
+For the current large-file desktop fast-path state, latest 1 GB cold harness numbers, and the remaining gap to full-under-5s cold completion, see [Desktop Fast Path Status](./desktop-fastpath-status.md).

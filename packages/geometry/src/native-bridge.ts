@@ -63,6 +63,16 @@ interface NativeGeometryCacheManifest {
   metadataSnapshotSize: number;
 }
 
+interface NativeGeometryCacheStreamStatus {
+  cacheKey: string;
+  totalMeshes: number;
+  readyShardCount: number;
+  readyMeshes: number;
+  done: boolean;
+  failed: boolean;
+  errorMessage?: string;
+}
+
 const NATIVE_CACHE_PREFETCH_WINDOW = 2;
 const MAX_DEFERRED_BATCHES_PER_DRAIN = 4;
 const MAX_DEFERRED_MESHES_PER_DRAIN = 8192;
@@ -91,6 +101,12 @@ function yieldToEventLoop(): Promise<void> {
     const channel = new MessageChannel();
     channel.port1.onmessage = () => resolve();
     channel.port2.postMessage(null);
+  });
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    globalThis.setTimeout(resolve, ms);
   });
 }
 
@@ -496,131 +512,11 @@ export class NativeBridge implements IPlatformBridge {
       await this.init();
     }
 
-    if (!this.listen) {
-      console.warn('[NativeBridge] Event API unavailable, falling back to non-streaming file-path mode');
-      const result = await this.processGeometryPath(path);
-      const stats: GeometryStats = {
-        totalMeshes: result.meshes.length,
-        totalVertices: result.totalVertices,
-        totalTriangles: result.totalTriangles,
-        parseTimeMs: 0,
-        entityScanTimeMs: 0,
-        lookupTimeMs: 0,
-        preprocessTimeMs: 0,
-        geometryTimeMs: 0,
-        totalTimeMs: 0,
-        firstChunkReadyTimeMs: 0,
-        firstChunkPackTimeMs: 0,
-        firstChunkEmittedTimeMs: 0,
-        firstChunkEmitTimeMs: 0,
-      };
-      options.onBatch?.({
-        meshes: result.meshes,
-        progress: { processed: result.meshes.length, total: result.meshes.length, currentType: 'complete' },
-      });
-      options.onComplete?.(stats);
-      return stats;
-    }
-
     const streamStartTime = performance.now();
-    const pendingBatches: DeferredNativeBatchPayload[] = [];
-    let drainPromise: Promise<void> | null = null;
-    let drainError: Error | null = null;
-    const scheduleDrain = () => {
-      if (drainPromise) return;
-      drainPromise = (async () => {
-        try {
-          await this.drainDeferredBatches(pendingBatches, options, streamStartTime);
-        } catch (error) {
-          drainError = error instanceof Error ? error : new Error(String(error));
-        } finally {
-          drainPromise = null;
-          if (pendingBatches.length > 0 && !drainError) {
-            scheduleDrain();
-          }
-        }
-      })();
-    };
-    const unlisten = await this.listen<{
-      meshes: NativeMeshData[];
-      progress: NativeStreamingProgress;
-      telemetry?: NativeBatchTelemetryPayload;
-    }>('geometry-batch', (event) => {
-      pendingBatches.push({
-        type: 'mesh-array',
-        meshes: event.payload.meshes,
-        progress: event.payload.progress,
-        telemetry: event.payload.telemetry,
-      });
-      scheduleDrain();
-    });
-    const unlistenPacked = await this.listen<NativePackedGeometryBatch>('geometry-packed-batch', (event) => {
-      pendingBatches.push({
-        type: 'packed',
-        payload: event.payload,
-      });
-      scheduleDrain();
-    });
-    const unlistenColorUpdate = await this.listen<NativeColorUpdatePayload>('geometry-color-update', (event) => {
-      const updates = new Map<number, [number, number, number, number]>();
-      for (const entry of event.payload.updates) {
-        updates.set(entry.expressId, entry.color);
-      }
-      if (updates.size > 0) {
-        options.onColorUpdate?.(updates);
-      }
-    });
-
-    try {
-      const stats = await this.invoke!<{
-        totalMeshes: number;
-        totalVertices: number;
-        totalTriangles: number;
-        parseTimeMs: number;
-        entityScanTimeMs?: number;
-        lookupTimeMs?: number;
-        preprocessTimeMs?: number;
-        geometryTimeMs: number;
-        totalTimeMs?: number;
-        firstChunkReadyTimeMs?: number;
-        firstChunkPackTimeMs?: number;
-        firstChunkEmittedTimeMs?: number;
-        firstChunkEmitTimeMs?: number;
-      }>('get_geometry_streaming_from_path', { path, cacheKey });
-
-      const result: GeometryStats = {
-        totalMeshes: stats.totalMeshes,
-        totalVertices: stats.totalVertices,
-        totalTriangles: stats.totalTriangles,
-        parseTimeMs: stats.parseTimeMs,
-        entityScanTimeMs: stats.entityScanTimeMs,
-        lookupTimeMs: stats.lookupTimeMs,
-        preprocessTimeMs: stats.preprocessTimeMs,
-        geometryTimeMs: stats.geometryTimeMs,
-        totalTimeMs: stats.totalTimeMs,
-        firstChunkReadyTimeMs: stats.firstChunkReadyTimeMs,
-        firstChunkPackTimeMs: stats.firstChunkPackTimeMs,
-        firstChunkEmittedTimeMs: stats.firstChunkEmittedTimeMs,
-        firstChunkEmitTimeMs: stats.firstChunkEmitTimeMs,
-      };
-
-      while (drainPromise) {
-        await drainPromise;
-      }
-      if (drainError) {
-        throw drainError;
-      }
-
-      options.onComplete?.(result);
-      return result;
-    } catch (error) {
-      options.onError?.(error instanceof Error ? error : new Error(String(error)));
-      throw error;
-    } finally {
-      unlisten();
-      unlistenPacked();
-      unlistenColorUpdate();
+    if (!cacheKey) {
+      throw new Error('Packed shard path streaming requires a cache key');
     }
+    return this.processPackedShardPathStream(path, cacheKey, options, streamStartTime);
   }
 
   async processGeometryStreamingCache(
@@ -641,46 +537,45 @@ export class NativeBridge implements IPlatformBridge {
         throw new Error(`Native geometry cache manifest missing for ${cacheKey}`);
       }
 
-      const firstShardPayload = await this.invoke!<unknown>(
-        'get_native_geometry_cache_packed_shard',
-        { cacheKey, shardIndex: 0 }
-      );
-      const firstBatch = decodePackedGeometryCacheShard(
-        firstShardPayload,
-        performance.now() - streamStartTime,
-        1
-      );
-      options.onBatch?.(firstBatch);
-
-      let eventStats: GeometryStats | null = null;
-      if (firstBatch.progress.processed < manifest.totalMeshes) {
-        await yieldToEventLoop();
-        eventStats = await this.processEventDrivenNativeStream(
-          'get_geometry_streaming_from_cache',
-          {
-            cacheKey,
-            skipMeshes: firstBatch.progress.processed,
-          },
-          options,
-          streamStartTime
+      let processedMeshes = 0;
+      for (let shardIndex = 0; shardIndex < manifest.shardCount; shardIndex += 1) {
+        const shardPayload = await this.invoke!<unknown>(
+          'get_native_geometry_cache_packed_shard',
+          { cacheKey, shardIndex }
         );
+        const batch = decodePackedGeometryCacheShard(
+          shardPayload,
+          performance.now() - streamStartTime,
+          shardIndex + 1
+        );
+        processedMeshes = batch.progress.processed;
+        options.onBatch?.(batch);
+        if (shardIndex + 1 < manifest.shardCount) {
+          await yieldToEventLoop();
+        }
       }
 
       const result: GeometryStats = {
-        totalMeshes: eventStats?.totalMeshes ?? manifest.totalMeshes,
-        totalVertices: eventStats?.totalVertices ?? manifest.totalVertices,
-        totalTriangles: eventStats?.totalTriangles ?? manifest.totalTriangles,
-        parseTimeMs: eventStats?.parseTimeMs ?? 0,
-        entityScanTimeMs: eventStats?.entityScanTimeMs ?? 0,
-        lookupTimeMs: eventStats?.lookupTimeMs ?? 0,
-        preprocessTimeMs: eventStats?.preprocessTimeMs ?? 0,
-        geometryTimeMs: eventStats?.geometryTimeMs ?? Math.round(performance.now() - streamStartTime),
-        totalTimeMs: eventStats?.totalTimeMs ?? Math.round(performance.now() - streamStartTime),
-        firstChunkReadyTimeMs: firstBatch.nativeTelemetry?.chunkReadyTimeMs ?? 0,
-        firstChunkPackTimeMs: firstBatch.nativeTelemetry?.packTimeMs ?? 0,
-        firstChunkEmittedTimeMs: firstBatch.nativeTelemetry?.emittedTimeMs ?? 0,
-        firstChunkEmitTimeMs: firstBatch.nativeTelemetry?.emitTimeMs ?? 0,
+        totalMeshes: manifest.totalMeshes,
+        totalVertices: manifest.totalVertices,
+        totalTriangles: manifest.totalTriangles,
+        parseTimeMs: 0,
+        entityScanTimeMs: 0,
+        lookupTimeMs: 0,
+        preprocessTimeMs: 0,
+        geometryTimeMs: Math.round(performance.now() - streamStartTime),
+        totalTimeMs: Math.round(performance.now() - streamStartTime),
+        firstChunkReadyTimeMs: 0,
+        firstChunkPackTimeMs: 0,
+        firstChunkEmittedTimeMs: 0,
+        firstChunkEmitTimeMs: 0,
       };
+
+      if (processedMeshes !== manifest.totalMeshes) {
+        console.warn(
+          `[NativeBridge] Cached packed shard stream mesh mismatch for ${cacheKey}: received=${processedMeshes} expected=${manifest.totalMeshes}`
+        );
+      }
 
       options.onComplete?.(result);
       return result;
@@ -688,6 +583,100 @@ export class NativeBridge implements IPlatformBridge {
       options.onError?.(error instanceof Error ? error : new Error(String(error)));
       throw error;
     }
+  }
+
+  private async processPackedShardPathStream(
+    path: string,
+    cacheKey: string,
+    options: StreamingOptions,
+    streamStartTime: number
+  ): Promise<GeometryStats> {
+    const statsPromise = this.invoke!<{
+      totalMeshes: number;
+      totalVertices: number;
+      totalTriangles: number;
+      parseTimeMs: number;
+      entityScanTimeMs?: number;
+      lookupTimeMs?: number;
+      preprocessTimeMs?: number;
+      geometryTimeMs: number;
+      totalTimeMs?: number;
+      firstChunkReadyTimeMs?: number;
+      firstChunkPackTimeMs?: number;
+      firstChunkEmittedTimeMs?: number;
+      firstChunkEmitTimeMs?: number;
+    }>('get_geometry_streaming_from_path', {
+      path,
+      cacheKey,
+      preferPackedShards: true,
+    });
+
+    let nextShardIndex = 0;
+    let lastProgressAt = performance.now();
+    let processedMeshes = 0;
+
+    while (true) {
+      const status = await this.invoke!<NativeGeometryCacheStreamStatus | null>(
+        'get_native_geometry_cache_stream_status',
+        { cacheKey }
+      );
+
+      if (status?.failed) {
+        throw new Error(status.errorMessage ?? `Packed shard stream failed for ${cacheKey}`);
+      }
+
+      const readyShardCount = status?.readyShardCount ?? 0;
+      while (nextShardIndex < readyShardCount) {
+        const shardPayload = await this.invoke!<unknown>(
+          'get_native_geometry_cache_packed_shard',
+          { cacheKey, shardIndex: nextShardIndex }
+        );
+        const batch = decodePackedGeometryCacheShard(
+          shardPayload,
+          performance.now() - streamStartTime,
+          nextShardIndex + 1
+        );
+        processedMeshes = Math.max(processedMeshes, batch.progress.processed);
+        lastProgressAt = performance.now();
+        options.onBatch?.(batch);
+        nextShardIndex += 1;
+        if (nextShardIndex < readyShardCount) {
+          await yieldToEventLoop();
+        }
+      }
+
+      if (status?.done && nextShardIndex >= readyShardCount) {
+        break;
+      }
+
+      if (performance.now() - lastProgressAt > 15_000) {
+        throw new Error(
+          `Packed shard path stream stalled for ${cacheKey}: shards=${nextShardIndex}/${readyShardCount} processed=${processedMeshes}`
+        );
+      }
+
+      await sleep(8);
+    }
+
+    const stats = await statsPromise;
+    const result: GeometryStats = {
+      totalMeshes: stats.totalMeshes,
+      totalVertices: stats.totalVertices,
+      totalTriangles: stats.totalTriangles,
+      parseTimeMs: stats.parseTimeMs,
+      entityScanTimeMs: stats.entityScanTimeMs,
+      lookupTimeMs: stats.lookupTimeMs,
+      preprocessTimeMs: stats.preprocessTimeMs,
+      geometryTimeMs: stats.geometryTimeMs,
+      totalTimeMs: stats.totalTimeMs,
+      firstChunkReadyTimeMs: stats.firstChunkReadyTimeMs,
+      firstChunkPackTimeMs: stats.firstChunkPackTimeMs,
+      firstChunkEmittedTimeMs: stats.firstChunkEmittedTimeMs,
+      firstChunkEmitTimeMs: stats.firstChunkEmitTimeMs,
+    };
+
+    options.onComplete?.(result);
+    return result;
   }
 
   getApi(): null {
