@@ -342,7 +342,11 @@ export class CameraControls {
       this.zoomOrthographic(dir, nextOrthoSize);
     } else {
       if (mouseX !== undefined && mouseY !== undefined && canvasWidth && canvasHeight) {
-        this.shiftTargetTowardsMouse(dir, distance, forward, zoomFactor, mouseX, mouseY, canvasWidth, canvasHeight);
+        // Pure dolly keeps distance (and frustum) constant, so the natural
+        // convergence from frustum shrinkage is lost. Doubling the move
+        // amount for zoom-in restores the original convergence rate.
+        const anchorZf = zoomFactor < 1 ? 2 * zoomFactor - 1 : zoomFactor;
+        this.shiftTargetTowardsMouse(dir, distance, forward, anchorZf, mouseX, mouseY, canvasWidth, canvasHeight);
       }
       this.zoomPerspective(distance, forward, zoomFactor);
     }
