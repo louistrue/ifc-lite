@@ -37,6 +37,8 @@ export interface CesiumSlice {
   cesiumSourceModelId: string | null;
   /** Terrain clip Y position in viewer space. When set, fragments below this Y are discarded. */
   cesiumTerrainClipY: number | null;
+  /** Whether the GLB model has been loaded into Cesium (hides WebGPU overlay). */
+  cesiumGlbLoaded: boolean;
 
   // Actions
   setCesiumEnabled: (enabled: boolean) => void;
@@ -48,6 +50,7 @@ export interface CesiumSlice {
   setCesiumTerrainHeight: (height: number | null) => void;
   setCesiumSourceModelId: (modelId: string | null) => void;
   setCesiumTerrainClipY: (y: number | null) => void;
+  setCesiumGlbLoaded: (loaded: boolean) => void;
 }
 
 const STORAGE_KEY_ION_TOKEN = 'ifc-lite:cesium-ion-token';
@@ -98,6 +101,7 @@ export const createCesiumSlice: StateCreator<CesiumSlice, [], [], CesiumSlice> =
   cesiumTerrainHeight: null,
   cesiumSourceModelId: null,
   cesiumTerrainClipY: null,
+  cesiumGlbLoaded: false,
 
   setCesiumEnabled: (enabled) => set({ cesiumEnabled: enabled }),
   toggleCesium: () => set((s) => ({ cesiumEnabled: !s.cesiumEnabled })),
@@ -114,4 +118,5 @@ export const createCesiumSlice: StateCreator<CesiumSlice, [], [], CesiumSlice> =
   setCesiumTerrainHeight: (height) => set({ cesiumTerrainHeight: height }),
   setCesiumSourceModelId: (modelId) => set({ cesiumSourceModelId: modelId }),
   setCesiumTerrainClipY: (y) => set({ cesiumTerrainClipY: y }),
+  setCesiumGlbLoaded: (loaded) => set({ cesiumGlbLoaded: loaded }),
 });

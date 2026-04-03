@@ -23,9 +23,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { useViewerStore } from '@/store';
 import type { MapConversion, ProjectedCRS } from '@ifc-lite/parser';
-import type { CoordinateInfo } from '@ifc-lite/geometry';
+import type { CoordinateInfo, GeometryResult } from '@ifc-lite/geometry';
 import { getGlobalRenderer } from '@/hooks/useBCF';
 import { createCesiumBridge, type CesiumBridge } from '@/lib/geo/cesium-bridge';
+import { GLTFExporter } from '@ifc-lite/export';
 
 // Lazy-loaded Cesium module and CSS
 let cesiumPromise: Promise<typeof import('cesium')> | null = null;
@@ -47,12 +48,14 @@ export interface CesiumOverlayProps {
   mapConversion?: MapConversion;
   projectedCRS?: ProjectedCRS;
   coordinateInfo?: CoordinateInfo;
+  geometryResult?: GeometryResult | null;
 }
 
 export function CesiumOverlay({
   mapConversion,
   projectedCRS,
   coordinateInfo,
+  geometryResult,
 }: CesiumOverlayProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<InstanceType<typeof import('cesium').Viewer> | null>(null);
@@ -71,12 +74,17 @@ export function CesiumOverlay({
   const terrainHeight = useViewerStore((s) => s.cesiumTerrainHeight);
   const setCesiumTerrainHeight = useViewerStore((s) => s.setCesiumTerrainHeight);
   const setCesiumTerrainClipY = useViewerStore((s) => s.setCesiumTerrainClipY);
+  const setCesiumGlbLoaded = useViewerStore((s) => s.setCesiumGlbLoaded);
 
   // Use refs so the camera sync loop always reads the latest values
   const terrainClampRef = useRef(terrainClamp);
   const terrainHeightRef = useRef(terrainHeight);
   terrainClampRef.current = terrainClamp;
   terrainHeightRef.current = terrainHeight;
+
+  // Track the Cesium model (IFC geometry loaded as glTF for correct world positioning)
+  const cesiumModelRef = useRef<any>(null);
+  const glbCacheRef = useRef<{ meshCount: number; glb: Uint8Array } | null>(null);
 
   // ─── Effect 1: Create/destroy the Cesium viewer (heavy, rare) ───────────
   // Only depends on cesiumEnabled, ionToken, terrainEnabled, dataSource.
@@ -304,6 +312,90 @@ export function CesiumOverlay({
 
     return () => { cancelled = true; clearTimeout(retryTimer); };
   }, [status, terrainEnabled, terrainClamp, bridgeVersion]);
+
+  // ─── Effect 2c: DEFERRED GLB load for correct world positioning ─────────
+  // The GLB model is loaded into Cesium for pixel-perfect alignment with
+  // terrain and OSM buildings. Deferred by 2s to avoid blocking initial load.
+  // Once loaded, the WebGPU canvas is hidden and Cesium renders the model.
+  useEffect(() => {
+    if (status !== 'ready' || !geometryResult?.meshes?.length) return;
+    const viewer = viewerRef.current;
+    const bridge = bridgeRef.current;
+    const Cesium = cesiumModule;
+    if (!viewer || !bridge || !Cesium) return;
+
+    let cancelled = false;
+
+    // Defer the heavy GLB export to avoid blocking UI on initial load
+    const deferTimer = setTimeout(async () => {
+      if (cancelled) return;
+      try {
+        // Remove previous model
+        if (cesiumModelRef.current) {
+          viewer.scene.primitives.remove(cesiumModelRef.current);
+          cesiumModelRef.current = null;
+        }
+
+        // Export GLB (cached by mesh count)
+        const meshCount = geometryResult.meshes.length;
+        let glbBytes: Uint8Array;
+        if (glbCacheRef.current?.meshCount === meshCount) {
+          glbBytes = glbCacheRef.current.glb;
+        } else {
+          const exporter = new GLTFExporter(geometryResult);
+          glbBytes = exporter.exportGLB();
+          glbCacheRef.current = { meshCount, glb: glbBytes };
+        }
+        if (cancelled) return;
+
+        // Build model matrix: IFC Z-up → ENU → ECEF
+        const origin = Cesium.Cartesian3.fromDegrees(
+          bridge.modelOrigin.longitude, bridge.modelOrigin.latitude, bridge.modelOrigin.height,
+        );
+        const enuToEcef = Cesium.Transforms.eastNorthUpToFixedFrame(origin);
+        const hScale = mapConversion?.scale ?? 1.0;
+        const absc = mapConversion?.xAxisAbscissa ?? 1.0;
+        const ordi = mapConversion?.xAxisOrdinate ?? 0.0;
+        const bounds = coordinateInfo?.originalBounds;
+        const mvx = bounds ? (bounds.min.x + bounds.max.x) / 2 : 0;
+        const mvy = bounds ? (bounds.min.y + bounds.max.y) / 2 : 0;
+        const mvz = bounds ? (bounds.min.z + bounds.max.z) / 2 : 0;
+        const sa = hScale * absc, so = hScale * ordi;
+        const ifcToEnu = new Cesium.Matrix4(
+          sa, -so, 0, -(sa * mvx + so * mvz),
+          so,  sa, 0, -(so * mvx - sa * mvz),
+          0,   0,  1, -mvy,
+          0,   0,  0, 1,
+        );
+        const modelMatrix = Cesium.Matrix4.multiply(enuToEcef, ifcToEnu, new Cesium.Matrix4());
+
+        const blob = new Blob([glbBytes as BlobPart], { type: 'model/gltf-binary' });
+        const glbUrl = URL.createObjectURL(blob);
+        const model = await Cesium.Model.fromGltfAsync({
+          url: glbUrl, modelMatrix, shadows: Cesium.ShadowMode.DISABLED,
+        });
+        URL.revokeObjectURL(glbUrl);
+        if (cancelled) return;
+
+        viewer.scene.primitives.add(model);
+        cesiumModelRef.current = model;
+        setCesiumGlbLoaded(true);
+        viewer.scene.requestRender();
+      } catch (err) {
+        console.warn('[CesiumOverlay] Failed to load IFC model into Cesium:', err);
+      }
+    }, 2000); // 2s delay to let initial render complete first
+
+    return () => {
+      cancelled = true;
+      clearTimeout(deferTimer);
+      if (cesiumModelRef.current && viewerRef.current) {
+        viewerRef.current.scene.primitives.remove(cesiumModelRef.current);
+        cesiumModelRef.current = null;
+      }
+      setCesiumGlbLoaded(false);
+    };
+  }, [status, bridgeVersion, geometryResult]);
 
   // ─── Effect 3: Camera sync loop ─────────────────────────────────────────
   useEffect(() => {

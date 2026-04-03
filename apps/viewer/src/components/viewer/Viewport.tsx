@@ -857,12 +857,19 @@ export function Viewport({ geometry, geometryVersion, coordinateInfo, computedIs
     showHiddenLines,
   });
 
+  // Hide WebGPU canvas once the GLB model is loaded into Cesium
+  // (Cesium renders the model with correct world positioning and depth).
+  // Canvas stays in the DOM for picking/interaction.
+  const cesiumGlbLoaded = useViewerStore((s) => s.cesiumGlbLoaded);
+  const hideCanvas = cesiumActive && cesiumGlbLoaded;
+
   return (
     <canvas
       ref={canvasRef}
       data-viewport="main"
       tabIndex={-1}
       className={`w-full h-full block ${cesiumActive ? 'relative z-[1]' : ''}`}
+      style={hideCanvas ? { opacity: 0 } : undefined}
       onPointerDown={focusViewportForKeyboardShortcuts}
     />
   );
