@@ -360,32 +360,32 @@ export class CameraControls {
   }
 
   /**
-   * Perspective: dolly-zoom — combines distance reduction with forward travel.
-   *
-   * Pure multiplicative zoom suffers from Zeno's paradox: each step covers a
-   * smaller absolute distance, so the user asymptotically approaches the target
-   * but can never pass it. By splitting each zoom step into distance reduction +
-   * forward dolly, the camera always makes real progress through the scene.
+   * Perspective: pure dolly — translates the entire camera rig (target + position)
+   * forward/backward by the full zoom step. Distance between camera and target
+   * stays constant; the camera traverses the scene without any Zeno slow-down.
    */
   private zoomPerspective(distance: number, forward: Vec3, zoomFactor: number): void {
     const zoomStep = distance * (1 - zoomFactor); // positive when zooming in
-    // Guarantee a minimum absolute dolly so forward progress never stalls
-    // as the camera approaches the target (avoids Zeno-like slowdown).
-    const minDolly = zoomFactor < 1 ? 0.01 : 0;
-    const dolly = Math.max(minDolly, Math.abs(zoomStep * 0.5)) * Math.sign(zoomStep);
-    const newDistance = Math.max(1e-6, distance - dolly);
+
+    // Move the camera forward by a fixed amount based on distance.
+    // Use the full zoomStep as a dolly (forward translation of both target and
+    // camera) so the camera traverses the scene at a consistent rate.
+    // A small minimum dolly prevents stalling when very close to the target.
+    const minDolly = zoomFactor < 1 ? Math.max(0.05, distance * 0.01) : 0;
+    const dolly = Math.max(minDolly, Math.abs(zoomStep)) * Math.sign(zoomStep);
 
     // Move target (and orbit center) forward to traverse the scene
     const dollyOffset = scale(forward, dolly);
     addInPlace(this.state.camera.target, dollyOffset);
     if (this.orbitCenter) addInPlace(this.orbitCenter, dollyOffset);
 
-    // Position camera at new distance from updated target
+    // Keep camera at the same distance from the (now-moved) target —
+    // the entire rig translates forward, giving unrestricted zoom.
     const t = this.state.camera.target;
     copyInto(this.state.camera.position, {
-      x: t.x - forward.x * newDistance,
-      y: t.y - forward.y * newDistance,
-      z: t.z - forward.z * newDistance,
+      x: t.x - forward.x * distance,
+      y: t.y - forward.y * distance,
+      z: t.z - forward.z * distance,
     });
   }
 
