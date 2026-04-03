@@ -316,7 +316,15 @@ export class CameraControls {
   zoom(delta: number, mouseX?: number, mouseY?: number, canvasWidth?: number, canvasHeight?: number): void {
     const dir = sub(this.state.camera.position, this.state.camera.target);
     const distance = length(dir);
-    if (distance < 1e-6) return; // Degenerate: position ≈ target, nothing to zoom
+    // When almost on top of the target, nudge the target forward so the camera
+    // can keep making progress rather than freezing in place.
+    if (distance < 1e-6) {
+      const fallbackFwd = normalize(sub(this.state.camera.target, this.state.camera.position));
+      const fwd = length(fallbackFwd) > 0.5 ? fallbackFwd : { x: 0, y: 0, z: -1 };
+      addInPlace(this.state.camera.target, scale(fwd, 0.01));
+      this.updateMatrices();
+      return;
+    }
 
     const normalizedDelta = Math.sign(delta) * Math.min(Math.abs(delta) * CC.ZOOM_SENSITIVITY, CC.MAX_ZOOM_DELTA);
     const zoomFactor = 1 + normalizedDelta;
@@ -351,29 +359,31 @@ export class CameraControls {
   }
 
   /**
-   * Perspective: dolly-zoom — combines distance reduction with forward travel.
-   *
-   * Pure multiplicative zoom suffers from Zeno's paradox: each step covers a
-   * smaller absolute distance, so the user asymptotically approaches the target
-   * but can never pass it. By splitting each zoom step into distance reduction +
-   * forward dolly, the camera always makes real progress through the scene.
+   * Perspective: pure dolly — translates the entire camera rig (target + position)
+   * forward/backward by the full zoom step. Distance between camera and target
+   * stays constant; the camera traverses the scene without any Zeno slow-down.
    */
   private zoomPerspective(distance: number, forward: Vec3, zoomFactor: number): void {
     const zoomStep = distance * (1 - zoomFactor); // positive when zooming in
-    const dolly = zoomStep * 0.5;
-    const newDistance = distance - dolly; // no artificial floor — unrestricted
+
+    // Use the full zoomStep as a dolly (forward translation of both target and
+    // camera) so the camera traverses the scene at a consistent rate.
+    // A small minimum dolly prevents stalling when very close to the target.
+    const minDolly = zoomFactor < 1 ? Math.max(0.05, distance * 0.01) : 0;
+    const dolly = Math.max(minDolly, Math.abs(zoomStep)) * Math.sign(zoomStep);
 
     // Move target (and orbit center) forward to traverse the scene
     const dollyOffset = scale(forward, dolly);
     addInPlace(this.state.camera.target, dollyOffset);
     if (this.orbitCenter) addInPlace(this.orbitCenter, dollyOffset);
 
-    // Position camera at new distance from updated target
+    // Keep camera at the same distance from the (now-moved) target —
+    // the entire rig translates forward, giving unrestricted zoom.
     const t = this.state.camera.target;
     copyInto(this.state.camera.position, {
-      x: t.x - forward.x * newDistance,
-      y: t.y - forward.y * newDistance,
-      z: t.z - forward.z * newDistance,
+      x: t.x - forward.x * distance,
+      y: t.y - forward.y * distance,
+      z: t.z - forward.z * distance,
     });
   }
 
