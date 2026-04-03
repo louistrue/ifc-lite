@@ -217,6 +217,7 @@ export const useViewerStore = create<ViewerState>()((...args) => ({
       cesiumTerrainHeight: null,
       cesiumTerrainClamp: false,
       cesiumSourceModelId: null,
+      cesiumTerrainClipY: null,
 
       // Drawing 2D
       drawing2D: null,

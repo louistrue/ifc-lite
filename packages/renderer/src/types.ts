@@ -139,6 +139,9 @@ export interface RenderOptions {
   selectedModelIndex?: number;    // Model index for multi-model selection (must match mesh.modelIndex)
   // Section plane clipping
   sectionPlane?: SectionPlane;
+  // Terrain clipping: discard fragments below this Y value in viewer space.
+  // Used by Cesium overlay to prevent model from showing below terrain.
+  terrainClipY?: number;
   // Optional visual effects for better subelement readability
   visualEnhancement?: VisualEnhancementOptions;
   // Streaming state

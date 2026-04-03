@@ -779,6 +779,17 @@ export class Renderer {
             // Calculate section plane parameters and model bounds
             // Always calculate bounds when sectionPlane is provided (for preview and active mode)
             let sectionPlaneData: { normal: [number, number, number]; distance: number; enabled: boolean } | undefined;
+
+            // Terrain clip: when Cesium overlay is active, clip model below terrain.
+            // Normal (0,-1,0) + distance (-clipY) clips where worldPos.y < clipY.
+            if (options.terrainClipY !== undefined && !options.sectionPlane?.enabled) {
+                sectionPlaneData = {
+                    normal: [0, -1, 0],
+                    distance: -options.terrainClipY,
+                    enabled: true,
+                };
+            }
+
             if (options.sectionPlane) {
                 // Get model bounds from ALL geometry sources: individual meshes AND batched meshes
                 const boundsMin = { x: Infinity, y: Infinity, z: Infinity };
@@ -820,6 +831,17 @@ export class Renderer {
                 this.camera.setSceneBounds({ min: boundsMin, max: boundsMax });
 
                 // Only calculate clipping data if section is enabled
+                // Terrain clip: when no section plane is active, use terrainClipY
+                // to clip fragments below terrain height. Normal (0,-1,0) with
+                // distance = -clipY clips worldPos.y < clipY.
+                if (!options.sectionPlane?.enabled && options.terrainClipY !== undefined) {
+                    sectionPlaneData = {
+                        normal: [0, -1, 0],
+                        distance: -options.terrainClipY,
+                        enabled: true,
+                    };
+                }
+
                 if (options.sectionPlane.enabled) {
                     // Calculate plane normal based on semantic axis
                     // down = Y axis (horizontal cut), front = Z axis, side = X axis

@@ -70,15 +70,13 @@ export function CesiumOverlay({
   const terrainClamp = useViewerStore((s) => s.cesiumTerrainClamp);
   const terrainHeight = useViewerStore((s) => s.cesiumTerrainHeight);
   const setCesiumTerrainHeight = useViewerStore((s) => s.setCesiumTerrainHeight);
+  const setCesiumTerrainClipY = useViewerStore((s) => s.setCesiumTerrainClipY);
 
   // Use refs so the camera sync loop always reads the latest values
   const terrainClampRef = useRef(terrainClamp);
   const terrainHeightRef = useRef(terrainHeight);
   terrainClampRef.current = terrainClamp;
   terrainHeightRef.current = terrainHeight;
-
-  // Track camera-below-terrain state to hide WebGPU model
-  const cameraAboveTerrainRef = useRef(true);
 
   // ─── Effect 1: Create/destroy the Cesium viewer (heavy, rare) ───────────
   // Only depends on cesiumEnabled, ionToken, terrainEnabled, dataSource.
@@ -279,10 +277,22 @@ export function CesiumOverlay({
     let cancelled = false;
 
     // Query immediately, then retry after a delay if terrain tiles weren't loaded yet
+    // Compute model center Y in viewer space for terrain clip offset
+    const bounds = coordinateInfo?.originalBounds;
+    const modelVY = bounds ? (bounds.min.y + bounds.max.y) / 2 : 0;
+    const modelMinY = bounds ? bounds.min.y : 0;
+
     const doQuery = () => {
       bridge.queryTerrainHeight(Cesium, viewer).then((h) => {
         if (!cancelled && h !== null) {
           setCesiumTerrainHeight(h);
+          // Compute terrain clip Y in viewer space:
+          // terrain is at height h (meters). Model origin is at bridge.modelOrigin.height.
+          // In viewer Y-up, the bottom of the model is at modelMinY.
+          // Terrain clip Y = modelMinY + (terrainHeight - modelOriginHeight)
+          // This places the clip plane at the terrain surface relative to model geometry.
+          const terrainClipY = modelMinY + (h - bridge.modelOrigin.height);
+          setCesiumTerrainClipY(terrainClipY);
         }
       });
     };
@@ -332,22 +342,6 @@ export function CesiumOverlay({
       // Sync Cesium camera: position, direction, up, right, FOV
       bridge.syncCamera(Cesium, viewer, camPos, camTarget, camUp, fov, clampOffset);
 
-      // Check if camera is below terrain — if so, hide the WebGPU model
-      // to prevent it from showing "through" terrain when viewed from below.
-      const camCartographic = viewer.camera.positionCartographic;
-      if (camCartographic) {
-        const terrainH = viewer.scene.globe.getHeight(camCartographic);
-        const isAbove = terrainH === undefined || camCartographic.height > terrainH;
-        if (isAbove !== cameraAboveTerrainRef.current) {
-          cameraAboveTerrainRef.current = isAbove;
-          // Toggle the WebGPU canvas visibility
-          const canvas = document.querySelector('canvas[data-viewport="main"]') as HTMLCanvasElement | null;
-          if (canvas) {
-            canvas.style.opacity = isAbove ? '1' : '0';
-          }
-        }
-      }
-
       rafRef.current = requestAnimationFrame(syncCamera);
     }
 
@@ -359,10 +353,6 @@ export function CesiumOverlay({
         cancelAnimationFrame(rafRef.current);
         rafRef.current = null;
       }
-      // Restore WebGPU canvas visibility on cleanup
-      const canvas = document.querySelector('canvas[data-viewport="main"]') as HTMLCanvasElement | null;
-      if (canvas) canvas.style.opacity = '1';
-      cameraAboveTerrainRef.current = true;
     };
   }, [status]);
 

@@ -35,6 +35,8 @@ export interface CesiumSlice {
   cesiumTerrainHeight: number | null;
   /** Model ID that the Cesium overlay is currently displaying. */
   cesiumSourceModelId: string | null;
+  /** Terrain clip Y position in viewer space. When set, fragments below this Y are discarded. */
+  cesiumTerrainClipY: number | null;
 
   // Actions
   setCesiumEnabled: (enabled: boolean) => void;
@@ -45,6 +47,7 @@ export interface CesiumSlice {
   setCesiumTerrainClamp: (clamp: boolean) => void;
   setCesiumTerrainHeight: (height: number | null) => void;
   setCesiumSourceModelId: (modelId: string | null) => void;
+  setCesiumTerrainClipY: (y: number | null) => void;
 }
 
 const STORAGE_KEY_ION_TOKEN = 'ifc-lite:cesium-ion-token';
@@ -94,6 +97,7 @@ export const createCesiumSlice: StateCreator<CesiumSlice, [], [], CesiumSlice> =
   cesiumTerrainClamp: false,
   cesiumTerrainHeight: null,
   cesiumSourceModelId: null,
+  cesiumTerrainClipY: null,
 
   setCesiumEnabled: (enabled) => set({ cesiumEnabled: enabled }),
   toggleCesium: () => set((s) => ({ cesiumEnabled: !s.cesiumEnabled })),
@@ -109,4 +113,5 @@ export const createCesiumSlice: StateCreator<CesiumSlice, [], [], CesiumSlice> =
   setCesiumTerrainClamp: (clamp) => set({ cesiumTerrainClamp: clamp }),
   setCesiumTerrainHeight: (height) => set({ cesiumTerrainHeight: height }),
   setCesiumSourceModelId: (modelId) => set({ cesiumSourceModelId: modelId }),
+  setCesiumTerrainClipY: (y) => set({ cesiumTerrainClipY: y }),
 });

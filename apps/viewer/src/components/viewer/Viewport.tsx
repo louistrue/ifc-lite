@@ -370,6 +370,10 @@ export function Viewport({ geometry, geometryVersion, coordinateInfo, computedIs
   const sectionPlaneRef = useLatestRef(sectionPlane);
   const sectionRangeRef = useLatestRef(sectionRange);
   const visualEnhancementRef = useLatestRef(visualEnhancement);
+
+  // Terrain clip Y from Cesium store (read as ref for animation loop)
+  const cesiumTerrainClipY = useViewerStore((s) => s.cesiumTerrainClipY);
+  const terrainClipYRef = useLatestRef(cesiumActive ? cesiumTerrainClipY : null);
   const geometryRef = useLatestRef(geometry);
 
   // Hover throttling
@@ -791,6 +795,7 @@ export function Viewport({ geometry, geometryVersion, coordinateInfo, computedIs
     lastFrameTimeRef,
     mouseIsDraggingRef,
     activeToolRef,
+    terrainClipYRef,
     hiddenEntitiesRef,
     isolatedEntitiesRef,
     selectedEntityIdRef,
