@@ -360,32 +360,38 @@ export class CameraControls {
   }
 
   /**
-   * Perspective: pure dolly — translates the entire camera rig (target + position)
-   * forward/backward by the full zoom step. Distance between camera and target
-   * stays constant; the camera traverses the scene without any Zeno slow-down.
+   * Perspective: hybrid dolly-zoom — distance reduction (sharp, objects grow on
+   * screen) + forward dolly (scene traversal, prevents Zeno stall).
+   *
+   * Half the zoom step shrinks camera-to-target distance (sharp zoom feel).
+   * The other half translates the entire rig forward (unrestricted traversal).
+   * A minimum absolute dolly guarantees progress even at very close range.
    */
   private zoomPerspective(distance: number, forward: Vec3, zoomFactor: number): void {
     const zoomStep = distance * (1 - zoomFactor); // positive when zooming in
 
-    // Move the camera forward by a fixed amount based on distance.
-    // Use the full zoomStep as a dolly (forward translation of both target and
-    // camera) so the camera traverses the scene at a consistent rate.
-    // A small minimum dolly prevents stalling when very close to the target.
-    const minDolly = zoomFactor < 1 ? Math.max(0.05, distance * 0.01) : 0;
-    const dolly = Math.max(minDolly, Math.abs(zoomStep)) * Math.sign(zoomStep);
+    // Split: half goes to distance reduction, half to forward dolly.
+    const halfStep = zoomStep * 0.5;
+
+    // Minimum absolute dolly so the camera never stalls at close range.
+    // 0.1 world-units ≈ 100 mm — reasonable floor for architectural scale.
+    const minDolly = zoomFactor < 1 ? 0.1 : 0;
+    const dolly = Math.max(minDolly, Math.abs(halfStep)) * Math.sign(zoomStep);
+
+    // Reduce camera-to-target distance (gives the sharp "objects grow" feel)
+    const newDistance = Math.max(1e-6, distance - Math.abs(halfStep) * Math.sign(zoomStep));
 
     // Move target (and orbit center) forward to traverse the scene
     const dollyOffset = scale(forward, dolly);
     addInPlace(this.state.camera.target, dollyOffset);
     if (this.orbitCenter) addInPlace(this.orbitCenter, dollyOffset);
 
-    // Keep camera at the same distance from the (now-moved) target —
-    // the entire rig translates forward, giving unrestricted zoom.
+    // Position camera at new (reduced) distance from the (now-moved) target
     const t = this.state.camera.target;
     copyInto(this.state.camera.position, {
-      x: t.x - forward.x * distance,
-      y: t.y - forward.y * distance,
-      z: t.z - forward.z * distance,
+      x: t.x - forward.x * newDistance,
+      y: t.y - forward.y * newDistance,
+      z: t.z - forward.z * newDistance,
     });
   }
 
