@@ -664,7 +664,7 @@ function TerrainHeightButton({ modelId, editable, onApply }: {
         <button
           onClick={(e) => {
             e.stopPropagation();
-            onApply(Math.round(terrainHeight * 100) / 100);
+            onApply(terrainHeight);
           }}
           className="flex items-center gap-0.5 text-[9px] text-teal-500 hover:text-teal-700 dark:hover:text-teal-300 transition-colors mt-0.5"
         >

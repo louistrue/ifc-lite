@@ -64,6 +64,8 @@ export interface CesiumBridge {
   viewerToGeodetic(vx: number, vy: number, vz: number): GeodesicPosition | null;
 }
 
+const TERRAIN_QUERY_RETRY_DELAY_MS = 3000;
+
 export async function createCesiumBridge(
   mapConversion: MapConversion,
   projectedCRS: ProjectedCRS,
@@ -142,9 +144,12 @@ export async function createCesiumBridge(
   // ── Cache for ECEF objects ──
   let viewerToEcefMatrix: InstanceType<typeof import('cesium').Matrix4> | null = null;
   let modelOriginCartesian: InstanceType<typeof import('cesium').Cartesian3> | null = null;
+  let cachedClampUp: number | null = null;
 
   function ensureEcefCache(Cesium: typeof import('cesium'), clampUp: number) {
-    // Rebuild if clamp offset changed
+    if (cachedClampUp === clampUp && viewerToEcefMatrix !== null) return;
+    cachedClampUp = clampUp;
+
     const originWithClamp = Cesium.Cartesian3.fromDegrees(
       originLon, originLat, oHeight + clampUp,
     );
@@ -265,7 +270,7 @@ export async function createCesiumBridge(
       }
     } catch { /* terrain sampling failed */ }
 
-    await new Promise(r => setTimeout(r, 3000));
+    await new Promise(r => setTimeout(r, TERRAIN_QUERY_RETRY_DELAY_MS));
     try {
       const globeHeight = viewer.scene.globe.getHeight(position);
       if (globeHeight !== undefined && Number.isFinite(globeHeight)) {

@@ -239,7 +239,7 @@ export function CesiumOverlay({
   terrainHeightRef.current = terrainHeight;
 
   // Track the Cesium model (IFC geometry loaded as glTF for correct world positioning)
-  const cesiumModelRef = useRef<any>(null);
+  const cesiumModelRef = useRef<{ modelMatrix: any; destroy?: () => void } | null>(null);
   const glbCacheRef = useRef<{ meshCount: number; glb: Uint8Array } | null>(null);
 
   // ─── Effect 1: Create/destroy the Cesium viewer (heavy, rare) ───────────
@@ -500,11 +500,18 @@ export function CesiumOverlay({
 
         const blob = new Blob([glbBytes as BlobPart], { type: 'model/gltf-binary' });
         const glbUrl = URL.createObjectURL(blob);
-        const model = await Cesium.Model.fromGltfAsync({
-          url: glbUrl, modelMatrix, shadows: Cesium.ShadowMode.DISABLED,
-        });
-        URL.revokeObjectURL(glbUrl);
-        if (cancelled) return;
+        let model: { modelMatrix: any; destroy?: () => void } | null = null;
+        try {
+          model = await Cesium.Model.fromGltfAsync({
+            url: glbUrl, modelMatrix, shadows: Cesium.ShadowMode.DISABLED,
+          });
+        } finally {
+          URL.revokeObjectURL(glbUrl);
+        }
+        if (cancelled) {
+          model?.destroy?.();
+          return;
+        }
 
         viewer.scene.primitives.add(model);
         cesiumModelRef.current = model;
