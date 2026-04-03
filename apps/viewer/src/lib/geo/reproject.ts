@@ -176,31 +176,7 @@ function computeProjectedCenter(
   conversion: MapConversion,
   coordinateInfo?: CoordinateInfo,
 ): { easting: number; northing: number } {
-  let ifcX = 0;
-  let ifcY = 0;
-
-  if (coordinateInfo) {
-    const bounds = coordinateInfo.originalBounds;
-    const shift = coordinateInfo.originShift;
-    const rtc = coordinateInfo.wasmRtcOffset;
-
-    // Convert WASM RTC offset from IFC Z-up to viewer Y-up
-    const rtcYup = rtc
-      ? { x: rtc.x, y: rtc.z, z: -rtc.y }
-      : { x: 0, y: 0, z: 0 };
-
-    // Bounds center in viewer Y-up (scene-local)
-    const cx = (bounds.min.x + bounds.max.x) / 2;
-    const cz = (bounds.min.z + bounds.max.z) / 2;
-
-    // World Y-up = scene_local + originShift + wasmRtcOffset_yup
-    const worldYupX = cx + shift.x + rtcYup.x;
-    const worldYupZ = cz + shift.z + rtcYup.z;
-
-    // Convert Y-up to IFC Z-up: ifc_x = viewer_x, ifc_y = -viewer_z
-    ifcX = worldYupX;
-    ifcY = -worldYupZ;
-  }
+  const { ifcX, ifcY } = computeLocalIfcCenter(coordinateInfo);
 
   // Apply MapConversion rotation + scale + offset
   const scale = conversion.scale ?? 1.0;
@@ -244,21 +220,60 @@ export async function reprojectToLatLon(
 }
 
 /**
- * Reverse-project a WGS84 lat/lon back into easting/northing in the projected CRS.
+ * Compute the model's local IFC center offset (ifcX, ifcY) from coordinate info.
+ * This is the geometry center in IFC Z-up coordinates, before MapConversion is applied.
+ */
+function computeLocalIfcCenter(coordinateInfo?: CoordinateInfo): { ifcX: number; ifcY: number } {
+  if (!coordinateInfo) return { ifcX: 0, ifcY: 0 };
+
+  const bounds = coordinateInfo.originalBounds;
+  const shift = coordinateInfo.originShift;
+  const rtc = coordinateInfo.wasmRtcOffset;
+
+  const rtcYup = rtc
+    ? { x: rtc.x, y: rtc.z, z: -rtc.y }
+    : { x: 0, y: 0, z: 0 };
+
+  const cx = (bounds.min.x + bounds.max.x) / 2;
+  const cz = (bounds.min.z + bounds.max.z) / 2;
+
+  const worldYupX = cx + shift.x + rtcYup.x;
+  const worldYupZ = cz + shift.z + rtcYup.z;
+
+  return { ifcX: worldYupX, ifcY: -worldYupZ };
+}
+
+/**
+ * Reverse-project a WGS84 lat/lon into the IfcMapConversion eastings/northings
+ * values that would place the model center at the given location.
  *
- * This is the inverse of reprojectToLatLon — it takes a map click position
- * and converts it into the values that should be stored in IfcMapConversion.
+ * This accounts for the model's local geometry offset, rotation, and scale:
+ *   projected = eastings + scale * (cos*ifcX - sin*ifcY)
+ *   ⟹ eastings = projected - scale * (cos*ifcX - sin*ifcY)
  */
 export async function reprojectFromLatLon(
   latLon: LatLon,
   crs: ProjectedCRS,
+  conversion?: MapConversion,
+  coordinateInfo?: CoordinateInfo,
 ): Promise<{ easting: number; northing: number } | null> {
   const projDef = await resolveProjection(crs);
   if (!projDef) return null;
 
   try {
-    const [easting, northing] = proj4('WGS84', projDef, [latLon.lon, latLon.lat]);
-    if (!Number.isFinite(easting) || !Number.isFinite(northing)) return null;
+    const [projE, projN] = proj4('WGS84', projDef, [latLon.lon, latLon.lat]);
+    if (!Number.isFinite(projE) || !Number.isFinite(projN)) return null;
+
+    // Subtract the rotated/scaled local geometry offset so that
+    // the resulting eastings/northings place the model center at this position
+    const { ifcX, ifcY } = computeLocalIfcCenter(coordinateInfo);
+    const scale = conversion?.scale ?? 1.0;
+    const abscissa = conversion?.xAxisAbscissa ?? 1.0;
+    const ordinate = conversion?.xAxisOrdinate ?? 0.0;
+
+    const easting = projE - scale * (abscissa * ifcX - ordinate * ifcY);
+    const northing = projN - scale * (ordinate * ifcX + abscissa * ifcY);
+
     return { easting, northing };
   } catch {
     return null;

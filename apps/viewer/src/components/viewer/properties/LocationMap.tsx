@@ -168,8 +168,9 @@ export function LocationMap({
 
     let cancelled = false;
 
-    // Reverse-project to get easting/northing
-    reprojectFromLatLon(pickedLatLon, projectedCRS).then(coords => {
+    // Reverse-project to get IfcMapConversion eastings/northings
+    // Accounts for model local geometry offset, rotation, and scale
+    reprojectFromLatLon(pickedLatLon, projectedCRS, mapConversion, coordinateInfo).then(coords => {
       if (!cancelled && coords) setProjectedCoords(coords);
     });
 
@@ -183,7 +184,7 @@ export function LocationMap({
     });
 
     return () => { cancelled = true; };
-  }, [pickedLatLon, projectedCRS]);
+  }, [pickedLatLon, projectedCRS, mapConversion, coordinateInfo]);
 
   // Place or move the picked marker on the map
   const updatePickedMarker = useCallback((pos: LatLon, maplibregl: typeof import('maplibre-gl')) => {
