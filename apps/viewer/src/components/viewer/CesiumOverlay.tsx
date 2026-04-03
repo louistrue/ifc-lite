@@ -13,9 +13,14 @@
  *   - Camera is synchronized every frame from the IFC viewer camera
  *   - CesiumJS is lazy-loaded on first activation to avoid bundle bloat
  *   - User controls remain on the WebGPU canvas; Cesium's are disabled
+ *
+ * Live edit support:
+ *   - When georef props change (e.g. user edits EPSG, eastings, rotation),
+ *     the coordinate bridge is rebuilt and the globe flies to the new location
+ *   - The Cesium viewer itself is NOT recreated — only the bridge is updated
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { useViewerStore } from '@/store';
 import type { MapConversion, ProjectedCRS } from '@ifc-lite/parser';
 import type { CoordinateInfo } from '@ifc-lite/geometry';
@@ -24,12 +29,16 @@ import { createCesiumBridge, type CesiumBridge } from '@/lib/geo/cesium-bridge';
 
 // Lazy-loaded Cesium module and CSS
 let cesiumPromise: Promise<typeof import('cesium')> | null = null;
+let cesiumModule: typeof import('cesium') | null = null;
 function loadCesium() {
   if (!cesiumPromise) {
     cesiumPromise = Promise.all([
       import('cesium'),
       import('cesium/Build/Cesium/Widgets/widgets.css'),
-    ]).then(([cesium]) => cesium);
+    ]).then(([cesium]) => {
+      cesiumModule = cesium;
+      return cesium;
+    });
   }
   return cesiumPromise;
 }
@@ -57,11 +66,11 @@ export function CesiumOverlay({
   const ionToken = useViewerStore((s) => s.cesiumIonToken);
   const terrainEnabled = useViewerStore((s) => s.cesiumTerrainEnabled);
 
-  // Initialize/teardown Cesium viewer
+  // ─── Effect 1: Create/destroy the Cesium viewer (heavy, rare) ───────────
+  // Only depends on cesiumEnabled, ionToken, terrainEnabled, dataSource.
+  // NOT on mapConversion/projectedCRS — those are handled by Effect 2.
   useEffect(() => {
-    if (!cesiumEnabled || !mapConversion || !projectedCRS || !containerRef.current) {
-      return;
-    }
+    if (!cesiumEnabled || !containerRef.current) return;
 
     let cancelled = false;
     setStatus('loading');
@@ -69,18 +78,6 @@ export function CesiumOverlay({
 
     (async () => {
       try {
-        // 1. Create coordinate bridge
-        const bridge = await createCesiumBridge(mapConversion, projectedCRS, coordinateInfo);
-        if (cancelled || !bridge) {
-          if (!cancelled) {
-            setError('Could not resolve projection for Cesium overlay');
-            setStatus('error');
-          }
-          return;
-        }
-        bridgeRef.current = bridge;
-
-        // 2. Load CesiumJS
         const Cesium = await loadCesium();
         if (cancelled || !containerRef.current) return;
 
@@ -89,7 +86,6 @@ export function CesiumOverlay({
           Cesium.Ion.defaultAccessToken = ionToken;
         }
 
-        // 3. Create viewer with minimal UI
         const viewer = new Cesium.Viewer(containerRef.current, {
           animation: false,
           baseLayerPicker: false,
@@ -102,20 +98,16 @@ export function CesiumOverlay({
           timeline: false,
           navigationHelpButton: false,
           navigationInstructionsInitiallyVisible: false,
-          creditContainer: document.createElement('div'), // hide credits overlay
-          msaaSamples: 1, // minimal — IFC canvas handles AA
-          requestRenderMode: true, // only render when we ask
-          maximumRenderTimeChange: Infinity, // never auto-render
-          // Start with basic imagery; terrain/buildings added below
+          creditContainer: document.createElement('div'),
+          msaaSamples: 1,
+          requestRenderMode: true,
+          maximumRenderTimeChange: Infinity,
           baseLayer: false,
         });
 
-        if (cancelled) {
-          viewer.destroy();
-          return;
-        }
+        if (cancelled) { viewer.destroy(); return; }
 
-        // Disable all user input on Cesium (IFC canvas handles controls)
+        // Disable user input on Cesium canvas
         const scene = viewer.scene;
         scene.screenSpaceCameraController.enableRotate = false;
         scene.screenSpaceCameraController.enableTranslate = false;
@@ -123,7 +115,7 @@ export function CesiumOverlay({
         scene.screenSpaceCameraController.enableTilt = false;
         scene.screenSpaceCameraController.enableLook = false;
 
-        // Disable skybox/atmosphere for cleaner compositing
+        // Disable skybox/atmosphere for transparent compositing
         if (scene.skyBox) (scene.skyBox as any).show = false;
         if (scene.sun) scene.sun.show = false;
         if (scene.moon) scene.moon.show = false;
@@ -131,12 +123,11 @@ export function CesiumOverlay({
         scene.backgroundColor = Cesium.Color.TRANSPARENT;
         scene.globe.baseColor = Cesium.Color.TRANSPARENT;
 
-        // Add imagery layer
+        // Add imagery
         try {
-          const imageryProvider = await Cesium.IonImageryProvider.fromAssetId(2); // Bing Maps Aerial
+          const imageryProvider = await Cesium.IonImageryProvider.fromAssetId(2);
           viewer.imageryLayers.addImageryProvider(imageryProvider);
         } catch {
-          // Fall back to OpenStreetMap if Ion not available
           viewer.imageryLayers.addImageryProvider(
             new Cesium.OpenStreetMapImageryProvider({
               url: 'https://a.tile.openstreetmap.org/',
@@ -150,32 +141,15 @@ export function CesiumOverlay({
             const terrainProvider = await Cesium.CesiumTerrainProvider.fromIonAssetId(1);
             viewer.terrainProvider = terrainProvider;
             scene.globe.depthTestAgainstTerrain = true;
-          } catch {
-            // terrain unavailable — continue without it
-          }
+          } catch { /* terrain unavailable */ }
         }
 
         // Add data source layer
         await addDataSourceLayer(Cesium, viewer, dataSource, ionToken);
 
+        if (cancelled) { viewer.destroy(); return; }
+
         viewerRef.current = viewer;
-
-        // 4. Fly to model location initially
-        const { modelOrigin } = bridge;
-        viewer.camera.setView({
-          destination: Cesium.Cartesian3.fromDegrees(
-            modelOrigin.longitude,
-            modelOrigin.latitude,
-            modelOrigin.height + 200,
-          ),
-          orientation: {
-            heading: 0,
-            pitch: Cesium.Math.toRadians(-45),
-            roll: 0,
-          },
-        });
-        viewer.scene.requestRender();
-
         setStatus('ready');
       } catch (err) {
         if (!cancelled) {
@@ -199,29 +173,99 @@ export function CesiumOverlay({
       bridgeRef.current = null;
       setStatus('idle');
     };
-  }, [cesiumEnabled, mapConversion, projectedCRS, coordinateInfo, ionToken, terrainEnabled, dataSource]);
+  }, [cesiumEnabled, ionToken, terrainEnabled, dataSource]);
 
-  // Camera sync loop: runs every frame when Cesium is ready
+  // ─── Effect 2: Rebuild coordinate bridge when georef changes (fast) ─────
+  // This is the live-edit handler. When the user changes EPSG, eastings,
+  // northings, rotation, etc., we rebuild the bridge and fly to the new spot.
+  useEffect(() => {
+    if (status !== 'ready' || !mapConversion || !projectedCRS) {
+      bridgeRef.current = null;
+      return;
+    }
+
+    let cancelled = false;
+
+    (async () => {
+      const bridge = await createCesiumBridge(mapConversion, projectedCRS, coordinateInfo);
+      if (cancelled) return;
+
+      if (!bridge) {
+        bridgeRef.current = null;
+        return;
+      }
+
+      const prevBridge = bridgeRef.current;
+      bridgeRef.current = bridge;
+
+      // Fly to the new model location (smooth animation)
+      const viewer = viewerRef.current;
+      const Cesium = cesiumModule;
+      if (viewer && Cesium) {
+        const { modelOrigin } = bridge;
+
+        // Determine if this is a significant location change worth flying to
+        const isFirstPosition = !prevBridge;
+        const movedSignificantly = prevBridge && (
+          Math.abs(modelOrigin.latitude - prevBridge.modelOrigin.latitude) > 0.00001 ||
+          Math.abs(modelOrigin.longitude - prevBridge.modelOrigin.longitude) > 0.00001 ||
+          Math.abs(modelOrigin.height - prevBridge.modelOrigin.height) > 1
+        );
+
+        if (isFirstPosition) {
+          // First time: instant jump
+          viewer.camera.setView({
+            destination: Cesium.Cartesian3.fromDegrees(
+              modelOrigin.longitude,
+              modelOrigin.latitude,
+              modelOrigin.height + 200,
+            ),
+            orientation: {
+              heading: 0,
+              pitch: Cesium.Math.toRadians(-45),
+              roll: 0,
+            },
+          });
+          viewer.scene.requestRender();
+        } else if (movedSignificantly) {
+          // User edited georef params — fly smoothly to new location
+          viewer.camera.flyTo({
+            destination: Cesium.Cartesian3.fromDegrees(
+              modelOrigin.longitude,
+              modelOrigin.latitude,
+              modelOrigin.height + 200,
+            ),
+            orientation: {
+              heading: 0,
+              pitch: Cesium.Math.toRadians(-45),
+              roll: 0,
+            },
+            duration: 1.5,
+          });
+        }
+        // Minor changes (just re-render with updated bridge for camera sync)
+        viewer.scene.requestRender();
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [status, mapConversion, projectedCRS, coordinateInfo]);
+
+  // ─── Effect 3: Camera sync loop ─────────────────────────────────────────
   useEffect(() => {
     if (status !== 'ready') return;
 
     const viewer = viewerRef.current;
-    const bridge = bridgeRef.current;
-    if (!viewer || !bridge) return;
+    if (!viewer) return;
 
     let cancelled = false;
-    let Cesium: typeof import('cesium') | null = null;
-
-    // We need Cesium module reference for Cartesian3/Math
-    loadCesium().then((C) => {
-      if (cancelled) return;
-      Cesium = C;
-    });
 
     function syncCamera() {
       if (cancelled) return;
 
+      const bridge = bridgeRef.current;
       const renderer = getGlobalRenderer();
+      const Cesium = cesiumModule;
       if (!viewer || !bridge || !renderer || !Cesium) {
         rafRef.current = requestAnimationFrame(syncCamera);
         return;
@@ -307,13 +351,10 @@ async function addDataSourceLayer(
         break;
       }
       case 'google-photorealistic': {
-        // Google Photorealistic 3D Tiles via Cesium ion asset 2275207
-        // Requires Cesium ion token with Google 3D Tiles enabled
         try {
           const tileset = await Cesium.createGooglePhotorealistic3DTileset();
           viewer.scene.primitives.add(tileset);
         } catch {
-          // Fallback: try as Ion asset
           if (ionToken) {
             const tileset = await Cesium.Cesium3DTileset.fromIonAssetId(2275207);
             viewer.scene.primitives.add(tileset);
@@ -323,7 +364,6 @@ async function addDataSourceLayer(
       }
       case 'bing-aerial':
       default:
-        // Bing aerial imagery is already added as the base layer
         break;
     }
   } catch (err) {
