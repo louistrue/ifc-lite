@@ -107,13 +107,22 @@ export function CesiumOverlay({
 
         if (cancelled) { viewer.destroy(); return; }
 
-        // Disable user input on Cesium canvas
+        // CRITICAL: Fully disable Cesium's camera controller.
+        // Without this, Cesium's ScreenSpaceCameraController fights against
+        // our manually-set camera — it clamps to terrain, adjusts height,
+        // and applies inertia, causing the model to slide along terrain.
         const scene = viewer.scene;
-        scene.screenSpaceCameraController.enableRotate = false;
-        scene.screenSpaceCameraController.enableTranslate = false;
-        scene.screenSpaceCameraController.enableZoom = false;
-        scene.screenSpaceCameraController.enableTilt = false;
-        scene.screenSpaceCameraController.enableLook = false;
+        const sscc = scene.screenSpaceCameraController;
+        sscc.enableRotate = false;
+        sscc.enableTranslate = false;
+        sscc.enableZoom = false;
+        sscc.enableTilt = false;
+        sscc.enableLook = false;
+        sscc.enableCollisionDetection = false;  // CRITICAL: prevents terrain clamping
+        sscc.minimumZoomDistance = 0;
+        sscc.maximumZoomDistance = Infinity;
+        // Disable terrain-based camera adjustment
+        scene.globe.depthTestAgainstTerrain = false;
 
         // Disable skybox/atmosphere for transparent compositing
         if (scene.skyBox) (scene.skyBox as any).show = false;
@@ -140,7 +149,6 @@ export function CesiumOverlay({
           try {
             const terrainProvider = await Cesium.CesiumTerrainProvider.fromIonAssetId(1);
             viewer.terrainProvider = terrainProvider;
-            scene.globe.depthTestAgainstTerrain = true;
           } catch { /* terrain unavailable */ }
         }
 

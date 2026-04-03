@@ -185,23 +185,21 @@ export async function createCesiumBridge(
     );
     Cesium.Cartesian3.normalize(upECEF, upECEF);
 
-    // Orthonormalize: right = direction × up, then up = right × direction
-    const right = Cesium.Cartesian3.cross(dirECEF, upECEF, new Cesium.Cartesian3());
-    Cesium.Cartesian3.normalize(right, right);
-    const correctedUp = Cesium.Cartesian3.cross(right, dirECEF, new Cesium.Cartesian3());
-    Cesium.Cartesian3.normalize(correctedUp, correctedUp);
-
-    viewer.camera.position = posECEF;
-    viewer.camera.direction = dirECEF;
-    viewer.camera.up = correctedUp;
-    viewer.camera.right = right;
-
-    // Sync frustum FOV so perspective projection matches the IFC renderer exactly.
-    // Without this, the same 3D point projects to different screen pixels.
+    // Sync frustum FOV BEFORE setting view so projection matches exactly.
     const frustum = viewer.camera.frustum;
     if (frustum instanceof Cesium.PerspectiveFrustum) {
       frustum.fov = fov;
     }
+
+    // Use setView for atomic camera update — avoids intermediate states
+    // that could trigger Cesium's internal camera adjustments.
+    viewer.camera.setView({
+      destination: posECEF,
+      orientation: {
+        direction: dirECEF,
+        up: upECEF,
+      },
+    });
 
     viewer.scene.requestRender();
   }
