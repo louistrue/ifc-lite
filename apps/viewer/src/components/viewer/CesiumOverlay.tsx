@@ -459,16 +459,20 @@ export function CesiumOverlay({
         let placementHeight = bridge.modelOrigin.height;
 
         if (currentClamp && currentTerrainH !== null) {
-          // Model's lowest point in viewer Y = bounds.min.y
-          // In ENU/ECEF, viewer Y = Up. Model center is at mvy.
-          // The model origin is placed at bridge.modelOrigin.height.
-          // Model bottom height = originHeight - (mvy - bounds.min.y)
-          const mvy = coordinateInfo?.originalBounds
+          // The ifcToEnu matrix translates by -mvy in Up, so a vertex at
+          // viewer Y=minY ends up at ENU Z = (minY - mvy) = -bottomOffset.
+          // In ECEF that's at height: placementHeight - bottomOffset.
+          // For bottom to touch terrain: placementHeight - bottomOffset = terrainH
+          // So: placementHeight = terrainH + bottomOffset
+          const cmvy = coordinateInfo?.originalBounds
             ? (coordinateInfo.originalBounds.min.y + coordinateInfo.originalBounds.max.y) / 2 : 0;
           const minY = coordinateInfo?.originalBounds?.min.y ?? 0;
-          const bottomOffset = mvy - minY; // how far below center the bottom is
-          // Shift so bottom = terrain: placementHeight + bottomOffset = terrainH
-          placementHeight = currentTerrainH - bottomOffset;
+          const bottomOffset = cmvy - minY;
+          placementHeight = currentTerrainH + bottomOffset;
+          console.log('[CesiumOverlay] Terrain clamp:', {
+            terrainH: currentTerrainH, modelOriginH: bridge.modelOrigin.height,
+            mvy: cmvy, minY, bottomOffset, placementHeight,
+          });
         }
 
         const origin = Cesium.Cartesian3.fromDegrees(
