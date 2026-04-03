@@ -244,10 +244,11 @@ export async function createCesiumBridge(
     // atan2(east, north) gives CW from North
     const heading = Math.atan2(viewEast, viewNorth);
 
-    // Pitch = angle from horizontal
+    // Pitch = elevation angle from horizontal plane
+    // atan2(up, horizontal) gives angle from horizontal: positive = up, negative = down
+    // Cesium pitch: 0 = horizontal, -PI/2 = straight down — same convention
     const horizontalLen = Math.sqrt(viewEast * viewEast + viewNorth * viewNorth);
-    const pitch = Math.atan2(viewUp, horizontalLen) - Math.PI / 2;
-    // Cesium pitch: 0 = horizontal, -PI/2 = looking straight down
+    const pitch = Math.atan2(viewUp, horizontalLen);
 
     return {
       position: camGeo,
