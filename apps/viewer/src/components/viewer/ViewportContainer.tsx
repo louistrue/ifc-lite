@@ -14,7 +14,7 @@ import { toGlobalIdFromModels } from '@/store/globalId';
 import { collectIfcBuildingStoreyElementsWithIfcSpace } from '@/store/basketVisibleSet';
 import { useIfc } from '@/hooks/useIfc';
 import { useWebGPU } from '@/hooks/useWebGPU';
-import { Upload, MousePointer, Layers, Info, Command, AlertTriangle, ChevronDown, ExternalLink, Plus } from 'lucide-react';
+import { Upload, Download, MousePointer, Layers, Info, Command, AlertTriangle, ChevronDown, ExternalLink, Plus } from 'lucide-react';
 import type { MeshData, CoordinateInfo, GeometryResult } from '@ifc-lite/geometry';
 
 const ZERO_VEC3 = { x: 0, y: 0, z: 0 };
@@ -526,26 +526,55 @@ export function ViewportContainer() {
               IFClite
             </h2>
             <p className="text-zinc-500 dark:text-[#565f89] font-mono text-sm text-center mb-8 border-b border-zinc-200 dark:border-[#3b4261] pb-4 w-full">
-              High-performance web viewer demo
+              Fast web viewer for quick checks and shared links
             </p>
 
-            {/* Action */}
-            <button
-              onClick={() => webgpu.supported && fileInputRef.current?.click()}
-              disabled={!webgpu.supported || webgpu.checking}
-              className={`group w-full flex items-center justify-center gap-3 px-6 py-3 font-mono text-sm border transition-all ${
-                !webgpu.supported || webgpu.checking
-                  ? 'border-zinc-200 dark:border-[#3b4261]/50 text-zinc-300 dark:text-[#565f89]/50 cursor-not-allowed'
-                  : 'border-zinc-300 dark:border-[#3b4261] text-zinc-600 dark:text-[#a9b1d6] hover:border-primary hover:text-primary cursor-pointer'
-              }`}
-            >
-              <Upload className={`h-4 w-4 transition-transform ${webgpu.supported ? 'group-hover:-translate-y-0.5' : ''}`} />
-              <span>{webgpu.checking ? 'Checking WebGPU...' : webgpu.supported ? 'Open .ifc file' : 'WebGPU Required'}</span>
-            </button>
+            {/* Actions */}
+            <div className="w-full space-y-3">
+              <button
+                onClick={() => webgpu.supported && fileInputRef.current?.click()}
+                disabled={!webgpu.supported || webgpu.checking}
+                className={`group w-full flex items-center justify-center gap-3 px-6 py-3 font-mono text-sm border transition-all ${
+                  !webgpu.supported || webgpu.checking
+                    ? 'border-zinc-200 dark:border-[#3b4261]/50 text-zinc-300 dark:text-[#565f89]/50 cursor-not-allowed'
+                    : 'border-zinc-300 dark:border-[#3b4261] text-zinc-600 dark:text-[#a9b1d6] hover:border-primary hover:text-primary cursor-pointer'
+                }`}
+              >
+                <Upload className={`h-4 w-4 transition-transform ${webgpu.supported ? 'group-hover:-translate-y-0.5' : ''}`} />
+                <span>{webgpu.checking ? 'Checking WebGPU...' : webgpu.supported ? 'Open .ifc file' : 'WebGPU Required'}</span>
+              </button>
+
+              <a
+                href="/download/"
+                className="group w-full flex items-center justify-center gap-3 px-6 py-3 font-mono text-sm border border-zinc-300 dark:border-[#3b4261] text-zinc-600 dark:text-[#a9b1d6] hover:border-primary hover:text-primary transition-all"
+              >
+                <Download className="h-4 w-4 transition-transform group-hover:translate-y-0.5" />
+                <span>Download desktop app</span>
+                <span className="text-[10px] uppercase tracking-[0.18em] text-zinc-400 dark:text-[#565f89]">$8 / seat</span>
+              </a>
+            </div>
 
             <p className="mt-3 text-xs font-mono text-zinc-400 dark:text-[#565f89]">
               {webgpu.supported ? 'or drag & drop anywhere' : 'file upload disabled'}
             </p>
+
+            <div className="mt-4 w-full border border-zinc-200 dark:border-[#3b4261] bg-zinc-50/80 dark:bg-[#16161e]/70 p-4 text-left">
+              <div className="flex flex-wrap items-center justify-between gap-2 text-[10px] font-mono uppercase tracking-[0.18em] text-zinc-400 dark:text-[#565f89]">
+                <span>IFC-Lite Desktop</span>
+                <span>AI included</span>
+              </div>
+              <p className="mt-2 text-xs font-mono leading-6 text-zinc-500 dark:text-[#a9b1d6]">
+                Native macOS and Windows builds for offline work, larger BIM models, and local file handling. Enterprise licensing and custom integration inquiries go to louis@lt.plus.
+              </p>
+              <div className="mt-3 flex flex-wrap gap-3 text-[11px] font-mono">
+                <a href="/download/" className="text-primary underline underline-offset-4">
+                  Open download page
+                </a>
+                <a href="mailto:louis@lt.plus" className="text-zinc-500 dark:text-[#a9b1d6] underline underline-offset-4">
+                  Enterprise inquiry
+                </a>
+              </div>
+            </div>
           </div>
 
           {/* Feature Grid */}

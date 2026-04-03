@@ -981,7 +981,7 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
               <HelpCircle className="!h-[22px] !w-[22px]" />
             </Button>
           </TooltipTrigger>
-          <TooltipContent>Info (?)</TooltipContent>
+          <TooltipContent>Info and Desktop (?)</TooltipContent>
         </Tooltip>
       </div>
 

@@ -1,0 +1,594 @@
+<!--
+  This Source Code Form is subject to the terms of the Mozilla Public
+  License, v. 2.0. If a copy of the MPL was not distributed with this
+  file, You can obtain one at https://mozilla.org/MPL/2.0/.
+-->
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>IFC-Lite Desktop</title>
+    <meta
+      name="description"
+      content="Download IFC-Lite Desktop for macOS and Windows. $8 per seat per month, AI included, with enterprise licensing and custom integration available."
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Teko:wght@500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --bg: #090d12;
+        --panel: rgba(12, 18, 27, 0.94);
+        --line: rgba(125, 158, 208, 0.18);
+        --line-strong: rgba(255, 159, 90, 0.38);
+        --text: #f2f0eb;
+        --muted: #96a2b4;
+        --accent: #ff9f5a;
+        --accent-quiet: rgba(255, 159, 90, 0.12);
+        --shadow: 0 28px 70px rgba(0, 0, 0, 0.38);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        min-height: 100%;
+      }
+
+      body {
+        font-family: "IBM Plex Mono", monospace;
+        color: var(--text);
+        background:
+          radial-gradient(circle at 82% 16%, rgba(121, 183, 255, 0.14), transparent 24%),
+          radial-gradient(circle at 14% 8%, rgba(255, 159, 90, 0.1), transparent 24%),
+          linear-gradient(180deg, #0f141c 0%, #090d12 58%, #06080c 100%);
+      }
+
+      body::before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        background-image:
+          linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
+        background-size: 42px 42px;
+        mask-image: radial-gradient(circle at center, black 55%, transparent 100%);
+      }
+
+      main {
+        padding: 28px 18px 72px;
+      }
+
+      .shell {
+        max-width: 1240px;
+        margin: 0 auto;
+      }
+
+      .board {
+        border: 1px solid var(--line);
+        background: var(--panel);
+        box-shadow: var(--shadow);
+        backdrop-filter: blur(18px);
+        border-radius: 30px;
+        overflow: hidden;
+      }
+
+      .hero {
+        display: grid;
+        grid-template-columns: 1.1fr 0.9fr;
+      }
+
+      .copy,
+      .ops,
+      .matrix,
+      .footer {
+        padding: 28px 30px;
+      }
+
+      .ops,
+      .matrix,
+      .footer {
+        border-top: 1px solid var(--line);
+      }
+
+      .hero .ops {
+        border-top: 0;
+        border-left: 1px solid var(--line);
+      }
+
+      .eyebrow,
+      .section-label,
+      .matrix-head span,
+      .row-label,
+      .platform-tag {
+        color: var(--muted);
+        font-size: 11px;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+      }
+
+      h1,
+      h2,
+      h3,
+      .price {
+        font-family: "Teko", sans-serif;
+        letter-spacing: -0.03em;
+      }
+
+      h1 {
+        margin: 16px 0;
+        font-size: clamp(4.4rem, 12vw, 8.5rem);
+        line-height: 0.84;
+        text-transform: uppercase;
+      }
+
+      .lede,
+      .copy p,
+      .ops p,
+      .footer p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 15px;
+        line-height: 1.9;
+      }
+
+      .button-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        margin-top: 24px;
+      }
+
+      .button,
+      .button-secondary,
+      .inline-link {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 50px;
+        padding: 0 16px;
+        border-radius: 12px;
+        text-decoration: none;
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.14em;
+      }
+
+      .button {
+        color: #0c0f14;
+        background: var(--accent);
+        border: 1px solid rgba(255, 159, 90, 0.9);
+      }
+
+      .button-secondary,
+      .inline-link {
+        color: var(--text);
+        background: transparent;
+        border: 1px solid var(--line);
+      }
+
+      .button:hover,
+      .button-secondary:hover,
+      .inline-link:hover {
+        transform: translateY(-1px);
+      }
+
+      .facts {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 14px;
+        margin-top: 26px;
+      }
+
+      .fact {
+        padding-top: 14px;
+        border-top: 1px solid var(--line);
+      }
+
+      .fact strong {
+        display: block;
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.14em;
+      }
+
+      .fact span {
+        display: block;
+        margin-top: 8px;
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.8;
+      }
+
+      .price-line {
+        display: flex;
+        align-items: end;
+        gap: 18px;
+        padding-bottom: 18px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .price {
+        margin: 0;
+        font-size: clamp(5rem, 10vw, 7rem);
+        line-height: 0.8;
+        color: var(--accent);
+      }
+
+      .price-copy strong {
+        display: block;
+        color: var(--text);
+        font-size: 14px;
+        text-transform: uppercase;
+        letter-spacing: 0.16em;
+      }
+
+      .price-copy span {
+        display: block;
+        margin-top: 8px;
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.8;
+      }
+
+      .ops-stack {
+        display: grid;
+        gap: 20px;
+        margin-top: 20px;
+      }
+
+      .ops-block {
+        padding-top: 18px;
+        border-top: 1px solid var(--line);
+      }
+
+      .ops-block h2,
+      .matrix-title,
+      .footer h2 {
+        margin: 0 0 10px;
+        font-size: 2.4rem;
+        line-height: 0.9;
+        text-transform: uppercase;
+      }
+
+      .bullet-list {
+        margin: 0;
+        padding: 0;
+        list-style: none;
+        display: grid;
+        gap: 10px;
+      }
+
+      .bullet-list li {
+        display: flex;
+        gap: 12px;
+        align-items: start;
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.8;
+      }
+
+      .bullet-list li::before {
+        content: "";
+        width: 8px;
+        height: 8px;
+        border-radius: 999px;
+        background: var(--accent);
+        margin-top: 9px;
+        flex: 0 0 auto;
+      }
+
+      .contact-links {
+        display: grid;
+        gap: 10px;
+      }
+
+      .contact-links a,
+      .download-row a {
+        color: var(--text);
+        text-decoration: none;
+      }
+
+      .contact-links a {
+        display: flex;
+        justify-content: space-between;
+        gap: 16px;
+        padding: 12px 0;
+        border-bottom: 1px solid var(--line);
+        font-size: 13px;
+      }
+
+      .contact-links a span:last-child {
+        color: var(--muted);
+      }
+
+      .matrix-head {
+        display: flex;
+        justify-content: space-between;
+        gap: 16px;
+        align-items: end;
+      }
+
+      .matrix-note {
+        max-width: 560px;
+        color: var(--muted);
+        line-height: 1.8;
+      }
+
+      .download-list {
+        margin-top: 22px;
+        border-top: 1px solid var(--line);
+      }
+
+      .download-row {
+        display: grid;
+        grid-template-columns: 190px minmax(0, 1fr) auto;
+        gap: 18px;
+        align-items: center;
+        padding: 18px 0;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .download-row h3 {
+        margin: 0 0 6px;
+        font-size: 2rem;
+        line-height: 0.92;
+        text-transform: uppercase;
+      }
+
+      .download-row p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.8;
+      }
+
+      .row-actions {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+      }
+
+      .footer {
+        display: grid;
+        grid-template-columns: 1.05fr 0.95fr;
+        gap: 28px;
+      }
+
+      .footer-links {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 16px;
+      }
+
+      @media (max-width: 1040px) {
+        .hero,
+        .footer,
+        .download-row {
+          grid-template-columns: 1fr;
+        }
+
+        .hero .ops {
+          border-left: 0;
+          border-top: 1px solid var(--line);
+        }
+
+        .row-actions {
+          justify-content: flex-start;
+        }
+      }
+
+      @media (max-width: 760px) {
+        .facts {
+          grid-template-columns: 1fr;
+        }
+
+        h1 {
+          font-size: 5.3rem;
+        }
+
+        .copy,
+        .ops,
+        .matrix,
+        .footer {
+          padding: 24px 20px;
+        }
+
+        .price-line {
+          flex-direction: column;
+          align-items: flex-start;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="shell">
+        <section class="board">
+          <div class="hero">
+            <div class="copy">
+              <div class="eyebrow">MacOS and Windows native builds</div>
+              <h1>Built for local IFC work.</h1>
+              <p class="lede">
+                IFC-Lite Desktop is the hands-on version of the viewer for day-to-day model review. Open local IFC, IFCZIP, and IFCXML files, work offline, keep larger models out of the browser, and use the built-in AI assistant when you actually need help.
+              </p>
+              <div class="button-row">
+                <a class="button" id="primary-download" href="#">Download for your OS</a>
+                <a class="button-secondary" href="mailto:louis@lt.plus">Enterprise inquiry</a>
+              </div>
+              <div class="facts">
+                <div class="fact">
+                  <strong>AI included</strong>
+                  <span>$8 per seat per month includes the desktop app and AI-assisted workflows.</span>
+                </div>
+                <div class="fact">
+                  <strong>Local first</strong>
+                  <span>Better for offline review, local file associations, and heavier day-to-day BIM files.</span>
+                </div>
+                <div class="fact">
+                  <strong>Custom work</strong>
+                  <span>Enterprise licensing, rollout help, and integration work are available directly through lt.plus.</span>
+                </div>
+              </div>
+            </div>
+
+            <aside class="ops">
+              <div class="price-line">
+                <div class="price">$8</div>
+                <div class="price-copy">
+                  <strong>Per seat / month</strong>
+                  <span>Simple pricing for the native app with AI included.</span>
+                </div>
+              </div>
+
+              <div class="ops-stack">
+                <div class="ops-block">
+                  <div class="section-label">What it is for</div>
+                  <h2>Desktop when the browser is not enough.</h2>
+                  <p>
+                    Use the web viewer for quick checks and shared links. Use the desktop app when you want a native tool for local files, heavier models, and a steadier day-to-day workflow.
+                  </p>
+                </div>
+
+                <div class="ops-block">
+                  <div class="section-label">What is included</div>
+                  <ul class="bullet-list">
+                    <li>Native macOS and Windows installers with direct local file opening.</li>
+                    <li>Support for IFC, IFCZIP, and IFCXML.</li>
+                    <li>Built-in AI assistance included in the seat price.</li>
+                    <li>Direct enterprise licensing and custom integration path when needed.</li>
+                  </ul>
+                </div>
+
+                <div class="ops-block">
+                  <div class="section-label">Direct contact</div>
+                  <div class="contact-links">
+                    <a href="mailto:louis@lt.plus">
+                      <span>Enterprise licensing and procurement</span>
+                      <span>louis@lt.plus</span>
+                    </a>
+                    <a href="https://www.lt.plus" target="_blank" rel="noopener noreferrer">
+                      <span>Custom integration and services</span>
+                      <span>www.lt.plus</span>
+                    </a>
+                    <a href="https://www.linkedin.com/in/louistrue" target="_blank" rel="noopener noreferrer">
+                      <span>LinkedIn</span>
+                      <span>louistrue</span>
+                    </a>
+                  </div>
+                </div>
+              </div>
+            </aside>
+          </div>
+
+          <div class="matrix">
+            <div class="matrix-head">
+              <div>
+                <span>Downloads</span>
+                <div class="matrix-title">Choose the installer that matches the machine.</div>
+              </div>
+              <p class="matrix-note">
+                The self-serve path is straightforward. Download the right build and start opening local files. If your team needs procurement, rollout help, or integration work, use the contact path above.
+              </p>
+            </div>
+
+            <div class="download-list">
+              <div class="download-row">
+                <div class="row-label">Windows 10+ / x64</div>
+                <div>
+                  <h3>EXE for most users, MSI for managed installs.</h3>
+                  <p>The EXE is the standard Windows path. The MSI is there for IT packaging, controlled deployment, and enterprise rollout.</p>
+                </div>
+                <div class="row-actions">
+                  <a class="button" href="https://github.com/louistrue/ifc-lite-desktop/releases/latest/download/IFC-Lite-Desktop-Windows-x64-setup.exe">Download EXE</a>
+                  <a class="button-secondary" href="https://github.com/louistrue/ifc-lite-desktop/releases/latest/download/IFC-Lite-Desktop-Windows-x64.msi">Download MSI</a>
+                </div>
+              </div>
+
+              <div class="download-row">
+                <div class="row-label">macOS 12+ / Apple Silicon</div>
+                <div>
+                  <h3>The default Mac build for current hardware.</h3>
+                  <p>This is the right pick for M-series Macs and should cover most active MacBook Air, MacBook Pro, Mac mini, iMac, and Mac Studio machines.</p>
+                </div>
+                <div class="row-actions">
+                  <a class="button" href="https://github.com/louistrue/ifc-lite-desktop/releases/latest/download/IFC-Lite-Desktop-macOS-Apple-Silicon.dmg">Download DMG</a>
+                </div>
+              </div>
+
+              <div class="download-row">
+                <div class="row-label">macOS 12+ / Intel x64</div>
+                <div>
+                  <h3>Dedicated Intel Mac build for older fleets.</h3>
+                  <p>If your office still runs Intel Macs, use the dedicated x64 DMG. Nothing special to figure out beyond choosing the correct build.</p>
+                </div>
+                <div class="row-actions">
+                  <a class="button" href="https://github.com/louistrue/ifc-lite-desktop/releases/latest/download/IFC-Lite-Desktop-macOS-Intel.dmg">Download DMG</a>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="footer">
+            <div>
+              <div class="section-label">Enterprise</div>
+              <h2>Need a team rollout or custom integration?</h2>
+              <p>
+                IFC-Lite can stay simple for individual use and still support a more hands-on setup for teams. If you need license coordination, deployment help, or integration into an internal workflow, start with louis@lt.plus.
+              </p>
+            </div>
+            <div>
+              <div class="section-label">Links</div>
+              <div class="footer-links">
+                <a class="inline-link" href="https://github.com/louistrue/ifc-lite-desktop/releases/latest">Release notes</a>
+                <a class="inline-link" href="https://www.lt.plus" target="_blank" rel="noopener noreferrer">lt.plus</a>
+                <a class="inline-link" href="https://www.linkedin.com/in/louistrue" target="_blank" rel="noopener noreferrer">LinkedIn</a>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+    </main>
+
+    <script>
+      const downloads = {
+        winExe: "https://github.com/louistrue/ifc-lite-desktop/releases/latest/download/IFC-Lite-Desktop-Windows-x64-setup.exe",
+        macArm: "https://github.com/louistrue/ifc-lite-desktop/releases/latest/download/IFC-Lite-Desktop-macOS-Apple-Silicon.dmg",
+        macIntel: "https://github.com/louistrue/ifc-lite-desktop/releases/latest/download/IFC-Lite-Desktop-macOS-Intel.dmg"
+      };
+
+      const ua = navigator.userAgent.toLowerCase();
+      const isMac = ua.includes("mac");
+      const isWindows = ua.includes("win");
+      const isAppleSilicon = /arm|apple/.test(ua);
+      const primaryDownload = document.getElementById("primary-download");
+
+      let href = downloads.macArm;
+      let label = "Download for macOS";
+
+      if (isWindows) {
+        href = downloads.winExe;
+        label = "Download for Windows";
+      } else if (isMac && isAppleSilicon) {
+        href = downloads.macArm;
+        label = "Download for Apple Silicon";
+      } else if (isMac) {
+        href = downloads.macIntel;
+        label = "Download for Intel Mac";
+      }
+
+      primaryDownload.href = href;
+      primaryDownload.textContent = label;
+    </script>
+  </body>
+</html>

@@ -3,12 +3,16 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { X, Info, Keyboard, Github, ExternalLink, Sparkles, ChevronDown, ChevronRight, Zap, Wrench, Plus, Package, ShieldCheck } from 'lucide-react';
+import { X, Info, Keyboard, Github, ExternalLink, Sparkles, ChevronDown, ChevronRight, Zap, Wrench, Plus, Package, ShieldCheck, Download, Mail, Building2, Bot } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { KEYBOARD_SHORTCUTS } from '@/hooks/useKeyboardShortcuts';
 
 const GITHUB_URL = 'https://github.com/louistrue/ifc-lite';
+const DESKTOP_DOWNLOAD_URL = '/download/';
+const ENTERPRISE_EMAIL = 'mailto:louis@lt.plus';
+const LT_PLUS_URL = 'https://www.lt.plus';
+const LINKEDIN_URL = 'https://www.linkedin.com/in/louistrue';
 
 interface InfoDialogProps {
   open: boolean;
@@ -131,6 +135,34 @@ function AboutTab() {
       {/* Privacy & Security */}
       <PrivacyBanner />
 
+      <div className="rounded-lg border border-amber-500/25 bg-amber-500/10 p-3">
+        <div className="flex items-start gap-2">
+          <Download className="h-4 w-4 shrink-0 text-amber-500 mt-0.5" />
+          <div className="space-y-2">
+            <div>
+              <p className="text-sm font-medium">IFC-Lite Desktop</p>
+              <p className="text-xs text-muted-foreground">
+                Native macOS and Windows builds for offline IFC work, larger models, and local file handling.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2 text-xs">
+              <a
+                href={DESKTOP_DOWNLOAD_URL}
+                className="inline-flex items-center rounded-md border border-amber-500/40 px-2.5 py-1 text-foreground transition-colors hover:bg-amber-500/10"
+              >
+                Open download page
+              </a>
+              <a
+                href={ENTERPRISE_EMAIL}
+                className="inline-flex items-center rounded-md border px-2.5 py-1 text-muted-foreground transition-colors hover:text-foreground"
+              >
+                Enterprise inquiry
+              </a>
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* Package Versions */}
       {packageVersions.length > 0 && (
         <div className="pt-2 border-t">
@@ -165,6 +197,101 @@ function AboutTab() {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+function DesktopTab() {
+  return (
+    <div className="space-y-4">
+      <div className="rounded-xl border border-amber-500/25 bg-amber-500/10 p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="space-y-2">
+            <div className="flex items-center gap-2 text-amber-500">
+              <Download className="h-4 w-4" />
+              <span className="text-xs font-medium uppercase tracking-wide">IFC-Lite Desktop</span>
+            </div>
+            <h3 className="text-xl font-semibold leading-tight">
+              Native IFC viewer for people who work in local files all day.
+            </h3>
+            <p className="text-sm text-muted-foreground">
+              Use the web viewer for quick checks. Use the desktop app for offline work, larger BIM models, local file associations, and the built-in AI assistant.
+            </p>
+          </div>
+          <div className="rounded-lg border border-amber-500/30 bg-background/70 px-3 py-2 text-right">
+            <p className="text-2xl font-semibold text-amber-500">$8</p>
+            <p className="text-[11px] uppercase tracking-wide text-muted-foreground">per seat / month</p>
+          </div>
+        </div>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <a
+            href={DESKTOP_DOWNLOAD_URL}
+            className="inline-flex items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-amber-500/15"
+          >
+            <Download className="h-4 w-4" />
+            Open download page
+          </a>
+          <a
+            href={ENTERPRISE_EMAIL}
+            className="inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
+          >
+            <Mail className="h-4 w-4" />
+            Enterprise inquiry
+          </a>
+        </div>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="rounded-lg border p-3">
+          <div className="flex items-center gap-2 text-sm font-medium">
+            <Bot className="h-4 w-4 text-amber-500" />
+            What is included
+          </div>
+          <p className="mt-2 text-sm text-muted-foreground">
+            The desktop plan includes the native app and AI-assisted workflows. The goal is simple day-to-day IFC work without pushing everything through the browser.
+          </p>
+        </div>
+        <div className="rounded-lg border p-3">
+          <div className="flex items-center gap-2 text-sm font-medium">
+            <Building2 className="h-4 w-4 text-amber-500" />
+            Enterprise and custom work
+          </div>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Ask about enterprise licensing, deployment help, and custom integration if you need IFC-Lite to fit an existing workflow or internal system.
+          </p>
+        </div>
+      </div>
+
+      <div className="rounded-lg border p-3">
+        <p className="text-sm font-medium">Direct contact</p>
+        <div className="mt-3 space-y-2 text-sm">
+          <a
+            href={ENTERPRISE_EMAIL}
+            className="flex items-center justify-between gap-3 rounded-md border px-3 py-2 transition-colors hover:bg-muted/40"
+          >
+            <span>Enterprise licensing and procurement</span>
+            <span className="text-muted-foreground">louis@lt.plus</span>
+          </a>
+          <a
+            href={LT_PLUS_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center justify-between gap-3 rounded-md border px-3 py-2 transition-colors hover:bg-muted/40"
+          >
+            <span>Custom integration and services</span>
+            <span className="text-muted-foreground">www.lt.plus</span>
+          </a>
+          <a
+            href={LINKEDIN_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center justify-between gap-3 rounded-md border px-3 py-2 transition-colors hover:bg-muted/40"
+          >
+            <span>LinkedIn</span>
+            <span className="text-muted-foreground">louistrue</span>
+          </a>
+        </div>
+      </div>
     </div>
   );
 }
@@ -376,7 +503,7 @@ export function KeyboardShortcutsDialog({ open, onClose }: InfoDialogProps) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-      <div className="bg-card border rounded-lg shadow-xl w-full max-w-md m-4">
+      <div className="bg-card border rounded-lg shadow-xl w-full max-w-3xl m-4">
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b">
           <h2 className="text-lg font-semibold">Info</h2>
@@ -386,33 +513,41 @@ export function KeyboardShortcutsDialog({ open, onClose }: InfoDialogProps) {
         </div>
 
         {/* Tabbed Content */}
-        <Tabs defaultValue="about" className="w-full">
+        <Tabs defaultValue="desktop" className="w-full">
           <div className="px-4 pt-4">
-            <TabsList className="w-full">
-              <TabsTrigger value="about" className="flex-1 gap-1.5 data-[state=active]:bg-background data-[state=active]:text-foreground">
+            <TabsList className="grid h-auto w-full grid-cols-2 gap-1 sm:grid-cols-4">
+              <TabsTrigger value="desktop" className="gap-1.5 data-[state=active]:bg-background data-[state=active]:text-foreground">
+                <Download className="h-3.5 w-3.5" />
+                Desktop
+              </TabsTrigger>
+              <TabsTrigger value="about" className="gap-1.5 data-[state=active]:bg-background data-[state=active]:text-foreground">
                 <Info className="h-3.5 w-3.5" />
                 About
               </TabsTrigger>
-              <TabsTrigger value="whatsnew" className="flex-1 gap-1.5 data-[state=active]:bg-background data-[state=active]:text-foreground">
+              <TabsTrigger value="whatsnew" className="gap-1.5 data-[state=active]:bg-background data-[state=active]:text-foreground">
                 <Sparkles className="h-3.5 w-3.5" />
                 What's New
               </TabsTrigger>
-              <TabsTrigger value="shortcuts" className="flex-1 gap-1.5 data-[state=active]:bg-background data-[state=active]:text-foreground">
+              <TabsTrigger value="shortcuts" className="gap-1.5 data-[state=active]:bg-background data-[state=active]:text-foreground">
                 <Keyboard className="h-3.5 w-3.5" />
                 Shortcuts
               </TabsTrigger>
             </TabsList>
           </div>
 
-          <TabsContent value="about" className="p-4 max-h-80 overflow-y-auto">
+          <TabsContent value="desktop" className="p-4 max-h-[70vh] overflow-y-auto">
+            <DesktopTab />
+          </TabsContent>
+
+          <TabsContent value="about" className="p-4 max-h-[70vh] overflow-y-auto">
             <AboutTab />
           </TabsContent>
 
-          <TabsContent value="whatsnew" className="p-4 max-h-96 overflow-y-auto">
+          <TabsContent value="whatsnew" className="p-4 max-h-[70vh] overflow-y-auto">
             <WhatsNewTab />
           </TabsContent>
 
-          <TabsContent value="shortcuts" className="p-4 max-h-80 overflow-y-auto">
+          <TabsContent value="shortcuts" className="p-4 max-h-[70vh] overflow-y-auto">
             <ShortcutsTab />
           </TabsContent>
         </Tabs>
