@@ -3,19 +3,19 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 /**
- * Cesium coordinate bridge — target-centric lookAt approach.
+ * Cesium coordinate bridge — ECEF-native using Cesium's own math.
  *
- * CORE PRINCIPLE: The IFC viewer orbits around camera.target. To keep the
- * model pinned to the globe, we must make Cesium orbit around the SAME
- * world point. We do this by:
+ * KEY INSIGHT: Previous attempts used approximate geodetic conversions
+ * (meters-per-degree) which drift during orbit. The correct approach:
  *
- *   1. Convert camera.target to a fixed ENU offset from model origin
- *   2. Convert that to a fixed WGS84/ECEF point
- *   3. Compute distance + heading + pitch from camera.position relative to target
- *   4. Use Cesium's lookAt (HeadingPitchRange) to position the camera
+ *   1. Compute model origin in WGS84 once (via proj4)
+ *   2. Build an ENU→ECEF transform at that point using Cesium's own math
+ *   3. Each frame, express the IFC camera in ENU relative to model origin
+ *   4. Transform ENU→ECEF using Cesium's matrix (exact, no approximation)
+ *   5. Set the Cesium camera directly from the ECEF position + orientation
  *
- * This guarantees the target point is fixed on the globe — orbit, zoom,
- * and pan all keep the model anchored to terrain.
+ * This uses Cesium's Transforms.eastNorthUpToFixedFrame which is
+ * mathematically exact on the WGS84 ellipsoid — no drift possible.
  */
 
 import proj4 from 'proj4';
@@ -24,38 +24,39 @@ import type { CoordinateInfo } from '@ifc-lite/geometry';
 import { resolveProjection } from './reproject';
 
 export interface GeodesicPosition {
-  longitude: number; // degrees
-  latitude: number;  // degrees
-  height: number;    // meters above ellipsoid (approx)
+  longitude: number;
+  latitude: number;
+  height: number;
 }
 
 export interface CesiumBridge {
-  /** The model origin in WGS84. */
   modelOrigin: GeodesicPosition;
+  rotationAngle: number;
 
   /**
-   * Convert viewer camera to Cesium lookAt parameters.
-   * Returns the target in geodetic coords + heading/pitch/range.
+   * Sync the Cesium camera to match the IFC viewer camera.
+   * Takes the Cesium module, viewer, and IFC camera state.
+   * Uses Cesium's own ECEF math for exact positioning.
    */
-  viewerCameraToLookAt(
+  syncCamera(
+    Cesium: typeof import('cesium'),
+    viewer: InstanceType<typeof import('cesium').Viewer>,
     camPos: { x: number; y: number; z: number },
     camTarget: { x: number; y: number; z: number },
-  ): {
-    target: GeodesicPosition;
-    heading: number;
-    pitch: number;
-    range: number;
-  } | null;
+  ): void;
 
-  /** Convert a viewer Y-up position to WGS84. */
   viewerToGeodetic(vx: number, vy: number, vz: number): GeodesicPosition | null;
-
-  rotationAngle: number;
 }
 
 /**
- * Create a bridge for converting viewer coordinates to Cesium lookAt params.
+ * Pre-computed linear transform from viewer space to ENU at model origin.
+ * This is a pure rotation+scale (no translation) applied to DELTA vectors.
  */
+interface ViewerToENU {
+  /** Transform a viewer delta (dvx, dvy, dvz) → (east, north, up) */
+  delta(dvx: number, dvy: number, dvz: number): [number, number, number];
+}
+
 export async function createCesiumBridge(
   mapConversion: MapConversion,
   projectedCRS: ProjectedCRS,
@@ -70,52 +71,155 @@ export async function createCesiumBridge(
   const ordi = mapConversion.xAxisOrdinate ?? 0.0;
   const rotAngle = Math.atan2(ordi, absc);
 
-  // Offsets for undoing viewer transforms
+  // Viewer offset recovery
   const shift = coordinateInfo?.originShift ?? { x: 0, y: 0, z: 0 };
   const rtc = coordinateInfo?.wasmRtcOffset;
   const rtcYup = rtc
     ? { x: rtc.x, y: rtc.z, z: -rtc.y }
     : { x: 0, y: 0, z: 0 };
 
-  // Model center in viewer space (for origin computation)
+  // Model center in viewer space
   const bounds = coordinateInfo?.originalBounds;
   const modelVX = bounds ? (bounds.min.x + bounds.max.x) / 2 : 0;
   const modelVY = bounds ? (bounds.min.y + bounds.max.y) / 2 : 0;
   const modelVZ = bounds ? (bounds.min.z + bounds.max.z) / 2 : 0;
 
-  // ── Axis swap: viewer Y-up → IFC Z-up ──
-  // viewerX = ifcX, viewerY = ifcZ, viewerZ = -ifcY
-  // So inverse: ifcX = viewerX, ifcY = -viewerZ, ifcZ = viewerY
-  function viewerToIfc(vx: number, vy: number, vz: number): [number, number, number] {
-    return [vx, -vz, vy];
+  // ── Build viewer→ENU delta transform ──
+  // Pipeline: viewer Y-up → IFC Z-up → Helmert rotate → ENU
+  const viewerToENU: ViewerToENU = {
+    delta(dvx: number, dvy: number, dvz: number): [number, number, number] {
+      // Viewer Y-up → IFC Z-up: ifcX = vx, ifcY = -vz, ifcZ = vy
+      const ifcDx = dvx;
+      const ifcDy = -dvz;
+      const ifcDz = dvy;
+      // Helmert rotation (IFC XY → East/North)
+      const east = hScale * (absc * ifcDx - ordi * ifcDy);
+      const north = hScale * (ordi * ifcDx + absc * ifcDy);
+      const up = ifcDz;
+      return [east, north, up];
+    },
+  };
+
+  // ── Compute model origin in WGS84 ──
+  // Full pipeline for origin point (uses proj4 once)
+  const owx = modelVX + shift.x + rtcYup.x;
+  const owy = modelVY + shift.y + rtcYup.y;
+  const owz = modelVZ + shift.z + rtcYup.z;
+  const [oIfcX, oIfcY, oIfcZ] = [owx, -owz, owy]; // viewer→IFC
+  const oEasting = mapConversion.eastings + hScale * (absc * oIfcX - ordi * oIfcY);
+  const oNorthing = mapConversion.northings + hScale * (ordi * oIfcX + absc * oIfcY);
+  const oHeight = mapConversion.orthogonalHeight + oIfcZ;
+
+  let originLon: number, originLat: number;
+  try {
+    const [lon, lat] = proj4(projDef, 'WGS84', [oEasting, oNorthing]);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+    originLon = lon;
+    originLat = lat;
+  } catch {
+    return null;
   }
 
-  // ── Helmert: IFC local → projected CRS ──
-  function toProjected(ifcX: number, ifcY: number, ifcZ: number) {
-    return {
-      easting: mapConversion.eastings + hScale * (absc * ifcX - ordi * ifcY),
-      northing: mapConversion.northings + hScale * (ordi * ifcX + absc * ifcY),
-      height: mapConversion.orthogonalHeight + ifcZ,
-    };
+  const modelOrigin: GeodesicPosition = {
+    longitude: originLon,
+    latitude: originLat,
+    height: oHeight,
+  };
+
+  // ── Cache for ECEF objects (created lazily when Cesium is available) ──
+  let enuToEcefMatrix: InstanceType<typeof import('cesium').Matrix4> | null = null;
+  let modelOriginCartesian: InstanceType<typeof import('cesium').Cartesian3> | null = null;
+
+  function ensureEcefCache(Cesium: typeof import('cesium')) {
+    if (!modelOriginCartesian) {
+      modelOriginCartesian = Cesium.Cartesian3.fromDegrees(
+        originLon, originLat, oHeight,
+      );
+      enuToEcefMatrix = Cesium.Transforms.eastNorthUpToFixedFrame(
+        modelOriginCartesian,
+      );
+    }
   }
 
-  // ── Helmert rotation only (for direction vectors) ──
-  function helmertDir(ifcDx: number, ifcDy: number): [number, number] {
-    return [
-      absc * ifcDx - ordi * ifcDy,  // east component
-      ordi * ifcDx + absc * ifcDy,  // north component
-    ];
+  /**
+   * Sync the Cesium camera using ECEF math.
+   * This converts the IFC camera to ENU, then uses Cesium's own
+   * ENU→ECEF transform to get exact ECEF positions.
+   */
+  function syncCamera(
+    Cesium: typeof import('cesium'),
+    viewer: InstanceType<typeof import('cesium').Viewer>,
+    camPos: { x: number; y: number; z: number },
+    camTarget: { x: number; y: number; z: number },
+  ): void {
+    ensureEcefCache(Cesium);
+    if (!enuToEcefMatrix) return;
+
+    // Camera target offset from model center → ENU
+    const [tE, tN, tU] = viewerToENU.delta(
+      camTarget.x - modelVX,
+      camTarget.y - modelVY,
+      camTarget.z - modelVZ,
+    );
+
+    // Camera position offset from model center → ENU
+    const [pE, pN, pU] = viewerToENU.delta(
+      camPos.x - modelVX,
+      camPos.y - modelVY,
+      camPos.z - modelVZ,
+    );
+
+    // Convert ENU points to ECEF using Cesium's exact transform
+    const targetENU = new Cesium.Cartesian3(tE, tN, tU);
+    const posENU = new Cesium.Cartesian3(pE, pN, pU);
+
+    const targetECEF = Cesium.Matrix4.multiplyByPoint(
+      enuToEcefMatrix, targetENU, new Cesium.Cartesian3(),
+    );
+    const posECEF = Cesium.Matrix4.multiplyByPoint(
+      enuToEcefMatrix, posENU, new Cesium.Cartesian3(),
+    );
+
+    // Compute up direction in ECEF (ENU "up" = [0,0,1] → ECEF)
+    const upENU = new Cesium.Cartesian3(0, 0, 1);
+    const upECEF = Cesium.Matrix4.multiplyByPointAsVector(
+      enuToEcefMatrix, upENU, new Cesium.Cartesian3(),
+    );
+    Cesium.Cartesian3.normalize(upECEF, upECEF);
+
+    // Set Cesium camera directly from ECEF position + target
+    const direction = Cesium.Cartesian3.subtract(
+      targetECEF, posECEF, new Cesium.Cartesian3(),
+    );
+    Cesium.Cartesian3.normalize(direction, direction);
+
+    // Compute right vector = direction × up, then recompute up = right × direction
+    const right = Cesium.Cartesian3.cross(
+      direction, upECEF, new Cesium.Cartesian3(),
+    );
+    Cesium.Cartesian3.normalize(right, right);
+
+    const correctedUp = Cesium.Cartesian3.cross(
+      right, direction, new Cesium.Cartesian3(),
+    );
+    Cesium.Cartesian3.normalize(correctedUp, correctedUp);
+
+    viewer.camera.position = posECEF;
+    viewer.camera.direction = direction;
+    viewer.camera.up = correctedUp;
+    viewer.camera.right = right;
+
+    viewer.scene.requestRender();
   }
 
-  // ── Full pipeline: viewer position → WGS84 ──
-  function viewerPosToGeodetic(vx: number, vy: number, vz: number): GeodesicPosition | null {
-    // Undo viewer transforms
+  function viewerToGeodetic(vx: number, vy: number, vz: number): GeodesicPosition | null {
     const wx = vx + shift.x + rtcYup.x;
     const wy = vy + shift.y + rtcYup.y;
     const wz = vz + shift.z + rtcYup.z;
-    const [ifcX, ifcY, ifcZ] = viewerToIfc(wx, wy, wz);
-    const { easting, northing, height } = toProjected(ifcX, ifcY, ifcZ);
-
+    const [ifcX, ifcY, ifcZ] = [wx, -wz, wy];
+    const easting = mapConversion.eastings + hScale * (absc * ifcX - ordi * ifcY);
+    const northing = mapConversion.northings + hScale * (ordi * ifcX + absc * ifcY);
+    const height = mapConversion.orthogonalHeight + ifcZ;
     try {
       const [lon, lat] = proj4(projDef!, 'WGS84', [easting, northing]);
       if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
@@ -125,86 +229,10 @@ export async function createCesiumBridge(
     }
   }
 
-  // Compute model origin in WGS84
-  const modelOriginResult = viewerPosToGeodetic(modelVX, modelVY, modelVZ);
-  if (!modelOriginResult) return null;
-  const modelOrigin: GeodesicPosition = modelOriginResult;
-
-  // Pre-compute geodetic constants for ENU offset
-  const originLat = modelOrigin.latitude;
-  const originLon = modelOrigin.longitude;
-  const originHeight = modelOrigin.height;
-  const metersPerDegLat = 111320;
-  const metersPerDegLon = 111320 * Math.cos(originLat * Math.PI / 180);
-
-  /**
-   * Convert a viewer-space delta to ENU (East, North, Up) using Helmert.
-   * This is linear — no proj4 — so it's stable during orbit.
-   */
-  function viewerDeltaToENU(dvx: number, dvy: number, dvz: number): [number, number, number] {
-    const [ifcDx, ifcDy, ifcDz] = viewerToIfc(dvx, dvy, dvz);
-    const [east, north] = helmertDir(ifcDx, ifcDy);
-    // Apply scale to position deltas
-    return [east * hScale, north * hScale, ifcDz];
-  }
-
-  /**
-   * Convert a viewer-space position to geodetic using ENU offset from model origin.
-   * This avoids per-point proj4 calls and is perfectly linear.
-   */
-  function viewerToGeodeticENU(vx: number, vy: number, vz: number): GeodesicPosition {
-    const dvx = vx - modelVX;
-    const dvy = vy - modelVY;
-    const dvz = vz - modelVZ;
-    const [east, north, up] = viewerDeltaToENU(dvx, dvy, dvz);
-    return {
-      latitude: originLat + north / metersPerDegLat,
-      longitude: originLon + east / Math.max(metersPerDegLon, 1),
-      height: originHeight + up,
-    };
-  }
-
-  function viewerCameraToLookAt(
-    camPos: { x: number; y: number; z: number },
-    camTarget: { x: number; y: number; z: number },
-  ) {
-    // 1. Convert the camera TARGET to a geodetic point (this is the orbit center)
-    const targetGeo = viewerToGeodeticENU(camTarget.x, camTarget.y, camTarget.z);
-
-    // 2. Compute the camera-to-target vector in ENU
-    const dvx = camPos.x - camTarget.x;
-    const dvy = camPos.y - camTarget.y;
-    const dvz = camPos.z - camTarget.z;
-    const [east, north, up] = viewerDeltaToENU(dvx, dvy, dvz);
-
-    // 3. Range (distance from camera to target)
-    const range = Math.sqrt(east * east + north * north + up * up);
-    if (range < 1e-6) return null;
-
-    // 4. Heading: angle CW from North in horizontal plane
-    // atan2(east, north) = CW from North
-    const heading = Math.atan2(east, north);
-
-    // 5. Pitch: angle from horizontal
-    // In Cesium HeadingPitchRange, pitch is angle from horizontal:
-    // -PI/2 = looking straight down at target, 0 = horizontal
-    const horizontalDist = Math.sqrt(east * east + north * north);
-    const pitch = -Math.atan2(up, horizontalDist);
-    // Negate because: when camera is ABOVE target (up > 0), we are looking DOWN,
-    // and Cesium pitch is negative for looking down
-
-    return {
-      target: targetGeo,
-      heading: ((heading % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI),
-      pitch,
-      range,
-    };
-  }
-
   return {
     modelOrigin,
-    viewerCameraToLookAt,
-    viewerToGeodetic: viewerPosToGeodetic,
     rotationAngle: rotAngle,
+    syncCamera,
+    viewerToGeodetic,
   };
 }

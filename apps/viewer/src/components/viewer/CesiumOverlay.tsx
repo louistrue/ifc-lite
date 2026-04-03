@@ -20,12 +20,12 @@
  *   - The Cesium viewer itself is NOT recreated — only the bridge is updated
  */
 
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useViewerStore } from '@/store';
 import type { MapConversion, ProjectedCRS } from '@ifc-lite/parser';
 import type { CoordinateInfo } from '@ifc-lite/geometry';
 import { getGlobalRenderer } from '@/hooks/useBCF';
-import { createCesiumBridge, type CesiumBridge, type GeodesicPosition } from '@/lib/geo/cesium-bridge';
+import { createCesiumBridge, type CesiumBridge } from '@/lib/geo/cesium-bridge';
 
 // Lazy-loaded Cesium module and CSS
 let cesiumPromise: Promise<typeof import('cesium')> | null = null;
@@ -213,32 +213,23 @@ export function CesiumOverlay({
         );
 
         if (isFirstPosition || movedSignificantly) {
-          // Position Cesium camera looking at model origin
+          // Use the bridge's syncCamera with a default isometric view,
+          // or fly to the new location on georef edit
           const target = Cesium.Cartesian3.fromDegrees(
             modelOrigin.longitude,
             modelOrigin.latitude,
             modelOrigin.height,
           );
-          const hpr = new Cesium.HeadingPitchRange(
-            0,
-            Cesium.Math.toRadians(-45),
-            300,
-          );
           if (isFirstPosition) {
+            const hpr = new Cesium.HeadingPitchRange(0, Cesium.Math.toRadians(-45), 300);
             viewer.camera.lookAt(target, hpr);
             viewer.camera.lookAtTransform(Cesium.Matrix4.IDENTITY);
           } else {
             viewer.camera.flyTo({
               destination: Cesium.Cartesian3.fromDegrees(
-                modelOrigin.longitude,
-                modelOrigin.latitude,
-                modelOrigin.height + 200,
+                modelOrigin.longitude, modelOrigin.latitude, modelOrigin.height + 200,
               ),
-              orientation: {
-                heading: 0,
-                pitch: Cesium.Math.toRadians(-45),
-                roll: 0,
-              },
+              orientation: { heading: 0, pitch: Cesium.Math.toRadians(-45), roll: 0 },
               duration: 1.5,
             });
           }
@@ -274,23 +265,9 @@ export function CesiumOverlay({
       const camPos = camera.getPosition();
       const camTarget = camera.getTarget();
 
-      const lookAt = bridge.viewerCameraToLookAt(camPos, camTarget);
-      if (lookAt) {
-        const targetCartesian = Cesium.Cartesian3.fromDegrees(
-          lookAt.target.longitude,
-          lookAt.target.latitude,
-          lookAt.target.height,
-        );
-        const hpr = new Cesium.HeadingPitchRange(
-          lookAt.heading,
-          lookAt.pitch,
-          lookAt.range,
-        );
-        viewer.camera.lookAt(targetCartesian, hpr);
-        // Release the lookAt constraint so next frame can set a new one
-        viewer.camera.lookAtTransform(Cesium.Matrix4.IDENTITY);
-        viewer.scene.requestRender();
-      }
+      // Directly set Cesium camera position + orientation in ECEF
+      // using Cesium's own ENU→ECEF transform — zero approximation drift
+      bridge.syncCamera(Cesium, viewer, camPos, camTarget);
 
       rafRef.current = requestAnimationFrame(syncCamera);
     }
