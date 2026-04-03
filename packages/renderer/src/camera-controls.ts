@@ -316,7 +316,16 @@ export class CameraControls {
   zoom(delta: number, mouseX?: number, mouseY?: number, canvasWidth?: number, canvasHeight?: number): void {
     const dir = sub(this.state.camera.position, this.state.camera.target);
     const distance = length(dir);
-    if (distance < 1e-6) return; // Degenerate: position ≈ target, nothing to zoom
+    // When almost on top of the target, nudge the target forward so the camera
+    // can keep making progress rather than freezing in place.
+    if (distance < 1e-6) {
+      const fallbackFwd = normalize(sub(this.state.camera.target, this.state.camera.position));
+      // If direction is degenerate, use the camera's existing look direction from the view matrix
+      const fwd = length(fallbackFwd) > 0.5 ? fallbackFwd : { x: 0, y: 0, z: -1 };
+      addInPlace(this.state.camera.target, scale(fwd, 0.01));
+      this.updateMatrices();
+      return;
+    }
 
     const normalizedDelta = Math.sign(delta) * Math.min(Math.abs(delta) * CC.ZOOM_SENSITIVITY, CC.MAX_ZOOM_DELTA);
     const zoomFactor = 1 + normalizedDelta;
@@ -360,8 +369,11 @@ export class CameraControls {
    */
   private zoomPerspective(distance: number, forward: Vec3, zoomFactor: number): void {
     const zoomStep = distance * (1 - zoomFactor); // positive when zooming in
-    const dolly = zoomStep * 0.5;
-    const newDistance = Math.max(0.001, distance - dolly);
+    // Guarantee a minimum absolute dolly so forward progress never stalls
+    // as the camera approaches the target (avoids Zeno-like slowdown).
+    const minDolly = zoomFactor < 1 ? 0.01 : 0;
+    const dolly = Math.max(minDolly, Math.abs(zoomStep * 0.5)) * Math.sign(zoomStep);
+    const newDistance = Math.max(1e-6, distance - dolly);
 
     // Move target (and orbit center) forward to traverse the scene
     const dollyOffset = scale(forward, dolly);
