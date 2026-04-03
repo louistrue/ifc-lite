@@ -403,15 +403,19 @@ export function GeoreferencingPanel({ georef, modelId, enableEditing, schemaVers
   const handleApplyPosition = useCallback((position: PickedPosition) => {
     if (!modelId || !setGeorefFields) return;
     const fields: Array<{ field: string; value: number; oldValue?: number }> = [
-      { field: 'eastings', value: position.easting, oldValue: georef?.mapConversion?.eastings },
-      { field: 'northings', value: position.northing, oldValue: georef?.mapConversion?.northings },
+      { field: 'eastings', value: position.easting, oldValue: mergedConversion?.eastings },
+      { field: 'northings', value: position.northing, oldValue: mergedConversion?.northings },
     ];
     if (position.terrainHeight !== null) {
-      fields.push({ field: 'orthogonalHeight', value: Math.round(position.terrainHeight * 10) / 10, oldValue: georef?.mapConversion?.orthogonalHeight });
+      fields.push({
+        field: 'orthogonalHeight',
+        value: Math.round(position.terrainHeight * 10) / 10,
+        oldValue: mergedConversion?.orthogonalHeight,
+      });
     }
     setGeorefFields(modelId, 'mapConversion', fields);
     setConversionOpen(true);
-  }, [modelId, setGeorefFields, georef]);
+  }, [modelId, setGeorefFields, mergedConversion]);
 
   const initializeMapConversionDefaults = useCallback(() => {
     if (!modelId || !setGeorefFields) return;

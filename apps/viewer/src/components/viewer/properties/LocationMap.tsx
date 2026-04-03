@@ -131,6 +131,13 @@ function addFootprintToMap(map: InstanceType<typeof import('maplibre-gl').Map>, 
   console.debug('[LocationMap] added footprint source + layers');
 }
 
+/** Remove footprint layers and source from a MapLibre map */
+function removeFootprintFromMap(map: InstanceType<typeof import('maplibre-gl').Map>) {
+  if (map.getLayer('building-footprint-outline')) map.removeLayer('building-footprint-outline');
+  if (map.getLayer('building-footprint-fill')) map.removeLayer('building-footprint-fill');
+  if (map.getSource('building-footprint')) map.removeSource('building-footprint');
+}
+
 export function LocationMap({
   mapConversion, projectedCRS, coordinateInfo, geometryResult,
   editable, onApplyPosition,
@@ -139,6 +146,10 @@ export function LocationMap({
   const mapRef = useRef<InstanceType<typeof import('maplibre-gl').Map> | null>(null);
   const markerRef = useRef<InstanceType<typeof import('maplibre-gl').Marker> | null>(null);
   const pickedMarkerRef = useRef<InstanceType<typeof import('maplibre-gl').Marker> | null>(null);
+  const editableRef = useRef(editable);
+
+  // Keep editableRef in sync so the map click handler reads fresh value
+  useEffect(() => { editableRef.current = editable; }, [editable]);
 
   const [mapState, setMapState] = useState<MapState>('idle');
   const [latLon, setLatLon] = useState<LatLon | null>(null);
@@ -165,6 +176,8 @@ export function LocationMap({
   // Compute building footprint from bounding box
   useEffect(() => {
     if (!mapConversion || !projectedCRS || !coordinateInfo) {
+      setFootprint(null);
+      footprintRef.current = null;
       console.debug('[LocationMap] footprint: missing data', { mapConversion: !!mapConversion, projectedCRS: !!projectedCRS, coordinateInfo: !!coordinateInfo });
       return;
     }
@@ -188,6 +201,7 @@ export function LocationMap({
   useEffect(() => {
     if (!debouncedQuery.trim()) {
       setSearchResults([]);
+      setSearchLoading(false);
       return;
     }
     let cancelled = false;
@@ -237,11 +251,12 @@ export function LocationMap({
     }
 
     let cancelled = false;
+    setProjectedCoords(null);
 
     // Reverse-project to get IfcMapConversion eastings/northings
     // Accounts for model local geometry offset, rotation, and scale
     reprojectFromLatLon(pickedLatLon, projectedCRS, mapConversion, coordinateInfo).then(coords => {
-      if (!cancelled && coords) setProjectedCoords(coords);
+      if (!cancelled) setProjectedCoords(coords);
     });
 
     // Query terrain elevation
@@ -276,13 +291,13 @@ export function LocationMap({
     }
   }, []);
 
-  // Handle map click to place pin
+  // Handle map click to place pin (reads editable from ref to avoid stale closure)
   const handleMapClick = useCallback((e: { lngLat: { lat: number; lng: number } }) => {
-    if (!editable) return;
+    if (!editableRef.current) return;
     const pos = { lat: e.lngLat.lat, lon: e.lngLat.lng };
     setPickedLatLon(pos);
     loadMaplibre().then(ml => updatePickedMarker(pos, ml));
-  }, [editable, updatePickedMarker]);
+  }, [updatePickedMarker]);
 
   // Handle search result selection
   const handleSearchSelect = useCallback((result: { lat: number; lon: number; display_name: string }) => {
@@ -298,9 +313,9 @@ export function LocationMap({
     });
   }, [updatePickedMarker]);
 
-  // Handle apply position
+  // Handle apply position (waits for elevation to finish loading)
   const handleApply = useCallback(() => {
-    if (!projectedCoords || !onApplyPosition) return;
+    if (!projectedCoords || !onApplyPosition || elevationLoading) return;
     onApplyPosition({
       easting: Math.round(projectedCoords.easting * 1000) / 1000,
       northing: Math.round(projectedCoords.northing * 1000) / 1000,
@@ -312,7 +327,7 @@ export function LocationMap({
     setPickedLatLon(null);
     setProjectedCoords(null);
     setPickedElevation(null);
-  }, [projectedCoords, pickedElevation, onApplyPosition]);
+  }, [projectedCoords, pickedElevation, onApplyPosition, elevationLoading]);
 
   // Clear picked pin
   const handleClearPick = useCallback(() => {
@@ -391,8 +406,9 @@ export function LocationMap({
   // Add/update building footprint GeoJSON layer when footprint or style changes
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !footprint) {
-      console.debug('[LocationMap] footprint effect: skipping', { map: !!map, footprint: !!footprint });
+    if (!map) return;
+    if (!footprint) {
+      removeFootprintFromMap(map);
       return;
     }
 
@@ -637,7 +653,8 @@ export function LocationMap({
               {onApplyPosition && projectedCoords && (
                 <button
                   onClick={handleApply}
-                  className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 text-[10px] font-semibold text-white bg-purple-600 hover:bg-purple-700 dark:bg-purple-700 dark:hover:bg-purple-600 transition-colors"
+                  disabled={elevationLoading}
+                  className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 text-[10px] font-semibold text-white bg-purple-600 hover:bg-purple-700 dark:bg-purple-700 dark:hover:bg-purple-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
                   <Check className="h-3 w-3" />
                   Apply to Eastings / Northings
