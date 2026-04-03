@@ -337,59 +337,51 @@ export function CesiumOverlay({
 
         // Build the model matrix that positions GLB geometry in ECEF.
         //
-        // GLB vertices are in VIEWER Y-up space (same as WebGPU renderer).
-        // We need: viewer Y-up → ENU → ECEF
+        // CRITICAL: Cesium.Model internally rotates glTF Y-up to Z-up before
+        // applying the modelMatrix. So the input to our matrix is effectively
+        // IFC Z-up space (ifcX=vx, ifcY=-vz, ifcZ=vy), NOT viewer Y-up.
         //
-        // Viewer Y-up:  X=right, Y=up, Z=towards-camera
-        // IFC Z-up:     X=right, Y=forward, Z=up
-        // ENU:          X=East, Y=North, Z=Up
+        // We need: IFC Z-up → ENU → ECEF
         //
-        // Step 1: Viewer Y-up → IFC Z-up (axis swap)
-        //   ifcX = viewerX, ifcY = -viewerZ, ifcZ = viewerY
-        //
-        // Step 2: IFC → ENU via Helmert rotation
-        //   East  = hScale * (absc * ifcX - ordi * ifcY)
-        //   North = hScale * (ordi * ifcX + absc * ifcY)
+        // IFC Z-up → ENU via Helmert rotation:
+        //   East  = s * (absc * ifcX - ordi * ifcY)
+        //   North = s * (ordi * ifcX + absc * ifcY)
         //   Up    = ifcZ
         //
-        // Combined: viewer(vx, vy, vz) → ENU:
-        //   East  = hScale * (absc * vx - ordi * (-vz)) = hScale * (absc*vx + ordi*vz)
-        //   North = hScale * (ordi * vx + absc * (-vz)) = hScale * (ordi*vx - absc*vz)
-        //   Up    = vy
-        //
-        // As a 3x3 matrix [E,N,U] = M * [vx,vy,vz]:
-        //   M = [hScale*absc,   0,   hScale*ordi ]   // E from vx, vy, vz
-        //       [hScale*ordi,   0,  -hScale*absc ]   // N from vx, vy, vz
-        //       [0,             1,   0            ]   // U from vx, vy, vz
+        // As a matrix [E,N,U] = M * [ifcX, ifcY, ifcZ]:
+        //   M = [s*absc,  -s*ordi,  0]
+        //       [s*ordi,   s*absc,  0]
+        //       [0,        0,       1]
 
         const hScale = mapConversion?.scale ?? 1.0;
         const absc = mapConversion?.xAxisAbscissa ?? 1.0;
         const ordi = mapConversion?.xAxisOrdinate ?? 0.0;
 
-        const me00 = hScale * absc;   // E from vx
-        const me02 = hScale * ordi;   // E from vz
-        const mn00 = hScale * ordi;   // N from vx
-        const mn02 = -hScale * absc;  // N from vz
-
-        // Translation: offset so model center maps to ENU origin
+        // Model center in IFC Z-up space (after Cesium's Y→Z rotation):
+        // ifcCenterX = modelVX, ifcCenterY = -modelVZ, ifcCenterZ = modelVY
         const bounds = coordinateInfo?.originalBounds;
         const modelVX = bounds ? (bounds.min.x + bounds.max.x) / 2 : 0;
         const modelVY = bounds ? (bounds.min.y + bounds.max.y) / 2 : 0;
         const modelVZ = bounds ? (bounds.min.z + bounds.max.z) / 2 : 0;
 
-        const tx = me00 * (-modelVX) + me02 * (-modelVZ);
-        const ty = mn00 * (-modelVX) + mn02 * (-modelVZ);
+        const sa = hScale * absc;
+        const so = hScale * ordi;
+
+        // Translation: model center → ENU origin
+        const tx = -(sa * modelVX + so * modelVZ);
+        const ty = -(so * modelVX - sa * modelVZ);
         const tz = -modelVY;
 
-        const viewerToEnu = new Cesium.Matrix4(
-          me00, 0,  me02, tx,
-          mn00, 0,  mn02, ty,
-          0,    1,  0,    tz,
-          0,    0,  0,    1,
+        // IFC Z-up → ENU matrix
+        const ifcToEnu = new Cesium.Matrix4(
+          sa,  -so,  0,  tx,
+          so,   sa,  0,  ty,
+          0,    0,   1,  tz,
+          0,    0,   0,  1,
         );
 
         const modelMatrix = Cesium.Matrix4.multiply(
-          enuToEcef, viewerToEnu, new Cesium.Matrix4(),
+          enuToEcef, ifcToEnu, new Cesium.Matrix4(),
         );
 
         // Create a Blob URL for the GLB so Cesium can load it
