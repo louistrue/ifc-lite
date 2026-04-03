@@ -313,18 +313,10 @@ export class CameraControls {
    * @param canvasWidth - Canvas width
    * @param canvasHeight - Canvas height
    */
-  zoom(delta: number, mouseX?: number, mouseY?: number, canvasWidth?: number, canvasHeight?: number): void {
+  zoom(delta: number, mouseX?: number, mouseY?: number, canvasWidth?: number, canvasHeight?: number, fastZoom?: boolean): void {
     const dir = sub(this.state.camera.position, this.state.camera.target);
     const distance = length(dir);
-    // When almost on top of the target, nudge the target forward so the camera
-    // can keep making progress rather than freezing in place.
-    if (distance < 1e-6) {
-      const fallbackFwd = normalize(sub(this.state.camera.target, this.state.camera.position));
-      const fwd = length(fallbackFwd) > 0.5 ? fallbackFwd : { x: 0, y: 0, z: -1 };
-      addInPlace(this.state.camera.target, scale(fwd, 0.01));
-      this.updateMatrices();
-      return;
-    }
+    if (distance < 1e-6) return; // Degenerate: position ≈ target, nothing to zoom
 
     const normalizedDelta = Math.sign(delta) * Math.min(Math.abs(delta) * CC.ZOOM_SENSITIVITY, CC.MAX_ZOOM_DELTA);
     const zoomFactor = 1 + normalizedDelta;
@@ -342,13 +334,9 @@ export class CameraControls {
       this.zoomOrthographic(dir, nextOrthoSize);
     } else {
       if (mouseX !== undefined && mouseY !== undefined && canvasWidth && canvasHeight) {
-        // Pure dolly keeps distance (and frustum) constant, so the natural
-        // convergence from frustum shrinkage is lost. Doubling the move
-        // amount for zoom-in restores the original convergence rate.
-        const anchorZf = zoomFactor < 1 ? 2 * zoomFactor - 1 : zoomFactor;
-        this.shiftTargetTowardsMouse(dir, distance, forward, anchorZf, mouseX, mouseY, canvasWidth, canvasHeight);
+        this.shiftTargetTowardsMouse(dir, distance, forward, zoomFactor, mouseX, mouseY, canvasWidth, canvasHeight);
       }
-      this.zoomPerspective(distance, forward, zoomFactor);
+      this.zoomPerspective(distance, forward, zoomFactor, fastZoom);
     }
 
     this.updateMatrices();
@@ -363,31 +351,34 @@ export class CameraControls {
   }
 
   /**
-   * Perspective: pure dolly — translates the entire camera rig (target + position)
-   * forward/backward by the full zoom step. Distance between camera and target
-   * stays constant; the camera traverses the scene without any Zeno slow-down.
+   * Perspective: dolly-zoom — combines distance reduction with forward travel.
+   *
+   * Pure multiplicative zoom suffers from Zeno's paradox: each step covers a
+   * smaller absolute distance, so the user asymptotically approaches the target
+   * but can never pass it. By splitting each zoom step into distance reduction +
+   * forward dolly, the camera always makes real progress through the scene.
    */
-  private zoomPerspective(distance: number, forward: Vec3, zoomFactor: number): void {
+  private zoomPerspective(distance: number, forward: Vec3, zoomFactor: number, fastZoom?: boolean): void {
     const zoomStep = distance * (1 - zoomFactor); // positive when zooming in
 
-    // Use the full zoomStep as a dolly (forward translation of both target and
-    // camera) so the camera traverses the scene at a consistent rate.
-    // A small minimum dolly prevents stalling when very close to the target.
-    const minDolly = zoomFactor < 1 ? Math.max(0.05, distance * 0.01) : 0;
-    const dolly = Math.max(minDolly, Math.abs(zoomStep)) * Math.sign(zoomStep);
+    // Fast zoom (Shift+scroll or Cesium mode): pure dolly — the full zoom step
+    // translates the rig forward, distance stays constant, no Zeno slow-down.
+    // Normal zoom: half dolly + half distance reduction — gives zoom-to-cursor
+    // convergence but decelerates as the camera approaches the target.
+    const dolly = fastZoom ? zoomStep : zoomStep * 0.5;
+    const newDistance = fastZoom ? distance : Math.max(0.001, distance - zoomStep * 0.5);
 
     // Move target (and orbit center) forward to traverse the scene
     const dollyOffset = scale(forward, dolly);
     addInPlace(this.state.camera.target, dollyOffset);
     if (this.orbitCenter) addInPlace(this.orbitCenter, dollyOffset);
 
-    // Keep camera at the same distance from the (now-moved) target —
-    // the entire rig translates forward, giving unrestricted zoom.
+    // Position camera at new distance from updated target
     const t = this.state.camera.target;
     copyInto(this.state.camera.position, {
-      x: t.x - forward.x * distance,
-      y: t.y - forward.y * distance,
-      z: t.z - forward.z * distance,
+      x: t.x - forward.x * newDistance,
+      y: t.y - forward.y * newDistance,
+      z: t.z - forward.z * newDistance,
     });
   }
 

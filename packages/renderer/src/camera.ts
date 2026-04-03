@@ -132,8 +132,8 @@ export class Camera {
    * @param canvasWidth - Canvas width
    * @param canvasHeight - Canvas height
    */
-  zoom(delta: number, addVelocity = false, mouseX?: number, mouseY?: number, canvasWidth?: number, canvasHeight?: number): void {
-    this.controls.zoom(delta, mouseX, mouseY, canvasWidth, canvasHeight);
+  zoom(delta: number, addVelocity = false, mouseX?: number, mouseY?: number, canvasWidth?: number, canvasHeight?: number, fastZoom?: boolean): void {
+    this.controls.zoom(delta, mouseX, mouseY, canvasWidth, canvasHeight, fastZoom);
     if (addVelocity) {
       const normalizedDelta = Math.sign(delta) * Math.min(Math.abs(delta) * 0.001, 0.1);
       this.animator.addZoomVelocity(normalizedDelta);

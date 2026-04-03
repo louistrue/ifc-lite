@@ -373,6 +373,7 @@ export function Viewport({ geometry, geometryVersion, coordinateInfo, computedIs
 
   // Terrain clip Y from Cesium store (read as ref for animation loop)
   const cesiumTerrainClipY = useViewerStore((s) => s.cesiumTerrainClipY);
+  const fastZoomRef = useLatestRef(!!cesiumActive);
   const terrainClipYRef = useLatestRef(cesiumActive ? cesiumTerrainClipY : null);
   const geometryRef = useLatestRef(geometry);
 
@@ -746,6 +747,7 @@ export function Viewport({ geometry, geometryVersion, coordinateInfo, computedIs
     RENDER_THROTTLE_MS_SMALL,
     RENDER_THROTTLE_MS_LARGE,
     RENDER_THROTTLE_MS_HUGE,
+    fastZoomRef,
   });
 
   useTouchControls({

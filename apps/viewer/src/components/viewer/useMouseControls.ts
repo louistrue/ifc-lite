@@ -129,6 +129,8 @@ export interface UseMouseControlsParams {
   RENDER_THROTTLE_MS_SMALL: number;
   RENDER_THROTTLE_MS_LARGE: number;
   RENDER_THROTTLE_MS_HUGE: number;
+  /** When true, wheel zoom uses unrestricted pure-dolly mode (Cesium) */
+  fastZoomRef: MutableRefObject<boolean>;
 }
 
 export function useMouseControls(params: UseMouseControlsParams): void {
@@ -476,7 +478,8 @@ export function useMouseControls(params: UseMouseControlsParams): void {
       const rect = canvas.getBoundingClientRect();
       const mouseX = e.clientX - rect.left;
       const mouseY = e.clientY - rect.top;
-      camera.zoom(e.deltaY, false, mouseX, mouseY, canvas.width, canvas.height);
+      const fastZoom = e.shiftKey || params.fastZoomRef.current;
+      camera.zoom(e.deltaY, false, mouseX, mouseY, canvas.width, canvas.height, fastZoom);
 
       isInteractingRef.current = true;
       renderer.requestRender();
