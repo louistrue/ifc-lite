@@ -792,6 +792,7 @@ pub fn process_geometry_streaming_filtered_with_options(
         options.fast_first_batch &&
         opening_filter == OpeningFilterMode::Default &&
         !options.include_presentation_layers;
+    let mut deferred_styled_item_positions: Vec<(usize, usize)> = Vec::new();
 
     while let Some((id, type_name, start, end)) = scanner.next_entity() {
         total_entities += 1;
@@ -839,6 +840,9 @@ pub fn process_geometry_streaming_filtered_with_options(
 
         if type_name == "IFCSTYLEDITEM" {
             if defer_style_updates {
+                // Record byte positions so we can rebuild the style index
+                // without re-scanning the entire file.
+                deferred_styled_item_positions.push((start, end));
                 continue;
             }
             if let Ok(styled_item) = decoder.decode_at(start, end) {
@@ -1148,7 +1152,18 @@ pub fn process_geometry_streaming_filtered_with_options(
             }
 
             if !deferred_styles_applied {
-                geometry_style_index = Arc::new(build_geometry_style_index(content, &entity_index_arc));
+                // Replay saved IFCSTYLEDITEM positions instead of re-scanning
+                // the entire file.  This eliminates ~0.5-1 s for 1 GB files.
+                let mut rebuilt_styles: FxHashMap<u32, GeometryStyleInfo> = FxHashMap::default();
+                {
+                    let mut style_decoder = EntityDecoder::with_arc_index(content, entity_index_arc.clone());
+                    for &(start, end) in &deferred_styled_item_positions {
+                        if let Ok(styled_item) = style_decoder.decode_at(start, end) {
+                            collect_geometry_style_info(&mut rebuilt_styles, &styled_item, &mut style_decoder);
+                        }
+                    }
+                }
+                geometry_style_index = Arc::new(rebuilt_styles);
                 let deferred_color_updates = build_color_updates_for_jobs(
                     &entity_jobs[..processed_jobs],
                     geometry_style_index.as_ref(),
