@@ -467,8 +467,27 @@ export function CesiumOverlay({
         if (cancelled) return;
 
         // Build model matrix: IFC Z-up → ENU → ECEF
+        // When terrain clamping is active, shift the model up so its
+        // lowest point sits on the terrain surface.
+        const currentClamp = terrainClampRef.current;
+        const currentTerrainH = terrainHeightRef.current;
+        let placementHeight = bridge.modelOrigin.height;
+
+        if (currentClamp && currentTerrainH !== null) {
+          // Model's lowest point in viewer Y = bounds.min.y
+          // In ENU/ECEF, viewer Y = Up. Model center is at mvy.
+          // The model origin is placed at bridge.modelOrigin.height.
+          // Model bottom height = originHeight - (mvy - bounds.min.y)
+          const mvy = coordinateInfo?.originalBounds
+            ? (coordinateInfo.originalBounds.min.y + coordinateInfo.originalBounds.max.y) / 2 : 0;
+          const minY = coordinateInfo?.originalBounds?.min.y ?? 0;
+          const bottomOffset = mvy - minY; // how far below center the bottom is
+          // Shift so bottom = terrain: placementHeight + bottomOffset = terrainH
+          placementHeight = currentTerrainH - bottomOffset;
+        }
+
         const origin = Cesium.Cartesian3.fromDegrees(
-          bridge.modelOrigin.longitude, bridge.modelOrigin.latitude, bridge.modelOrigin.height,
+          bridge.modelOrigin.longitude, bridge.modelOrigin.latitude, placementHeight,
         );
         const enuToEcef = Cesium.Transforms.eastNorthUpToFixedFrame(origin);
         const hScale = mapConversion?.scale ?? 1.0;
@@ -516,7 +535,7 @@ export function CesiumOverlay({
       }
       setCesiumGlbLoaded(false);
     };
-  }, [status, bridgeVersion, geometryResult]);
+  }, [status, bridgeVersion, geometryResult, terrainClamp, terrainHeight]);
 
   // ─── Effect 3: Camera sync loop ─────────────────────────────────────────
   useEffect(() => {
@@ -544,16 +563,8 @@ export function CesiumOverlay({
       const camUp = camera.getUp();
       const fov = camera.getFOV();
 
-      // Compute terrain clamp offset: shift everything up so model sits on terrain
-      // Uses refs to always read latest values without restarting the loop
-      const currentClamp = terrainClampRef.current;
-      const currentTerrainH = terrainHeightRef.current;
-      const clampOffset = (currentClamp && currentTerrainH !== null)
-        ? currentTerrainH - bridge.modelOrigin.height
-        : undefined;
-
-      // Sync Cesium camera: position, direction, up, right, FOV
-      bridge.syncCamera(Cesium, viewer, camPos, camTarget, camUp, fov, clampOffset);
+      // Sync Cesium camera (no terrain offset — model matrix handles clamping)
+      bridge.syncCamera(Cesium, viewer, camPos, camTarget, camUp, fov);
 
       rafRef.current = requestAnimationFrame(syncCamera);
     }
