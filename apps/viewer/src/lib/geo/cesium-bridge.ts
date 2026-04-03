@@ -3,19 +3,26 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 /**
- * Cesium coordinate bridge — ECEF-native using Cesium's own math.
+ * Cesium coordinate bridge — lookAtTransform approach.
  *
- * KEY INSIGHT: Previous attempts used approximate geodetic conversions
- * (meters-per-degree) which drift during orbit. The correct approach:
+ * KEY INSIGHT (from Cesium GitHub #6032): Camera.setView() with direction/up
+ * vectors causes drift because it doesn't properly orthonormalize. The fix:
+ * use lookAtTransform() which sets a reference frame and keeps the camera
+ * matrix clean.
  *
- *   1. Compute model origin in WGS84 once (via proj4)
- *   2. Build an ENU→ECEF transform at that point using Cesium's own math
- *   3. Each frame, express the IFC camera in ENU relative to model origin
- *   4. Transform ENU→ECEF using Cesium's matrix (exact, no approximation)
- *   5. Set the Cesium camera directly from the ECEF position + orientation
+ * APPROACH: Build a single 4x4 matrix that transforms from IFC viewer space
+ * to ECEF, pass it to Cesium via lookAtTransform(). Then set camera position,
+ * direction, and up in IFC viewer coordinates — Cesium applies the transform
+ * internally with full precision.
  *
- * This uses Cesium's Transforms.eastNorthUpToFixedFrame which is
- * mathematically exact on the WGS84 ellipsoid — no drift possible.
+ * The viewer→ECEF transform is composed of:
+ *   1. Translate by (-modelCenter) to center on model origin
+ *   2. Rotate via viewerYup→ifcZup axis swap
+ *   3. Rotate via Helmert (IFC→projected CRS alignment)
+ *   4. Transform ENU→ECEF via Cesium.Transforms.eastNorthUpToFixedFrame()
+ *
+ * Since this is a SINGLE matrix, it's applied atomically by Cesium — no
+ * intermediate rounding or re-orthonormalization. The model stays pinned.
  */
 
 import proj4 from 'proj4';
@@ -34,9 +41,9 @@ export interface CesiumBridge {
   rotationAngle: number;
 
   /**
-   * Sync the Cesium camera to match the IFC viewer camera.
-   * Takes the Cesium module, viewer, and IFC camera state.
-   * Uses Cesium's own ECEF math for exact positioning.
+   * Sync the Cesium camera using lookAtTransform with a viewer→ECEF matrix.
+   * The IFC camera position/direction/up are passed in viewer coordinates —
+   * Cesium transforms them to ECEF internally using one consistent matrix.
    */
   syncCamera(
     Cesium: typeof import('cesium'),
@@ -48,22 +55,13 @@ export interface CesiumBridge {
     terrainClampOffset?: number,
   ): void;
 
-  /** Query terrain height at model origin using Cesium's terrain provider. */
+  /** Query terrain height at model origin. */
   queryTerrainHeight(
     Cesium: typeof import('cesium'),
     viewer: InstanceType<typeof import('cesium').Viewer>,
   ): Promise<number | null>;
 
   viewerToGeodetic(vx: number, vy: number, vz: number): GeodesicPosition | null;
-}
-
-/**
- * Pre-computed linear transform from viewer space to ENU at model origin.
- * This is a pure rotation+scale (no translation) applied to DELTA vectors.
- */
-interface ViewerToENU {
-  /** Transform a viewer delta (dvx, dvy, dvz) → (east, north, up) */
-  delta(dvx: number, dvy: number, dvz: number): [number, number, number];
 }
 
 export async function createCesiumBridge(
@@ -74,47 +72,30 @@ export async function createCesiumBridge(
   const projDef = await resolveProjection(projectedCRS);
   if (!projDef) return null;
 
-  // Helmert constants
   const hScale = mapConversion.scale ?? 1.0;
   const absc = mapConversion.xAxisAbscissa ?? 1.0;
   const ordi = mapConversion.xAxisOrdinate ?? 0.0;
   const rotAngle = Math.atan2(ordi, absc);
 
-  // Viewer offset recovery
   const shift = coordinateInfo?.originShift ?? { x: 0, y: 0, z: 0 };
   const rtc = coordinateInfo?.wasmRtcOffset;
   const rtcYup = rtc
     ? { x: rtc.x, y: rtc.z, z: -rtc.y }
     : { x: 0, y: 0, z: 0 };
 
-  // Model center in viewer space
   const bounds = coordinateInfo?.originalBounds;
   const modelVX = bounds ? (bounds.min.x + bounds.max.x) / 2 : 0;
   const modelVY = bounds ? (bounds.min.y + bounds.max.y) / 2 : 0;
   const modelVZ = bounds ? (bounds.min.z + bounds.max.z) / 2 : 0;
 
-  // ── Build viewer→ENU delta transform ──
-  // Pipeline: viewer Y-up → IFC Z-up → Helmert rotate → ENU
-  const viewerToENU: ViewerToENU = {
-    delta(dvx: number, dvy: number, dvz: number): [number, number, number] {
-      // Viewer Y-up → IFC Z-up: ifcX = vx, ifcY = -vz, ifcZ = vy
-      const ifcDx = dvx;
-      const ifcDy = -dvz;
-      const ifcDz = dvy;
-      // Helmert rotation (IFC XY → East/North)
-      const east = hScale * (absc * ifcDx - ordi * ifcDy);
-      const north = hScale * (ordi * ifcDx + absc * ifcDy);
-      const up = ifcDz;
-      return [east, north, up];
-    },
-  };
-
   // ── Compute model origin in WGS84 ──
-  // Full pipeline for origin point (uses proj4 once)
   const owx = modelVX + shift.x + rtcYup.x;
   const owy = modelVY + shift.y + rtcYup.y;
   const owz = modelVZ + shift.z + rtcYup.z;
-  const [oIfcX, oIfcY, oIfcZ] = [owx, -owz, owy]; // viewer→IFC
+  // Viewer Y-up → IFC Z-up
+  const oIfcX = owx;
+  const oIfcY = -owz;
+  const oIfcZ = owy;
   const oEasting = mapConversion.eastings + hScale * (absc * oIfcX - ordi * oIfcY);
   const oNorthing = mapConversion.northings + hScale * (ordi * oIfcX + absc * oIfcY);
   const oHeight = mapConversion.orthogonalHeight + oIfcZ;
@@ -135,27 +116,70 @@ export async function createCesiumBridge(
     height: oHeight,
   };
 
-  // ── Cache for ECEF objects (created lazily when Cesium is available) ──
-  let enuToEcefMatrix: InstanceType<typeof import('cesium').Matrix4> | null = null;
+  // ── Build the viewer→ENU 3x3 rotation matrix ──
+  // This converts a DELTA vector from viewer space to ENU.
+  // Step 1: viewer Y-up → IFC Z-up: (vx, vy, vz) → (vx, -vz, vy)
+  // Step 2: Helmert rotation: (ifcX, ifcY) → (east, north) with scale
+  //
+  // Combined as a 3x3 matrix M where [east, north, up] = M * [vx, vy, vz]:
+  //   east  = hScale * (absc * vx - ordi * (-vz))  = hScale * (absc*vx + ordi*vz)
+  //   north = hScale * (ordi * vx + absc * (-vz))   = hScale * (ordi*vx - absc*vz)
+  //   up    = vy  (ifcZ = vy, vertical is viewer Y)
+  //
+  // So M = [hScale*absc,   0,  hScale*ordi ]
+  //        [hScale*ordi,   0, -hScale*absc ]
+  //        [0,             1,  0           ]
+  const m00 = hScale * absc;   // east  from vx
+  const m01 = 0;               // east  from vy
+  const m02 = hScale * ordi;   // east  from vz
+  const m10 = hScale * ordi;   // north from vx
+  const m11 = 0;               // north from vy
+  const m12 = -hScale * absc;  // north from vz
+  const m20 = 0;               // up    from vx
+  const m21 = 1;               // up    from vy
+  const m22 = 0;               // up    from vz
+
+  // ── Cache for ECEF objects ──
+  let viewerToEcefMatrix: InstanceType<typeof import('cesium').Matrix4> | null = null;
   let modelOriginCartesian: InstanceType<typeof import('cesium').Cartesian3> | null = null;
 
-  function ensureEcefCache(Cesium: typeof import('cesium')) {
-    if (!modelOriginCartesian) {
-      modelOriginCartesian = Cesium.Cartesian3.fromDegrees(
-        originLon, originLat, oHeight,
-      );
-      enuToEcefMatrix = Cesium.Transforms.eastNorthUpToFixedFrame(
-        modelOriginCartesian,
-      );
-    }
+  function ensureEcefCache(Cesium: typeof import('cesium'), clampUp: number) {
+    // Rebuild if clamp offset changed
+    const originWithClamp = Cesium.Cartesian3.fromDegrees(
+      originLon, originLat, oHeight + clampUp,
+    );
+    modelOriginCartesian = originWithClamp;
+
+    // Get ENU→ECEF 4x4 matrix at model origin
+    const enuToEcef = Cesium.Transforms.eastNorthUpToFixedFrame(originWithClamp);
+
+    // Build viewer→ECEF = enuToEcef * viewerToENU
+    // viewerToENU is: translate(-modelCenter) then rotate by M
+    // As a 4x4: columns are the ENU directions of viewer axes, translation is -modelCenter in ENU
+    //
+    // viewerToENU_4x4 = [ m00  m01  m02  tx ]
+    //                    [ m10  m11  m12  ty ]
+    //                    [ m20  m21  m22  tz ]
+    //                    [ 0    0    0    1  ]
+    // where (tx, ty, tz) = M * (-modelVX, -modelVY, -modelVZ)
+    const tx = m00 * (-modelVX) + m01 * (-modelVY) + m02 * (-modelVZ);
+    const ty = m10 * (-modelVX) + m11 * (-modelVY) + m12 * (-modelVZ);
+    const tz = m20 * (-modelVX) + m21 * (-modelVY) + m22 * (-modelVZ);
+
+    // Cesium Matrix4 is column-major
+    const viewerToEnu = new Cesium.Matrix4(
+      m00, m01, m02, tx,
+      m10, m11, m12, ty,
+      m20, m21, m22, tz,
+      0,   0,   0,   1,
+    );
+
+    // Compose: viewerToEcef = enuToEcef * viewerToEnu
+    viewerToEcefMatrix = Cesium.Matrix4.multiply(
+      enuToEcef, viewerToEnu, new Cesium.Matrix4(),
+    );
   }
 
-  /**
-   * Sync the Cesium camera using ECEF math.
-   * This converts the IFC camera to ENU, then uses Cesium's own
-   * ENU→ECEF transform to get exact ECEF positions.
-   * Also syncs the frustum (FOV) so the projection matches exactly.
-   */
   function syncCamera(
     Cesium: typeof import('cesium'),
     viewer: InstanceType<typeof import('cesium').Viewer>,
@@ -165,94 +189,59 @@ export async function createCesiumBridge(
     fov: number,
     terrainClampOffset?: number,
   ): void {
-    ensureEcefCache(Cesium);
-    if (!enuToEcefMatrix) return;
-
-    // When terrain clamping is active, shift the ENU frame up so the model
-    // sits on terrain. terrainClampOffset = terrainHeight - modelOriginHeight.
     const clampUp = terrainClampOffset ?? 0;
+    ensureEcefCache(Cesium, clampUp);
+    if (!viewerToEcefMatrix) return;
 
-    // Camera position offset from model center → ENU → ECEF
-    const [pE, pN, pU] = viewerToENU.delta(
-      camPos.x - modelVX, camPos.y - modelVY, camPos.z - modelVZ,
-    );
-    const posECEF = Cesium.Matrix4.multiplyByPoint(
-      enuToEcefMatrix, new Cesium.Cartesian3(pE, pN, pU + clampUp), new Cesium.Cartesian3(),
-    );
+    // Set the camera's reference frame to our viewer→ECEF transform.
+    // After this call, all camera properties (position, direction, up)
+    // are interpreted in IFC VIEWER coordinates, not ECEF.
+    viewer.camera.lookAtTransform(viewerToEcefMatrix);
 
-    // View direction (target - position) as a delta vector → ENU → ECEF direction
-    const dirViewerX = camTarget.x - camPos.x;
-    const dirViewerY = camTarget.y - camPos.y;
-    const dirViewerZ = camTarget.z - camPos.z;
-    const [dE, dN, dU] = viewerToENU.delta(dirViewerX, dirViewerY, dirViewerZ);
-    const dirECEF = Cesium.Matrix4.multiplyByPointAsVector(
-      enuToEcefMatrix, new Cesium.Cartesian3(dE, dN, dU), new Cesium.Cartesian3(),
-    );
-    Cesium.Cartesian3.normalize(dirECEF, dirECEF);
+    // Now set camera in VIEWER coordinates — Cesium applies the transform
+    viewer.camera.position = new Cesium.Cartesian3(camPos.x, camPos.y, camPos.z);
 
-    // Up vector → ENU → ECEF
-    const [uE, uN, uU] = viewerToENU.delta(camUp.x, camUp.y, camUp.z);
-    const upECEF = Cesium.Matrix4.multiplyByPointAsVector(
-      enuToEcefMatrix, new Cesium.Cartesian3(uE, uN, uU), new Cesium.Cartesian3(),
-    );
-    Cesium.Cartesian3.normalize(upECEF, upECEF);
+    const dirX = camTarget.x - camPos.x;
+    const dirY = camTarget.y - camPos.y;
+    const dirZ = camTarget.z - camPos.z;
+    const dirLen = Math.sqrt(dirX * dirX + dirY * dirY + dirZ * dirZ);
+    if (dirLen > 1e-8) {
+      viewer.camera.direction = new Cesium.Cartesian3(
+        dirX / dirLen, dirY / dirLen, dirZ / dirLen,
+      );
+    }
 
-    // Sync frustum FOV BEFORE setting view so projection matches exactly.
+    viewer.camera.up = new Cesium.Cartesian3(camUp.x, camUp.y, camUp.z);
+
+    // Recompute right = direction × up (maintain orthonormality)
+    const right = Cesium.Cartesian3.cross(
+      viewer.camera.direction, viewer.camera.up, new Cesium.Cartesian3(),
+    );
+    Cesium.Cartesian3.normalize(right, right);
+    viewer.camera.right = right;
+
+    // Sync FOV
     const frustum = viewer.camera.frustum;
     if (frustum instanceof Cesium.PerspectiveFrustum) {
       frustum.fov = fov;
     }
 
-    // Use setView for atomic camera update — avoids intermediate states
-    // that could trigger Cesium's internal camera adjustments.
-    viewer.camera.setView({
-      destination: posECEF,
-      orientation: {
-        direction: dirECEF,
-        up: upECEF,
-      },
-    });
-
     viewer.scene.requestRender();
   }
 
-  function viewerToGeodetic(vx: number, vy: number, vz: number): GeodesicPosition | null {
-    const wx = vx + shift.x + rtcYup.x;
-    const wy = vy + shift.y + rtcYup.y;
-    const wz = vz + shift.z + rtcYup.z;
-    const [ifcX, ifcY, ifcZ] = [wx, -wz, wy];
-    const easting = mapConversion.eastings + hScale * (absc * ifcX - ordi * ifcY);
-    const northing = mapConversion.northings + hScale * (ordi * ifcX + absc * ifcY);
-    const height = mapConversion.orthogonalHeight + ifcZ;
-    try {
-      const [lon, lat] = proj4(projDef!, 'WGS84', [easting, northing]);
-      if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
-      return { longitude: lon, latitude: lat, height };
-    } catch {
-      return null;
-    }
-  }
-
-  /**
-   * Query terrain height at the model origin using Cesium's terrain provider.
-   * Returns the terrain elevation in meters, or null if unavailable.
-   */
   async function queryTerrainHeight(
     Cesium: typeof import('cesium'),
     viewer: InstanceType<typeof import('cesium').Viewer>,
   ): Promise<number | null> {
-    // Try multiple approaches since terrain data may take time to load
     const position = Cesium.Cartographic.fromDegrees(originLon, originLat);
 
-    // Approach 1: Use globe.getHeight (returns cached terrain height if tiles loaded)
     try {
       const globeHeight = viewer.scene.globe.getHeight(position);
       if (globeHeight !== undefined && Number.isFinite(globeHeight)) {
         return globeHeight;
       }
-    } catch { /* globe height not available yet */ }
+    } catch { /* not available yet */ }
 
-    // Approach 2: Use sampleTerrainMostDetailed (async, more reliable)
     try {
       const terrainProvider = viewer.terrainProvider;
       if (terrainProvider) {
@@ -263,7 +252,6 @@ export async function createCesiumBridge(
       }
     } catch { /* terrain sampling failed */ }
 
-    // Approach 3: Wait for tiles and retry globe.getHeight
     await new Promise(r => setTimeout(r, 3000));
     try {
       const globeHeight = viewer.scene.globe.getHeight(position);
@@ -273,6 +261,25 @@ export async function createCesiumBridge(
     } catch { /* still not available */ }
 
     return null;
+  }
+
+  function viewerToGeodetic(vx: number, vy: number, vz: number): GeodesicPosition | null {
+    const wx = vx + shift.x + rtcYup.x;
+    const wy = vy + shift.y + rtcYup.y;
+    const wz = vz + shift.z + rtcYup.z;
+    const ifcX = wx;
+    const ifcY = -wz;
+    const ifcZ = wy;
+    const easting = mapConversion.eastings + hScale * (absc * ifcX - ordi * ifcY);
+    const northing = mapConversion.northings + hScale * (ordi * ifcX + absc * ifcY);
+    const height = mapConversion.orthogonalHeight + ifcZ;
+    try {
+      const [lon, lat] = proj4(projDef!, 'WGS84', [easting, northing]);
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+      return { longitude: lon, latitude: lat, height };
+    } catch {
+      return null;
+    }
   }
 
   return {
