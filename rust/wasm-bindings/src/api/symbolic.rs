@@ -435,9 +435,13 @@ fn parse_axis2_placement_2d_with_logging(
     // Get RefDirection (attribute 2 for 3D, attribute 1 for 2D) to get rotation
     // RefDirection is the X-axis direction in the local coordinate system
     // Use X-Y components for floor plan rotation (Z is up)
-    let (cos_theta, sin_theta) = if let Some(ref_dir_attr) =
-        placement.get(2).or_else(|| placement.get(1))
-    {
+    let ref_dir_attr = if placement.ifc_type == IfcType::IfcAxis2Placement3D {
+        placement.get(2)
+    } else {
+        placement.get(1)
+    };
+
+    let (cos_theta, sin_theta) = if let Some(ref_dir_attr) = ref_dir_attr {
         if !ref_dir_attr.is_null() {
             if let Some(ref_dir_id) = ref_dir_attr.as_entity_ref() {
                 if let Ok(ref_dir) = decoder.decode_by_id(ref_dir_id) {

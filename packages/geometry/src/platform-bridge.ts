@@ -80,16 +80,16 @@ export interface IPlatformBridge {
 
   /**
    * Process IFC content and return all geometry at once
-   * @param content IFC file content as string
+   * @param content IFC file content as string or raw bytes
    */
-  processGeometry(content: string): Promise<GeometryProcessingResult>;
+  processGeometry(content: string | Uint8Array): Promise<GeometryProcessingResult>;
 
   /**
    * Process IFC content with streaming output
-   * @param content IFC file content as string
+   * @param content IFC file content as string or raw bytes
    * @param options Streaming options with callbacks
    */
-  processGeometryStreaming(content: string, options: StreamingOptions): Promise<GeometryStats>;
+  processGeometryStreaming(content: string | Uint8Array, options: StreamingOptions): Promise<GeometryStats>;
 
   /**
    * Get the underlying API object (for advanced usage)

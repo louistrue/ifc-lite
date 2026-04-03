@@ -186,7 +186,7 @@ describe('GeometryProcessor byte streaming fallback', () => {
       unitScale: 1,
       rtcOffset: new Float64Array([0, 0, 0]),
       needsShift: false,
-      buildingRotation: null,
+      buildingRotation: 0.25,
       voidKeys: new Uint32Array(),
       voidCounts: new Uint32Array(),
       voidValues: new Uint32Array(),
@@ -238,9 +238,11 @@ describe('GeometryProcessor byte streaming fallback', () => {
 
     const batchEvent = events.find((event) => event.type === 'batch');
     expect(batchEvent?.totalSoFar).toBe(1);
+    expect((batchEvent?.coordinateInfo as { buildingRotation?: number })?.buildingRotation).toBe(0.25);
 
     const completeEvent = events.find((event) => event.type === 'complete');
     expect(completeEvent?.totalGeometries).toBe(1);
     expect(completeEvent?.totalInstances).toBe(1);
+    expect((completeEvent?.coordinateInfo as { buildingRotation?: number })?.buildingRotation).toBe(0.25);
   });
 });

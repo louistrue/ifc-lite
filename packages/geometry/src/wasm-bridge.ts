@@ -40,13 +40,22 @@ export class WasmBridge implements IPlatformBridge {
     return this.initialized;
   }
 
-  async processGeometry(content: string): Promise<GeometryProcessingResult> {
+  private toIfcContent(content: string | Uint8Array): string {
+    if (typeof content === 'string') {
+      return content;
+    }
+
+    const decoder = new TextDecoder();
+    return decoder.decode(content);
+  }
+
+  async processGeometry(content: string | Uint8Array): Promise<GeometryProcessingResult> {
     if (!this.initialized) {
       await this.init();
     }
 
     const startTime = performance.now();
-    const collector = new IfcLiteMeshCollector(this.bridge.getApi(), content);
+    const collector = new IfcLiteMeshCollector(this.bridge.getApi(), this.toIfcContent(content));
     const meshes = collector.collectMeshes();
     const buildingRotation = collector.getBuildingRotation();
     const endTime = performance.now();
@@ -83,7 +92,7 @@ export class WasmBridge implements IPlatformBridge {
   }
 
   async processGeometryStreaming(
-    content: string,
+    content: string | Uint8Array,
     options: StreamingOptions
   ): Promise<GeometryStats> {
     if (!this.initialized) {
@@ -91,7 +100,7 @@ export class WasmBridge implements IPlatformBridge {
     }
 
     const startTime = performance.now();
-    const collector = new IfcLiteMeshCollector(this.bridge.getApi(), content);
+    const collector = new IfcLiteMeshCollector(this.bridge.getApi(), this.toIfcContent(content));
 
     let totalMeshes = 0;
     let totalVertices = 0;

@@ -67,14 +67,21 @@ export class NativeBridge implements IPlatformBridge {
     return this.initialized;
   }
 
-  async processGeometry(content: string): Promise<GeometryProcessingResult> {
+  private toNativeBuffer(content: string | Uint8Array): number[] {
+    if (content instanceof Uint8Array) {
+      return Array.from(content);
+    }
+
+    const encoder = new TextEncoder();
+    return Array.from(encoder.encode(content));
+  }
+
+  async processGeometry(content: string | Uint8Array): Promise<GeometryProcessingResult> {
     if (!this.initialized || !this.invoke) {
       await this.init();
     }
 
-    // Convert string to buffer for Tauri command
-    const encoder = new TextEncoder();
-    const buffer = Array.from(encoder.encode(content));
+    const buffer = this.toNativeBuffer(content);
 
     // Call native Rust command
     const result = await this.invoke!<{
@@ -97,7 +104,7 @@ export class NativeBridge implements IPlatformBridge {
   }
 
   async processGeometryStreaming(
-    content: string,
+    content: string | Uint8Array,
     options: StreamingOptions
   ): Promise<GeometryStats> {
     if (!this.initialized || !this.invoke) {
@@ -124,9 +131,7 @@ export class NativeBridge implements IPlatformBridge {
       return stats;
     }
 
-    // Convert string to buffer for Tauri command
-    const encoder = new TextEncoder();
-    const buffer = Array.from(encoder.encode(content));
+    const buffer = this.toNativeBuffer(content);
 
     // Listen for geometry batch events
     const unlisten = await this.listen<{

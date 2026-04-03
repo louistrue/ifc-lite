@@ -22,6 +22,13 @@ use js_sys::Function;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::spawn_local;
 
+fn decode_ifc_bytes<'a>(data: &'a [u8]) -> &'a str {
+    match std::str::from_utf8(data) {
+        Ok(content) => content,
+        Err(error) => wasm_bindgen::throw_str(&format!("Invalid UTF-8 IFC data: {error}")),
+    }
+}
+
 #[wasm_bindgen]
 impl IfcAPI {
     /// Parse IFC file and return individual meshes with express IDs and colors
@@ -2197,7 +2204,7 @@ impl IfcAPI {
         use ifc_lite_core::EntityDecoder;
         use ifc_lite_geometry::GeometryRouter;
 
-        let content = unsafe { std::str::from_utf8_unchecked(data) };
+        let content = decode_ifc_bytes(data);
 
         // Build entity index
         let entity_index = ifc_lite_core::build_entity_index(content);
@@ -2214,8 +2221,14 @@ impl IfcAPI {
         let mut router = GeometryRouter::with_scale(unit_scale);
 
         // Detect RTC offset
+        let all_jobs: Vec<_> = pre_pass
+            .simple_jobs
+            .iter()
+            .chain(pre_pass.complex_jobs.iter())
+            .copied()
+            .collect();
         let rtc_offset = router
-            .detect_rtc_offset_from_jobs(&pre_pass.simple_jobs, &mut decoder)
+            .detect_rtc_offset_from_jobs(&all_jobs, &mut decoder)
             .unwrap_or((0.0, 0.0, 0.0));
         let needs_shift = rtc_offset.0.abs() > 10000.0
             || rtc_offset.1.abs() > 10000.0
@@ -2327,7 +2340,7 @@ impl IfcAPI {
         use ifc_lite_core::{EntityDecoder, EntityScanner, IfcType};
         use ifc_lite_geometry::GeometryRouter;
 
-        let content = unsafe { std::str::from_utf8_unchecked(data) };
+        let content = decode_ifc_bytes(data);
 
         let mut scanner = EntityScanner::new(content);
         let estimated = content.len() / 2000;
@@ -2374,8 +2387,13 @@ impl IfcAPI {
             .unwrap_or(1.0);
         let mut router = GeometryRouter::with_scale(unit_scale);
 
+        let all_jobs: Vec<_> = simple_jobs
+            .iter()
+            .chain(complex_jobs.iter())
+            .copied()
+            .collect();
         let rtc_offset = router
-            .detect_rtc_offset_from_jobs(&simple_jobs, &mut decoder)
+            .detect_rtc_offset_from_jobs(&all_jobs, &mut decoder)
             .unwrap_or((0.0, 0.0, 0.0));
         let needs_shift = rtc_offset.0.abs() > 10000.0
             || rtc_offset.1.abs() > 10000.0
@@ -2466,7 +2484,7 @@ impl IfcAPI {
         use ifc_lite_core::EntityDecoder;
         use ifc_lite_geometry::{calculate_normals, GeometryRouter};
 
-        let content = unsafe { std::str::from_utf8_unchecked(data) };
+        let content = decode_ifc_bytes(data);
 
         // Build entity index (fast, ~200ms, unavoidable per worker)
         let entity_index = ifc_lite_core::build_entity_index(content);
@@ -2706,7 +2724,7 @@ impl IfcAPI {
         use rustc_hash::{FxHashMap, FxHasher};
         use std::hash::{Hash, Hasher};
 
-        let content = unsafe { std::str::from_utf8_unchecked(data) };
+        let content = decode_ifc_bytes(data);
 
         let entity_index = ifc_lite_core::build_entity_index(content);
         let mut decoder = EntityDecoder::with_index(content, entity_index);

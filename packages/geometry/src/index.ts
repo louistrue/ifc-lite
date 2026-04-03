@@ -178,9 +178,7 @@ export class GeometryProcessor {
     if (this.isNative && this.platformBridge) {
       // NATIVE PATH - Use Tauri commands
       console.time('[GeometryProcessor] native-processing');
-      const decoder = new TextDecoder();
-      const content = decoder.decode(buffer);
-      const result = await this.platformBridge.processGeometry(content);
+      const result = await this.platformBridge.processGeometry(buffer);
       meshes = result.meshes;
       console.timeEnd('[GeometryProcessor] native-processing');
     } else {
@@ -411,11 +409,15 @@ export class GeometryProcessor {
 
     const api = this.bridge.getApi();
     const prePass = api.buildPrePassOnce(buffer) as ByteStreamingPrePassResult;
+    const buildingRotation = prePass.buildingRotation ?? undefined;
 
     yield { type: 'model-open', modelID: 0 };
 
     if (!prePass.jobs || prePass.totalJobs === 0) {
-      const coordinateInfo = this.coordinateHandler.getFinalCoordinateInfo();
+      const coordinateInfo = this.withBuildingRotation(
+        this.coordinateHandler.getFinalCoordinateInfo(),
+        buildingRotation,
+      );
       yield { type: 'complete', totalGeometries: 0, totalInstances: 0, coordinateInfo };
       return;
     }
@@ -471,7 +473,10 @@ export class GeometryProcessor {
 
       totalGeometries += batch.length;
       totalInstances += batch.reduce((sum, geometry) => sum + geometry.instance_count, 0);
-      const coordinateInfo = this.coordinateHandler.getCurrentCoordinateInfo();
+      const currentCoordinateInfo = this.coordinateHandler.getCurrentCoordinateInfo();
+      const coordinateInfo = currentCoordinateInfo
+        ? this.withBuildingRotation(currentCoordinateInfo, buildingRotation)
+        : null;
 
       yield {
         type: 'batch',
@@ -483,7 +488,10 @@ export class GeometryProcessor {
       await new Promise(resolve => setTimeout(resolve, 0));
     }
 
-    const coordinateInfo = this.coordinateHandler.getFinalCoordinateInfo();
+    const coordinateInfo = this.withBuildingRotation(
+      this.coordinateHandler.getFinalCoordinateInfo(),
+      buildingRotation,
+    );
     yield { type: 'complete', totalGeometries, totalInstances, coordinateInfo };
   }
 
@@ -518,10 +526,6 @@ export class GeometryProcessor {
     await new Promise(resolve => setTimeout(resolve, 0));
 
     if (this.isNative && this.platformBridge) {
-      // Convert buffer to string (IFC files are text)
-      const decoder = new TextDecoder();
-      const content = decoder.decode(buffer);
-
       yield { type: 'model-open', modelID: 0 };
 
       // NATIVE PATH - Use Tauri streaming
@@ -529,7 +533,7 @@ export class GeometryProcessor {
 
       // For native, we do a single batch for now (streaming via events is complex)
       // TODO: Implement proper streaming with Tauri events
-      const result = await this.platformBridge.processGeometry(content);
+      const result = await this.platformBridge.processGeometry(buffer);
       const totalMeshes = result.meshes.length;
 
       this.coordinateHandler.processMeshesIncremental(result.meshes);
@@ -954,10 +958,6 @@ export class GeometryProcessor {
     if (buffer.length < sizeThreshold) {
       yield { type: 'start', totalEstimate: buffer.length / 1000 };
 
-      // Convert buffer to string (IFC files are text)
-      const decoder = new TextDecoder();
-      const content = decoder.decode(buffer);
-
       yield { type: 'model-open', modelID: 0 };
 
       let allMeshes: MeshData[];
@@ -965,11 +965,13 @@ export class GeometryProcessor {
       if (this.isNative && this.platformBridge) {
         // NATIVE PATH - single batch processing
         console.time('[GeometryProcessor] native-adaptive-sync');
-        const result = await this.platformBridge.processGeometry(content);
+        const result = await this.platformBridge.processGeometry(buffer);
         allMeshes = result.meshes;
         console.timeEnd('[GeometryProcessor] native-adaptive-sync');
       } else {
         // WASM PATH
+        const decoder = new TextDecoder();
+        const content = decoder.decode(buffer);
         const collector = new IfcLiteMeshCollector(this.bridge!.getApi(), content);
         allMeshes = collector.collectMeshes();
       }
