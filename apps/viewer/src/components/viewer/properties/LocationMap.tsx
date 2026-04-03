@@ -88,6 +88,49 @@ async function geocodeSearch(query: string): Promise<Array<{ lat: number; lon: n
   }
 }
 
+/** Add or update the building footprint GeoJSON polygon on a MapLibre map */
+function addFootprintToMap(map: InstanceType<typeof import('maplibre-gl').Map>, ring: [number, number][]) {
+  const geojson: GeoJSON.Feature = {
+    type: 'Feature',
+    properties: {},
+    geometry: {
+      type: 'Polygon',
+      coordinates: [ring],
+    },
+  };
+
+  if (map.getSource('building-footprint')) {
+    (map.getSource('building-footprint') as import('maplibre-gl').GeoJSONSource).setData(geojson);
+    console.debug('[LocationMap] updated existing footprint source');
+    return;
+  }
+
+  map.addSource('building-footprint', { type: 'geojson', data: geojson });
+
+  map.addLayer({
+    id: 'building-footprint-fill',
+    type: 'fill',
+    source: 'building-footprint',
+    paint: {
+      'fill-color': '#14b8a6',
+      'fill-opacity': ['interpolate', ['linear'], ['zoom'], 15, 0, 16, 0.15, 18, 0.25],
+    },
+  });
+
+  map.addLayer({
+    id: 'building-footprint-outline',
+    type: 'line',
+    source: 'building-footprint',
+    paint: {
+      'line-color': '#0d9488',
+      'line-width': ['interpolate', ['linear'], ['zoom'], 15, 0.5, 18, 2.5],
+      'line-opacity': ['interpolate', ['linear'], ['zoom'], 15, 0, 16, 0.7, 18, 1],
+    },
+  });
+
+  console.debug('[LocationMap] added footprint source + layers');
+}
+
 export function LocationMap({
   mapConversion, projectedCRS, coordinateInfo, geometryResult,
   editable, onApplyPosition,
@@ -117,15 +160,25 @@ export function LocationMap({
   // Building footprint state (bounding box polygon in WGS84)
   const [footprint, setFootprint] = useState<[number, number][] | null>(null);
   const [styleVersion, setStyleVersion] = useState(0);
+  const footprintRef = useRef<[number, number][] | null>(null);
 
   // Compute building footprint from bounding box
   useEffect(() => {
-    if (!mapConversion || !projectedCRS || !coordinateInfo) return;
+    if (!mapConversion || !projectedCRS || !coordinateInfo) {
+      console.debug('[LocationMap] footprint: missing data', { mapConversion: !!mapConversion, projectedCRS: !!projectedCRS, coordinateInfo: !!coordinateInfo });
+      return;
+    }
 
     let cancelled = false;
 
     computeFootprintGeoJSON(mapConversion, projectedCRS, coordinateInfo).then(fp => {
-      if (!cancelled) setFootprint(fp);
+      if (cancelled) return;
+      console.debug('[LocationMap] footprint computed:', fp ? `${fp.length} points` : 'null');
+      if (fp) {
+        console.debug('[LocationMap] footprint coords sample:', fp[0], fp[1]);
+      }
+      setFootprint(fp);
+      footprintRef.current = fp;
     });
 
     return () => { cancelled = true; };
@@ -320,6 +373,14 @@ export function LocationMap({
 
       mapRef.current = map;
       markerRef.current = marker;
+
+      // If footprint was already computed before the map was created, add it now
+      if (footprintRef.current) {
+        console.debug('[LocationMap] adding footprint layer on map load (footprint was ready before map)');
+        map.once('load', () => {
+          addFootprintToMap(map, footprintRef.current!);
+        });
+      }
     });
 
     return () => {
@@ -327,58 +388,20 @@ export function LocationMap({
     };
   }, [latLon, handleMapClick]);
 
-  // Add/update building footprint GeoJSON layer
+  // Add/update building footprint GeoJSON layer when footprint or style changes
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !footprint) return;
+    if (!map || !footprint) {
+      console.debug('[LocationMap] footprint effect: skipping', { map: !!map, footprint: !!footprint });
+      return;
+    }
 
-    const addFootprintLayer = () => {
-      const geojson: GeoJSON.Feature = {
-        type: 'Feature',
-        properties: {},
-        geometry: {
-          type: 'Polygon',
-          coordinates: [footprint],
-        },
-      };
+    console.debug('[LocationMap] footprint effect: adding layer, styleVersion=', styleVersion);
 
-      // Remove old layers/source on style change before re-adding
-      if (map.getSource('building-footprint')) {
-        (map.getSource('building-footprint') as import('maplibre-gl').GeoJSONSource).setData(geojson);
-        return;
-      }
-
-      map.addSource('building-footprint', { type: 'geojson', data: geojson });
-
-      map.addLayer({
-        id: 'building-footprint-fill',
-        type: 'fill',
-        source: 'building-footprint',
-        minzoom: 15.5,
-        paint: {
-          'fill-color': '#14b8a6',
-          'fill-opacity': ['interpolate', ['linear'], ['zoom'], 15.5, 0, 16, 0.15, 18, 0.25],
-        },
-      });
-
-      map.addLayer({
-        id: 'building-footprint-outline',
-        type: 'line',
-        source: 'building-footprint',
-        minzoom: 15.5,
-        paint: {
-          'line-color': '#0d9488',
-          'line-width': ['interpolate', ['linear'], ['zoom'], 15.5, 1, 18, 2.5],
-          'line-opacity': ['interpolate', ['linear'], ['zoom'], 15.5, 0, 16, 0.7, 18, 1],
-        },
-      });
-    };
-
-    // If style is already loaded, add now; otherwise wait for style.load
     if (map.isStyleLoaded()) {
-      addFootprintLayer();
+      addFootprintToMap(map, footprint);
     } else {
-      map.once('style.load', addFootprintLayer);
+      map.once('style.load', () => addFootprintToMap(map, footprint));
     }
   }, [footprint, styleVersion]);
 
