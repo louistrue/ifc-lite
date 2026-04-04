@@ -287,7 +287,7 @@ export class CompactEntityIndexBuilder {
   }
 
   private grow(): void {
-    const newCap = this.capacity * 2;
+    const newCap = Math.max(this.capacity * 2, 1024);
     const copyU32 = (old: Uint32Array) => {
       const a = new Uint32Array(newCap);
       a.set(old);
@@ -307,15 +307,11 @@ export class CompactEntityIndexBuilder {
 
   build(lruMaxSize?: number): CompactEntityIndex {
     const n = this.count;
-    const expressIds = this.expressIds.subarray(0, n);
-    const byteOffsets = this.byteOffsets.subarray(0, n);
-    const byteLengths = this.byteLengths.subarray(0, n);
-    const typeIndices = this.typeIndices.subarray(0, n);
 
     // Check if already sorted (true for 99%+ of IFC files)
     let isSorted = true;
     for (let i = 1; i < n; i++) {
-      if (expressIds[i] < expressIds[i - 1]) {
+      if (this.expressIds[i] < this.expressIds[i - 1]) {
         isSorted = false;
         break;
       }
@@ -325,7 +321,7 @@ export class CompactEntityIndexBuilder {
       // Build index array, sort it, then reorder all parallel arrays
       const indices = new Uint32Array(n);
       for (let i = 0; i < n; i++) indices[i] = i;
-      indices.sort((a, b) => expressIds[a] - expressIds[b]);
+      indices.sort((a, b) => this.expressIds[a] - this.expressIds[b]);
 
       const sortedIds = new Uint32Array(n);
       const sortedOffsets = new Uint32Array(n);
@@ -333,15 +329,24 @@ export class CompactEntityIndexBuilder {
       const sortedTypes = new Uint16Array(n);
       for (let i = 0; i < n; i++) {
         const j = indices[i];
-        sortedIds[i] = expressIds[j];
-        sortedOffsets[i] = byteOffsets[j];
-        sortedLens[i] = byteLengths[j];
-        sortedTypes[i] = typeIndices[j];
+        sortedIds[i] = this.expressIds[j];
+        sortedOffsets[i] = this.byteOffsets[j];
+        sortedLens[i] = this.byteLengths[j];
+        sortedTypes[i] = this.typeIndices[j];
       }
       return new CompactEntityIndex(sortedIds, sortedOffsets, sortedLens, sortedTypes, this.typeStrings, lruMaxSize);
     }
 
-    return new CompactEntityIndex(expressIds, byteOffsets, byteLengths, typeIndices, this.typeStrings, lruMaxSize);
+    // Use slice() to create right-sized copies, allowing the builder's
+    // potentially over-allocated buffers to be GC'd.
+    return new CompactEntityIndex(
+      this.expressIds.slice(0, n),
+      this.byteOffsets.slice(0, n),
+      this.byteLengths.slice(0, n),
+      this.typeIndices.slice(0, n),
+      this.typeStrings,
+      lruMaxSize
+    );
   }
 }
 

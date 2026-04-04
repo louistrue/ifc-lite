@@ -65,10 +65,12 @@ export function rebuildSpatialHierarchy(
       'forward'
     );
 
-    // Filter out spatial structure elements - O(1) per element now!
+    // Filter out spatial structure elements — keep unknown types (custom/newer IFC classes).
+    // getTypeEnum() returns IfcTypeEnum.Unknown for both missing and unrecognized entities;
+    // isSpatialStructureType(Unknown) is false, so unknown types pass through correctly.
     const containedElements = rawContainedElements.filter((id) => {
       const elemType = entities.getTypeEnum(id);
-      return elemType !== IfcTypeEnum.Unknown && !isSpatialStructureType(elemType);
+      return !isSpatialStructureType(elemType);
     });
 
     // Get aggregated children via IfcRelAggregates
