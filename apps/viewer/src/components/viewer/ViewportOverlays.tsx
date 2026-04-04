@@ -258,7 +258,7 @@ function CesiumSettingsOverlay({
   onClose: () => void;
 }) {
   return (
-    <div className="absolute bottom-4 right-4 bg-background/90 backdrop-blur-sm rounded-lg border shadow-lg p-2 flex flex-col gap-2 min-w-[160px]">
+    <div className="absolute bottom-4 right-4 z-10 pointer-events-auto bg-background/90 backdrop-blur-sm rounded-lg border shadow-lg p-2 flex flex-col gap-2 min-w-[160px]">
       {/* Header */}
       <div className="flex items-center justify-between gap-2">
         <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
