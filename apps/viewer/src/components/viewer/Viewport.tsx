@@ -345,6 +345,10 @@ export function Viewport({
     didMove: false,
     // Track if multi-touch occurred (prevents false tap-select after pinch/zoom)
     multiTouch: false,
+    // 2-finger gesture detection
+    twoFingerGesture: 'none',
+    gestureDistanceAccum: 0,
+    gesturePanAccum: 0,
   });
 
   // Double-click detection
