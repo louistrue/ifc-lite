@@ -25,9 +25,7 @@ export class RenderPipeline {
     private depthTextureView: GPUTextureView;
     private objectIdTexture: GPUTexture;
     private objectIdTextureView: GPUTextureView;
-    // Use depth24plus on mobile — depth32float with TEXTURE_BINDING can fail on
-    // some mobile GPUs/drivers (needed only for post-processing, disabled on mobile)
-    private depthFormat: GPUTextureFormat = _isMobileGPU ? 'depth24plus' : 'depth32float';
+    private depthFormat: GPUTextureFormat = 'depth32float';
     private colorFormat: GPUTextureFormat;
     private objectIdFormat: GPUTextureFormat = 'rgba8unorm';
     private multisampleTexture: GPUTexture | null = null;
@@ -55,11 +53,11 @@ export class RenderPipeline {
         this.sampleCount = isMobileGPU ? 1 : Math.min(4, maxSampleCount);
 
         // Create depth texture with MSAA support
-        // TEXTURE_BINDING is needed for post-processing (contact shading reads depth).
-        // depth24plus does NOT support TEXTURE_BINDING — only use it with depth32float.
-        const depthUsage = this.depthFormat === 'depth32float'
-            ? GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING
-            : GPUTextureUsage.RENDER_ATTACHMENT;
+        // TEXTURE_BINDING needed for post-processing. On mobile (MSAA=1, no post-proc)
+        // skip TEXTURE_BINDING to reduce GPU memory pressure.
+        const depthUsage = _isMobileGPU
+            ? GPUTextureUsage.RENDER_ATTACHMENT
+            : GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING;
         this.depthTexture = this.device.createTexture({
             size: { width, height },
             format: this.depthFormat,
@@ -373,9 +371,9 @@ export class RenderPipeline {
         this.currentWidth = width;
         this.currentHeight = height;
 
-        const depthUsage = this.depthFormat === 'depth32float'
-            ? GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING
-            : GPUTextureUsage.RENDER_ATTACHMENT;
+        const depthUsage = _isMobileGPU
+            ? GPUTextureUsage.RENDER_ATTACHMENT
+            : GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING;
         this.depthTexture.destroy();
         this.objectIdTexture.destroy();
         this.depthTexture = this.device.createTexture({
@@ -491,7 +489,7 @@ export class InstancedRenderPipeline {
     private depthTextureView: GPUTextureView;
     private uniformBuffer: GPUBuffer;
     private colorFormat: GPUTextureFormat;
-    private depthFormat: GPUTextureFormat = _isMobileGPU ? 'depth24plus' : 'depth32float';
+    private depthFormat: GPUTextureFormat = 'depth32float';
     private objectIdFormat: GPUTextureFormat = 'rgba8unorm';
     private currentHeight: number;
 
