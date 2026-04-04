@@ -18,6 +18,7 @@ import { useWebGPU } from '@/hooks/useWebGPU';
 import { openIfcFileDialog } from '@/services/file-dialog';
 import { logToDesktopTerminal } from '@/services/desktop-logger';
 import { cacheFileBlobs, formatFileSize, getCachedFile, getRecentFiles, recordRecentFiles, type RecentFileEntry } from '@/lib/recent-files';
+import { isTauri } from '@/utils/ifcConfig';
 import { Upload, MousePointer, Layers, Info, Command, AlertTriangle, ChevronDown, ExternalLink, Plus, Clock3 } from 'lucide-react';
 import type { MeshData, CoordinateInfo, GeometryResult } from '@ifc-lite/geometry';
 import { extractGeoreferencingOnDemand, type IfcDataStore, type MapConversion, type ProjectedCRS } from '@ifc-lite/parser';
@@ -257,6 +258,10 @@ export function ViewportContainer() {
   }, [georef?.sourceModelId, setCesiumSourceModelId]);
 
   useEffect(() => {
+    // Recent files are a desktop-only feature — the web viewer should not
+    // show previously opened files in the landing page empty state.
+    if (!isTauri()) return;
+
     const refreshRecentFiles = () => {
       setRecentFiles(getRecentFiles().slice(0, 3));
     };

@@ -630,6 +630,19 @@ export class ColumnarParser {
             'IFCFLOWSEGMENT', 'IFCFLOWTERMINAL', 'IFCFLOWCONTROLLER', 'IFCFLOWFITTING',
             'IFCSPACE', 'IFCOPENINGELEMENT', 'IFCSITE', 'IFCBUILDING', 'IFCBUILDINGSTOREY',
             'IFCPROJECT', 'IFCCOVERING', 'IFCANNOTATION', 'IFCGRID',
+            // Infrastructure entities needed by on-demand extraction and StepExporter.
+            // Without these, findPreferredGeometricRepresentationContextId() and
+            // findLengthUnitReference() fail because the entities are not in byId.
+            'IFCGEOMETRICREPRESENTATIONCONTEXT', 'IFCGEOMETRICREPRESENTATIONSUBCONTEXT',
+            'IFCUNITASSIGNMENT', 'IFCSIUNIT', 'IFCCONVERSIONBASEDUNIT',
+            'IFCDERIVEDUNIT', 'IFCDERIVEDUNITELEMENT', 'IFCMEASUREWITHUNIT',
+            'IFCDIMENSIONALEXPONENTS',
+            'IFCMAPCONVERSION', 'IFCPROJECTEDCRS',
+            'IFCMATERIALLAYER', 'IFCMATERIALLAYERSET', 'IFCMATERIALLAYERSETUSAGE',
+            'IFCMATERIALCONSTITUENTSET', 'IFCMATERIALCONSTITUENT',
+            'IFCMATERIALPROFILESET', 'IFCMATERIALPROFILE', 'IFCMATERIAL',
+            'IFCCLASSIFICATION', 'IFCCLASSIFICATIONREFERENCE',
+            'IFCDOCUMENTINFORMATION', 'IFCDOCUMENTREFERENCE',
         ]);
 
         // Category constants for the lookup cache
@@ -695,11 +708,9 @@ export class ColumnarParser {
             // Categorize (cached — .toUpperCase() called once per unique type)
             const cat = getCategory(ref.type);
             const typeUpper = cat === CAT_PROPERTY_ENTITY ? getTypeUpper(ref.type) : '';
-            // ALL entities must be indexed in byType for on-demand extraction
-            // (e.g. IfcGeometricRepresentationContext, IfcSiUnit, IfcMaterialLayer).
-            // Only property atoms are optionally deferred for huge-file lazy loading.
             const includeInPrimaryIndex =
-                !deferPropertyAtomIndex || cat !== CAT_PROPERTY_ENTITY || PROPERTY_CONTAINER_TYPES.has(typeUpper);
+                cat !== CAT_SKIP &&
+                (!deferPropertyAtomIndex || cat !== CAT_PROPERTY_ENTITY || PROPERTY_CONTAINER_TYPES.has(typeUpper));
             if (includeInPrimaryIndex) {
                 let typeList = byType.get(ref.type);
                 if (!typeList) { typeList = []; byType.set(ref.type, typeList); }
@@ -746,18 +757,20 @@ export class ColumnarParser {
         }
         logPhase(`association target pre-scan: ${associationTargetIds.size} targets, ${extraAssocRefs.length} extra refs`);
 
-        // ALL entity refs must be indexed in byId so that on-demand extraction
-        // can look up any entity by expressId (e.g. IfcUnitAssignment,
-        // IfcGeometricRepresentationContext, IfcSiUnit, IfcLocalPlacement, etc.).
-        // Only property atoms are optionally deferred for huge-file lazy loading.
-        const indexedRefs = deferPropertyAtomIndex
-            ? entityRefs.filter(ref => {
-                const cat = getCategory(ref.type);
-                return cat !== CAT_PROPERTY_ENTITY || PROPERTY_CONTAINER_TYPES.has(getTypeUpper(ref.type));
-              })
-            : entityRefs;
+        const indexedRefs = [
+            ...spatialRefs,
+            ...geometryRefs,
+            ...relationshipRefs,
+            ...propertyRelRefs,
+            ...propertyContainerRefs,
+            ...(deferPropertyAtomIndex ? [] : propertyAtomRefs),
+            ...associationRelRefs,
+            ...typeObjectRefs,
+            ...otherRelevantRefs,
+            ...extraAssocRefs,
+        ];
         emitDiagnostic(
-            `index input: indexedRefs=${indexedRefs.length} deferredPropertyAtoms=${deferPropertyAtomIndex ? propertyAtomRefs.length : 0} extraAssocTargets=${extraAssocRefs.length}`
+            `index input: relevantRefs=${indexedRefs.length} deferredPropertyAtoms=${deferPropertyAtomIndex ? propertyAtomRefs.length : 0} extraAssocTargets=${extraAssocRefs.length} skippedRefs=${totalEntities - indexedRefs.length - (deferPropertyAtomIndex ? propertyAtomRefs.length : 0)}`
         );
 
         // Build compact entity index from only the refs that survive lite parsing.
