@@ -1,5 +1,20 @@
 # @ifc-lite/renderer
 
+## 1.15.2
+
+### Patch Changes
+
+- [#531](https://github.com/louistrue/ifc-lite/pull/531) [`fb6851d`](https://github.com/louistrue/ifc-lite/commit/fb6851dba2491bf8c540d9dbcc7026584da0572e) Thanks [@louistrue](https://github.com/louistrue)! - Fix WGSL shader compilation failure on some GPUs and improve Chrome streaming performance
+
+  - Move dpdx/dpdy calls outside non-uniform control flow to fix shader validation errors on Chrome/Windows GPUs (e.g. RTX 4070)
+  - Use mappedAtCreation for vertex/index buffer uploads, eliminating redundant writeBuffer IPC round-trips on Chrome's Dawn backend
+  - Increase streaming chunk size from 128 to 512 meshes per append to reduce GPU buffer allocation rounds
+  - Remove noisy FederationRegistry "Unknown model" console warnings during single-model loading
+
+- Updated dependencies [[`643b30f`](https://github.com/louistrue/ifc-lite/commit/643b30ff031d389fe0cb1caf7de6989d79629e4b)]:
+  - @ifc-lite/geometry@1.16.5
+  - @ifc-lite/wasm@1.16.4
+
 ## 1.15.1
 
 ### Patch Changes

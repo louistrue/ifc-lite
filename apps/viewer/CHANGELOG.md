@@ -1,5 +1,20 @@
 # @ifc-lite/viewer
 
+## 1.17.4
+
+### Patch Changes
+
+- [#531](https://github.com/louistrue/ifc-lite/pull/531) [`fb6851d`](https://github.com/louistrue/ifc-lite/commit/fb6851dba2491bf8c540d9dbcc7026584da0572e) Thanks [@louistrue](https://github.com/louistrue)! - Fix browser build warnings and improve streaming reliability
+
+  - Silence FileDialog Tauri warnings in browser builds (expected fallback path)
+  - Fix closeGeometryIterator ReferenceError when geometry processor throws before iterator creation
+  - Guard timer-based queue pump behind document.hidden to prevent redundant GPU flushes in foreground tabs
+
+- Updated dependencies [[`643b30f`](https://github.com/louistrue/ifc-lite/commit/643b30ff031d389fe0cb1caf7de6989d79629e4b), [`fb6851d`](https://github.com/louistrue/ifc-lite/commit/fb6851dba2491bf8c540d9dbcc7026584da0572e)]:
+  - @ifc-lite/geometry@1.16.5
+  - @ifc-lite/wasm@1.16.4
+  - @ifc-lite/renderer@1.15.2
+
 ## 1.17.3
 
 ### Patch Changes
