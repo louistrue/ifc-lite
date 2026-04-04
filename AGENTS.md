@@ -34,6 +34,33 @@
 - **Full API reference:** See [`docs/guide/viewer-api.md`](./docs/guide/viewer-api.md) for launch options, REST API, element creation, and analysis overlays.
 - **Coordinate convention (coding-relevant):** IFC uses Z-up; the viewer uses Y-up internally. The geometry layer converts automatically during mesh parsing. When using `/api/create`, pass coordinates in IFC Z-up convention (`[x, y, z]` where Z is up).
 
-## 7. Feedback Loop
+## 7. Code Quality Standards (Non-Negotiable)
+
+### No `as any` or `@ts-ignore`
+- **Never** use `as any` to silence the compiler. If types don't align, fix the types (add proper generics, declare interfaces, write `.d.ts` stubs for untyped libraries).
+- **Never** use `// @ts-ignore` or `// @ts-expect-error` without a linked issue explaining why and a plan to remove it.
+- If an external library lacks types, write a minimal ambient declaration file (`foo-types.d.ts`) instead of scattering `@ts-ignore` across call sites.
+
+### No bare `catch {}`
+- Every `catch` block must either log the error or re-throw. Silent swallowing hides real bugs.
+- The only exception is cleanup code where failure is truly irrelevant (e.g., `mesh.free()`), and even then add a `/* cleanup — safe to ignore */` comment.
+
+### File size limit: ~400 lines per module
+- If a file exceeds ~400 lines of non-generated code, split it. Extract cohesive helpers into separate modules.
+- Generated files (e.g., `schema-registry.ts`, `entities.ts`) are exempt.
+
+### Tests required for new packages and features
+- Every new package **must** ship with at least one test file covering its public API.
+- New features in existing packages must include tests. PRs adding untested logic to `ids`, `query`, or `cli` should be blocked.
+- Do not use `--passWithNoTests` for any package.
+
+### Dependencies in the right place
+- Root `package.json` dependencies must only contain tooling shared by all workspaces (turbo, typescript, changesets).
+- Package-specific deps (database drivers, domain libraries) go in the consuming package's `package.json`, never the root.
+
+### Undeclared class properties
+- Never use `(this as any).foo` to store state. Declare all properties in the class body with proper types.
+
+## 8. Feedback Loop
 - If a pattern is confusing or repeatedly error-prone, call it out explicitly in your PR notes.
 - Prefer refactors that make the correct path the easiest path (single source of truth helpers, stricter types, fewer implicit fallbacks).
