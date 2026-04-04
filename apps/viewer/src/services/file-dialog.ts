@@ -66,8 +66,8 @@ export async function openIfcFileDialog(): Promise<NativeFileHandle | null> {
   try {
     const invoke = await getInvoke();
     return await invoke<NativeFileHandle | null>('open_ifc_file');
-  } catch (error) {
-    console.warn('[FileDialog] Command-based native dialog unavailable, trying plugin fallback:', error);
+  } catch {
+    // Expected in browser builds — fall through to plugin fallback, then browser file input.
   }
 
   try {
@@ -100,8 +100,8 @@ export async function openIfcFileDialog(): Promise<NativeFileHandle | null> {
       name,
       size: metadata.size,
     };
-  } catch (error) {
-    console.warn('[FileDialog] Failed to open native IFC dialog via plugin fallback:', error);
+  } catch {
+    // No Tauri plugin available — caller falls back to browser <input type="file">.
     return null;
   }
 }
