@@ -10,6 +10,10 @@ import { WebGPUDevice } from './device.js';
 import { mainShaderSource } from './shaders/main.wgsl.js';
 import type { InstancedMesh } from './types.js';
 
+// Mobile GPU detection — depth32float unsupported on many mobile Vulkan drivers
+const _isMobileGPU = typeof navigator !== 'undefined' &&
+    /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+
 export class RenderPipeline {
     private device: GPUDevice;
     private webgpuDevice: WebGPUDevice;
@@ -21,7 +25,7 @@ export class RenderPipeline {
     private depthTextureView: GPUTextureView;
     private objectIdTexture: GPUTexture;
     private objectIdTextureView: GPUTextureView;
-    private depthFormat: GPUTextureFormat = 'depth32float';
+    private depthFormat: GPUTextureFormat = _isMobileGPU ? 'depth24plus' : 'depth32float';
     private colorFormat: GPUTextureFormat;
     private objectIdFormat: GPUTextureFormat = 'rgba8unorm';
     private multisampleTexture: GPUTexture | null = null;
@@ -53,10 +57,14 @@ export class RenderPipeline {
         this.sampleCount = this.singleTargetMode ? 1 : Math.min(4, maxSampleCount);
 
         // Create depth texture with MSAA support
+        // TEXTURE_BINDING only supported with depth32float (needed for post-processing on desktop)
+        const depthUsage = this.depthFormat === 'depth32float'
+            ? GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING
+            : GPUTextureUsage.RENDER_ATTACHMENT;
         this.depthTexture = this.device.createTexture({
             size: { width, height },
             format: this.depthFormat,
-            usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+            usage: depthUsage,
             sampleCount: this.sampleCount > 1 ? this.sampleCount : 1,
         });
         this.depthTextureView = this.depthTexture.createView();
@@ -415,12 +423,14 @@ export class RenderPipeline {
         this.currentWidth = width;
         this.currentHeight = height;
 
+        const depthUsage = this.depthFormat === 'depth32float'
+            ? GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING
+            : GPUTextureUsage.RENDER_ATTACHMENT;
         this.depthTexture.destroy();
-        this.objectIdTexture.destroy();
         this.depthTexture = this.device.createTexture({
             size: { width, height },
             format: this.depthFormat,
-            usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+            usage: depthUsage,
             sampleCount: this.sampleCount > 1 ? this.sampleCount : 1,
         });
         this.depthTextureView = this.depthTexture.createView();
@@ -538,7 +548,7 @@ export class InstancedRenderPipeline {
     private depthTextureView: GPUTextureView;
     private uniformBuffer: GPUBuffer;
     private colorFormat: GPUTextureFormat;
-    private depthFormat: GPUTextureFormat = 'depth32float';
+    private depthFormat: GPUTextureFormat = _isMobileGPU ? 'depth24plus' : 'depth32float';
     private objectIdFormat: GPUTextureFormat = 'rgba8unorm';
     private currentHeight: number;
 
