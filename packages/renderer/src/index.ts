@@ -123,6 +123,12 @@ export class Renderer {
     private lastRenderErrorTime: number = 0;
     private readonly RENDER_ERROR_THROTTLE_MS = 1000;
 
+    // Diagnostic counters for mobile debugging
+    private _renderCallCount: number = 0;
+    private _renderSkipCount: number = 0;
+    private _renderErrorCount: number = 0;
+    private _lastRenderError: string = '';
+
 
     // Dirty flag: set by requestRender(), consumed by the animation loop.
     // Centralises all render scheduling — callers never call render() directly.
@@ -642,8 +648,25 @@ export class Renderer {
     /**
      * Render frame
      */
+    /** Get diagnostic info for mobile debugging */
+    getDiagnostics(): { calls: number; skips: number; errors: number; lastError: string; batches: number; meshes: number; contextOk: boolean } {
+        return {
+            calls: this._renderCallCount,
+            skips: this._renderSkipCount,
+            errors: this._renderErrorCount,
+            lastError: this._lastRenderError,
+            batches: this.scene.getBatchedMeshes().length,
+            meshes: this.scene.getMeshes().length,
+            contextOk: this.device.isInitialized(),
+        };
+    }
+
     render(options: RenderOptions = {}): void {
-        if (!this.device.isInitialized() || !this.pipeline) return;
+        this._renderCallCount++;
+        if (!this.device.isInitialized() || !this.pipeline) {
+            this._renderSkipCount++;
+            return;
+        }
 
         // Validate canvas dimensions
         // Align width to 64 pixels for WebGPU texture row alignment (256 bytes / 4 bytes per pixel)
@@ -653,7 +676,7 @@ export class Renderer {
         const height = Math.max(1, Math.floor(rect.height));
 
         // Skip rendering if canvas is too small
-        if (width < 64 || height < 10) return;
+        if (width < 64 || height < 10) { this._renderSkipCount++; return; }
 
         // Update canvas pixel dimensions if needed
         const dimensionsChanged = this.canvas.width !== width || this.canvas.height !== height;
@@ -671,10 +694,11 @@ export class Renderer {
         }
 
         // Skip rendering if canvas is invalid
-        if (this.canvas.width === 0 || this.canvas.height === 0) return;
+        if (this.canvas.width === 0 || this.canvas.height === 0) { this._renderSkipCount++; return; }
 
         // Ensure context is valid before rendering (handles HMR, focus changes, etc.)
         if (!this.device.ensureContext()) {
+            this._renderSkipCount++;
             return; // Skip this frame, context will be ready next frame
         }
 
@@ -1428,6 +1452,8 @@ export class Renderer {
 
             device.queue.submit([encoder.finish()]);
         } catch (error) {
+            this._renderErrorCount++;
+            this._lastRenderError = error instanceof Error ? error.message : String(error);
             // Handle WebGPU errors (e.g., device lost, invalid state)
             // Mark context as invalid so it gets reconfigured next frame
             this.device.invalidateContext();

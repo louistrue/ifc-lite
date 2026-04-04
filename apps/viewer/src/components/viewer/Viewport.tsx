@@ -67,6 +67,8 @@ export function Viewport({
   const rendererRef = useRef<Renderer | null>(null);
   const [isInitialized, setIsInitialized] = useState(false);
   const [initError, setInitError] = useState<string | null>(null);
+  const [mobileDebug, setMobileDebug] = useState<string>('');
+  const mobileDebugRef = useRef<string[]>([]);
 
   const focusViewportForKeyboardShortcuts = useCallback(() => {
     const canvas = canvasRef.current;
@@ -536,12 +538,24 @@ export function Viewport({
     const renderer = new Renderer(canvas);
     rendererRef.current = renderer;
 
+    // Mobile diagnostic helper
+    const isMobileDev = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+    const dbg = (msg: string) => {
+      console.log(`[Viewport] ${msg}`);
+      if (isMobileDev) {
+        mobileDebugRef.current = [...mobileDebugRef.current.slice(-8), msg];
+        setMobileDebug(mobileDebugRef.current.join('\n'));
+      }
+    };
+    dbg(`canvas ${width}x${height} dpr=${window.devicePixelRatio}`);
+
     // Register refs for BCF hook access (snapshot capture, camera control)
     setGlobalCanvasRef(canvasRef);
     setGlobalRendererRef(rendererRef);
 
     renderer.init().then(() => {
       if (aborted) return;
+      dbg(`init OK pipeline=${!!renderer.getPipeline()} scene=${!!renderer.getScene()}`);
 
       setIsInitialized(true);
 
@@ -671,6 +685,7 @@ export function Viewport({
       if (aborted) return;
       const message = err instanceof Error ? err.message : 'Failed to initialize 3D renderer';
       console.error('[Viewport] Renderer init failed:', message);
+      dbg(`INIT FAIL: ${message}`);
       setInitError(message);
     });
 
@@ -691,6 +706,37 @@ export function Viewport({
     // The click handler captures setSelectedEntityId via closure
     // Adding selectedEntityId would destroy/recreate the renderer on every selection change
   }, [setSelectedEntityId]);
+
+  // ===== Mobile diagnostics: track geometry & scene state =====
+  useEffect(() => {
+    if (!/Android|iPhone|iPad|iPod/i.test(navigator.userAgent)) return;
+    const renderer = rendererRef.current;
+    const meshCount = geometry?.length ?? 0;
+    const batches = renderer?.getScene()?.getBatchedMeshes()?.length ?? -1;
+    const queued = renderer?.getScene()?.hasQueuedMeshes() ?? false;
+    const diag = renderer?.getDiagnostics?.();
+    const msg = `geom=${meshCount} v=${geometryVersion ?? '?'} batches=${batches} q=${queued} init=${isInitialized}` +
+      (diag ? `\nrender: ${diag.calls}ok ${diag.skips}skip ${diag.errors}err` : '') +
+      (diag?.lastError ? `\nerr: ${diag.lastError.slice(0, 60)}` : '');
+    mobileDebugRef.current = [...mobileDebugRef.current.slice(-6), msg];
+    setMobileDebug(mobileDebugRef.current.join('\n'));
+  }, [geometry, geometryVersion, isInitialized]);
+
+  // Periodic render-stats refresh on mobile (every 2s)
+  useEffect(() => {
+    if (!/Android|iPhone|iPad|iPod/i.test(navigator.userAgent)) return;
+    const id = setInterval(() => {
+      const renderer = rendererRef.current;
+      if (!renderer) return;
+      const diag = renderer.getDiagnostics?.();
+      if (!diag) return;
+      const line = `[live] r=${diag.calls} s=${diag.skips} e=${diag.errors} b=${diag.batches} m=${diag.meshes} ctx=${diag.contextOk}` +
+        (diag.lastError ? ` err=${diag.lastError.slice(0, 40)}` : '');
+      mobileDebugRef.current = [...mobileDebugRef.current.slice(-6), line];
+      setMobileDebug(mobileDebugRef.current.join('\n'));
+    }, 2000);
+    return () => clearInterval(id);
+  }, [isInitialized]);
 
   // ===== Drawing 2D state for render updates =====
   const drawing2D = useViewerStore((s) => s.drawing2D);
@@ -914,6 +960,12 @@ export function Viewport({
               Try using Chrome 113+, Edge 113+, or Safari 18+ with WebGPU support.
             </p>
           </div>
+        </div>
+      )}
+      {/* Mobile debug overlay — temporary diagnostic */}
+      {mobileDebug && (
+        <div className="absolute top-1 left-1 z-[100] bg-black/80 text-[9px] text-green-400 font-mono p-1.5 rounded max-w-[60vw] pointer-events-none whitespace-pre leading-tight">
+          {mobileDebug}
         </div>
       )}
     </div>
