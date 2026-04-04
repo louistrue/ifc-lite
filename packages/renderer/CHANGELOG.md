@@ -1,5 +1,15 @@
 # @ifc-lite/renderer
 
+## 1.15.1
+
+### Patch Changes
+
+- [#526](https://github.com/louistrue/ifc-lite/pull/526) [`cb59771`](https://github.com/louistrue/ifc-lite/commit/cb59771997e3837a511f584842bce98cd710864e) Thanks [@louistrue](https://github.com/louistrue)! - Fix robust flat normal computation, per-entity raycast and selection highlighting for color-merged meshes, and restore desktop native interaction parity.
+
+- Updated dependencies [[`e8f3dfd`](https://github.com/louistrue/ifc-lite/commit/e8f3dfdc76871ef956701b0d176a9f197929d4dc), [`cb59771`](https://github.com/louistrue/ifc-lite/commit/cb59771997e3837a511f584842bce98cd710864e), [`cb59771`](https://github.com/louistrue/ifc-lite/commit/cb59771997e3837a511f584842bce98cd710864e), [`e8f3dfd`](https://github.com/louistrue/ifc-lite/commit/e8f3dfdc76871ef956701b0d176a9f197929d4dc), [`e8f3dfd`](https://github.com/louistrue/ifc-lite/commit/e8f3dfdc76871ef956701b0d176a9f197929d4dc)]:
+  - @ifc-lite/geometry@1.16.4
+  - @ifc-lite/wasm@1.16.3
+
 ## 1.15.0
 
 ### Minor Changes
