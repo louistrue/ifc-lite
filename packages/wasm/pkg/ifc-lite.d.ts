@@ -475,6 +475,10 @@ export class IfcAPI {
    */
   getMemory(): any;
   /**
+   * Clear the cached entity index (call after streaming is complete)
+   */
+  clearPrePassCache(): void;
+  /**
    * Create and initialize the IFC API
    */
   constructor();
@@ -1057,6 +1061,7 @@ export interface InitOutput {
   readonly gpumeshmetadata_vertexOffset: (a: number) => number;
   readonly ifcapi_buildPrePassFast: (a: number, b: number, c: number) => number;
   readonly ifcapi_buildPrePassOnce: (a: number, b: number, c: number) => number;
+  readonly ifcapi_clearPrePassCache: (a: number) => void;
   readonly ifcapi_debugProcessEntity953: (a: number, b: number, c: number, d: number) => void;
   readonly ifcapi_debugProcessFirstWall: (a: number, b: number, c: number, d: number) => void;
   readonly ifcapi_extractProfiles: (a: number, b: number, c: number, d: number) => number;
@@ -1189,9 +1194,9 @@ export interface InitOutput {
   readonly profileentryjs_expressId: (a: number) => number;
   readonly symboliccircle_expressId: (a: number) => number;
   readonly __wbg_gpuinstancedgeometryref_free: (a: number, b: number) => void;
-  readonly __wasm_bindgen_func_elem_1134: (a: number, b: number, c: number) => void;
-  readonly __wasm_bindgen_func_elem_1133: (a: number, b: number) => void;
-  readonly __wasm_bindgen_func_elem_1173: (a: number, b: number, c: number, d: number) => void;
+  readonly __wasm_bindgen_func_elem_1136: (a: number, b: number, c: number) => void;
+  readonly __wasm_bindgen_func_elem_1135: (a: number, b: number) => void;
+  readonly __wasm_bindgen_func_elem_1175: (a: number, b: number, c: number, d: number) => void;
   readonly __wbindgen_export: (a: number) => void;
   readonly __wbindgen_export2: (a: number, b: number, c: number) => void;
   readonly __wbindgen_export3: (a: number, b: number) => number;

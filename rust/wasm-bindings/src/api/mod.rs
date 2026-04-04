@@ -15,8 +15,10 @@ pub(crate) mod styling;
 mod symbolic;
 mod zero_copy_api;
 
+use std::cell::RefCell;
+
 use crate::zero_copy::{MeshCollection, MeshDataJs};
-use ifc_lite_core::{GeoReference, RtcOffset};
+use ifc_lite_core::{EntityIndex, GeoReference, RtcOffset};
 use wasm_bindgen::prelude::*;
 
 /// Georeferencing information exposed to JavaScript
@@ -218,6 +220,8 @@ impl MeshCollectionWithRtc {
 #[wasm_bindgen]
 pub struct IfcAPI {
     initialized: bool,
+    /// Cached entity index from buildPrePassOnce, reused by processGeometryBatch
+    cached_entity_index: RefCell<Option<EntityIndex>>,
 }
 
 #[wasm_bindgen]
@@ -228,13 +232,19 @@ impl IfcAPI {
         #[cfg(feature = "console_error_panic_hook")]
         console_error_panic_hook::set_once();
 
-        Self { initialized: true }
+        Self { initialized: true, cached_entity_index: RefCell::new(None) }
     }
 
     /// Check if API is initialized
     #[wasm_bindgen(getter)]
     pub fn is_ready(&self) -> bool {
         self.initialized
+    }
+
+    /// Clear the cached entity index (call after streaming is complete)
+    #[wasm_bindgen(js_name = clearPrePassCache)]
+    pub fn clear_pre_pass_cache(&self) {
+        self.cached_entity_index.borrow_mut().take();
     }
 
     /// Get WASM memory for zero-copy access
