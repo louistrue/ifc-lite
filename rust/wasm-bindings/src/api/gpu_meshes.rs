@@ -2208,6 +2208,8 @@ impl IfcAPI {
 
         // Build entity index
         let entity_index = ifc_lite_core::build_entity_index(content);
+        // Cache for reuse by processGeometryBatch
+        *self.cached_entity_index.borrow_mut() = Some(entity_index.clone());
         let mut decoder = EntityDecoder::with_index(content, entity_index);
 
         // Run combined pre-pass
@@ -2380,6 +2382,8 @@ impl IfcAPI {
 
         // Resolve unit scale + RTC offset (needs entity index for decoder)
         let entity_index = ifc_lite_core::build_entity_index(content);
+        // Cache for reuse by processGeometryBatch
+        *self.cached_entity_index.borrow_mut() = Some(entity_index.clone());
         let mut decoder = EntityDecoder::with_index(content, entity_index);
 
         let unit_scale = project_id
@@ -2486,8 +2490,9 @@ impl IfcAPI {
 
         let content = decode_ifc_bytes(data);
 
-        // Build entity index (fast, ~200ms, unavoidable per worker)
-        let entity_index = ifc_lite_core::build_entity_index(content);
+        // Reuse cached entity index from buildPrePassOnce if available
+        let entity_index = self.cached_entity_index.borrow().clone()
+            .unwrap_or_else(|| ifc_lite_core::build_entity_index(content));
         let mut decoder = EntityDecoder::with_index(content, entity_index);
 
         // Create geometry router with unit scale
@@ -2726,7 +2731,9 @@ impl IfcAPI {
 
         let content = decode_ifc_bytes(data);
 
-        let entity_index = ifc_lite_core::build_entity_index(content);
+        // Reuse cached entity index from buildPrePassOnce if available
+        let entity_index = self.cached_entity_index.borrow().clone()
+            .unwrap_or_else(|| ifc_lite_core::build_entity_index(content));
         let mut decoder = EntityDecoder::with_index(content, entity_index);
 
         let mut router = GeometryRouter::with_scale(unit_scale);

@@ -353,10 +353,13 @@ export class GeometryProcessor {
     }
 
     const batchSize = this.getStreamingBatchSize(buffer, batchConfig);
+    // Cap at ~30 batches max to avoid excessive per-batch overhead
+    const maxBatches = 30;
+    const effectiveBatchSize = Math.max(batchSize, Math.ceil(prePass.totalJobs / maxBatches));
     let totalMeshes = 0;
 
-    for (let startJob = 0; startJob < prePass.totalJobs; startJob += batchSize) {
-      const endJob = Math.min(startJob + batchSize, prePass.totalJobs);
+    for (let startJob = 0; startJob < prePass.totalJobs; startJob += effectiveBatchSize) {
+      const endJob = Math.min(startJob + effectiveBatchSize, prePass.totalJobs);
       const jobSlice = prePass.jobs.slice(startJob * 3, endJob * 3);
       const collection = api.processGeometryBatch(
         buffer,
@@ -396,6 +399,8 @@ export class GeometryProcessor {
       await new Promise(resolve => setTimeout(resolve, 0));
     }
 
+    api.clearPrePassCache?.();
+
     const coordinateInfo = this.withBuildingRotation(
       this.coordinateHandler.getFinalCoordinateInfo(),
       buildingRotation,
@@ -429,8 +434,12 @@ export class GeometryProcessor {
     let totalGeometries = 0;
     let totalInstances = 0;
 
-    for (let startJob = 0; startJob < prePass.totalJobs; startJob += batchSize) {
-      const endJob = Math.min(startJob + batchSize, prePass.totalJobs);
+    // Cap at ~30 batches max to avoid excessive per-batch overhead
+    const maxBatches = 30;
+    const effectiveBatchSize = Math.max(batchSize, Math.ceil(prePass.totalJobs / maxBatches));
+
+    for (let startJob = 0; startJob < prePass.totalJobs; startJob += effectiveBatchSize) {
+      const endJob = Math.min(startJob + effectiveBatchSize, prePass.totalJobs);
       const jobSlice = prePass.jobs.slice(startJob * 3, endJob * 3);
       const collection = api.processInstancedGeometryBatch(
         buffer,
@@ -491,6 +500,8 @@ export class GeometryProcessor {
 
       await new Promise(resolve => setTimeout(resolve, 0));
     }
+
+    api.clearPrePassCache?.();
 
     const coordinateInfo = this.withBuildingRotation(
       this.coordinateHandler.getFinalCoordinateInfo(),

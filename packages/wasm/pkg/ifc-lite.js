@@ -212,12 +212,12 @@ if (!('encodeInto' in cachedTextEncoder)) {
 
 let WASM_VECTOR_LEN = 0;
 
-function __wasm_bindgen_func_elem_1130(arg0, arg1, arg2) {
-    wasm.__wasm_bindgen_func_elem_1130(arg0, arg1, addHeapObject(arg2));
+function __wasm_bindgen_func_elem_1132(arg0, arg1, arg2) {
+    wasm.__wasm_bindgen_func_elem_1132(arg0, arg1, addHeapObject(arg2));
 }
 
-function __wasm_bindgen_func_elem_1169(arg0, arg1, arg2, arg3) {
-    wasm.__wasm_bindgen_func_elem_1169(arg0, arg1, addHeapObject(arg2), addHeapObject(arg3));
+function __wasm_bindgen_func_elem_1171(arg0, arg1, arg2, arg3) {
+    wasm.__wasm_bindgen_func_elem_1171(arg0, arg1, addHeapObject(arg2), addHeapObject(arg3));
 }
 
 const GeoReferenceJsFinalization = (typeof FinalizationRegistry === 'undefined')
@@ -1546,6 +1546,12 @@ export class IfcAPI {
     getMemory() {
         const ret = wasm.ifcapi_getMemory(this.__wbg_ptr);
         return takeObject(ret);
+    }
+    /**
+     * Clear the cached entity index (call after streaming is complete)
+     */
+    clearPrePassCache() {
+        wasm.ifcapi_clearPrePassCache(this.__wbg_ptr);
     }
     /**
      * Create and initialize the IFC API
@@ -3075,7 +3081,7 @@ function __wbg_get_imports() {
                 const a = state0.a;
                 state0.a = 0;
                 try {
-                    return __wasm_bindgen_func_elem_1169(a, state0.b, arg0, arg1);
+                    return __wasm_bindgen_func_elem_1171(a, state0.b, arg0, arg1);
                 } finally {
                     state0.a = a;
                 }
@@ -3189,7 +3195,7 @@ function __wbg_get_imports() {
     };
     imports.wbg.__wbindgen_cast_69d24e7bda2eee11 = function(arg0, arg1) {
         // Cast intrinsic for `Closure(Closure { dtor_idx: 147, function: Function { arguments: [Externref], shim_idx: 148, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
-        const ret = makeMutClosure(arg0, arg1, wasm.__wasm_bindgen_func_elem_1129, __wasm_bindgen_func_elem_1130);
+        const ret = makeMutClosure(arg0, arg1, wasm.__wasm_bindgen_func_elem_1131, __wasm_bindgen_func_elem_1132);
         return addHeapObject(ret);
     };
     imports.wbg.__wbindgen_cast_d6cd19b81560fd6e = function(arg0) {
