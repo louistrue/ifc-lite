@@ -237,6 +237,115 @@ export class CompactEntityIndex {
 }
 
 /**
+ * Incrementally build a CompactEntityIndex without a temporary array of objects.
+ *
+ * For 4.4M entities the intermediate EntityRef[] costs ~350MB (80 bytes/object).
+ * This builder fills typed arrays directly during the scan, eliminating that spike.
+ *
+ * Usage:
+ *   const builder = new CompactEntityIndexBuilder(estimatedCount);
+ *   for (const ref of tokenizer.scanEntitiesFast()) {
+ *     builder.add(ref.expressId, ref.type, ref.offset, ref.length);
+ *   }
+ *   const index = builder.build();
+ */
+export class CompactEntityIndexBuilder {
+  private expressIds: Uint32Array;
+  private byteOffsets: Uint32Array;
+  private byteLengths: Uint32Array;
+  private typeIndices: Uint16Array;
+  private typeStringMap: Map<string, number> = new Map();
+  private typeStrings: string[] = [];
+  private count = 0;
+  private capacity: number;
+
+  constructor(estimatedCount: number) {
+    this.capacity = estimatedCount;
+    this.expressIds = new Uint32Array(estimatedCount);
+    this.byteOffsets = new Uint32Array(estimatedCount);
+    this.byteLengths = new Uint32Array(estimatedCount);
+    this.typeIndices = new Uint16Array(estimatedCount);
+  }
+
+  add(expressId: number, type: string, byteOffset: number, byteLength: number): void {
+    if (this.count >= this.capacity) {
+      this.grow();
+    }
+    const i = this.count++;
+
+    this.expressIds[i] = expressId;
+    this.byteOffsets[i] = byteOffset;
+    this.byteLengths[i] = byteLength;
+
+    let typeIdx = this.typeStringMap.get(type);
+    if (typeIdx === undefined) {
+      typeIdx = this.typeStrings.length;
+      this.typeStrings.push(type);
+      this.typeStringMap.set(type, typeIdx);
+    }
+    this.typeIndices[i] = typeIdx;
+  }
+
+  private grow(): void {
+    const newCap = this.capacity * 2;
+    const copyU32 = (old: Uint32Array) => {
+      const a = new Uint32Array(newCap);
+      a.set(old);
+      return a;
+    };
+    const copyU16 = (old: Uint16Array) => {
+      const a = new Uint16Array(newCap);
+      a.set(old);
+      return a;
+    };
+    this.expressIds = copyU32(this.expressIds);
+    this.byteOffsets = copyU32(this.byteOffsets);
+    this.byteLengths = copyU32(this.byteLengths);
+    this.typeIndices = copyU16(this.typeIndices);
+    this.capacity = newCap;
+  }
+
+  build(lruMaxSize?: number): CompactEntityIndex {
+    const n = this.count;
+    const expressIds = this.expressIds.subarray(0, n);
+    const byteOffsets = this.byteOffsets.subarray(0, n);
+    const byteLengths = this.byteLengths.subarray(0, n);
+    const typeIndices = this.typeIndices.subarray(0, n);
+
+    // Check if already sorted (true for 99%+ of IFC files)
+    let isSorted = true;
+    for (let i = 1; i < n; i++) {
+      if (expressIds[i] < expressIds[i - 1]) {
+        isSorted = false;
+        break;
+      }
+    }
+
+    if (!isSorted) {
+      // Build index array, sort it, then reorder all parallel arrays
+      const indices = new Uint32Array(n);
+      for (let i = 0; i < n; i++) indices[i] = i;
+      indices.sort((a, b) => expressIds[a] - expressIds[b]);
+
+      const sortedIds = new Uint32Array(n);
+      const sortedOffsets = new Uint32Array(n);
+      const sortedLens = new Uint32Array(n);
+      const sortedTypes = new Uint16Array(n);
+      for (let i = 0; i < n; i++) {
+        const j = indices[i];
+        sortedIds[i] = expressIds[j];
+        sortedOffsets[i] = byteOffsets[j];
+        sortedLens[i] = byteLengths[j];
+        sortedTypes[i] = typeIndices[j];
+      }
+      return new CompactEntityIndex(sortedIds, sortedOffsets, sortedLens, sortedTypes, this.typeStrings, lruMaxSize);
+    }
+
+    return new CompactEntityIndex(expressIds, byteOffsets, byteLengths, typeIndices, this.typeStrings, lruMaxSize);
+  }
+}
+
+/**
  * Build a CompactEntityIndex from an array of EntityRefs.
  * Sorts by expressId and deduplicates type strings.
  */

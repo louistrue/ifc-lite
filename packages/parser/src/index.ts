@@ -10,7 +10,7 @@
 export { StepTokenizer } from './tokenizer.js';
 export { EntityIndexBuilder } from './entity-index.js';
 export { EntityExtractor } from './entity-extractor.js';
-export { CompactEntityIndex, buildCompactEntityIndex } from './compact-entity-index.js';
+export { CompactEntityIndex, CompactEntityIndexBuilder, buildCompactEntityIndex } from './compact-entity-index.js';
 export { OpfsSourceBuffer } from './opfs-source-buffer.js';
 export { PropertyExtractor } from './property-extractor.js';
 export { QuantityExtractor } from './quantity-extractor.js';

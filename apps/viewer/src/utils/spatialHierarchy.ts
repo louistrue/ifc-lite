@@ -32,12 +32,9 @@ export function rebuildSpatialHierarchy(
   entities: EntityTable,
   relationships: RelationshipGraph
 ): SpatialHierarchy | undefined {
-  // PRE-BUILD INDEX MAP: O(n) once, then O(1) lookups
-  // This eliminates the O(n²) nested loops from before
-  const entityTypeMap = new Map<number, IfcTypeEnum>();
-  for (let i = 0; i < entities.count; i++) {
-    entityTypeMap.set(entities.expressId[i], entities.typeEnum[i]);
-  }
+  // Use EntityTable.getTypeEnum() for O(1) lookups via its internal idToIndex map.
+  // This avoids building a temporary Map<number, IfcTypeEnum> with 4.4M entries
+  // (~350MB for large files) that duplicates data already in the entity table.
 
   const byStorey = new Map<number, number[]>();
   const byBuilding = new Map<number, number[]>();
@@ -58,7 +55,7 @@ export function rebuildSpatialHierarchy(
   // Build node tree recursively - NOW O(1) lookups!
   function buildNode(expressId: number): SpatialNode {
     // O(1) lookup instead of O(n) linear search
-    const typeEnum = entityTypeMap.get(expressId) ?? IfcTypeEnum.Unknown;
+    const typeEnum = entities.getTypeEnum(expressId);
     const name = entities.getName(expressId) || `Entity #${expressId}`;
 
     // Get contained elements via IfcRelContainedInSpatialStructure
@@ -70,8 +67,8 @@ export function rebuildSpatialHierarchy(
 
     // Filter out spatial structure elements - O(1) per element now!
     const containedElements = rawContainedElements.filter((id) => {
-      const elemType = entityTypeMap.get(id);
-      return elemType !== undefined && !isSpatialStructureType(elemType);
+      const elemType = entities.getTypeEnum(id);
+      return elemType !== IfcTypeEnum.Unknown && !isSpatialStructureType(elemType);
     });
 
     // Get aggregated children via IfcRelAggregates
@@ -84,7 +81,7 @@ export function rebuildSpatialHierarchy(
     // Filter to spatial structure types and recurse - O(1) per child now!
     const childNodes: SpatialNode[] = [];
     for (const childId of aggregatedChildren) {
-      const childType = entityTypeMap.get(childId);
+      const childType = entities.getTypeEnum(childId);
       if (childType && isSpatialStructureType(childType) && childType !== IfcTypeEnum.IfcProject) {
         childNodes.push(buildNode(childId));
       }

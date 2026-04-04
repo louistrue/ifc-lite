@@ -41,6 +41,9 @@ export interface EntityTable {
   hasGeometry(expressId: number): boolean;
   getByType(type: IfcTypeEnum): number[];
 
+  /** Get IfcTypeEnum for an expressId using internal index. Returns IfcTypeEnum.Unknown if not found. */
+  getTypeEnum(expressId: number): IfcTypeEnum;
+
   /** Get expressId by IFC GlobalId string (22-char GUID). Returns -1 if not found. */
   getExpressIdByGlobalId(globalId: string): number;
 
@@ -226,6 +229,11 @@ export class EntityTableBuilder {
           ids[i] = expressId[indices[i]];
         }
         return ids;
+      },
+
+      getTypeEnum: (id) => {
+        const idx = indexOfId(id);
+        return idx >= 0 ? typeEnum[idx] as IfcTypeEnum : IfcTypeEnum.Unknown;
       },
 
       getExpressIdByGlobalId: (gid) => globalIdToExpressId.get(gid) ?? -1,

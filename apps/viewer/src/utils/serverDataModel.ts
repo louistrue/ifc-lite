@@ -394,6 +394,10 @@ function buildEntityTable(
       if (!indices) return [];
       return indices.map(idx => expressId[idx]);
     },
+    getTypeEnum: (id) => {
+      const i = indexOfId(id);
+      return i >= 0 ? typeEnumArr[i] as IfcTypeEnum : IfcTypeEnum.Unknown;
+    },
     getExpressIdByGlobalId: (gid) => {
       return globalIdToExpressId.get(gid) ?? -1;
     },

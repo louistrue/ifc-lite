@@ -489,7 +489,7 @@ export function useIfcLoader() {
 
               // Build spatial index and cache in background (non-blocking)
               // Wait for data model to complete first
-              dataStorePromise.then(dataStore => {
+              dataStorePromise.then(async dataStore => {
                 // Guard: skip if user loaded a new file since this load started
                 if (loadSessionRef.current !== currentSession) return;
                 // Build spatial index from meshes in time-sliced chunks (non-blocking).
@@ -517,8 +517,15 @@ export function useIfcLoader() {
                     totalTriangles: allMeshes.reduce((sum, m) => sum + m.indices.length / 3, 0),
                     coordinateInfo: finalCoordinateInfo,
                   };
-                  saveToCache(cacheKey, dataStore, geometryData, buffer, file.name);
+                  await saveToCache(cacheKey, dataStore, geometryData, buffer, file.name);
                 }
+
+                // Release closure references to MeshData objects. The store's
+                // geometryResult.meshes still holds references to the same
+                // objects, so they remain alive — but clearing allMeshes
+                // allows this closure (and the buffer ref) to be GC'd sooner.
+                allMeshes.length = 0;
+                cumulativeColorUpdates.clear();
               }).catch(err => {
                 // Data model parsing failed - spatial index and caching skipped
                 console.warn('[useIfc] Skipping spatial index/cache - data model unavailable:', err);

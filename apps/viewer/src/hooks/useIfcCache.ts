@@ -16,7 +16,7 @@ import {
   type IfcDataStore as CacheDataStore,
   type GeometryData,
 } from '@ifc-lite/cache';
-import { SpatialHierarchyBuilder, StepTokenizer, buildCompactEntityIndex, extractLengthUnitScale, type IfcDataStore } from '@ifc-lite/parser';
+import { SpatialHierarchyBuilder, StepTokenizer, CompactEntityIndexBuilder, extractLengthUnitScale, type IfcDataStore } from '@ifc-lite/parser';
 import { buildSpatialIndexGuarded } from '../utils/loadingUtils.js';
 import type { MeshData } from '@ifc-lite/geometry';
 
@@ -100,19 +100,16 @@ export function useIfcCache() {
       if (cacheResult.sourceBuffer) {
         dataStore.source = new Uint8Array(cacheResult.sourceBuffer);
 
-        // Quick scan to rebuild entity index with byte offsets (needed for on-demand extraction)
+        // Quick scan to rebuild entity index with byte offsets (needed for on-demand extraction).
+        // Uses CompactEntityIndexBuilder to fill typed arrays directly during the scan,
+        // avoiding a temporary array of 4.4M+ objects (~350MB for large files).
         const tokenizer = new StepTokenizer(dataStore.source);
-        const entityRefs: Array<{ expressId: number; type: string; byteOffset: number; byteLength: number; lineNumber: number }> = [];
+        const estimatedCount = dataStore.entities?.count ?? 100_000;
+        const indexBuilder = new CompactEntityIndexBuilder(estimatedCount);
         const byType = new Map<string, number[]>();
 
         for (const ref of tokenizer.scanEntitiesFast()) {
-          entityRefs.push({
-            expressId: ref.expressId,
-            type: ref.type,
-            byteOffset: ref.offset,
-            byteLength: ref.length,
-            lineNumber: ref.line,
-          });
+          indexBuilder.add(ref.expressId, ref.type, ref.offset, ref.length);
           let typeList = byType.get(ref.type);
           if (!typeList) {
             typeList = [];
@@ -120,8 +117,7 @@ export function useIfcCache() {
           }
           typeList.push(ref.expressId);
         }
-        // Use compact entity index (typed arrays) for lower memory usage
-        const compactByIdIndex = buildCompactEntityIndex(entityRefs);
+        const compactByIdIndex = indexBuilder.build();
         dataStore.entityIndex = { byId: compactByIdIndex, byType };
 
         // Rebuild on-demand maps from relationships

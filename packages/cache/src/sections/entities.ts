@@ -168,6 +168,10 @@ export function readEntities(reader: BufferReader, strings: StringTable): Entity
       }
       return ids;
     },
+    getTypeEnum: (id) => {
+      const idx = indexOfId(id);
+      return idx >= 0 ? typeEnum[idx] as IfcTypeEnum : IfcTypeEnum.Unknown;
+    },
     getExpressIdByGlobalId: (gid) => {
       return globalIdToExpressId.get(gid) ?? -1;
     },
