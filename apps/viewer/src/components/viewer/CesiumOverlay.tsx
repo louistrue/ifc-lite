@@ -366,6 +366,9 @@ export function CesiumOverlay({
         viewerRef.current.destroy();
         viewerRef.current = null;
       }
+      // Invalidate model ref — the destroyed viewer took the primitive with it,
+      // so Effect 2c must re-load the GLB into the next viewer instance.
+      cesiumModelRef.current = null;
       bridgeRef.current = null;
       setStatus('idle');
     };
