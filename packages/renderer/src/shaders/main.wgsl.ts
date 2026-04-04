@@ -107,11 +107,13 @@ export const mainShaderSource = `
           }
 
           // Compute normal — with fallback for zero normals
+          // dpdx/dpdy must be called outside non-uniform control flow (WGSL spec),
+          // so we compute the flat normal unconditionally and select below.
+          let faceN = cross(dpdx(input.worldPos), dpdy(input.worldPos));
           var N = input.normal;
           let nLen2 = dot(N, N);
           if (nLen2 < 0.0001) {
-            // Fallback: compute flat normal from screen-space derivatives
-            let faceN = cross(dpdx(input.worldPos), dpdy(input.worldPos));
+            // Fallback: use flat normal from screen-space derivatives
             let fLen2 = dot(faceN, faceN);
             N = select(vec3<f32>(0.0, 1.0, 0.0), faceN * inverseSqrt(fLen2), fLen2 > 1e-10);
           } else {
