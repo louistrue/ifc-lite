@@ -35,6 +35,8 @@ export class RenderPipeline {
     /** When true, pipeline uses a single color target (no objectId MRT).
      *  Mobile GPUs often reject MRT + MSAA pipeline combinations. */
     private singleTargetMode: boolean = false;
+    /** Diagnostic: pipeline creation validation error (if any) */
+    _pipelineError: string = '';
 
     constructor(device: WebGPUDevice, width: number = 1, height: number = 1, singleTarget: boolean = false) {
         this.currentWidth = width;
@@ -149,6 +151,7 @@ export class RenderPipeline {
 
         // Create render pipeline descriptor
         const pipelineDescriptor: GPURenderPipelineDescriptor = {
+            label: 'ifc-main-pipeline',
             layout: pipelineLayout,
             vertex: {
                 module: shaderModule,
@@ -184,7 +187,15 @@ export class RenderPipeline {
             },
         } as GPURenderPipelineDescriptor;
 
+        // Capture pipeline validation errors asynchronously
+        this.device.pushErrorScope('validation');
         this.pipeline = this.device.createRenderPipeline(pipelineDescriptor);
+        this.device.popErrorScope().then((error) => {
+            if (error) {
+                this._pipelineError = `main: ${error.message}`;
+                console.error('[Pipeline] Main pipeline validation error:', error.message);
+            }
+        });
 
         // Create selection pipeline descriptor
         const selectionPipelineDescriptor: GPURenderPipelineDescriptor = {
