@@ -150,6 +150,14 @@ export class NativeBridge implements IPlatformBridge {
     return this.initialized;
   }
 
+  private toNativeBuffer(content: string | Uint8Array): number[] {
+    if (content instanceof Uint8Array) {
+      return Array.from(content);
+    }
+    const encoder = new TextEncoder();
+    return Array.from(encoder.encode(content));
+  }
+
   private async drainDeferredBatches(
     pendingBatches: DeferredNativeBatchPayload[],
     options: StreamingOptions,
@@ -311,7 +319,7 @@ export class NativeBridge implements IPlatformBridge {
     }
   }
 
-  async processGeometry(content: string): Promise<GeometryProcessingResult> {
+  async processGeometry(content: string | Uint8Array): Promise<GeometryProcessingResult> {
     if (!this.initialized || !this.invoke) {
       await this.init();
     }
