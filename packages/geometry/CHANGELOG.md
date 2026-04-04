@@ -1,5 +1,20 @@
 # @ifc-lite/geometry
 
+## 1.16.4
+
+### Patch Changes
+
+- [#503](https://github.com/louistrue/ifc-lite/pull/503) [`e8f3dfd`](https://github.com/louistrue/ifc-lite/commit/e8f3dfdc76871ef956701b0d176a9f197929d4dc) Thanks [@louistrue](https://github.com/louistrue)! - Improve the native geometry bridge so desktop/native streaming emits the same incremental mesh contract as the web viewer, including IFC type metadata on native batches.
+
+- [#526](https://github.com/louistrue/ifc-lite/pull/526) [`cb59771`](https://github.com/louistrue/ifc-lite/commit/cb59771997e3837a511f584842bce98cd710864e) Thanks [@louistrue](https://github.com/louistrue)! - Support color-merged GPU batches with per-vertex entityIds, reduce desktop native streaming overhead, and remove debug console statements.
+
+- [#503](https://github.com/louistrue/ifc-lite/pull/503) [`e8f3dfd`](https://github.com/louistrue/ifc-lite/commit/e8f3dfdc76871ef956701b0d176a9f197929d4dc) Thanks [@louistrue](https://github.com/louistrue)! - Add native desktop streaming telemetry hooks so sibling desktop loads can capture Rust-to-JS first-batch timings and write structured benchmark reports without changing the viewer mesh contract.
+
+- [#503](https://github.com/louistrue/ifc-lite/pull/503) [`e8f3dfd`](https://github.com/louistrue/ifc-lite/commit/e8f3dfdc76871ef956701b0d176a9f197929d4dc) Thanks [@louistrue](https://github.com/louistrue)! - Add a native desktop file-path geometry streaming path so very large IFC files do not need to be copied through browser memory and Tauri IPC before processing.
+
+- Updated dependencies [[`cb59771`](https://github.com/louistrue/ifc-lite/commit/cb59771997e3837a511f584842bce98cd710864e)]:
+  - @ifc-lite/wasm@1.16.3
+
 ## 1.16.3
 
 ### Patch Changes

@@ -1,5 +1,11 @@
 # @ifc-lite/wasm
 
+## 1.16.3
+
+### Patch Changes
+
+- [#526](https://github.com/louistrue/ifc-lite/pull/526) [`cb59771`](https://github.com/louistrue/ifc-lite/commit/cb59771997e3837a511f584842bce98cd710864e) Thanks [@louistrue](https://github.com/louistrue)! - Restore toNativeBuffer in native-bridge and add Tauri stub aliases to desktop vite config.
+
 ## 1.16.2
 
 ### Patch Changes
