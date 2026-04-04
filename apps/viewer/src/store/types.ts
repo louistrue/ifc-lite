@@ -192,6 +192,86 @@ export interface EntityRef {
 /** IFC schema version enum for type safety */
 export type SchemaVersion = 'IFC2X3' | 'IFC4' | 'IFC4X3' | 'IFC5';
 
+export type GeometryLoadState =
+  | 'pending'
+  | 'opening'
+  | 'streaming'
+  | 'interactive'
+  | 'complete'
+  | 'error';
+
+export type MetadataLoadState =
+  | 'idle'
+  | 'bootstrapping'
+  | 'spatial-ready'
+  | 'lazy'
+  | 'querying'
+  | 'complete'
+  | 'error';
+
+export interface NativeMetadataProperty {
+  name: string;
+  value: string | number | boolean | null;
+  type?: number;
+}
+
+export interface NativeMetadataPropertySet {
+  name: string;
+  globalId?: string;
+  properties: NativeMetadataProperty[];
+}
+
+export interface NativeMetadataQuantity {
+  name: string;
+  value: number;
+  type?: number;
+}
+
+export interface NativeMetadataQuantitySet {
+  name: string;
+  quantities: NativeMetadataQuantity[];
+}
+
+export interface NativeMetadataEntitySummary {
+  expressId: number;
+  type: string;
+  name: string;
+  globalId?: string | null;
+  kind: 'spatial' | 'element';
+  hasChildren: boolean;
+  elementCount?: number;
+  elevation?: number | null;
+}
+
+export interface NativeMetadataSpatialNode extends NativeMetadataEntitySummary {
+  children: NativeMetadataSpatialNode[];
+  elements: NativeMetadataEntitySummary[];
+}
+
+export interface NativeMetadataSpatialInfo {
+  storeyId?: number | null;
+  storeyName?: string | null;
+  elevation?: number | null;
+  height?: number | null;
+}
+
+export interface NativeMetadataEntityDetails {
+  summary: NativeMetadataEntitySummary;
+  typeSummary?: NativeMetadataEntitySummary | null;
+  spatial?: NativeMetadataSpatialInfo | null;
+  properties: NativeMetadataPropertySet[];
+  quantities: NativeMetadataQuantitySet[];
+}
+
+export interface NativeMetadataSnapshot {
+  mode: 'desktop-lazy';
+  cacheKey: string;
+  filePath: string;
+  schemaVersion: SchemaVersion;
+  entityCount: number;
+  spatialTree: NativeMetadataSpatialNode | null;
+}
+
 /** Complete model container for federation */
 export interface FederatedModel {
   /** Unique identifier (UUID generated on load) */
@@ -199,9 +279,9 @@ export interface FederatedModel {
   /** Display name (filename by default, user can rename) */
   name: string;
   /** Parsed IFC data model */
-  ifcDataStore: IfcDataStore;
+  ifcDataStore: IfcDataStore | null;
   /** Pre-tessellated geometry (with globalIds, not original expressIds) */
-  geometryResult: GeometryResult;
+  geometryResult: GeometryResult | null;
   /** Model-level visibility toggle */
   visible: boolean;
   /** UI collapse state in hierarchy panel */
@@ -220,6 +300,20 @@ export interface FederatedModel {
   idOffset: number;
   /** Maximum original expressId in this model (for range validation) */
   maxExpressId: number;
+  /** Unified ingest lifecycle state. */
+  loadState?: 'pending' | 'streaming-geometry' | 'hydrating-metadata' | 'complete' | 'error';
+  /** Geometry-first readiness for large desktop loads. */
+  geometryLoadState?: GeometryLoadState;
+  /** Metadata availability state for lazy desktop loads. */
+  metadataLoadState?: MetadataLoadState;
+  /** True once the model is visibly interactive in the viewport. */
+  interactiveReady?: boolean;
+  /** Optional sparse desktop metadata snapshot for huge native loads. */
+  nativeMetadata?: NativeMetadataSnapshot | null;
+  /** Cache state for the current load session. */
+  cacheState?: 'none' | 'hit' | 'miss' | 'writing';
+  /** Optional load error for this model. */
+  loadError?: string | null;
 }
 
 /** Convert EntityRef to string for use as Map/Set key */

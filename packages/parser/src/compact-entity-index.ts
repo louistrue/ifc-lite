@@ -236,6 +236,20 @@ export class CompactEntityIndex {
   }
 }
 
+function yieldToEventLoop(): Promise<void> {
+  const maybeScheduler = (globalThis as typeof globalThis & {
+    scheduler?: { yield?: () => Promise<void> };
+  }).scheduler;
+  if (typeof maybeScheduler?.yield === 'function') {
+    return maybeScheduler.yield();
+  }
+  return new Promise<void>((resolve) => {
+    const channel = new MessageChannel();
+    channel.port1.onmessage = () => resolve();
+    channel.port2.postMessage(null);
+  });
+}
+
 /**
  * Incrementally build a CompactEntityIndex without a temporary array of objects.
  *
@@ -384,6 +398,67 @@ export function buildCompactEntityIndex(
   const typeIndices = new Uint16Array(count);
 
   for (let i = 0; i < count; i++) {
+    const ref = sorted[i];
+    expressIds[i] = ref.expressId;
+    byteOffsets[i] = ref.byteOffset;
+    byteLengths[i] = ref.byteLength;
+
+    let typeIdx = typeStringMap.get(ref.type);
+    if (typeIdx === undefined) {
+      typeIdx = typeStrings.length;
+      typeStrings.push(ref.type);
+      typeStringMap.set(ref.type, typeIdx);
+    }
+    typeIndices[i] = typeIdx;
+  }
+
+  return new CompactEntityIndex(
+    expressIds,
+    byteOffsets,
+    byteLengths,
+    typeIndices,
+    typeStrings,
+    lruMaxSize
+  );
+}
+
+export async function buildCompactEntityIndexAsync(
+  entityRefs: EntityRef[],
+  lruMaxSize?: number,
+  chunkSize: number = 8192,
+  budgetMs: number = 8,
+): Promise<CompactEntityIndex> {
+  const count = entityRefs.length;
+  let chunkStart = performance.now();
+
+  let isSorted = true;
+  for (let i = 1; i < count; i++) {
+    if ((i % chunkSize) === 0 && performance.now() - chunkStart >= budgetMs) {
+      await yieldToEventLoop();
+      chunkStart = performance.now();
+    }
+    if (entityRefs[i].expressId < entityRefs[i - 1].expressId) {
+      isSorted = false;
+      break;
+    }
+  }
+
+  const sorted = isSorted ? entityRefs : entityRefs.slice().sort((a, b) => a.expressId - b.expressId);
+
+  const typeStringMap = new Map<string, number>();
+  const typeStrings: string[] = [];
+
+  const expressIds = new Uint32Array(count);
+  const byteOffsets = new Uint32Array(count);
+  const byteLengths = new Uint32Array(count);
+  const typeIndices = new Uint16Array(count);
+  chunkStart = performance.now();
+
+  for (let i = 0; i < count; i++) {
+    if ((i % chunkSize) === 0 && performance.now() - chunkStart >= budgetMs) {
+      await yieldToEventLoop();
+      chunkStart = performance.now();
+    }
     const ref = sorted[i];
     expressIds[i] = ref.expressId;
     byteOffsets[i] = ref.byteOffset;

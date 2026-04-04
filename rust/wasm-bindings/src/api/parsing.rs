@@ -10,6 +10,86 @@ use js_sys::{Function, Promise};
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::spawn_local;
 
+fn is_relevant_metadata_type(type_name: &str) -> bool {
+    matches!(
+        type_name,
+        "IFCWALL"
+            | "IFCWALLSTANDARDCASE"
+            | "IFCDOOR"
+            | "IFCWINDOW"
+            | "IFCSLAB"
+            | "IFCCOLUMN"
+            | "IFCBEAM"
+            | "IFCROOF"
+            | "IFCSTAIR"
+            | "IFCSTAIRFLIGHT"
+            | "IFCRAILING"
+            | "IFCRAMP"
+            | "IFCRAMPFLIGHT"
+            | "IFCPLATE"
+            | "IFCMEMBER"
+            | "IFCCURTAINWALL"
+            | "IFCFOOTING"
+            | "IFCPILE"
+            | "IFCBUILDINGELEMENTPROXY"
+            | "IFCFURNISHINGELEMENT"
+            | "IFCFLOWSEGMENT"
+            | "IFCFLOWTERMINAL"
+            | "IFCFLOWCONTROLLER"
+            | "IFCFLOWFITTING"
+            | "IFCSPACE"
+            | "IFCOPENINGELEMENT"
+            | "IFCSITE"
+            | "IFCBUILDING"
+            | "IFCBUILDINGSTOREY"
+            | "IFCPROJECT"
+            | "IFCFACILITY"
+            | "IFCFACILITYPART"
+            | "IFCBRIDGE"
+            | "IFCBRIDGEPART"
+            | "IFCROAD"
+            | "IFCROADPART"
+            | "IFCRAILWAY"
+            | "IFCRAILWAYPART"
+            | "IFCMARINEFACILITY"
+            | "IFCMAPCONVERSION"
+            | "IFCPROJECTEDCRS"
+            | "IFCRELAGGREGATES"
+            | "IFCRELCONTAINEDINSPATIALSTRUCTURE"
+            | "IFCRELDEFINESBYTYPE"
+            | "IFCRELVOIDSELEMENT"
+            | "IFCRELFILLSELEMENT"
+            | "IFCRELCONNECTSPATHELEMENTS"
+            | "IFCRELCONNECTSELEMENTS"
+            | "IFCRELSPACEBOUNDARY"
+            | "IFCRELASSIGNSTOGROUP"
+            | "IFCRELASSIGNSTOPRODUCT"
+            | "IFCRELREFERENCEDINSPATIALSTRUCTURE"
+            | "IFCRELDEFINESBYPROPERTIES"
+            | "IFCPROPERTYSET"
+            | "IFCPROPERTYSINGLEVALUE"
+            | "IFCPROPERTYENUMERATEDVALUE"
+            | "IFCPROPERTYBOUNDEDVALUE"
+            | "IFCPROPERTYLISTVALUE"
+            | "IFCPROPERTYTABLEVALUE"
+            | "IFCPROPERTYREFERENCEVALUE"
+            | "IFCCOMPLEXPROPERTY"
+            | "IFCELEMENTQUANTITY"
+            | "IFCQUANTITYLENGTH"
+            | "IFCQUANTITYAREA"
+            | "IFCQUANTITYVOLUME"
+            | "IFCQUANTITYCOUNT"
+            | "IFCQUANTITYWEIGHT"
+            | "IFCQUANTITYTIME"
+            | "IFCRELASSOCIATESMATERIAL"
+            | "IFCRELASSOCIATESCLASSIFICATION"
+            | "IFCRELASSOCIATESDOCUMENT"
+            | "IFCCOVERING"
+            | "IFCANNOTATION"
+            | "IFCGRID"
+    ) || type_name.ends_with("TYPE")
+}
+
 #[wasm_bindgen]
 impl IfcAPI {
     /// Parse IFC file with streaming events
@@ -128,8 +208,10 @@ impl IfcAPI {
         use serde_wasm_bindgen::to_value;
 
         #[derive(Serialize, Deserialize)]
+        #[serde(rename_all = "camelCase")]
         struct EntityRefJs {
             express_id: u32,
+            #[serde(rename = "type")]
             entity_type: String,
             byte_offset: usize,
             byte_length: usize,
@@ -185,8 +267,10 @@ impl IfcAPI {
         use serde_wasm_bindgen::to_value;
 
         #[derive(Serialize, Deserialize)]
+        #[serde(rename_all = "camelCase")]
         struct GeometryEntityRefJs {
             express_id: u32,
+            #[serde(rename = "type")]
             entity_type: String,
             byte_offset: usize,
             byte_length: usize,
@@ -206,6 +290,68 @@ impl IfcAPI {
                     byte_length: end - start,
                 });
             }
+        }
+
+        to_value(&refs).unwrap_or_else(|_| js_sys::Array::new().into())
+    }
+
+    /// Fast scan that only returns metadata-relevant entity refs.
+    /// This drastically reduces transfer size for huge-file metadata hydration.
+    #[wasm_bindgen(js_name = scanRelevantEntitiesFastBytes)]
+    pub fn scan_relevant_entities_fast_bytes(&self, data: &[u8]) -> JsValue {
+        use serde::{Deserialize, Serialize};
+        use serde_wasm_bindgen::to_value;
+
+        #[derive(Serialize, Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct EntityRefJs {
+            express_id: u32,
+            #[serde(rename = "type")]
+            entity_type: String,
+            byte_offset: usize,
+            byte_length: usize,
+            line_number: usize,
+        }
+
+        let content = unsafe { std::str::from_utf8_unchecked(data) };
+        let mut scanner = EntityScanner::new(content);
+        let mut refs = Vec::new();
+        let bytes = content.as_bytes();
+        let mut last_position = 0;
+        let mut line_count = 1;
+        let mut type_cache: rustc_hash::FxHashMap<&str, Option<String>> =
+            rustc_hash::FxHashMap::default();
+
+        while let Some((id, type_name, start, end)) = scanner.next_entity() {
+            if start > last_position {
+                line_count += bytes[last_position..start]
+                    .iter()
+                    .filter(|&&b| b == b'\n')
+                    .count();
+            }
+
+            let cached = type_cache
+                .entry(type_name)
+                .or_insert_with(|| {
+                    let upper = type_name.to_ascii_uppercase();
+                    if is_relevant_metadata_type(&upper) {
+                        Some(upper)
+                    } else {
+                        None
+                    }
+                });
+
+            if let Some(entity_type) = cached {
+                refs.push(EntityRefJs {
+                    express_id: id,
+                    entity_type: entity_type.clone(),
+                    byte_offset: start,
+                    byte_length: end - start,
+                    line_number: line_count,
+                });
+            }
+
+            last_position = end;
         }
 
         to_value(&refs).unwrap_or_else(|_| js_sys::Array::new().into())

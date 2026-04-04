@@ -24,9 +24,7 @@ export class WorkerParser {
   private workerUrl: string;
 
   constructor(options: WorkerParserOptions = {}) {
-    // Use provided worker URL or detect automatically
-    // We use .js extension in the URL as it will be correct in dist/
-    // Vite will automatically handle this and map it to the .ts file in development
+    // Point directly at the source worker so Vite includes it reliably in app bundles.
     this.workerUrl = options.workerUrl ?? new URL('./parser.worker.js', import.meta.url).href;
   }
 
@@ -85,7 +83,7 @@ export class WorkerParser {
         // Clean up worker
         this.worker?.terminate();
         this.worker = null;
-        reject(new Error(`Worker error: ${error.message}`));
+        reject(new Error(`Worker error: ${error.message || 'unknown worker failure'}`));
       };
 
       // Transfer buffer to worker (caller is responsible for cloning if needed)

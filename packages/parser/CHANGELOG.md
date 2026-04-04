@@ -1,5 +1,11 @@
 # @ifc-lite/parser
 
+## 2.1.8
+
+### Patch Changes
+
+- [#526](https://github.com/louistrue/ifc-lite/pull/526) [`cb59771`](https://github.com/louistrue/ifc-lite/commit/cb59771997e3837a511f584842bce98cd710864e) Thanks [@louistrue](https://github.com/louistrue)! - Fix parser entity index regression and remove debug console statements from production code.
+
 ## 2.1.7
 
 ### Patch Changes

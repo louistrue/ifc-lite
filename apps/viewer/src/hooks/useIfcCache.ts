@@ -55,6 +55,13 @@ export interface CacheGeometryResult {
   };
 }
 
+export interface CacheLoadResult {
+  success: boolean;
+  meshCount: number;
+  totalVertices: number;
+  totalTriangles: number;
+}
+
 // ============================================================================
 // Hook
 // ============================================================================
@@ -81,7 +88,7 @@ export function useIfcCache() {
     cacheResult: CacheResult,
     fileName: string,
     cacheKey?: string
-  ): Promise<boolean> => {
+  ): Promise<CacheLoadResult> => {
     try {
       const cacheLoadStart = performance.now();
       setProgress({ phase: 'Loading from cache', percent: 10 });
@@ -197,7 +204,12 @@ export function useIfcCache() {
       const meshCount = result.geometry?.meshes.length || 0;
       console.log(`[useIfcCache] ✓ ${fileName} (cached) → ${meshCount} meshes | ${totalCacheTime.toFixed(0)}ms`);
 
-      return true;
+      return {
+        success: true,
+        meshCount,
+        totalVertices: result.geometry?.totalVertices || 0,
+        totalTriangles: result.geometry?.totalTriangles || 0,
+      };
     } catch (err) {
       console.error('[useIfcCache] Failed to load from cache:', err);
       // Clear corrupted cache entry if we have the key
@@ -209,7 +221,12 @@ export function useIfcCache() {
           // Ignore cleanup errors
         }
       }
-      return false;
+      return {
+        success: false,
+        meshCount: 0,
+        totalVertices: 0,
+        totalTriangles: 0,
+      };
     }
   }, [setProgress, setIfcDataStore, setGeometryResult]);
 

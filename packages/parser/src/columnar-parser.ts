@@ -16,7 +16,7 @@ import { extractLengthUnitScale } from './unit-extractor.js';
 import { decodeIfcString } from '@ifc-lite/encoding';
 import { getAttributeNames, getInheritanceChain } from './ifc-schema.js';
 import { parsePropertyValue } from './on-demand-extractors.js';
-import { CompactEntityIndex, buildCompactEntityIndex } from './compact-entity-index.js';
+import { CompactEntityIndex, buildCompactEntityIndexAsync } from './compact-entity-index.js';
 import {
     StringTable,
     EntityTableBuilder,
@@ -58,6 +58,7 @@ export interface IfcDataStore {
 
     source: Uint8Array;
     entityIndex: { byId: EntityByIdIndex; byType: Map<string, number[]> };
+    deferredEntityIndex?: EntityByIdIndex;
 
     strings: StringTable;
     entities: ReturnType<EntityTableBuilder['build']>;
@@ -202,6 +203,11 @@ const PROPERTY_ENTITY_TYPES = new Set([
     'IFCQUANTITYCOUNT', 'IFCQUANTITYWEIGHT', 'IFCQUANTITYTIME',
 ]);
 
+const PROPERTY_CONTAINER_TYPES = new Set([
+    'IFCPROPERTYSET',
+    'IFCELEMENTQUANTITY',
+]);
+
 function isIfcTypeLikeEntity(typeUpper: string): boolean {
     return typeUpper.endsWith('TYPE') || typeUpper.endsWith('STYLE');
 }
@@ -285,12 +291,14 @@ function findQuotedAttrRange(
  *
  * Returns a Map from expressId → { globalId, name }.
  */
-function batchExtractGlobalIdAndName(
+async function batchExtractGlobalIdAndName(
     buffer: Uint8Array,
     refs: EntityRef[],
-): Map<number, { globalId: string; name: string }> {
+    yieldIfNeeded?: () => Promise<void>,
+): Promise<Map<number, { globalId: string; name: string }>> {
     const result = new Map<number, { globalId: string; name: string }>();
     if (refs.length === 0) return result;
+    const CHUNK_SIZE = 2048;
 
     // Phase 1: Scan byte ranges for GlobalId and Name positions (no string allocation)
     const gidRanges: Array<[number, number]> = []; // [start, end) for each entity
@@ -298,6 +306,9 @@ function batchExtractGlobalIdAndName(
     const validIndices: number[] = []; // indices into refs for entities with valid ranges
 
     for (let i = 0; i < refs.length; i++) {
+        if (yieldIfNeeded && (i & (CHUNK_SIZE - 1)) === 0) {
+            await yieldIfNeeded();
+        }
         const ref = refs[i];
         const gidRange = findQuotedAttrRange(buffer, ref.byteOffset, ref.byteLength, 0);
         const nameRange = findQuotedAttrRange(buffer, ref.byteOffset, ref.byteLength, 2);
@@ -312,6 +323,9 @@ function batchExtractGlobalIdAndName(
     let totalGidBytes = 0;
     let totalNameBytes = 0;
     for (let i = 0; i < validIndices.length; i++) {
+        if (yieldIfNeeded && (i & (CHUNK_SIZE - 1)) === 0) {
+            await yieldIfNeeded();
+        }
         const [gs, ge] = gidRanges[i];
         const [ns, ne] = nameRanges[i];
         totalGidBytes += (ge - gs) + 1; // +1 for separator
@@ -324,6 +338,9 @@ function batchExtractGlobalIdAndName(
     let nameOffset = 0;
 
     for (let i = 0; i < validIndices.length; i++) {
+        if (yieldIfNeeded && (i & (CHUNK_SIZE - 1)) === 0) {
+            await yieldIfNeeded();
+        }
         const [gs, ge] = gidRanges[i];
         const [ns, ne] = nameRanges[i];
 
@@ -349,6 +366,9 @@ function batchExtractGlobalIdAndName(
 
     // Phase 4: Build result map
     for (let i = 0; i < validIndices.length; i++) {
+        if (yieldIfNeeded && (i & (CHUNK_SIZE - 1)) === 0) {
+            await yieldIfNeeded();
+        }
         const ref = refs[validIndices[i]];
         const rawName = names[i] || '';
         result.set(ref.expressId, {
@@ -525,6 +545,20 @@ function detectSchemaVersion(buffer: Uint8Array): IfcDataStore['schemaVersion'] 
     return 'IFC4'; // Default fallback
 }
 
+function yieldToEventLoop(): Promise<void> {
+    const maybeScheduler = (globalThis as typeof globalThis & {
+        scheduler?: { yield?: () => Promise<void> };
+    }).scheduler;
+    if (typeof maybeScheduler?.yield === 'function') {
+        return maybeScheduler.yield();
+    }
+    return new Promise<void>((resolve) => {
+        const channel = new MessageChannel();
+        channel.port1.onmessage = () => resolve();
+        channel.port2.postMessage(null);
+    });
+}
+
 export class ColumnarParser {
     /**
      * Parse IFC file into columnar data store
@@ -538,6 +572,9 @@ export class ColumnarParser {
         entityRefs: EntityRef[],
         options: {
             onProgress?: (progress: { phase: string; percent: number }) => void;
+            onDiagnostic?: (message: string) => void;
+            yieldIntervalMs?: number;
+            deferPropertyAtomIndex?: boolean;
             onSpatialReady?: (partialStore: IfcDataStore) => void;
         } = {}
     ): Promise<IfcDataStore> {
@@ -545,8 +582,18 @@ export class ColumnarParser {
         const uint8Buffer = new Uint8Array(buffer);
         const totalEntities = entityRefs.length;
 
-        // Phase timing placeholder (telemetry removed for production)
-        const logPhase = (_name: string) => {};
+        // Phase timing for performance telemetry
+        let phaseStart = startTime;
+        const emitDiagnostic = (message: string) => {
+            options.onDiagnostic?.(message);
+        };
+        const logPhase = (name: string) => {
+            const now = performance.now();
+            const elapsed = Math.round(now - phaseStart);
+            console.log(`[parseLite] ${name}: ${elapsed}ms`);
+            emitDiagnostic(`${name}: ${elapsed}ms`);
+            phaseStart = now;
+        };
 
         options.onProgress?.({ phase: 'building', percent: 0 });
 
@@ -561,14 +608,20 @@ export class ColumnarParser {
 
         logPhase('init builders');
 
-        // Build compact entity index (typed arrays instead of Map for ~3x memory reduction)
-        const compactByIdIndex = buildCompactEntityIndex(entityRefs);
-        logPhase('compact entity index');
-
         // Single pass: build byType index AND categorize entities simultaneously.
         // Uses a type-name cache to avoid calling .toUpperCase() on 4.4M refs
         // (only ~776 unique type names in IFC4).
         const byType = new Map<string, number[]>();
+        const deferPropertyAtomIndex = options.deferPropertyAtomIndex === true;
+        const typeUpperCache = new Map<string, string>();
+        const getTypeUpper = (type: string) => {
+            let upper = typeUpperCache.get(type);
+            if (upper === undefined) {
+                upper = type.toUpperCase();
+                typeUpperCache.set(type, upper);
+            }
+            return upper;
+        };
 
         const RELEVANT_ENTITY_PREFIXES = new Set([
             'IFCWALL', 'IFCSLAB', 'IFCBEAM', 'IFCCOLUMN', 'IFCPLATE', 'IFCDOOR', 'IFCWINDOW',
@@ -577,6 +630,19 @@ export class ColumnarParser {
             'IFCFLOWSEGMENT', 'IFCFLOWTERMINAL', 'IFCFLOWCONTROLLER', 'IFCFLOWFITTING',
             'IFCSPACE', 'IFCOPENINGELEMENT', 'IFCSITE', 'IFCBUILDING', 'IFCBUILDINGSTOREY',
             'IFCPROJECT', 'IFCCOVERING', 'IFCANNOTATION', 'IFCGRID',
+            // Infrastructure entities needed by on-demand extraction and StepExporter.
+            // Without these, findPreferredGeometricRepresentationContextId() and
+            // findLengthUnitReference() fail because the entities are not in byId.
+            'IFCGEOMETRICREPRESENTATIONCONTEXT', 'IFCGEOMETRICREPRESENTATIONSUBCONTEXT',
+            'IFCUNITASSIGNMENT', 'IFCSIUNIT', 'IFCCONVERSIONBASEDUNIT',
+            'IFCDERIVEDUNIT', 'IFCDERIVEDUNITELEMENT', 'IFCMEASUREWITHUNIT',
+            'IFCDIMENSIONALEXPONENTS',
+            'IFCMAPCONVERSION', 'IFCPROJECTEDCRS',
+            'IFCMATERIALLAYER', 'IFCMATERIALLAYERSET', 'IFCMATERIALLAYERSETUSAGE',
+            'IFCMATERIALCONSTITUENTSET', 'IFCMATERIALCONSTITUENT',
+            'IFCMATERIALPROFILESET', 'IFCMATERIALPROFILE', 'IFCMATERIAL',
+            'IFCCLASSIFICATION', 'IFCCLASSIFICATIONREFERENCE',
+            'IFCDOCUMENTINFORMATION', 'IFCDOCUMENTREFERENCE',
         ]);
 
         // Category constants for the lookup cache
@@ -596,9 +662,9 @@ export class ColumnarParser {
         function getCategory(type: string): number {
             let cat = typeCategoryCache.get(type);
             if (cat !== undefined) return cat;
-            const upper = type.toUpperCase();
+            const upper = getTypeUpper(type);
             if (SPATIAL_TYPES.has(upper) || isSubtypeOfAny(upper, SPATIAL_TYPES)) cat = CAT_SPATIAL;
-            else if (GEOMETRY_TYPES.has(upper) || isSubtypeOfAny(upper, GEOMETRY_TYPES)) cat = CAT_GEOMETRY;        
+            else if (GEOMETRY_TYPES.has(upper) || isSubtypeOfAny(upper, GEOMETRY_TYPES)) cat = CAT_GEOMETRY;
             else if (HIERARCHY_REL_TYPES.has(upper)) cat = CAT_HIERARCHY_REL;
             else if (PROPERTY_REL_TYPES.has(upper)) cat = CAT_PROPERTY_REL;
             else if (PROPERTY_ENTITY_TYPES.has(upper)) cat = CAT_PROPERTY_ENTITY;
@@ -610,34 +676,108 @@ export class ColumnarParser {
             return cat;
         }
 
+        // Time-based yielding: yield to the main thread every ~80ms so geometry
+        // streaming callbacks can fire. This limits main-thread blocking to short
+        // bursts that don't starve geometry, while adding minimal overhead (~15 yields
+        // × ~1ms each ≈ 15ms total over the full parse).
+        const YIELD_INTERVAL_MS = Math.max(16, options.yieldIntervalMs ?? 80);
+        let lastYieldTime = performance.now();
+        const yieldIfNeeded = async () => {
+            const now = performance.now();
+            if (now - lastYieldTime >= YIELD_INTERVAL_MS) {
+                await yieldToEventLoop();
+                lastYieldTime = performance.now();
+            }
+        };
+
+        emitDiagnostic(`parseLite start: totalEntities=${totalEntities} yieldInterval=${YIELD_INTERVAL_MS}ms`);
+
         const spatialRefs: EntityRef[] = [];
         const geometryRefs: EntityRef[] = [];
         const relationshipRefs: EntityRef[] = [];
         const propertyRelRefs: EntityRef[] = [];
-        const propertyEntityRefs: EntityRef[] = [];
+        const propertyContainerRefs: EntityRef[] = [];
+        const propertyAtomRefs: EntityRef[] = [];
         const associationRelRefs: EntityRef[] = [];
         const typeObjectRefs: EntityRef[] = [];
         const otherRelevantRefs: EntityRef[] = [];
 
-        for (const ref of entityRefs) {
-            // Build byType index
-            let typeList = byType.get(ref.type);
-            if (!typeList) { typeList = []; byType.set(ref.type, typeList); }
-            typeList.push(ref.expressId);
-
+        for (let i = 0; i < entityRefs.length; i++) {
+            if ((i & 0x3FF) === 0) await yieldIfNeeded();
+            const ref = entityRefs[i];
             // Categorize (cached — .toUpperCase() called once per unique type)
             const cat = getCategory(ref.type);
+            const typeUpper = cat === CAT_PROPERTY_ENTITY ? getTypeUpper(ref.type) : '';
+            // ALL entities must be indexed in byType for on-demand extraction
+            // (e.g. IfcGeometricRepresentationContext, IfcSiUnit, IfcMaterialLayer).
+            // Only property atoms are optionally deferred for huge-file lazy loading.
+            const includeInPrimaryIndex =
+                !deferPropertyAtomIndex || cat !== CAT_PROPERTY_ENTITY || PROPERTY_CONTAINER_TYPES.has(typeUpper);
+            if (includeInPrimaryIndex) {
+                let typeList = byType.get(ref.type);
+                if (!typeList) { typeList = []; byType.set(ref.type, typeList); }
+                typeList.push(ref.expressId);
+            }
             if (cat === CAT_SPATIAL) spatialRefs.push(ref);
             else if (cat === CAT_GEOMETRY) geometryRefs.push(ref);
             else if (cat === CAT_HIERARCHY_REL) relationshipRefs.push(ref);
             else if (cat === CAT_PROPERTY_REL) propertyRelRefs.push(ref);
-            else if (cat === CAT_PROPERTY_ENTITY) propertyEntityRefs.push(ref);
+            else if (cat === CAT_PROPERTY_ENTITY) {
+                if (PROPERTY_CONTAINER_TYPES.has(typeUpper)) propertyContainerRefs.push(ref);
+                else propertyAtomRefs.push(ref);
+            }
             else if (cat === CAT_ASSOCIATION_REL) associationRelRefs.push(ref);
             else if (cat === CAT_TYPE_OBJECT) typeObjectRefs.push(ref);
             else if (cat === CAT_RELEVANT) otherRelevantRefs.push(ref);
         }
 
-        logPhase(`categorize ${totalEntities} → spatial:${spatialRefs.length} geom:${geometryRefs.length} rel:${relationshipRefs.length} propRel:${propertyRelRefs.length} assocRel:${associationRelRefs.length} type:${typeObjectRefs.length} other:${otherRelevantRefs.length}`);
+        logPhase(`categorize ${totalEntities} → spatial:${spatialRefs.length} geom:${geometryRefs.length} rel:${relationshipRefs.length} propRel:${propertyRelRefs.length} propContainers:${propertyContainerRefs.length} propAtoms:${propertyAtomRefs.length} assocRel:${associationRelRefs.length} type:${typeObjectRefs.length} other:${otherRelevantRefs.length}`);
+
+        // Pre-scan association rels to discover relatingRef target IDs (e.g.
+        // IfcClassificationReference, IfcMaterial, IfcDocumentReference).  These
+        // entities are typically categorised as CAT_SKIP and would otherwise be
+        // missing from the compact index, making on-demand extraction fail.
+        const associationTargetIds = new Set<number>();
+        for (const ref of associationRelRefs) {
+            const result = extractPropertyRelFast(uint8Buffer, ref.byteOffset, ref.byteLength);
+            if (result) associationTargetIds.add(result.relatingDef);
+        }
+
+        // Collect EntityRefs for association targets that aren't already categorised.
+        // Single O(n) pass over entityRefs filtered to the (small) target ID set.
+        const alreadyIndexedIds = new Set<number>();
+        for (const arr of [spatialRefs, geometryRefs, relationshipRefs, propertyRelRefs,
+            propertyContainerRefs, associationRelRefs, typeObjectRefs, otherRelevantRefs,
+            ...(deferPropertyAtomIndex ? [] : [propertyAtomRefs])]) {
+            for (const r of arr) alreadyIndexedIds.add(r.expressId);
+        }
+        const extraAssocRefs: EntityRef[] = [];
+        for (const ref of entityRefs) {
+            if (associationTargetIds.has(ref.expressId) && !alreadyIndexedIds.has(ref.expressId)) {
+                extraAssocRefs.push(ref);
+            }
+        }
+        logPhase(`association target pre-scan: ${associationTargetIds.size} targets, ${extraAssocRefs.length} extra refs`);
+
+        // ALL entity refs must be indexed in byId so that on-demand extraction
+        // can look up any entity by expressId (e.g. IfcUnitAssignment,
+        // IfcGeometricRepresentationContext, IfcSiUnit, IfcLocalPlacement, etc.).
+        // Only property atoms are optionally deferred for huge-file lazy loading.
+        const indexedRefs = deferPropertyAtomIndex
+            ? entityRefs.filter(ref => {
+                const cat = getCategory(ref.type);
+                return cat !== CAT_PROPERTY_ENTITY || PROPERTY_CONTAINER_TYPES.has(getTypeUpper(ref.type));
+              })
+            : entityRefs;
+        emitDiagnostic(
+            `index input: indexedRefs=${indexedRefs.length} deferredPropertyAtoms=${deferPropertyAtomIndex ? propertyAtomRefs.length : 0} extraAssocTargets=${extraAssocRefs.length}`
+        );
+
+        // Build compact entity index from only the refs that survive lite parsing.
+        // This avoids spending huge-file startup time indexing millions of skipped
+        // representation/helper entities that the viewer never queries.
+        const compactByIdIndex = await buildCompactEntityIndexAsync(indexedRefs);
+        logPhase('compact entity index');
 
         // Create entity table builder with EXACT capacity (not totalEntities which
         // includes millions of geometry-representation entities we don't store).
@@ -649,20 +789,6 @@ export class ColumnarParser {
         const entityIndex = {
             byId: compactByIdIndex as EntityByIdIndex,
             byType,
-        };
-
-        // Time-based yielding: yield to the main thread every ~80ms so geometry
-        // streaming callbacks can fire. This limits main-thread blocking to short
-        // bursts that don't starve geometry, while adding minimal overhead (~15 yields
-        // × ~1ms each ≈ 15ms total over the full parse).
-        const YIELD_INTERVAL_MS = 80;
-        let lastYieldTime = performance.now();
-        const yieldIfNeeded = async () => {
-            const now = performance.now();
-            if (now - lastYieldTime >= YIELD_INTERVAL_MS) {
-                await new Promise<void>(resolve => setTimeout(resolve, 0));
-                lastYieldTime = performance.now();
-            }
         };
 
         // === TARGETED PARSING using batch byte-level extraction ===
@@ -690,12 +816,12 @@ export class ColumnarParser {
 
         // Geometry + type object entities: batch extract GlobalId+Name with 2 TextDecoder calls
         options.onProgress?.({ phase: 'parsing geometry names', percent: 12 });
-        const geomData = batchExtractGlobalIdAndName(uint8Buffer, geometryRefs);
+        const geomData = await batchExtractGlobalIdAndName(uint8Buffer, geometryRefs, yieldIfNeeded);
         for (const [id, data] of geomData) parsedEntityData.set(id, data);
 
         await yieldIfNeeded();
 
-        const typeData = batchExtractGlobalIdAndName(uint8Buffer, typeObjectRefs);
+        const typeData = await batchExtractGlobalIdAndName(uint8Buffer, typeObjectRefs, yieldIfNeeded);
         for (const [id, data] of typeData) parsedEntityData.set(id, data);
         logPhase('batch geom GlobalId+Name');
 
@@ -704,15 +830,9 @@ export class ColumnarParser {
         // Relationships: byte-level scanning (numbers only, no TextDecoder)
         options.onProgress?.({ phase: 'parsing relationships', percent: 20 });
 
-        // Use a toUpperCase cache across relationship refs (same type name set)
-        const typeUpperCache = new Map<string, string>();
-        const getTypeUpper = (type: string) => {
-            let u = typeUpperCache.get(type);
-            if (u === undefined) { u = type.toUpperCase(); typeUpperCache.set(type, u); }
-            return u;
-        };
-
-        for (const ref of relationshipRefs) {
+        for (let i = 0; i < relationshipRefs.length; i++) {
+            if ((i & 0x3FF) === 0) await yieldIfNeeded();
+            const ref = relationshipRefs[i];
             const typeUpper = getTypeUpper(ref.type);
             const rel = extractRelFast(uint8Buffer, ref.byteOffset, ref.byteLength, typeUpper);
             if (rel) {
@@ -826,7 +946,7 @@ export class ColumnarParser {
         // This replaces 252K binary searches on the 14M compact entity index with O(1) Set lookups.
         const propertySetIds = new Set<number>();
         const quantitySetIds = new Set<number>();
-        for (const ref of propertyEntityRefs) {
+        for (const ref of propertyContainerRefs) {
             const tu = getTypeUpper(ref.type);
             if (tu === 'IFCPROPERTYSET') propertySetIds.add(ref.expressId);
             else if (tu === 'IFCELEMENTQUANTITY') quantitySetIds.add(ref.expressId);
@@ -869,7 +989,9 @@ export class ColumnarParser {
         const onDemandMaterialMap = new Map<number, number>();
         const onDemandDocumentMap = new Map<number, number[]>();
 
-        for (const ref of associationRelRefs) {
+        for (let i = 0; i < associationRelRefs.length; i++) {
+            if ((i & 0x3FF) === 0) await yieldIfNeeded();
+            const ref = associationRelRefs[i];
             const result = extractPropertyRelFast(uint8Buffer, ref.byteOffset, ref.byteLength);
             if (result) {
                 const { relatedObjects, relatingDef: relatingRef } = result;
@@ -904,6 +1026,18 @@ export class ColumnarParser {
         const fullRelationshipGraph = relationshipGraphBuilder.build();
         logPhase('relationship graph build()');
 
+        let deferredEntityIndex: EntityByIdIndex | undefined;
+        if (deferPropertyAtomIndex && propertyAtomRefs.length > 0) {
+            options.onProgress?.({ phase: 'indexing property atoms', percent: 98 });
+            deferredEntityIndex = await buildCompactEntityIndexAsync(
+                propertyAtomRefs,
+                undefined,
+                1024,
+                2,
+            );
+            logPhase('deferred property atom index');
+        }
+
         const parseTime = performance.now() - startTime;
         options.onProgress?.({ phase: 'complete', percent: 100 });
 
@@ -911,6 +1045,7 @@ export class ColumnarParser {
             ...earlyStore,
             parseTime,
             relationships: fullRelationshipGraph,
+            deferredEntityIndex,
             onDemandPropertyMap,
             onDemandQuantityMap,
             onDemandClassificationMap,
@@ -928,7 +1063,7 @@ export class ColumnarParser {
         entityId: number
     ): Array<{ name: string; globalId?: string; properties: Array<{ name: string; type: number; value: PropertyValue }> }> {
         // Use on-demand extraction if map is available (preferred for single-entity access)
-        if (!store.onDemandPropertyMap) {
+        if (!store.onDemandPropertyMap || !store.source?.length) {
             // Fallback to pre-computed property table (e.g., server-parsed data)
             return store.properties.getForEntity(entityId);
         }
@@ -942,7 +1077,7 @@ export class ColumnarParser {
         const result: Array<{ name: string; globalId?: string; properties: Array<{ name: string; type: number; value: PropertyValue }> }> = [];
 
         for (const psetId of psetIds) {
-            const psetRef = store.entityIndex.byId.get(psetId);
+            const psetRef = getEntityRefFromStore(store, psetId);
             if (!psetRef) continue;
 
             const psetEntity = extractor.extractEntity(psetRef);
@@ -959,7 +1094,7 @@ export class ColumnarParser {
                 for (const propRef of hasProperties) {
                     if (typeof propRef !== 'number') continue;
 
-                    const propEntityRef = store.entityIndex.byId.get(propRef);
+                    const propEntityRef = getEntityRefFromStore(store, propRef);
                     if (!propEntityRef) continue;
 
                     const propEntity = extractor.extractEntity(propEntityRef);
@@ -991,7 +1126,7 @@ export class ColumnarParser {
         entityId: number
     ): Array<{ name: string; quantities: Array<{ name: string; type: number; value: number }> }> {
         // Use on-demand extraction if map is available (preferred for single-entity access)
-        if (!store.onDemandQuantityMap) {
+        if (!store.onDemandQuantityMap || !store.source?.length) {
             // Fallback to pre-computed quantity table (e.g., server-parsed data)
             return store.quantities.getForEntity(entityId);
         }
@@ -1005,7 +1140,7 @@ export class ColumnarParser {
         const result: Array<{ name: string; quantities: Array<{ name: string; type: number; value: number }> }> = [];
 
         for (const qsetId of qsetIds) {
-            const qsetRef = store.entityIndex.byId.get(qsetId);
+            const qsetRef = getEntityRefFromStore(store, qsetId);
             if (!qsetRef) continue;
 
             const qsetEntity = extractor.extractEntity(qsetRef);
@@ -1021,7 +1156,7 @@ export class ColumnarParser {
                 for (const qtyRef of hasQuantities) {
                     if (typeof qtyRef !== 'number') continue;
 
-                    const qtyEntityRef = store.entityIndex.byId.get(qtyRef);
+                    const qtyEntityRef = getEntityRefFromStore(store, qtyRef);
                     if (!qtyEntityRef) continue;
 
                     const qtyEntity = extractor.extractEntity(qtyEntityRef);
@@ -1073,6 +1208,10 @@ export function extractQuantitiesOnDemand(
 ): Array<{ name: string; quantities: Array<{ name: string; type: number; value: number }> }> {
     const parser = new ColumnarParser();
     return parser.extractQuantitiesOnDemand(store, entityId);
+}
+
+function getEntityRefFromStore(store: IfcDataStore, expressId: number): EntityRef | undefined {
+    return store.entityIndex.byId.get(expressId) ?? store.deferredEntityIndex?.get(expressId);
 }
 
 /**

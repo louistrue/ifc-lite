@@ -39,22 +39,23 @@ export async function handleSelectionClick(ctx: MouseHandlerContext, e: MouseEve
   const now = Date.now();
   const timeSinceLastClick = now - ctx.lastClickTimeRef.current;
   const clickPos = { x, y };
-
   if (ctx.lastClickPosRef.current &&
     timeSinceLastClick < 300 &&
     Math.abs(clickPos.x - ctx.lastClickPosRef.current.x) < 5 &&
     Math.abs(clickPos.y - ctx.lastClickPosRef.current.y) < 5) {
+    const pickOptions = ctx.getPickOptions();
     // Double-click - isolate element
     // Uses visibility filtering so only visible elements can be selected
-    const pickResult = await renderer.pick(x, y, ctx.getPickOptions());
+    const pickResult = await renderer.pick(x, y, pickOptions);
     if (pickResult) {
       ctx.handlePickForSelection(pickResult);
     }
     ctx.lastClickTimeRef.current = 0;
     ctx.lastClickPosRef.current = null;
   } else {
+    const pickOptions = ctx.getPickOptions();
     // Single click - uses visibility filtering so only visible elements can be selected
-    const pickResult = await renderer.pick(x, y, ctx.getPickOptions());
+    const pickResult = await renderer.pick(x, y, pickOptions);
 
     // Multi-selection with Ctrl/Cmd
     if (e.ctrlKey || e.metaKey) {

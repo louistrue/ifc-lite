@@ -99,6 +99,40 @@ async function fetchJson<T>(url: string): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+interface BsddSearchApiResult {
+  uri?: string;
+  code?: string;
+  referenceCode?: string;
+  name?: string;
+  definition?: string | null;
+  dictionaryUri?: string;
+}
+
+function matchesIfcType(candidate: BsddSearchApiResult, ifcType: string): boolean {
+  return candidate.code === ifcType
+    || candidate.referenceCode === ifcType
+    || candidate.name === ifcType;
+}
+
+async function resolveFallbackClassUri(ifcType: string): Promise<string | null> {
+  try {
+    const raw = await fetchJson<{ classes?: BsddSearchApiResult[] }>(
+      `${BSDD_API}/api/Class/Search/v1?SearchText=${encodeURIComponent(ifcType)}&RelatedIfcEntities=${encodeURIComponent(ifcType)}`,
+    );
+    const classes = raw.classes ?? [];
+    if (classes.length === 0) return null;
+
+    const preferred = classes.find((entry) => entry.dictionaryUri === IFC_DICTIONARY_URI && matchesIfcType(entry, ifcType))
+      ?? classes.find((entry) => matchesIfcType(entry, ifcType))
+      ?? classes.find((entry) => entry.dictionaryUri === IFC_DICTIONARY_URI)
+      ?? classes[0];
+
+    return preferred?.uri ?? null;
+  } catch {
+    return null;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -128,15 +162,30 @@ export function ifcClassUri(ifcType: string): string {
 export async function fetchClassInfo(
   ifcType: string,
 ): Promise<BsddClassInfo | null> {
-  const uri = ifcClassUri(ifcType);
+  const defaultUri = ifcClassUri(ifcType);
+  let uri = defaultUri;
   const cached = getCached(uri);
   if (cached) return cached;
 
   try {
     // Parameter names must be PascalCase per the bSDD OpenAPI spec
-    const raw = await fetchJson<Record<string, unknown>>(
-      `${BSDD_API}/api/Class/v1?Uri=${encodeURIComponent(uri)}&IncludeClassProperties=true&IncludeClassRelations=true`,
-    );
+    let raw: Record<string, unknown>;
+    try {
+      raw = await fetchJson<Record<string, unknown>>(
+        `${BSDD_API}/api/Class/v1?Uri=${encodeURIComponent(uri)}&IncludeClassProperties=true&IncludeClassRelations=true`,
+      );
+    } catch {
+      const fallbackUri = await resolveFallbackClassUri(ifcType);
+      if (!fallbackUri || fallbackUri === uri) {
+        throw new Error('bSDD class lookup failed');
+      }
+      uri = fallbackUri;
+      const fallbackCached = getCached(uri);
+      if (fallbackCached) return fallbackCached;
+      raw = await fetchJson<Record<string, unknown>>(
+        `${BSDD_API}/api/Class/v1?Uri=${encodeURIComponent(uri)}&IncludeClassProperties=true&IncludeClassRelations=true`,
+      );
+    }
 
     let info = mapClassResponse(raw, true);
 

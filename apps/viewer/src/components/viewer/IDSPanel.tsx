@@ -15,7 +15,7 @@
  * - Multi-language support (EN/DE/FR)
  */
 
-import React, { useCallback, useState, useMemo, useRef } from 'react';
+import React, { useCallback, useEffect, useState, useMemo, useRef } from 'react';
 import {
   X,
   Upload,
@@ -65,6 +65,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useIDS } from '@/hooks/useIDS';
+import { openGenericFileDialog } from '@/services/file-dialog';
 import type {
   IDSSpecificationResult,
   IDSEntityResult,
@@ -73,6 +74,7 @@ import type {
 import { cn } from '@/lib/utils';
 import { IDSExportDialog } from './IDSExportDialog';
 import type { IDSBCFExportSettings, IDSExportProgress } from './IDSExportDialog';
+import { claimNextDesktopPanelAction, subscribeDesktopPanelActions } from '@/services/desktop-panel-actions';
 
 // ============================================================================
 // Types
@@ -485,6 +487,53 @@ export function IDSPanel({ onClose }: IDSPanelProps) {
     e.target.value = '';
   }, [loadIDSFile]);
 
+  const loadIdsFromDialog = useCallback(async (): Promise<boolean> => {
+    const file = await openGenericFileDialog({
+      title: 'Open IDS File',
+      filters: [
+        { name: 'IDS Files', extensions: ['ids', 'xml'] },
+        { name: 'All Files', extensions: ['*'] },
+      ],
+    });
+    if (file) {
+      await loadIDSFile(file);
+      return true;
+    }
+    return false;
+  }, [loadIDSFile]);
+
+  const handleLoadIdsClick = useCallback(async () => {
+    const loaded = await loadIdsFromDialog();
+    if (loaded) {
+      return;
+    }
+    fileInputRef.current?.click();
+  }, [loadIdsFromDialog]);
+
+  const handleDesktopRunValidation = useCallback(async () => {
+    if (!document) {
+      const loaded = await loadIdsFromDialog();
+      if (!loaded) {
+        return;
+      }
+    }
+    await runValidation();
+  }, [document, loadIdsFromDialog, runValidation]);
+
+  useEffect(() => {
+    const drainDesktopActions = () => {
+      if (claimNextDesktopPanelAction('ids-open')) {
+        void loadIdsFromDialog();
+      }
+      if (claimNextDesktopPanelAction('ids-run-validation')) {
+        void handleDesktopRunValidation();
+      }
+    };
+
+    drainDesktopActions();
+    return subscribeDesktopPanelActions(drainDesktopActions);
+  }, [handleDesktopRunValidation, loadIdsFromDialog]);
+
   // Handle entity click
   const handleEntityClick = useCallback((modelId: string, expressId: number) => {
     selectEntity(modelId, expressId);
@@ -527,7 +576,7 @@ export function IDSPanel({ onClose }: IDSPanelProps) {
           className="hidden"
           onChange={handleFileSelect}
         />
-        <Button onClick={() => fileInputRef.current?.click()}>
+        <Button onClick={() => { void handleLoadIdsClick(); }}>
           <Upload className="h-4 w-4 mr-2" />
           Load IDS File
         </Button>
@@ -707,7 +756,7 @@ export function IDSPanel({ onClose }: IDSPanelProps) {
                     variant="ghost"
                     size="sm"
                     className="h-7 w-7 p-0"
-                    onClick={() => fileInputRef.current?.click()}
+                    onClick={() => { void handleLoadIdsClick(); }}
                   >
                     <Upload className="h-3 w-3" />
                   </Button>

@@ -177,6 +177,10 @@ function loadStoredModel(userId: string | null, fallback?: string): string {
   }
 }
 
+function loadValidStoredModel(userId: string | null, hasPro: boolean, fallback?: string): string {
+  return coerceModelForEntitlement(loadStoredModel(userId, fallback), hasPro);
+}
+
 function loadStoredAutoExecute(): boolean {
   try {
     const val = localStorage.getItem(AUTO_EXEC_STORAGE_KEY);
@@ -275,7 +279,7 @@ export const createChatSlice: StateCreator<ChatSlice, [], [], ChatSlice> = (set,
   chatMessages: loadStoredMessages(null),
   chatStatus: 'idle',
   chatStreamingContent: '',
-  chatActiveModel: loadStoredModel(null),
+  chatActiveModel: loadValidStoredModel(null, false),
   chatAutoExecute: loadStoredAutoExecute(),
   chatError: null,
   chatAbortController: null,

@@ -78,6 +78,16 @@ export class PickingManager {
         // This handles the case where we have SOME individual meshes (e.g., from highlighting)
         // but not enough for full GPU picking coverage
         if (batchedMeshes.length > 0) {
+            if (this.scene.isGeometryDataReleased()) {
+                const ray = this.camera.unprojectToRay(scaledX, scaledY, this.canvas.width, this.canvas.height);
+                const hit = this.scene.raycast(ray.origin, ray.direction, options?.hiddenIds, options?.isolatedIds);
+                if (!hit) return null;
+                return {
+                    expressId: hit.expressId,
+                    modelIndex: hit.modelIndex,
+                };
+            }
+
             // Collect all expressIds from batched meshes
             const expressIds = new Set<number>();
             for (const batch of batchedMeshes) {
@@ -124,7 +134,7 @@ export class PickingManager {
             // GPU picking requires individual mesh buffers; for 60K+ elements this is too slow
             // CPU raycasting uses bounding box filtering + triangle tests - no GPU buffers needed
             const MAX_PICK_MESH_CREATION = 500;
-            if (toCreate > MAX_PICK_MESH_CREATION) {
+            if (toCreate > MAX_PICK_MESH_CREATION || (visibleExpressIds.length > 0 && requiredPieceCounts.size === 0)) {
                 // Use CPU raycasting fallback - works regardless of how many individual meshes exist
                 const ray = this.camera.unprojectToRay(scaledX, scaledY, this.canvas.width, this.canvas.height);
                 const hit = this.scene.raycast(ray.origin, ray.direction, options?.hiddenIds, options?.isolatedIds);

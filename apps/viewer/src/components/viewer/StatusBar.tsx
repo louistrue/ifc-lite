@@ -60,8 +60,24 @@ export function StatusBar() {
     if (!geometryResult) {
       return { elements: 0, triangles: 0 };
     }
+    // Count actual entities: for color-merged meshes, count unique entity IDs
+    let elements = 0;
+    const meshes = geometryResult.meshes;
+    if (meshes) {
+      for (let i = 0; i < meshes.length; i++) {
+        const m = meshes[i] as { entityIds?: Uint32Array };
+        if (m.entityIds && m.entityIds.length > 0) {
+          // Count unique entity IDs in this merged mesh
+          const seen = new Set<number>();
+          for (let j = 0; j < m.entityIds.length; j++) seen.add(m.entityIds[j]);
+          elements += seen.size;
+        } else {
+          elements += 1;
+        }
+      }
+    }
     return {
-      elements: geometryResult.meshes?.length ?? 0,
+      elements,
       triangles: geometryResult.totalTriangles ?? 0,
     };
   }, [geometryResult]);

@@ -16,9 +16,11 @@ const resultsDir = join(rootDir, 'tests/benchmark/benchmark-results');
 
 const thresholds = {
   firstBatchWaitMs: 50,
-  geometryStreamingMs: 50,
-  entityScanMs: 50,
-  dataModelParseMs: 50,
+  firstVisibleGeometryMs: 50,
+  streamCompleteMs: 50,
+  spatialReadyMs: 50,
+  metadataCompleteMs: 50,
+  totalWallClockMs: 50,
 };
 
 function loadJson(path) {

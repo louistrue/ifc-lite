@@ -13,19 +13,31 @@
 import { useCallback } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useViewerStore, type FederatedModel, type SchemaVersion } from '../store.js';
-import { IfcParser, detectFormat, parseIfcx, parseFederatedIfcx, type IfcDataStore, type FederatedIfcxParseResult } from '@ifc-lite/parser';
-import { GeometryProcessor, GeometryQuality, type MeshData, type CoordinateInfo } from '@ifc-lite/geometry';
+import { detectFormat, parseFederatedIfcx, type IfcDataStore, type FederatedIfcxParseResult } from '@ifc-lite/parser';
+import type { MeshData } from '@ifc-lite/geometry';
 import { IfcQuery } from '@ifc-lite/query';
 import { buildSpatialIndexGuarded } from '../utils/loadingUtils.js';
-import { loadGLBToMeshData } from '@ifc-lite/cache';
-
 import { getDynamicBatchConfig } from '../utils/ifcConfig.js';
+import { calculateMeshBounds, createCoordinateInfo } from '../utils/localParsingUtils.js';
 import {
-  calculateMeshBounds,
-  createCoordinateInfo,
-  calculateStoreyHeights,
-  normalizeColor,
-} from '../utils/localParsingUtils.js';
+  convertIfcxMeshes,
+  getMaxExpressId,
+  parseGlbViewerModel,
+  parseIfcxViewerModel,
+  parseStepBufferViewerModel,
+} from './ingest/viewerModelIngest.js';
+import { readNativeFile, type NativeFileHandle } from '../services/file-dialog.js';
+
+function isNativeFileHandle(file: File | NativeFileHandle): file is NativeFileHandle {
+  return typeof (file as NativeFileHandle).path === 'string';
+}
+
+function toExactArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  if (bytes.buffer instanceof ArrayBuffer && bytes.byteOffset === 0 && bytes.byteLength === bytes.buffer.byteLength) {
+    return bytes.buffer;
+  }
+  return bytes.slice().buffer;
+}
 
 /**
  * Extended data store type for IFCX (IFC5) files.
@@ -41,41 +53,6 @@ export interface IfcxDataStore extends IfcDataStore {
   _compositionStats?: { layersUsed: number; inheritanceResolutions: number; crossLayerReferences: number };
   /** Layer info for display */
   _layerInfo?: Array<{ id: string; name: string; meshCount: number }>;
-}
-
-/** Shape of raw meshes returned from IFCX parsers before conversion to MeshData */
-interface RawIfcxMesh {
-  expressId?: number;
-  express_id?: number;
-  id?: number;
-  positions: Float32Array | number[];
-  indices: Uint32Array | number[];
-  normals: Float32Array | number[];
-  color?: [number, number, number, number] | [number, number, number];
-  ifcType?: string;
-  ifc_type?: string;
-}
-
-/**
- * Convert raw IFCX parser meshes to viewer-compatible MeshData[].
- * Ensures typed arrays, normalizes colors, and filters out empty meshes.
- */
-function convertIfcxMeshes(rawMeshes: RawIfcxMesh[]): MeshData[] {
-  return rawMeshes.map((m) => {
-    const positions = m.positions instanceof Float32Array ? m.positions : new Float32Array(m.positions || []);
-    const indices = m.indices instanceof Uint32Array ? m.indices : new Uint32Array(m.indices || []);
-    const normals = m.normals instanceof Float32Array ? m.normals : new Float32Array(m.normals || []);
-    const color = normalizeColor(m.color);
-
-    return {
-      expressId: m.expressId ?? m.express_id ?? m.id ?? 0,
-      positions,
-      indices,
-      normals,
-      color,
-      ifcType: m.ifcType ?? m.ifc_type ?? 'IfcProduct',
-    };
-  }).filter((m) => m.positions.length > 0 && m.indices.length > 0);
 }
 
 /**
@@ -122,7 +99,7 @@ export function useIfcFederation() {
    * Returns the model ID on success, null on failure
    */
   const addModel = useCallback(async (
-    file: File,
+    file: File | NativeFileHandle,
     options?: { name?: string }
   ): Promise<string | null> => {
     const modelId = crypto.randomUUID();
@@ -177,173 +154,52 @@ export function useIfcFederation() {
       setProgress({ phase: 'Loading file', percent: 0 });
 
       // Read file from disk
-      const buffer = await file.arrayBuffer();
+      const buffer = isNativeFileHandle(file)
+        ? toExactArrayBuffer(await readNativeFile(file.path))
+        : await file.arrayBuffer();
       const fileSizeMB = buffer.byteLength / (1024 * 1024);
 
       // Detect file format
       const format = detectFormat(buffer);
 
       let parsedDataStore: IfcDataStore | null = null;
-      let parsedGeometry: { meshes: MeshData[]; totalVertices: number; totalTriangles: number; coordinateInfo: CoordinateInfo } | null = null;
+      let parsedGeometry: FederatedModel['geometryResult'] = null;
       let schemaVersion: SchemaVersion = 'IFC4';
 
-      // IFCX files must be parsed client-side
       if (format === 'ifcx') {
         setProgress({ phase: 'Parsing IFCX (client-side)', percent: 10 });
-
-        const ifcxResult = await parseIfcx(buffer, {
-          onProgress: (prog: { phase: string; percent: number }) => {
-            setProgress({ phase: `IFCX ${prog.phase}`, percent: 10 + (prog.percent * 0.8) });
-          },
-        });
-
-        // Convert IFCX meshes to viewer format
-        const meshes: MeshData[] = convertIfcxMeshes(ifcxResult.meshes);
-
-        // Check if this is an overlay-only IFCX file (no geometry)
-        if (meshes.length === 0 && ifcxResult.entityCount > 0) {
-          setError(`"${file.name}" is an overlay file with no geometry. Please load it together with a base IFCX file (select all files at once for federated loading).`);
-          setLoading(false);
-          return null;
+        try {
+          const result = await parseIfcxViewerModel(buffer, setProgress);
+          parsedDataStore = result.dataStore;
+          parsedGeometry = result.geometryResult;
+          schemaVersion = result.schemaVersion;
+        } catch (error) {
+          if (error instanceof Error && error.message === 'overlay-only-ifcx') {
+            console.warn(`[useIfc] IFCX file "${file.name}" has no geometry - this is an overlay file.`);
+            setError(`"${file.name}" is an overlay file with no geometry. Please load it together with a base IFCX file (select all files at once for federated loading).`);
+            setLoading(false);
+            return null;
+          }
+          throw error;
         }
-
-        const { bounds, stats } = calculateMeshBounds(meshes);
-        const coordinateInfo = createCoordinateInfo(bounds);
-
-        parsedGeometry = {
-          meshes,
-          totalVertices: stats.totalVertices,
-          totalTriangles: stats.totalTriangles,
-          coordinateInfo,
-        };
-
-        parsedDataStore = {
-          fileSize: ifcxResult.fileSize,
-          schemaVersion: 'IFC5' as const,
-          entityCount: ifcxResult.entityCount,
-          parseTime: ifcxResult.parseTime,
-          source: new Uint8Array(buffer),
-          entityIndex: { byId: new Map(), byType: new Map() },
-          strings: ifcxResult.strings,
-          entities: ifcxResult.entities,
-          properties: ifcxResult.properties,
-          quantities: ifcxResult.quantities,
-          relationships: ifcxResult.relationships,
-          spatialHierarchy: ifcxResult.spatialHierarchy,
-        } as IfcxDataStore;
-
-        schemaVersion = 'IFC5';
-
       } else if (format === 'glb') {
-        // GLB files: parse directly to MeshData (geometry only, no IFC data model)
         setProgress({ phase: 'Parsing GLB', percent: 10 });
-
-        const meshes = loadGLBToMeshData(new Uint8Array(buffer));
-
-        if (meshes.length === 0) {
-          setError('GLB file contains no geometry');
-          setLoading(false);
-          return null;
-        }
-
-        const { bounds, stats } = calculateMeshBounds(meshes);
-        const coordinateInfo = createCoordinateInfo(bounds);
-
-        parsedGeometry = {
-          meshes,
-          totalVertices: stats.totalVertices,
-          totalTriangles: stats.totalTriangles,
-          coordinateInfo,
-        };
-
-        // Create a minimal data store for GLB (no IFC properties)
-        parsedDataStore = {
-          fileSize: buffer.byteLength,
-          schemaVersion: 'IFC4' as const,
-          entityCount: meshes.length,
-          parseTime: 0,
-          source: new Uint8Array(0),
-          entityIndex: { byId: new Map(), byType: new Map() },
-          strings: { getString: () => undefined, getStringId: () => undefined, count: 0 } as unknown as IfcDataStore['strings'],
-          entities: { count: 0, getId: () => 0, getType: () => 0, getName: () => undefined, getGlobalId: () => undefined } as unknown as IfcDataStore['entities'],
-          properties: { count: 0, getPropertiesForEntity: () => [], getPropertySetForEntity: () => [] } as unknown as IfcDataStore['properties'],
-          quantities: { count: 0, getQuantitiesForEntity: () => [] } as unknown as IfcDataStore['quantities'],
-          relationships: { count: 0, getRelationships: () => [], getRelated: () => [] } as unknown as IfcDataStore['relationships'],
-          spatialHierarchy: null as unknown as IfcDataStore['spatialHierarchy'],
-        } as unknown as IfcDataStore;
-
-        schemaVersion = 'IFC4'; // GLB doesn't have a schema version, use IFC4 as default
-
+        const result = await parseGlbViewerModel(buffer);
+        parsedDataStore = result.dataStore;
+        parsedGeometry = result.geometryResult;
+        schemaVersion = result.schemaVersion;
       } else {
-        // IFC4/IFC2X3 STEP format - use WASM parsing
         setProgress({ phase: 'Starting geometry streaming', percent: 10 });
-
-        const geometryProcessor = new GeometryProcessor({ quality: GeometryQuality.Balanced });
-        await geometryProcessor.init();
-
-        // Parse data model
-        const parser = new IfcParser();
-        const wasmApi = geometryProcessor.getApi();
-
-        const dataStorePromise = parser.parseColumnar(buffer, { wasmApi });
-
-        // Process geometry
-        const allMeshes: MeshData[] = [];
-        let finalCoordinateInfo: CoordinateInfo | null = null;
-        // Capture RTC offset from WASM for proper multi-model alignment
-        let capturedRtcOffset: { x: number; y: number; z: number } | null = null;
-
-        const dynamicBatchConfig = getDynamicBatchConfig(fileSizeMB);
-
-        for await (const event of geometryProcessor.processAdaptive(new Uint8Array(buffer), {
-          sizeThreshold: 2 * 1024 * 1024,
-          batchSize: dynamicBatchConfig,
-        })) {
-          switch (event.type) {
-            case 'batch': {
-              for (let i = 0; i < event.meshes.length; i++) allMeshes.push(event.meshes[i]);
-              finalCoordinateInfo = event.coordinateInfo ?? null;
-              const progressPercent = 10 + Math.min(80, (allMeshes.length / 1000) * 0.8);
-              setProgress({ phase: `Processing geometry (${allMeshes.length} meshes)`, percent: progressPercent });
-              break;
-            }
-            case 'rtcOffset': {
-              // Capture RTC offset from WASM for multi-model alignment
-              if (event.hasRtc) {
-                capturedRtcOffset = event.rtcOffset;
-              }
-              break;
-            }
-            case 'complete':
-              finalCoordinateInfo = event.coordinateInfo ?? null;
-              break;
-          }
-        }
-
-        parsedDataStore = await dataStorePromise;
-
-        // Calculate storey heights
-        if (parsedDataStore.spatialHierarchy && parsedDataStore.spatialHierarchy.storeyHeights.size === 0 && parsedDataStore.spatialHierarchy.storeyElevations.size > 1) {
-          const calculatedHeights = calculateStoreyHeights(parsedDataStore.spatialHierarchy.storeyElevations);
-          for (const [storeyId, height] of calculatedHeights) {
-            parsedDataStore.spatialHierarchy.storeyHeights.set(storeyId, height);
-          }
-        }
-
-        parsedGeometry = {
-          meshes: allMeshes,
-          totalVertices: allMeshes.reduce((sum, m) => sum + m.positions.length / 3, 0),
-          totalTriangles: allMeshes.reduce((sum, m) => sum + m.indices.length / 3, 0),
-          coordinateInfo: finalCoordinateInfo || createCoordinateInfo(calculateMeshBounds(allMeshes).bounds),
-        };
-
-        // Store captured RTC offset in coordinate info for multi-model alignment
-        if (parsedGeometry.coordinateInfo && capturedRtcOffset) {
-          parsedGeometry.coordinateInfo.wasmRtcOffset = capturedRtcOffset;
-        }
-
-        schemaVersion = parsedDataStore.schemaVersion === 'IFC4X3' ? 'IFC4X3' :
-          parsedDataStore.schemaVersion === 'IFC4' ? 'IFC4' : 'IFC2X3';
+        const result = await parseStepBufferViewerModel({
+          fileName: file.name,
+          buffer,
+          fileSizeMB,
+          getDynamicBatchSize: getDynamicBatchConfig,
+          onProgress: setProgress,
+        });
+        parsedDataStore = result.dataStore;
+        parsedGeometry = result.geometryResult;
+        schemaVersion = result.schemaVersion;
       }
 
       if (!parsedDataStore || !parsedGeometry) {
@@ -358,15 +214,7 @@ export function useIfcFederation() {
       // Step 1: Find max expressId in this model
       // IMPORTANT: Use ALL entities from data store, not just meshes
       // Spatial containers (IfcProject, IfcSite, etc.) don't have geometry but need valid globalId resolution
-      const maxExpressIdFromMeshes = parsedGeometry.meshes.reduce((max, m) => Math.max(max, m.expressId), 0);
-      // FIXED: Use iteration instead of spread to avoid stack overflow with large Maps
-      let maxExpressIdFromEntities = 0;
-      if (parsedDataStore.entityIndex?.byId) {
-        for (const key of parsedDataStore.entityIndex.byId.keys()) {
-          if (key > maxExpressIdFromEntities) maxExpressIdFromEntities = key;
-        }
-      }
-      const maxExpressId = Math.max(maxExpressIdFromMeshes, maxExpressIdFromEntities);
+      const maxExpressId = getMaxExpressId(parsedDataStore, parsedGeometry.meshes);
 
       // Step 2: Register with federation registry to get unique offset
       const idOffset = registerModelOffset(modelId, maxExpressId);
@@ -511,7 +359,7 @@ export function useIfcFederation() {
    */
   const getQueryForModel = useCallback((modelId: string): IfcQuery | null => {
     const model = getModel(modelId);
-    if (!model) return null;
+    if (!model || !model.ifcDataStore) return null;
     return new IfcQuery(model.ifcDataStore);
   }, [getModel]);
 

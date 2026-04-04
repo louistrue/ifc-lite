@@ -23,12 +23,50 @@ export interface StreamingProgress {
   currentType: string;
 }
 
+export interface NativeBatchTelemetry {
+  batchSequence: number;
+  payloadKind: string;
+  meshCount: number;
+  positionsLen: number;
+  normalsLen: number;
+  indicesLen: number;
+  chunkReadyTimeMs: number;
+  packTimeMs: number;
+  emittedTimeMs: number;
+  emitTimeMs: number;
+  jsReceivedTimeMs?: number;
+}
+
+export interface MetadataBootstrapEntitySummary {
+  expressId: number;
+  typeName: string;
+  name: string;
+  globalId?: string | null;
+  kind: string;
+  hasChildren: boolean;
+  elementCount?: number;
+  elevation?: number | null;
+}
+
+export interface MetadataBootstrapSpatialNode extends MetadataBootstrapEntitySummary {
+  children: MetadataBootstrapSpatialNode[];
+  elements: MetadataBootstrapEntitySummary[];
+}
+
+export interface MetadataBootstrapPayload {
+  cacheKey: string;
+  schemaVersion: string;
+  entityCount: number;
+  spatialTree: MetadataBootstrapSpatialNode | null;
+}
+
 /**
  * Batch of meshes emitted during streaming
  */
 export interface GeometryBatch {
   meshes: MeshData[];
   progress: StreamingProgress;
+  nativeTelemetry?: NativeBatchTelemetry;
 }
 
 /**
@@ -39,7 +77,15 @@ export interface GeometryStats {
   totalVertices: number;
   totalTriangles: number;
   parseTimeMs: number;
+  entityScanTimeMs?: number;
+  lookupTimeMs?: number;
+  preprocessTimeMs?: number;
   geometryTimeMs: number;
+  totalTimeMs?: number;
+  firstChunkReadyTimeMs?: number;
+  firstChunkPackTimeMs?: number;
+  firstChunkEmittedTimeMs?: number;
+  firstChunkEmitTimeMs?: number;
 }
 
 /**
@@ -58,6 +104,10 @@ export interface GeometryProcessingResult {
 export interface StreamingOptions {
   /** Callback for each batch of meshes */
   onBatch?: (batch: GeometryBatch) => void;
+  /** Callback for early metadata bootstrap when available */
+  onMetadataBootstrap?: (bootstrap: MetadataBootstrapPayload) => void;
+  /** Callback for deferred color updates */
+  onColorUpdate?: (updates: Map<number, [number, number, number, number]>) => void;
   /** Callback when processing is complete */
   onComplete?: (stats: GeometryStats) => void;
   /** Callback for errors */
@@ -85,11 +135,27 @@ export interface IPlatformBridge {
   processGeometry(content: string | Uint8Array): Promise<GeometryProcessingResult>;
 
   /**
+   * Process IFC geometry directly from a filesystem path when supported.
+   * Native desktop bridges can avoid copying huge files through JS/IPC.
+   */
+  processGeometryPath?(path: string): Promise<GeometryProcessingResult>;
+
+  /**
    * Process IFC content with streaming output
    * @param content IFC file content as string or raw bytes
    * @param options Streaming options with callbacks
    */
   processGeometryStreaming(content: string | Uint8Array, options: StreamingOptions): Promise<GeometryStats>;
+
+  /**
+   * Stream IFC geometry directly from a filesystem path when supported.
+   */
+  processGeometryStreamingPath?(path: string, options: StreamingOptions, cacheKey?: string): Promise<GeometryStats>;
+
+  /**
+   * Stream previously cached native desktop geometry by cache key.
+   */
+  processGeometryStreamingCache?(cacheKey: string, options: StreamingOptions): Promise<GeometryStats>;
 
   /**
    * Get the underlying API object (for advanced usage)

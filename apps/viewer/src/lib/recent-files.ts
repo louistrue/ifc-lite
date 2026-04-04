@@ -103,7 +103,8 @@ export async function cacheFileBlobs(files: File[]): Promise<void> {
 }
 
 /** Retrieve a cached file blob and reconstruct a File object. */
-export async function getCachedFile(name: string): Promise<File | null> {
+export async function getCachedFile(target: string | RecentFileEntry): Promise<File | null> {
+  const name = typeof target === 'string' ? target : target.name;
   try {
     const db = await openDB();
     const tx = db.transaction(STORE_NAME, 'readonly');

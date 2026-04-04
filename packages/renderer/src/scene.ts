@@ -45,6 +45,8 @@ export class Scene {
   private nextSplitId: number = 0; // Monotonic counter for sub-bucket keys
   private nextBatchId: number = 0; // Monotonic counter for unique batch identifiers
   private cachedMaxBufferSize: number = 0; // device.limits.maxBufferSize * safety factor (set on first use)
+  private static readonly STREAMING_FRAGMENT_MAX_INDICES = 180_000;
+  private static readonly STREAMING_FRAGMENT_MAX_VERTEX_BYTES = 8 * 1024 * 1024;
 
   // Sub-batch cache for partially visible batches (PERFORMANCE FIX)
   // Key = colorKey + ":" + sorted visible expressIds hash
@@ -69,12 +71,14 @@ export class Scene {
   // via queueMeshes() (instant, no GPU), and the animation loop drains
   // the queue via flushPending() with a per-frame time budget.
   private meshQueue: MeshData[] = [];
+  private meshQueueReadIndex: number = 0;
 
   // ─── GPU-resident mode ──────────────────────────────────────────────
   // After releaseGeometryData(), JS-side typed arrays are freed.
   // Only lightweight metadata is retained for operations that don't need
   // raw vertex data (bounding boxes, color key lookups, expressId sets).
   private geometryReleased: boolean = false;
+  private ephemeralStreamingMode: boolean = false;
 
   /**
    * Add mesh to scene
@@ -117,6 +121,23 @@ export class Scene {
    * Accumulates multiple mesh pieces per expressId (elements can have multiple geometry pieces)
    */
   addMeshData(meshData: MeshData): void {
+    // For color-merged batches with per-vertex entityIds, register the mesh
+    // under EVERY unique entity so picking/visibility/selection can find it.
+    if (meshData.entityIds && meshData.entityIds.length > 0) {
+      const seen = new Set<number>();
+      for (let i = 0; i < meshData.entityIds.length; i++) {
+        const eid = meshData.entityIds[i];
+        if (seen.has(eid)) continue;
+        seen.add(eid);
+        const existing = this.meshDataMap.get(eid);
+        if (existing) {
+          existing.push(meshData);
+        } else {
+          this.meshDataMap.set(eid, [meshData]);
+        }
+      }
+      return;
+    }
     const existing = this.meshDataMap.get(meshData.expressId);
     if (existing) {
       existing.push(meshData);
@@ -142,7 +163,34 @@ export class Scene {
       if (pieces.length === 0) return undefined;
     }
 
-    if (pieces.length === 1) return pieces[0];
+    if (pieces.length === 1) {
+      const single = pieces[0];
+      // For color-merged batches, extract only the vertices belonging to
+      // this expressId so selection highlighting is per-entity, not the
+      // entire merged batch.
+      if (single.entityIds) {
+        return this.extractEntityFromMergedMesh(single, expressId);
+      }
+      return single;
+    }
+
+    // For multiple pieces that are ALL merged batches referencing the same
+    // entity, extract from each and concatenate.
+    if (pieces.some(p => p.entityIds)) {
+      const extracted: MeshData[] = [];
+      for (const piece of pieces) {
+        if (piece.entityIds) {
+          const ex = this.extractEntityFromMergedMesh(piece, expressId);
+          if (ex) extracted.push(ex);
+        } else {
+          extracted.push(piece);
+        }
+      }
+      if (extracted.length === 0) return undefined;
+      if (extracted.length === 1) return extracted[0];
+      pieces = extracted;
+      // Fall through to the normal multi-piece merge below
+    }
 
     // Check if all pieces have the same color (within tolerance)
     // This handles multi-material elements like windows (frame vs glass)
@@ -213,6 +261,68 @@ export class Scene {
    * @param expressId - The expressId to look up
    * @param modelIndex - Optional modelIndex to filter by (for multi-model support)
    */
+  /**
+   * Extract only the vertices/triangles belonging to `targetId` from a
+   * color-merged MeshData that contains many entities.  Returns a new
+   * lightweight MeshData suitable for selection highlighting.
+   */
+  private extractEntityFromMergedMesh(merged: MeshData, targetId: number): MeshData | undefined {
+    const entityIds = merged.entityIds!;
+    const positions = merged.positions;
+    const normals = merged.normals;
+    const indices = merged.indices;
+
+    // Build a vertex mask and remap table
+    const vertexCount = entityIds.length;
+    const keep = new Uint8Array(vertexCount);
+    let keptCount = 0;
+    for (let i = 0; i < vertexCount; i++) {
+      if (entityIds[i] === targetId) { keep[i] = 1; keptCount++; }
+    }
+    if (keptCount === 0) return undefined;
+
+    // Remap old vertex index → new compacted index
+    const remap = new Uint32Array(vertexCount);
+    let newIdx = 0;
+    for (let i = 0; i < vertexCount; i++) {
+      if (keep[i]) { remap[i] = newIdx++; }
+    }
+
+    // Compact positions & normals
+    const outPos = new Float32Array(keptCount * 3);
+    const outNorm = new Float32Array(keptCount * 3);
+    let outOff = 0;
+    for (let i = 0; i < vertexCount; i++) {
+      if (!keep[i]) continue;
+      const src = i * 3;
+      outPos[outOff] = positions[src];
+      outPos[outOff + 1] = positions[src + 1];
+      outPos[outOff + 2] = positions[src + 2];
+      outNorm[outOff] = normals[src];
+      outNorm[outOff + 1] = normals[src + 1];
+      outNorm[outOff + 2] = normals[src + 2];
+      outOff += 3;
+    }
+
+    // Compact indices (only triangles where ALL 3 vertices belong to target)
+    const tmpIdx: number[] = [];
+    for (let i = 0; i < indices.length; i += 3) {
+      const a = indices[i], b = indices[i + 1], c = indices[i + 2];
+      if (keep[a] && keep[b] && keep[c]) {
+        tmpIdx.push(remap[a], remap[b], remap[c]);
+      }
+    }
+    if (tmpIdx.length === 0) return undefined;
+
+    return {
+      expressId: targetId,
+      positions: outPos,
+      normals: outNorm,
+      indices: new Uint32Array(tmpIdx),
+      color: merged.color,
+    };
+  }
+
   hasMeshData(expressId: number, modelIndex?: number): boolean {
     const pieces = this.meshDataMap.get(expressId);
     if (!pieces || pieces.length === 0) return false;
@@ -226,11 +336,27 @@ export class Scene {
    * Optionally filter by modelIndex for multi-model safety.
    */
   getMeshDataPieces(expressId: number, modelIndex?: number): MeshData[] | undefined {
-    const pieces = this.meshDataMap.get(expressId);
+    let pieces = this.meshDataMap.get(expressId);
     if (!pieces || pieces.length === 0) return undefined;
-    if (modelIndex === undefined) return pieces;
-    const filtered = pieces.filter((p) => p.modelIndex === modelIndex);
-    return filtered.length > 0 ? filtered : undefined;
+    if (modelIndex !== undefined) {
+      pieces = pieces.filter((p) => p.modelIndex === modelIndex);
+      if (pieces.length === 0) return undefined;
+    }
+    // For color-merged batches, extract only this entity's vertices so
+    // selection highlighting is per-entity, not the entire merged batch.
+    if (pieces.some(p => p.entityIds)) {
+      const extracted: MeshData[] = [];
+      for (const piece of pieces) {
+        if (piece.entityIds) {
+          const ex = this.extractEntityFromMergedMesh(piece, expressId);
+          if (ex) extracted.push(ex);
+        } else {
+          extracted.push(piece);
+        }
+      }
+      return extracted.length > 0 ? extracted : undefined;
+    }
+    return pieces;
   }
 
   /**
@@ -263,28 +389,34 @@ export class Scene {
       this.cachedMaxBufferSize = this.getMaxBufferSize(device);
     }
 
+    const retainStreamingGeometry = !(isStreaming && this.ephemeralStreamingMode);
+
     // Route each mesh into a size-aware bucket for its color
     for (const meshData of meshDataArray) {
       const baseKey = this.colorKey(meshData.color);
       const bucketKey = this.resolveActiveBucket(baseKey, meshData);
 
-      // Accumulate mesh data in the bucket (always — needed for final merge)
-      let bucket = this.buckets.get(bucketKey);
-      if (!bucket) {
-        bucket = { key: bucketKey, meshData: [], batchedMesh: null, vertexBytes: 0 };
-        this.buckets.set(bucketKey, bucket);
-      }
-      bucket.meshData.push(meshData);
+      if (retainStreamingGeometry || !isStreaming) {
+        // Accumulate mesh data in the bucket when we need later rebatching or
+        // CPU-side lookups. Huge-file mode intentionally skips this to keep JS
+        // memory bounded while fragments render directly from GPU batches.
+        let bucket = this.buckets.get(bucketKey);
+        if (!bucket) {
+          bucket = { key: bucketKey, meshData: [], batchedMesh: null, vertexBytes: 0 };
+          this.buckets.set(bucketKey, bucket);
+        }
+        bucket.meshData.push(meshData);
 
-      // Track reverse mapping for O(1) bucket lookup in updateMeshColors
-      this.meshDataBucket.set(meshData, bucket);
+        // Track reverse mapping for O(1) bucket lookup in updateMeshColors
+        this.meshDataBucket.set(meshData, bucket);
 
-      // Also store individual mesh data for visibility filtering
-      this.addMeshData(meshData);
+        // Also store individual mesh data for visibility filtering
+        this.addMeshData(meshData);
 
-      // Track pending keys for non-streaming rebuild only
-      if (!isStreaming) {
-        this.pendingBatchKeys.add(bucketKey);
+        // Track pending keys for non-streaming rebuild only
+        if (!isStreaming) {
+          this.pendingBatchKeys.add(bucketKey);
+        }
       }
     }
 
@@ -362,13 +494,20 @@ export class Scene {
    */
   queueMeshes(meshes: MeshData[]): void {
     for (let i = 0; i < meshes.length; i++) {
-      this.meshQueue.push(meshes[i]);
+      const fragments = this.splitMeshForStreaming(meshes[i]);
+      for (let j = 0; j < fragments.length; j++) {
+        this.meshQueue.push(fragments[j]);
+      }
     }
   }
 
   /** True if the mesh queue has pending work. */
   hasQueuedMeshes(): boolean {
-    return this.meshQueue.length > 0;
+    return this.meshQueueReadIndex < this.meshQueue.length;
+  }
+
+  setEphemeralStreamingMode(enabled: boolean): void {
+    this.ephemeralStreamingMode = enabled;
   }
 
   /**
@@ -379,15 +518,41 @@ export class Scene {
    * @returns true if any meshes were processed (caller should render)
    */
   flushPending(device: GPUDevice, pipeline: RenderPipeline): boolean {
-    if (this.meshQueue.length === 0) return false;
+    if (!this.hasQueuedMeshes()) return false;
 
-    // Drain the entire queue in one appendToBatches call.
-    // The queue coalesces multiple React batches into a single GPU upload,
-    // which is already bounded by the WASM→JS batch interval (~50-200ms).
-    const meshes = this.meshQueue;
-    this.meshQueue = [];
-    this.appendToBatches(meshes, device, pipeline, true);
-    return true;
+    // Drain the queue in moderately sized chunks instead of one mesh at a time.
+    // This preserves the per-frame time budget while cutting appendToBatches()
+    // overhead and front-of-array churn during huge desktop streams.
+    const MAX_MESHES_PER_FLUSH = 4096;
+    const MESHES_PER_APPEND = 128;
+    const FLUSH_BUDGET_MS = 10;
+    const start = performance.now();
+    let processed = 0;
+
+    while (this.meshQueueReadIndex < this.meshQueue.length && processed < MAX_MESHES_PER_FLUSH) {
+      const chunkSize = Math.min(
+        MESHES_PER_APPEND,
+        MAX_MESHES_PER_FLUSH - processed,
+        this.meshQueue.length - this.meshQueueReadIndex,
+      );
+      const chunk = this.meshQueue.slice(this.meshQueueReadIndex, this.meshQueueReadIndex + chunkSize);
+      this.meshQueueReadIndex += chunkSize;
+      this.appendToBatches(chunk, device, pipeline, true);
+      processed += chunk.length;
+      if (processed >= MESHES_PER_APPEND && performance.now() - start >= FLUSH_BUDGET_MS) {
+        break;
+      }
+    }
+
+    if (this.meshQueueReadIndex >= this.meshQueue.length) {
+      this.meshQueue.length = 0;
+      this.meshQueueReadIndex = 0;
+    } else if (this.meshQueueReadIndex >= 8192 && this.meshQueueReadIndex * 2 >= this.meshQueue.length) {
+      this.meshQueue = this.meshQueue.slice(this.meshQueueReadIndex);
+      this.meshQueueReadIndex = 0;
+    }
+
+    return processed > 0;
   }
 
   /**
@@ -401,13 +566,15 @@ export class Scene {
     // Group new meshes by color for efficient fragment batches
     const colorGroups = new Map<string, MeshData[]>();
     for (const meshData of meshDataArray) {
-      const key = this.colorKey(meshData.color);
-      let group = colorGroups.get(key);
-      if (!group) {
-        group = [];
-        colorGroups.set(key, group);
+      for (const fragment of this.splitMeshForStreaming(meshData)) {
+        const key = this.colorKey(fragment.color);
+        let group = colorGroups.get(key);
+        if (!group) {
+          group = [];
+          colorGroups.set(key, group);
+        }
+        group.push(fragment);
       }
-      group.push(meshData);
     }
 
     // Create one fragment batch per color group (with buffer limit splitting)
@@ -420,6 +587,60 @@ export class Scene {
         this.streamingFragments.push(fragment);
       }
     }
+  }
+
+  private splitMeshForStreaming(meshData: MeshData): MeshData[] {
+    const vertexBytes = meshData.positions.byteLength + meshData.normals.byteLength;
+    if (
+      meshData.indices.length <= Scene.STREAMING_FRAGMENT_MAX_INDICES &&
+      vertexBytes <= Scene.STREAMING_FRAGMENT_MAX_VERTEX_BYTES
+    ) {
+      return [meshData];
+    }
+
+    const maxIndexCount = Math.max(3, Math.floor(Scene.STREAMING_FRAGMENT_MAX_INDICES / 3) * 3);
+    const fragments: MeshData[] = [];
+
+    for (let start = 0; start < meshData.indices.length; start += maxIndexCount) {
+      const end = Math.min(start + maxIndexCount, meshData.indices.length);
+      const sourceIndices = meshData.indices.subarray(start, end);
+      const remap = new Map<number, number>();
+      const positions: number[] = [];
+      const normals: number[] = [];
+      const indices = new Uint32Array(sourceIndices.length);
+
+      for (let i = 0; i < sourceIndices.length; i++) {
+        const sourceIndex = sourceIndices[i];
+        let nextIndex = remap.get(sourceIndex);
+        if (nextIndex === undefined) {
+          nextIndex = remap.size;
+          remap.set(sourceIndex, nextIndex);
+          const base = sourceIndex * 3;
+          positions.push(
+            meshData.positions[base],
+            meshData.positions[base + 1],
+            meshData.positions[base + 2]
+          );
+          normals.push(
+            meshData.normals[base],
+            meshData.normals[base + 1],
+            meshData.normals[base + 2]
+          );
+        }
+        indices[i] = nextIndex;
+      }
+
+      fragments.push({
+        expressId: meshData.expressId,
+        ifcType: meshData.ifcType,
+        positions: new Float32Array(positions),
+        normals: new Float32Array(normals),
+        indices,
+        color: meshData.color,
+      });
+    }
+
+    return fragments;
   }
 
   /**
@@ -523,6 +744,10 @@ export class Scene {
     pipeline: RenderPipeline,
     budgetMs: number = 8,
   ): Promise<void> {
+    if (this.ephemeralStreamingMode) {
+      this.finishEphemeralStreaming();
+      return Promise.resolve();
+    }
     if (this.streamingFragments.length === 0) return Promise.resolve();
 
     // --- Synchronous preamble (fast O(N) bookkeeping) ---
@@ -619,6 +844,58 @@ export class Scene {
       // Start first chunk immediately (no setTimeout delay)
       processChunk();
     });
+  }
+
+  finishEphemeralStreaming(): void {
+    if (this.streamingFragments.length === 0) {
+      this.ephemeralStreamingMode = false;
+      return;
+    }
+
+    // Preserve lightweight per-entity bounds so large-model picking and
+    // selection can continue to work after we discard CPU mesh arrays.
+    for (const [expressId, pieces] of this.meshDataMap) {
+      if (this.boundingBoxes.has(expressId)) continue;
+
+      let minX = Infinity, minY = Infinity, minZ = Infinity;
+      let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+
+      for (const piece of pieces) {
+        const positions = piece.positions;
+        for (let i = 0; i < positions.length; i += 3) {
+          const x = positions[i];
+          const y = positions[i + 1];
+          const z = positions[i + 2];
+          if (x < minX) minX = x;
+          if (y < minY) minY = y;
+          if (z < minZ) minZ = z;
+          if (x > maxX) maxX = x;
+          if (y > maxY) maxY = y;
+          if (z > maxZ) maxZ = z;
+        }
+      }
+
+      this.boundingBoxes.set(expressId, {
+        min: { x: minX, y: minY, z: minZ },
+        max: { x: maxX, y: maxY, z: maxZ },
+      });
+    }
+
+    this.streamingFragments = [];
+    this.buckets.clear();
+    this.meshDataBucket = new Map();
+    this.meshDataMap.clear();
+    this.activeBucketKey.clear();
+    this.pendingBatchKeys.clear();
+    for (const batch of this.partialBatchCache.values()) {
+      batch.vertexBuffer.destroy();
+      batch.indexBuffer.destroy();
+      if (batch.uniformBuffer) batch.uniformBuffer.destroy();
+    }
+    this.partialBatchCache.clear();
+    this.partialBatchCacheKeys.clear();
+    this.geometryReleased = true;
+    this.ephemeralStreamingMode = false;
   }
 
   /**
@@ -914,17 +1191,19 @@ export class Scene {
       const normals = mesh.normals;
       const vertexCount = positions.length / 3;
 
-      // Interleave vertex data (position + normal)
+      // Interleave vertex data (position + normal + entityId)
       // This loop is O(n) per mesh and unavoidable for interleaving
       let outIdx = vertexBase * 7;
+      const perVertexEntityIds = mesh.entityIds; // color-merged batches
       let entityId = mesh.expressId >>> 0;
-      if (entityId > MAX_ENCODED_ENTITY_ID) {
+      if (!perVertexEntityIds && entityId > MAX_ENCODED_ENTITY_ID) {
         if (!warnedEntityIdRange) {
           warnedEntityIdRange = true;
           console.warn('[Renderer] expressId exceeds 24-bit seam-ID encoding range; seam lines may collide.');
         }
         entityId = entityId & MAX_ENCODED_ENTITY_ID;
       }
+      const hasNormals = normals.length > 0;
       for (let i = 0; i < vertexCount; i++) {
         const srcIdx = i * 3;
         const px = positions[srcIdx];
@@ -933,10 +1212,10 @@ export class Scene {
         vertexData[outIdx++] = px;
         vertexData[outIdx++] = py;
         vertexData[outIdx++] = pz;
-        vertexData[outIdx++] = normals[srcIdx];
-        vertexData[outIdx++] = normals[srcIdx + 1];
-        vertexData[outIdx++] = normals[srcIdx + 2];
-        vertexDataU32[outIdx++] = entityId;
+        vertexData[outIdx++] = hasNormals ? normals[srcIdx] : 0;
+        vertexData[outIdx++] = hasNormals ? normals[srcIdx + 1] : 0;
+        vertexData[outIdx++] = hasNormals ? normals[srcIdx + 2] : 0;
+        vertexDataU32[outIdx++] = perVertexEntityIds ? (perVertexEntityIds[i] >>> 0) : entityId;
 
         // Update bounds
         if (px < minX) minX = px;
@@ -1317,7 +1596,9 @@ export class Scene {
     this.partialBatchCache.clear();
     this.partialBatchCacheKeys.clear();
     this.meshQueue = [];
+    this.meshQueueReadIndex = 0;
     this.geometryReleased = false;
+    this.ephemeralStreamingMode = false;
   }
 
   /**
@@ -1640,9 +1921,18 @@ export class Scene {
       for (const piece of pieces) {
         const positions = piece.positions;
         const indices = piece.indices;
+        const pieceEntityIds = piece.entityIds; // per-vertex IDs for merged meshes
 
         // Test each triangle
         for (let i = 0; i < indices.length; i += 3) {
+          // For color-merged meshes, skip triangles that don't belong to
+          // this entity.  Without this check, hitting ANY triangle in the
+          // merged batch would attribute it to the candidate expressId.
+          if (pieceEntityIds) {
+            const vertIdx = indices[i];
+            if (pieceEntityIds[vertIdx] !== expressId) continue;
+          }
+
           const i0 = indices[i] * 3;
           const i1 = indices[i + 1] * 3;
           const i2 = indices[i + 2] * 3;

@@ -793,7 +793,7 @@ export function useIDS(options: UseIDSOptions = {}): UseIDSResult {
     const url = URL.createObjectURL(blob);
     const a = globalThis.document.createElement('a');
     a.href = url;
-    a.download = `ids-report-${new Date().toISOString().split('T')[0]}.bcf`;
+    a.download = `ids-report-${new Date().toISOString().split('T')[0]}.bcfzip`;
     a.click();
     URL.revokeObjectURL(url);
 

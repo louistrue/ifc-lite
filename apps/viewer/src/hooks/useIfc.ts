@@ -14,7 +14,7 @@
 
 import { useMemo, useRef } from 'react';
 import { useShallow } from 'zustand/react/shallow';
-import { useViewerStore } from '../store.js';
+import { useViewerStore } from '@/store';
 import { IfcQuery } from '@ifc-lite/query';
 import type { IfcDataStore } from '@ifc-lite/parser';
 
@@ -26,6 +26,8 @@ export function useIfc() {
   const {
     loading,
     progress,
+    geometryProgress,
+    metadataProgress,
     error,
     ifcDataStore,
     geometryResult,
@@ -45,6 +47,8 @@ export function useIfc() {
   } = useViewerStore(useShallow((s) => ({
     loading: s.loading,
     progress: s.progress,
+    geometryProgress: s.geometryProgress,
+    metadataProgress: s.metadataProgress,
     error: s.error,
     ifcDataStore: s.ifcDataStore,
     geometryResult: s.geometryResult,
@@ -94,6 +98,8 @@ export function useIfc() {
     // Legacy single-model API (backward compatibility)
     loading,
     progress,
+    geometryProgress,
+    metadataProgress,
     error,
     ifcDataStore,
     geometryResult,

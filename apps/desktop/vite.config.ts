@@ -45,6 +45,13 @@ export default defineConfig({
       '@ifc-lite/create': path.resolve(__dirname, '../../packages/create/src'),
       '@ifc-lite/embed-protocol': path.resolve(__dirname, '../../packages/embed-protocol/src'),
       '@ifc-lite/embed-sdk': path.resolve(__dirname, '../../packages/embed-sdk/src'),
+      // Tauri API stubs: the shared viewer uses dynamic imports for native file
+      // dialogs. In the real Tauri shell these resolve to @tauri-apps packages;
+      // in the monorepo CI build (where those packages are absent) we point to
+      // lightweight stubs that return null / throw at runtime.
+      '@tauri-apps/api/core': path.resolve(__dirname, '../viewer/src/services/tauri-core-stub.ts'),
+      '@tauri-apps/plugin-dialog': path.resolve(__dirname, '../viewer/src/services/tauri-dialog-stub.ts'),
+      '@tauri-apps/plugin-fs': path.resolve(__dirname, '../viewer/src/services/tauri-fs-stub.ts'),
     },
   },
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`

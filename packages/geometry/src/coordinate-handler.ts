@@ -441,6 +441,41 @@ export class CoordinateHandler {
     }
 
     /**
+     * Fast incremental path for trusted native batches.
+     *
+     * Desktop native streaming already emits site-local coordinates, so the JS
+     * layer does not need to re-run RTC detection, outlier filtering, or
+     * position shifting for every vertex. We only need lightweight bounds
+     * accumulation so the viewport can fit the camera while streaming.
+     */
+    processTrustedMeshesIncremental(batch: MeshData[]): void {
+        const batchBounds = this.calculateBoundsFast(batch);
+        const hasValidBounds =
+            batchBounds.min.x !== Infinity &&
+            batchBounds.max.x !== -Infinity;
+
+        if (!hasValidBounds) {
+            return;
+        }
+
+        if (this.accumulatedBounds === null) {
+            this.accumulatedBounds = batchBounds;
+        } else {
+            this.accumulatedBounds.min.x = Math.min(this.accumulatedBounds.min.x, batchBounds.min.x);
+            this.accumulatedBounds.min.y = Math.min(this.accumulatedBounds.min.y, batchBounds.min.y);
+            this.accumulatedBounds.min.z = Math.min(this.accumulatedBounds.min.z, batchBounds.min.z);
+            this.accumulatedBounds.max.x = Math.max(this.accumulatedBounds.max.x, batchBounds.max.x);
+            this.accumulatedBounds.max.y = Math.max(this.accumulatedBounds.max.y, batchBounds.max.y);
+            this.accumulatedBounds.max.z = Math.max(this.accumulatedBounds.max.z, batchBounds.max.z);
+        }
+
+        this.originShift = { x: 0, y: 0, z: 0 };
+        this.wasmRtcDetected = true;
+        this.shiftCalculated = true;
+        this.activeThreshold = this.NORMAL_COORD_THRESHOLD;
+    }
+
+    /**
      * Get current coordinate info (for incremental updates)
      */
     getCurrentCoordinateInfo(): CoordinateInfo | null {

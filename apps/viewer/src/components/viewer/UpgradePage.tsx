@@ -7,9 +7,12 @@ import { useEffect, useMemo } from 'react';
 import { ArrowLeft } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useViewerStore } from '@/store';
+import { hasDesktopPro } from '@/lib/desktop-product';
+import { navigateToPath } from '@/services/app-navigation';
 
 export function UpgradePage() {
-  const hasPro = useViewerStore((s) => s.chatHasPro);
+  const desktopEntitlement = useViewerStore((s) => s.desktopEntitlement);
+  const hasPro = hasDesktopPro(desktopEntitlement);
   const returnTo = useMemo(() => {
     const params = new URLSearchParams(window.location.search);
     const candidate = params.get('returnTo');
@@ -17,8 +20,7 @@ export function UpgradePage() {
   }, []);
 
   const navigateBack = () => {
-    window.history.replaceState({}, '', returnTo);
-    window.dispatchEvent(new PopStateEvent('popstate'));
+    navigateToPath(returnTo, { replace: true });
   };
 
   // Automatically return to the previous app view once upgrade is active.
@@ -43,7 +45,7 @@ export function UpgradePage() {
         <div className="rounded-lg border bg-card p-6 shadow-sm">
           <h1 className="text-2xl font-semibold">Upgrade to Pro</h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            Free includes daily limited access to free models. Pro unlocks paid models and monthly credits.
+            Free keeps the core desktop viewer available. Pro unlocks advanced desktop features, plus the AI assistant with the same monthly limits and routing used on web.
           </p>
 
           <div className="mt-6">

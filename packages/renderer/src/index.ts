@@ -567,9 +567,10 @@ export class Renderer {
             interleaved[base] = meshData.positions[posBase];
             interleaved[base + 1] = meshData.positions[posBase + 1];
             interleaved[base + 2] = meshData.positions[posBase + 2];
-            interleaved[base + 3] = meshData.normals[posBase];
-            interleaved[base + 4] = meshData.normals[posBase + 1];
-            interleaved[base + 5] = meshData.normals[posBase + 2];
+            const hasNormals = meshData.normals.length > 0;
+            interleaved[base + 3] = hasNormals ? meshData.normals[posBase] : 0;
+            interleaved[base + 4] = hasNormals ? meshData.normals[posBase + 1] : 0;
+            interleaved[base + 5] = hasNormals ? meshData.normals[posBase + 2] : 0;
             let encodedId = meshData.expressId >>> 0;
             if (encodedId > MAX_ENCODED_ENTITY_ID) {
                 if (!warnedEntityIdRange) {

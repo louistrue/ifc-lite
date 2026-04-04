@@ -9,12 +9,28 @@
 import type { StateCreator } from 'zustand';
 import type { IfcDataStore } from '@ifc-lite/parser';
 import type { GeometryResult, CoordinateInfo } from '@ifc-lite/geometry';
+import type { FederatedModel } from '../types.js';
 import { DATA_DEFAULTS } from '../constants.js';
+
+/**
+ * Cross-slice state that dataSlice reads/writes via the combined store.
+ *
+ * Data updaters sync `ifcDataStore` / `geometryResult` into the per-model
+ * entry inside the ModelSlice `models` map so that federation stays
+ * consistent.  The types below describe the minimal ModelSlice surface
+ * that dataSlice accesses through the merged Zustand state.
+ */
+interface DataCrossSliceState {
+  activeModelId: string | null;
+  models: Map<string, FederatedModel>;
+}
 
 export interface DataSlice {
   // State
   ifcDataStore: IfcDataStore | null;
   geometryResult: GeometryResult | null;
+  geometryUpdateTick: number;
+  boundedGeometryMode: boolean;
   /** Transient overlay colors (lens/IDS/sdk overlays). */
   pendingColorUpdates: Map<number, [number, number, number, number]> | null;
   /** Persistent mesh color updates (IFC deferred style/material colors). */
@@ -23,7 +39,9 @@ export interface DataSlice {
   // Actions
   setIfcDataStore: (result: IfcDataStore | null) => void;
   setGeometryResult: (result: GeometryResult | null) => void;
+  setBoundedGeometryMode: (enabled: boolean) => void;
   appendGeometryBatch: (meshes: GeometryResult['meshes'], coordinateInfo?: CoordinateInfo) => void;
+  releaseGeometryMemory: () => void;
   /** Persist mesh color changes in geometryResult (used for IFC style/material updates). */
   updateMeshColors: (updates: Map<number, [number, number, number, number]>) => void;
   /** Set pending color updates for the renderer without cloning mesh data.
@@ -49,17 +67,53 @@ const getDefaultCoordinateInfo = (): CoordinateInfo => ({
   hasLargeCoordinates: DATA_DEFAULTS.HAS_LARGE_COORDINATES,
 });
 
-export const createDataSlice: StateCreator<DataSlice, [], [], DataSlice> = (set) => ({
+const EMPTY_POSITIONS = new Float32Array(0);
+const EMPTY_NORMALS = new Float32Array(0);
+const EMPTY_INDICES = new Uint32Array(0);
+
+export const createDataSlice: StateCreator<DataSlice & DataCrossSliceState, [], [], DataSlice> = (set, get) => ({
   // Initial state
   ifcDataStore: null,
   geometryResult: null,
+  geometryUpdateTick: 0,
+  boundedGeometryMode: false,
   pendingColorUpdates: null,
   pendingMeshColorUpdates: null,
 
   // Actions
-  setIfcDataStore: (ifcDataStore) => set({ ifcDataStore }),
+  setIfcDataStore: (ifcDataStore) => set((state) => {
+    const modelId = state.activeModelId;
+    if (!modelId) {
+      return { ifcDataStore };
+    }
 
-  setGeometryResult: (geometryResult) => set({ geometryResult }),
+    const model = state.models.get(modelId);
+    if (!model) {
+      return { ifcDataStore };
+    }
+
+    const models = new Map(state.models);
+    models.set(modelId, { ...model, ifcDataStore });
+    return { ifcDataStore, models };
+  }),
+
+  setGeometryResult: (geometryResult) => set((state) => {
+    const modelId = state.activeModelId;
+    if (!modelId) {
+      return { geometryResult, geometryUpdateTick: state.geometryUpdateTick + 1 };
+    }
+
+    const model = state.models.get(modelId);
+    if (!model) {
+      return { geometryResult, geometryUpdateTick: state.geometryUpdateTick + 1 };
+    }
+
+    const models = new Map(state.models);
+    models.set(modelId, { ...model, geometryResult });
+    return { geometryResult, models, geometryUpdateTick: state.geometryUpdateTick + 1 };
+  }),
+
+  setBoundedGeometryMode: (boundedGeometryMode) => set({ boundedGeometryMode }),
 
   appendGeometryBatch: (meshes, coordinateInfo) => set((state) => {
     // Incremental totals: O(batch_size) instead of O(total_accumulated) .reduce()
@@ -71,33 +125,81 @@ export const createDataSlice: StateCreator<DataSlice, [], [], DataSlice> = (set)
     }
 
     if (!state.geometryResult) {
-      return {
-        geometryResult: {
-          meshes: meshes.slice(),
-          totalTriangles: batchTriangles,
-          totalVertices: batchVertices,
-          coordinateInfo: coordinateInfo || getDefaultCoordinateInfo(),
-        },
+      const geometryResult = {
+        meshes: meshes.slice(),
+        totalTriangles: batchTriangles,
+        totalVertices: batchVertices,
+        coordinateInfo: coordinateInfo || getDefaultCoordinateInfo(),
       };
+      const modelId = state.activeModelId;
+      if (!modelId) {
+        return { geometryResult, geometryUpdateTick: state.geometryUpdateTick + 1 };
+      }
+      const model = state.models.get(modelId);
+      if (!model) {
+        return { geometryResult, geometryUpdateTick: state.geometryUpdateTick + 1 };
+      }
+      const models = new Map(state.models);
+      models.set(modelId, { ...model, geometryResult });
+      return { geometryResult, models, geometryUpdateTick: state.geometryUpdateTick + 1 };
     }
 
-    // PERF FIX: Push into existing array — O(batch_size) instead of O(total).
-    // The old [...old, ...new] spread copied ALL accumulated meshes every batch,
-    // causing O(N²) total work (e.g., 176K meshes × 350 batches = 31M copies).
-    // Zustand detects changes via the new geometryResult object reference below.
-    const existing = state.geometryResult.meshes;
+    // Mutate the existing array in-place (O(batch) per append) instead of
+    // .concat() (O(total) per append) to avoid O(N²) for large files.
+    // The new geometryResult object reference below is sufficient for
+    // Zustand/React change detection — array identity doesn't need to change.
+    const existingMeshes = state.geometryResult.meshes;
     for (let i = 0; i < meshes.length; i++) {
-      existing.push(meshes[i]);
+      existingMeshes.push(meshes[i]);
     }
 
-    return {
-      geometryResult: {
-        ...state.geometryResult,
-        totalTriangles: state.geometryResult.totalTriangles + batchTriangles,
-        totalVertices: state.geometryResult.totalVertices + batchVertices,
-        coordinateInfo: coordinateInfo || state.geometryResult.coordinateInfo,
-      },
+    const geometryResult = {
+      ...state.geometryResult,
+      meshes: existingMeshes,
+      totalTriangles: state.geometryResult.totalTriangles + batchTriangles,
+      totalVertices: state.geometryResult.totalVertices + batchVertices,
+      coordinateInfo: coordinateInfo || state.geometryResult.coordinateInfo,
     };
+    const modelId = state.activeModelId;
+    if (!modelId) {
+      return { geometryResult, geometryUpdateTick: state.geometryUpdateTick + 1 };
+    }
+    const model = state.models.get(modelId);
+    if (!model) {
+      return { geometryResult, geometryUpdateTick: state.geometryUpdateTick + 1 };
+    }
+    const models = new Map(state.models);
+    models.set(modelId, { ...model, geometryResult });
+    return { geometryResult, models, geometryUpdateTick: state.geometryUpdateTick + 1 };
+  }),
+
+  releaseGeometryMemory: () => set((state) => {
+    if (!state.geometryResult || !state.boundedGeometryMode) {
+      return {};
+    }
+
+    const meshes = state.geometryResult.meshes;
+    for (let i = 0; i < meshes.length; i++) {
+      meshes[i].positions = EMPTY_POSITIONS;
+      meshes[i].normals = EMPTY_NORMALS;
+      meshes[i].indices = EMPTY_INDICES;
+    }
+
+    const geometryResult = {
+      ...state.geometryResult,
+      meshes,
+    };
+    const modelId = state.activeModelId;
+    if (!modelId) {
+      return { geometryResult, geometryUpdateTick: state.geometryUpdateTick + 1 };
+    }
+    const model = state.models.get(modelId);
+    if (!model) {
+      return { geometryResult, geometryUpdateTick: state.geometryUpdateTick + 1 };
+    }
+    const models = new Map(state.models);
+    models.set(modelId, { ...model, geometryResult });
+    return { geometryResult, models, geometryUpdateTick: state.geometryUpdateTick + 1 };
   }),
 
   updateMeshColors: (updates) => set((state) => {
@@ -136,11 +238,20 @@ export const createDataSlice: StateCreator<DataSlice, [], [], DataSlice> = (set)
 
   updateCoordinateInfo: (coordinateInfo) => set((state) => {
     if (!state.geometryResult) return {};
-    return {
-      geometryResult: {
-        ...state.geometryResult,
-        coordinateInfo,
-      },
+    const geometryResult = {
+      ...state.geometryResult,
+      coordinateInfo,
     };
+    const modelId = state.activeModelId;
+    if (!modelId) {
+      return { geometryResult, geometryUpdateTick: state.geometryUpdateTick + 1 };
+    }
+    const model = state.models.get(modelId);
+    if (!model) {
+      return { geometryResult, geometryUpdateTick: state.geometryUpdateTick + 1 };
+    }
+    const models = new Map(state.models);
+    models.set(modelId, { ...model, geometryResult });
+    return { geometryResult, models, geometryUpdateTick: state.geometryUpdateTick + 1 };
   }),
 });

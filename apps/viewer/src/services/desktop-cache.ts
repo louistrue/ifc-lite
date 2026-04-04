@@ -141,3 +141,46 @@ export async function hasCached(key: string): Promise<boolean> {
   const data = await getCached(key);
   return data !== null;
 }
+
+export async function hasNativeGeometryCache(key: string): Promise<boolean> {
+  try {
+    const inv = await getInvoke();
+    return await inv<boolean>('has_native_geometry_cache', { cacheKey: key });
+  } catch (error) {
+    console.warn('[DesktopCache] Failed to check native geometry cache:', error);
+    return false;
+  }
+}
+
+export async function getNativeModelSnapshot(key: string): Promise<ArrayBuffer | null> {
+  try {
+    const inv = await getInvoke();
+    const data = await inv<number[] | null>('get_native_model_snapshot', { cacheKey: key });
+    return data ? new Uint8Array(data).buffer : null;
+  } catch (error) {
+    console.warn('[DesktopCache] Failed to read native model snapshot:', error);
+    return null;
+  }
+}
+
+export async function setNativeModelSnapshot(key: string, buffer: ArrayBuffer): Promise<void> {
+  try {
+    const inv = await getInvoke();
+    await inv('set_native_model_snapshot', {
+      cacheKey: key,
+      data: Array.from(new Uint8Array(buffer)),
+    });
+  } catch (error) {
+    console.warn('[DesktopCache] Failed to write native model snapshot:', error);
+  }
+}
+
+export async function hasNativeModelSnapshot(key: string): Promise<boolean> {
+  try {
+    const inv = await getInvoke();
+    return await inv<boolean>('has_native_model_snapshot', { cacheKey: key });
+  } catch (error) {
+    console.warn('[DesktopCache] Failed to check native model snapshot:', error);
+    return false;
+  }
+}

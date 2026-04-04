@@ -28,6 +28,8 @@ export const CAMERA_CONSTANTS = {
   ZOOM_SENSITIVITY: 0.001,
   /** Maximum zoom delta per frame */
   MAX_ZOOM_DELTA: 0.1,
+  /** Minimum perspective camera distance from target */
+  MIN_PERSPECTIVE_DISTANCE: 0.00001,
 
   // Default camera setup
   DEFAULT_POSITION: { x: 50, y: 50, z: 100 } as const,

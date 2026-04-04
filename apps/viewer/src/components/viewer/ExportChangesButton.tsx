@@ -18,6 +18,7 @@ import { StepExporter } from '@ifc-lite/export';
 import { MutablePropertyView } from '@ifc-lite/mutations';
 import type { IfcDataStore } from '@ifc-lite/parser';
 import { toast } from '@/components/ui/toast';
+import { ensureModelExportReady } from '@/services/desktop-export';
 
 interface ExportChangesButtonProps {
   /** Optional custom class name */
@@ -124,6 +125,10 @@ export function ExportChangesButton({ className }: ExportChangesButtonProps) {
 
     try {
       const mutationView = getMutationView(modelInfo.id);
+      const exportDataStore = await ensureModelExportReady(modelInfo.id);
+      if (!exportDataStore) {
+        throw new Error('Model data is unavailable for export');
+      }
 
       // Determine schema version
       const schemaVersion = modelInfo.schemaVersion || 'IFC4';
@@ -131,7 +136,7 @@ export function ExportChangesButton({ className }: ExportChangesButtonProps) {
                    : schemaVersion.includes('4X3') ? 'IFC4X3'
                    : 'IFC4';
 
-      const exporter = new StepExporter(modelInfo.ifcDataStore, mutationView || undefined);
+      const exporter = new StepExporter(exportDataStore, mutationView || undefined);
       const georefMutations = useViewerStore.getState().georefMutations?.get(modelInfo.id) ?? undefined;
       const result = exporter.export({
         schema: schema as 'IFC2X3' | 'IFC4' | 'IFC4X3',

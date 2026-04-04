@@ -12,6 +12,13 @@ export interface ViewerBenchmarkMetrics {
   // Individual phase timings
   modelOpenMs: number | null;
   firstBatchWaitMs: number | null;
+  firstAppendGeometryBatchMs: number | null;
+  firstVisibleGeometryMs: number | null;
+  streamCompleteMs: number | null;
+  metadataStartMs: number | null;
+  spatialReadyMs: number | null;
+  metadataCompleteMs: number | null;
+  metadataFailedMs: number | null;
   firstBatchNumber: number | null;
   firstBatchMeshes: number | null;
   totalBatches: number | null;
@@ -35,9 +42,50 @@ export class ViewerBenchmarkPage {
   private metrics: Partial<ViewerBenchmarkMetrics> = {};
   private loadStartTime: number = 0;
   private loadEndTime: number = 0;
+  private cacheMode: string;
 
   constructor(page: Page) {
     this.page = page;
+    this.cacheMode = process.env.VIEWER_BENCHMARK_CACHE_MODE ?? 'default';
+  }
+
+  private async clearBrowserCaches() {
+    await this.page.evaluate(async () => {
+      try {
+        localStorage.clear();
+        sessionStorage.clear();
+      } catch {
+        // Ignore storage issues.
+      }
+
+      try {
+        if ('caches' in globalThis) {
+          const cacheKeys = await caches.keys();
+          await Promise.all(cacheKeys.map((key) => caches.delete(key)));
+        }
+      } catch {
+        // Ignore Cache API issues.
+      }
+
+      try {
+        if ('indexedDB' in globalThis && typeof indexedDB.databases === 'function') {
+          const databases = await indexedDB.databases();
+          await Promise.all(
+            databases
+              .map((entry) => entry.name)
+              .filter((name): name is string => Boolean(name))
+              .map((name) => new Promise<void>((resolve) => {
+                const request = indexedDB.deleteDatabase(name);
+                request.onsuccess = () => resolve();
+                request.onerror = () => resolve();
+                request.onblocked = () => resolve();
+              }))
+          );
+        }
+      } catch {
+        // Ignore IndexedDB issues.
+      }
+    });
   }
 
   async setup() {
@@ -57,6 +105,12 @@ export class ViewerBenchmarkPage {
     await this.page.waitForLoadState('networkidle', { timeout: 30000 }).catch(() => {
       // Ignore if networkidle times out, app might still be loading
     });
+
+    if (this.cacheMode === 'cold') {
+      await this.clearBrowserCaches();
+      await this.page.reload();
+      await this.page.waitForSelector('input[type="file"]', { state: 'attached', timeout: 30000 });
+    }
   }
 
   async loadFile(filePath: string) {
@@ -190,11 +244,21 @@ export class ViewerBenchmarkPage {
     }
 
     // First batch timing
-    const firstBatchMatch = logs.match(/\[useIfc\] Batch #1: (\d+) meshes, wait: (\d+)ms/);
+    const firstBatchMatch = logs.match(/\[useIfc\] (?:Native )?Batch #1: (\d+) meshes, wait: (\d+)ms/);
     if (firstBatchMatch) {
       this.metrics.firstBatchMeshes = parseInt(firstBatchMatch[1], 10);
       this.metrics.firstBatchWaitMs = parseInt(firstBatchMatch[2], 10);
       this.metrics.firstBatchNumber = 1;
+    }
+
+    const firstAppendMatch = logs.match(/\[useIfc\] (?:Native )?first appendGeometryBatch for .*?: (\d+)ms/i);
+    if (firstAppendMatch) {
+      this.metrics.firstAppendGeometryBatchMs = parseInt(firstAppendMatch[1], 10);
+    }
+
+    const firstVisibleMatch = logs.match(/\[useIfc\] (?:Native )?first visible geometry for .*?: (\d+)ms/i);
+    if (firstVisibleMatch) {
+      this.metrics.firstVisibleGeometryMs = parseInt(firstVisibleMatch[1], 10);
     }
 
     // Geometry streaming complete
@@ -204,6 +268,11 @@ export class ViewerBenchmarkPage {
     if (streamingCompleteMatch) {
       this.metrics.totalBatches = parseInt(streamingCompleteMatch[1], 10);
       this.metrics.totalMeshes = parseInt(streamingCompleteMatch[2], 10);
+    }
+
+    const streamCompleteMatch = logs.match(/\[useIfc\] (?:Native )?Stream complete for .*?: (\d+)ms/i);
+    if (streamCompleteMatch) {
+      this.metrics.streamCompleteMs = parseInt(streamCompleteMatch[1], 10);
     }
 
     // WASM wait time
@@ -219,8 +288,9 @@ export class ViewerBenchmarkPage {
     }
 
     // Calculate geometry streaming total time (from first batch to complete)
-    if (this.metrics.firstBatchWaitMs !== null && this.metrics.wasmWaitMs !== null) {
-      // Approximate: WASM wait time is the main component
+    if (this.metrics.streamCompleteMs !== null && this.metrics.streamCompleteMs !== undefined) {
+      this.metrics.geometryStreamingMs = this.metrics.streamCompleteMs;
+    } else if (this.metrics.wasmWaitMs !== null && this.metrics.wasmWaitMs !== undefined) {
       this.metrics.geometryStreamingMs = this.metrics.wasmWaitMs;
     }
 
@@ -236,6 +306,26 @@ export class ViewerBenchmarkPage {
     if (dataModelMatch) {
       this.metrics.dataModelEntityCount = parseInt(dataModelMatch[1], 10);
       this.metrics.dataModelParseMs = parseInt(dataModelMatch[2], 10);
+    }
+
+    const metadataStartMatch = logs.match(/\[useIfc\] (?:Native )?(?:metadata|Data model) (?:parse|parsing) start for .*?: (\d+)ms/i);
+    if (metadataStartMatch) {
+      this.metrics.metadataStartMs = parseInt(metadataStartMatch[1], 10);
+    }
+
+    const spatialReadyMatch = logs.match(/\[useIfc\] (?:Native )?(?:spatial tree|Spatial tree) ready for .*? at (\d+)ms/i);
+    if (spatialReadyMatch) {
+      this.metrics.spatialReadyMs = parseInt(spatialReadyMatch[1], 10);
+    }
+
+    const metadataCompleteMatch = logs.match(/\[useIfc\] (?:Native )?(?:metadata|Data model) (?:parse|parsing) complete for .*?: (\d+)ms/i);
+    if (metadataCompleteMatch) {
+      this.metrics.metadataCompleteMs = parseInt(metadataCompleteMatch[1], 10);
+    }
+
+    const metadataFailedMatch = logs.match(/\[useIfc\] (?:Native )?(?:metadata|Data model) (?:parse|parsing) failed for .*?: (\d+)ms/i);
+    if (metadataFailedMatch) {
+      this.metrics.metadataFailedMs = parseInt(metadataFailedMatch[1], 10);
     }
 
     // File size and read time
@@ -278,6 +368,13 @@ export class ViewerBenchmarkPage {
       fileReadMs: this.metrics.fileReadMs ?? null,
       modelOpenMs: this.metrics.modelOpenMs ?? null,
       firstBatchWaitMs: this.metrics.firstBatchWaitMs ?? null,
+      firstAppendGeometryBatchMs: this.metrics.firstAppendGeometryBatchMs ?? null,
+      firstVisibleGeometryMs: this.metrics.firstVisibleGeometryMs ?? null,
+      streamCompleteMs: this.metrics.streamCompleteMs ?? null,
+      metadataStartMs: this.metrics.metadataStartMs ?? null,
+      spatialReadyMs: this.metrics.spatialReadyMs ?? null,
+      metadataCompleteMs: this.metrics.metadataCompleteMs ?? null,
+      metadataFailedMs: this.metrics.metadataFailedMs ?? null,
       firstBatchNumber: this.metrics.firstBatchNumber ?? null,
       firstBatchMeshes: this.metrics.firstBatchMeshes ?? null,
       totalBatches: this.metrics.totalBatches ?? null,

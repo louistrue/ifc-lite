@@ -90,7 +90,14 @@ import { scanEntitiesInWorker } from './scan-worker-inline.js';
 
 export interface ParseOptions {
   onProgress?: (progress: { phase: string; percent: number }) => void;
+  onDiagnostic?: (message: string) => void;
   wasmApi?: any; // Optional IfcAPI instance for WASM-accelerated entity scanning
+  /** Yield budget for large incremental parses. Higher values finish faster with longer main-thread slices. */
+  yieldIntervalMs?: number;
+  /** Keep property-set containers in the primary index but defer indexing individual property/quantity atoms. */
+  deferPropertyAtomIndex?: boolean;
+  /** Skip worker-based entity scanning and stay in-process. Useful for huge buffers already loaded on the main thread. */
+  disableWorkerScan?: boolean;
   /** Called when spatial hierarchy is ready, BEFORE property/association parsing completes.
    *  Use this to show the hierarchy panel early while the full parse finishes. */
   onSpatialReady?: (partialStore: import('./columnar-parser.js').IfcDataStore) => void;
@@ -187,12 +194,13 @@ export class IfcParser {
 
     // Fast scan: prefer Web Worker (non-blocking), fall back to main-thread scanners
     options.onProgress?.({ phase: 'scanning', percent: 0 });
+    const scanStartTime = performance.now();
 
     let entityRefs: EntityRef[] = [];
     let processed = 0;
 
     // Try Web Worker scanner first (keeps main thread free for UI + geometry)
-    if (typeof Worker !== 'undefined') {
+    if (!options.disableWorkerScan && typeof Worker !== 'undefined') {
       try {
         entityRefs = await scanEntitiesInWorker(buffer);
         processed = entityRefs.length;
@@ -206,7 +214,9 @@ export class IfcParser {
     // Fallback: WASM scanner (synchronous, blocks main thread)
     if (entityRefs.length === 0 && options.wasmApi && typeof options.wasmApi.scanEntitiesFast === 'function') {
       try {
-        const scanFn = typeof options.wasmApi.scanEntitiesFastBytes === 'function'
+        const scanFn = typeof options.wasmApi.scanRelevantEntitiesFastBytes === 'function'
+          ? () => options.wasmApi!.scanRelevantEntitiesFastBytes(uint8Buffer)
+          : typeof options.wasmApi.scanEntitiesFastBytes === 'function'
           ? () => options.wasmApi!.scanEntitiesFastBytes(uint8Buffer)
           : () => {
               const decoder = new TextDecoder();
@@ -214,20 +224,29 @@ export class IfcParser {
               return options.wasmApi!.scanEntitiesFast(content);
             };
         const wasmRefs = scanFn() as Array<{
-          express_id: number;
-          entity_type: string;
-          byte_offset: number;
-          byte_length: number;
-          line_number: number;
+          expressId?: number;
+          type?: string;
+          byteOffset?: number;
+          byteLength?: number;
+          lineNumber?: number;
+          express_id?: number;
+          entity_type?: string;
+          byte_offset?: number;
+          byte_length?: number;
+          line_number?: number;
         }>;
 
-        entityRefs = wasmRefs.map((ref) => ({
-          expressId: ref.express_id,
-          type: ref.entity_type,
-          byteOffset: ref.byte_offset,
-          byteLength: ref.byte_length,
-          lineNumber: ref.line_number,
-        }));
+        if (wasmRefs.length > 0 && typeof wasmRefs[0]?.expressId === 'number') {
+          entityRefs = wasmRefs as EntityRef[];
+        } else {
+          entityRefs = wasmRefs.map((ref) => ({
+            expressId: ref.expressId ?? ref.express_id ?? 0,
+            type: ref.type ?? ref.entity_type ?? '',
+            byteOffset: ref.byteOffset ?? ref.byte_offset ?? 0,
+            byteLength: ref.byteLength ?? ref.byte_length ?? 0,
+            lineNumber: ref.lineNumber ?? ref.line_number ?? 0,
+          }));
+        }
 
         processed = entityRefs.length;
       } catch (error) {
@@ -261,6 +280,9 @@ export class IfcParser {
       }
     }
 
+    const scanElapsedMs = performance.now() - scanStartTime;
+    console.log(`[IfcParser] Fast scan: ${processed} entities in ${scanElapsedMs.toFixed(0)}ms`);
+    options.onDiagnostic?.(`scan complete: entities=${processed} elapsed=${scanElapsedMs.toFixed(0)}ms`);
     options.onProgress?.({ phase: 'scanning', percent: 100 });
 
     // Build columnar structures with on-demand property extraction

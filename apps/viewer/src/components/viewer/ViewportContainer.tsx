@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-import { useMemo, useRef, useState, useCallback, useEffect } from 'react';
+import { useMemo, useRef, useState, useCallback, useEffect, useSyncExternalStore } from 'react';
 import { Viewport } from './Viewport';
 import { ViewportOverlays } from './ViewportOverlays';
 import { ToolOverlays } from './ToolOverlays';
@@ -10,12 +10,16 @@ import { Section2DPanel } from './Section2DPanel';
 import { BasketPresentationDock } from './BasketPresentationDock';
 import { BCFOverlay } from './bcf/BCFOverlay';
 import { CesiumOverlay } from './CesiumOverlay';
-import { useViewerStore } from '@/store';
+import { getViewerStoreApi, useViewerStore } from '@/store';
 import { toGlobalIdFromModels } from '@/store/globalId';
 import { collectIfcBuildingStoreyElementsWithIfcSpace } from '@/store/basketVisibleSet';
 import { useIfc } from '@/hooks/useIfc';
 import { useWebGPU } from '@/hooks/useWebGPU';
-import { Upload, MousePointer, Layers, Info, Command, AlertTriangle, ChevronDown, ExternalLink, Plus } from 'lucide-react';
+import { openIfcFileDialog } from '@/services/file-dialog';
+import { logToDesktopTerminal } from '@/services/desktop-logger';
+import { cacheFileBlobs, formatFileSize, getCachedFile, getRecentFiles, recordRecentFiles, type RecentFileEntry } from '@/lib/recent-files';
+import { isTauri } from '@/utils/ifcConfig';
+import { Upload, MousePointer, Layers, Info, Command, AlertTriangle, ChevronDown, ExternalLink, Plus, Clock3 } from 'lucide-react';
 import type { MeshData, CoordinateInfo, GeometryResult } from '@ifc-lite/geometry';
 import { extractGeoreferencingOnDemand, type IfcDataStore, type MapConversion, type ProjectedCRS } from '@ifc-lite/parser';
 
@@ -28,13 +32,12 @@ const DEFAULT_COORDINATE_INFO: CoordinateInfo = {
 };
 
 export function ViewportContainer() {
-  const { geometryResult, ifcDataStore, loadFile, loading, models, clearAllModels, loadFilesSequentially } = useIfc();
+  const { loadFile, loading, clearAllModels, loadFilesSequentially } = useIfc();
+  const releaseGeometryMemory = useViewerStore((s) => s.releaseGeometryMemory);
   const selectedStoreys = useViewerStore((s) => s.selectedStoreys);
   const typeVisibility = useViewerStore((s) => s.typeVisibility);
   const isolatedEntities = useViewerStore((s) => s.isolatedEntities);
   const classFilter = useViewerStore((s) => s.classFilter);
-  // Multi-model support: get all loaded models from store (for merged geometry)
-  const storeModels = useViewerStore((s) => s.models);
   const resetViewerState = useViewerStore((s) => s.resetViewerState);
   const bcfOverlayVisible = useViewerStore((s) => s.bcfOverlayVisible);
   const cesiumEnabled = useViewerStore((s) => s.cesiumEnabled);
@@ -45,7 +48,24 @@ export function ViewportContainer() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [showTroubleshooting, setShowTroubleshooting] = useState(false);
+  const [recentFiles, setRecentFiles] = useState<RecentFileEntry[]>([]);
   const webgpu = useWebGPU();
+
+  const viewerStoreApi = getViewerStoreApi();
+  const viewportStoreState = useSyncExternalStore(
+    viewerStoreApi.subscribe,
+    viewerStoreApi.getState,
+    viewerStoreApi.getState,
+  );
+
+  const {
+    geometryResult,
+    ifcDataStore,
+    models,
+    boundedGeometryMode,
+    geometryUpdateTick,
+  } = viewportStoreState;
+  const storeModels = models;
 
   // Check if we have models loaded (for determining add vs replace behavior)
   const hasModelsLoaded = models.size > 0 || (geometryResult?.meshes && geometryResult.meshes.length > 0);
@@ -60,39 +80,87 @@ export function ViewportContainer() {
     return map;
   }, [storeModels]);
 
+  const mergedCacheRef = useRef<MeshData[]>([]);
+  const mergedLengthsRef = useRef<Map<string, number>>(new Map());
+  const mergedVisibilityRef = useRef<Map<string, boolean>>(new Map());
+
   // Multi-model: merge geometries from all visible models
   const mergedGeometryResult = useMemo(() => {
-    // If we have federated models, merge their visible geometries
-    if (storeModels.size > 0) {
-      const allMeshes: MeshData[] = [];
+    if (storeModels.size === 1) {
+      const firstModel = storeModels.values().next().value;
+      if (!firstModel?.visible) {
+        return {
+          meshes: [],
+          totalVertices: 0,
+          totalTriangles: 0,
+          coordinateInfo: DEFAULT_COORDINATE_INFO,
+        } satisfies GeometryResult;
+      }
+      return firstModel.geometryResult ?? geometryResult;
+    }
+
+    if (storeModels.size > 1) {
       let totalVertices = 0;
       let totalTriangles = 0;
       let mergedCoordinateInfo: CoordinateInfo | undefined;
+      let shouldRebuild = false;
+
+      if (mergedLengthsRef.current.size !== storeModels.size) {
+        shouldRebuild = true;
+      }
 
       for (const [modelId, model] of storeModels) {
-        // Skip hidden models - this is how model visibility works
-        if (!model.visible) continue;
-
         const modelGeometry = model.geometryResult;
-        const modelIndex = modelIdToIndex.get(modelId) ?? 0;
-        if (modelGeometry?.meshes) {
-          // Tag each mesh with its modelIndex for selection/highlighting
-          for (const mesh of modelGeometry.meshes) {
-            allMeshes.push({ ...mesh, modelIndex });
-          }
-          totalVertices += modelGeometry.totalVertices || 0;
-          totalTriangles += modelGeometry.totalTriangles || 0;
+        const meshCount = model.visible ? (modelGeometry?.meshes.length ?? 0) : 0;
+        totalVertices += model.visible ? (modelGeometry?.totalVertices ?? 0) : 0;
+        totalTriangles += model.visible ? (modelGeometry?.totalTriangles ?? 0) : 0;
+        if (!mergedCoordinateInfo && model.visible && modelGeometry?.coordinateInfo) {
+          mergedCoordinateInfo = modelGeometry.coordinateInfo;
+        }
 
-          // Use first model's coordinate info as base (could be improved to compute union)
-          if (!mergedCoordinateInfo && modelGeometry.coordinateInfo) {
-            mergedCoordinateInfo = modelGeometry.coordinateInfo;
-          }
+        if (
+          mergedVisibilityRef.current.get(modelId) !== model.visible ||
+          (mergedLengthsRef.current.get(modelId) ?? 0) > meshCount
+        ) {
+          shouldRebuild = true;
         }
       }
 
-      // Return merged result (may be empty if all models hidden)
+      if (shouldRebuild) {
+        const rebuilt: MeshData[] = [];
+        mergedLengthsRef.current = new Map();
+        mergedVisibilityRef.current = new Map();
+        for (const [modelId, model] of storeModels) {
+          const modelGeometry = model.geometryResult;
+          mergedVisibilityRef.current.set(modelId, model.visible);
+          const modelIndex = modelIdToIndex.get(modelId) ?? 0;
+          if (!model.visible || !modelGeometry?.meshes) {
+            mergedLengthsRef.current.set(modelId, 0);
+            continue;
+          }
+          for (const mesh of modelGeometry.meshes) {
+            rebuilt.push({ ...mesh, modelIndex });
+          }
+          mergedLengthsRef.current.set(modelId, modelGeometry.meshes.length);
+        }
+        mergedCacheRef.current = rebuilt;
+      } else {
+        for (const [modelId, model] of storeModels) {
+          const modelGeometry = model.geometryResult;
+          const modelIndex = modelIdToIndex.get(modelId) ?? 0;
+          const previousLength = mergedLengthsRef.current.get(modelId) ?? 0;
+          const nextMeshes = model.visible ? (modelGeometry?.meshes ?? []) : [];
+          for (let i = previousLength; i < nextMeshes.length; i++) {
+            const mesh = nextMeshes[i];
+            mergedCacheRef.current.push({ ...mesh, modelIndex });
+          }
+          mergedLengthsRef.current.set(modelId, nextMeshes.length);
+          mergedVisibilityRef.current.set(modelId, model.visible);
+        }
+      }
+
       return {
-        meshes: allMeshes,
+        meshes: mergedCacheRef.current,
         totalVertices,
         totalTriangles,
         coordinateInfo: mergedCoordinateInfo ?? DEFAULT_COORDINATE_INFO,
@@ -189,6 +257,20 @@ export function ViewportContainer() {
     setCesiumSourceModelId(georef?.sourceModelId ?? null);
   }, [georef?.sourceModelId, setCesiumSourceModelId]);
 
+  useEffect(() => {
+    // Recent files are a desktop-only feature — the web viewer should not
+    // show previously opened files in the landing page empty state.
+    if (!isTauri()) return;
+
+    const refreshRecentFiles = () => {
+      setRecentFiles(getRecentFiles().slice(0, 3));
+    };
+
+    refreshRecentFiles();
+    window.addEventListener('focus', refreshRecentFiles);
+    return () => window.removeEventListener('focus', refreshRecentFiles);
+  }, []);
+
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -221,6 +303,10 @@ export function ViewportContainer() {
 
     if (supportedFiles.length === 0) return;
 
+    recordRecentFiles(supportedFiles.map((file) => ({ name: file.name, size: file.size })));
+    void cacheFileBlobs(supportedFiles);
+    setRecentFiles(getRecentFiles().slice(0, 3));
+
     if (hasModelsLoaded) {
       // Models already loaded - add new files sequentially
       loadFilesSequentially(supportedFiles);
@@ -251,6 +337,10 @@ export function ViewportContainer() {
 
     if (supportedFiles.length === 0) return;
 
+    recordRecentFiles(supportedFiles.map((file) => ({ name: file.name, size: file.size })));
+    void cacheFileBlobs(supportedFiles);
+    setRecentFiles(getRecentFiles().slice(0, 3));
+
     if (supportedFiles.length === 1) {
       // Single file - use loadFile (simpler single-model path)
       loadFile(supportedFiles[0]);
@@ -277,6 +367,7 @@ export function ViewportContainer() {
   // A version counter triggers downstream re-renders via the Viewport prop.
   const filteredCacheRef = useRef<MeshData[]>([]);
   const filteredSourceLenRef = useRef(0);
+  const filteredSourceRef = useRef<MeshData[] | null>(null);
   const filteredTypeVisRef = useRef(typeVisibility);
   const filteredVersionRef = useRef(0);
 
@@ -284,6 +375,7 @@ export function ViewportContainer() {
     if (!mergedGeometryResult?.meshes) {
       filteredCacheRef.current = [];
       filteredSourceLenRef.current = 0;
+      filteredSourceRef.current = null;
       filteredVersionRef.current = 0;
       return null;
     }
@@ -297,9 +389,11 @@ export function ViewportContainer() {
       prevVis.spaces !== typeVisibility.spaces ||
       prevVis.openings !== typeVisibility.openings ||
       prevVis.site !== typeVisibility.site;
-    if (typeVisChanged || allMeshes.length < filteredSourceLenRef.current) {
+    const sourceChanged = filteredSourceRef.current !== allMeshes;
+    if (typeVisChanged || sourceChanged || allMeshes.length < filteredSourceLenRef.current) {
       cache.length = 0;
       filteredSourceLenRef.current = 0;
+      filteredSourceRef.current = allMeshes;
       filteredTypeVisRef.current = typeVisibility;
     }
 
@@ -331,7 +425,7 @@ export function ViewportContainer() {
 
     // Only bump version when cache content actually changed — avoids
     // unnecessary downstream re-renders when memo runs with same data.
-    if (cache.length !== prevCacheLen || typeVisChanged) {
+    if (cache.length !== prevCacheLen || typeVisChanged || sourceChanged) {
       filteredVersionRef.current++;
     }
 
@@ -624,7 +718,29 @@ export function ViewportContainer() {
 
             {/* Action */}
             <button
-              onClick={() => webgpu.supported && fileInputRef.current?.click()}
+              onClick={async () => {
+                if (!webgpu.supported) {
+                  return;
+                }
+
+                void logToDesktopTerminal('info', '[ViewportContainer] Empty-state open button clicked');
+                const file = await openIfcFileDialog();
+                if (file) {
+                  void logToDesktopTerminal('info', `[ViewportContainer] Native dialog selected ${file.path}`);
+                  recordRecentFiles([{
+                    name: file.name,
+                    size: file.size,
+                    path: file.path,
+                    modifiedMs: file.modifiedMs ?? null,
+                  }]);
+                  setRecentFiles(getRecentFiles().slice(0, 3));
+                  loadFile(file);
+                  return;
+                }
+
+                void logToDesktopTerminal('info', '[ViewportContainer] Falling back to browser file input');
+                fileInputRef.current?.click();
+              }}
               disabled={!webgpu.supported || webgpu.checking}
               className={`group w-full flex items-center justify-center gap-3 px-6 py-3 font-mono text-sm border transition-all ${
                 !webgpu.supported || webgpu.checking
@@ -639,6 +755,37 @@ export function ViewportContainer() {
             <p className="mt-3 text-xs font-mono text-zinc-400 dark:text-[#565f89]">
               {webgpu.supported ? 'or drag & drop anywhere' : 'file upload disabled'}
             </p>
+
+            {recentFiles.length > 0 && (
+              <div className="mt-6 w-full border-t border-zinc-200 dark:border-[#3b4261] pt-4">
+                <div className="mb-3 flex items-center gap-2 text-xs font-mono uppercase tracking-[0.2em] text-zinc-400 dark:text-[#565f89]">
+                  <Clock3 className="h-3.5 w-3.5" />
+                  <span>Recent Files</span>
+                </div>
+                <div className="flex flex-col gap-2">
+                  {recentFiles.map((file) => (
+                    <button
+                      key={`${file.name}-${file.timestamp}`}
+                      type="button"
+                      onClick={async () => {
+                        const cached = await getCachedFile(file);
+                        if (cached) {
+                          await loadFile(cached);
+                          return;
+                        }
+                        fileInputRef.current?.click();
+                      }}
+                      className="flex items-center justify-between gap-3 border border-zinc-200 bg-zinc-50 px-3 py-2 text-left transition-colors hover:border-primary hover:text-primary dark:border-[#3b4261] dark:bg-[#1f2335] dark:hover:border-primary"
+                    >
+                      <span className="min-w-0 truncate font-mono text-xs">{file.name}</span>
+                      <span className="shrink-0 font-mono text-[10px] uppercase tracking-wide text-zinc-400 dark:text-[#565f89]">
+                        {formatFileSize(file.size)}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Feature Grid */}
@@ -716,12 +863,14 @@ export function ViewportContainer() {
         computedIsolatedIds={computedIsolatedIds}
         modelIdToIndex={modelIdToIndex}
         cesiumActive={cesiumEnabled && georef !== null}
+        releaseGeometryAfterStream={false}
+        onGeometryReleased={releaseGeometryMemory}
       />
       {bcfOverlayVisible && <BCFOverlay />}
       <ViewportOverlays />
       <ToolOverlays />
       <BasketPresentationDock />
-      <Section2DPanel 
+      <Section2DPanel
         mergedGeometry={mergedGeometryResult}
         computedIsolatedIds={computedIsolatedIds}
         modelIdToIndex={modelIdToIndex}

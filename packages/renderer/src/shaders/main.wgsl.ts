@@ -106,7 +106,17 @@ export const mainShaderSource = `
             }
           }
 
-          let N = normalize(input.normal);
+          // Compute normal — with fallback for zero normals
+          var N = input.normal;
+          let nLen2 = dot(N, N);
+          if (nLen2 < 0.0001) {
+            // Fallback: compute flat normal from screen-space derivatives
+            let faceN = cross(dpdx(input.worldPos), dpdy(input.worldPos));
+            let fLen2 = dot(faceN, faceN);
+            N = select(vec3<f32>(0.0, 1.0, 0.0), faceN * inverseSqrt(fLen2), fLen2 > 1e-10);
+          } else {
+            N = N * inverseSqrt(nLen2);
+          }
 
           // Enhanced lighting with multiple sources
           let sunLight = normalize(vec3<f32>(0.5, 1.0, 0.3));  // Main directional light

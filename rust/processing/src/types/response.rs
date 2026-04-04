@@ -55,6 +55,37 @@ pub struct CoordinateInfo {
     pub is_geo_referenced: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QuickMetadataEntitySummary {
+    pub express_id: u32,
+    pub type_name: String,
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub global_id: Option<String>,
+    pub kind: String,
+    pub has_children: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub element_count: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub elevation: Option<f64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QuickMetadataSpatialNode {
+    #[serde(flatten)]
+    pub summary: QuickMetadataEntitySummary,
+    pub children: Vec<QuickMetadataSpatialNode>,
+    pub elements: Vec<QuickMetadataEntitySummary>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QuickMetadataBootstrap {
+    pub schema_version: String,
+    pub entity_count: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub spatial_tree: Option<QuickMetadataSpatialNode>,
+}
+
 /// Processing statistics.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ProcessingStats {
@@ -66,6 +97,12 @@ pub struct ProcessingStats {
     pub total_triangles: usize,
     /// Time spent parsing entities (ms).
     pub parse_time_ms: u64,
+    /// Time spent scanning entities and building initial job lists (ms).
+    pub entity_scan_time_ms: u64,
+    /// Time spent resolving lookups, styles, and optional metadata (ms).
+    pub lookup_time_ms: u64,
+    /// Time spent in geometry preprocessing before the extraction loop begins (ms).
+    pub preprocess_time_ms: u64,
     /// Time spent processing geometry (ms).
     pub geometry_time_ms: u64,
     /// Total processing time (ms).

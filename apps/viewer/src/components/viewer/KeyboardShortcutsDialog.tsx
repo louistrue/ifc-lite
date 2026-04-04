@@ -75,7 +75,7 @@ function PrivacyBanner() {
 
 function AboutTab() {
   const [showPackages, setShowPackages] = useState(false);
-  const packageVersions = __PACKAGE_VERSIONS__;
+  const packageVersions = typeof __PACKAGE_VERSIONS__ !== 'undefined' ? __PACKAGE_VERSIONS__ : [];
 
   return (
     <div className="space-y-3">

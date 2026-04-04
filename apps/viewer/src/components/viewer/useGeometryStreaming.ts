@@ -21,6 +21,7 @@
 import { useEffect, useRef, type MutableRefObject } from 'react';
 import type { Renderer } from '@ifc-lite/renderer';
 import type { MeshData, CoordinateInfo } from '@ifc-lite/geometry';
+import { logToDesktopTerminal } from '@/services/desktop-logger';
 
 export interface UseGeometryStreamingParams {
   rendererRef: MutableRefObject<Renderer | null>;
@@ -37,6 +38,8 @@ export interface UseGeometryStreamingParams {
   clearPendingMeshColorUpdates: () => void;
   clearPendingColorUpdates: () => void;
   clearColorRef: MutableRefObject<[number, number, number, number]>;
+  releaseGeometryAfterFinalize?: boolean;
+  onGeometryReleased?: () => void;
 }
 
 // Default bounds used when geometry is cleared
@@ -46,6 +49,11 @@ const DEFAULT_BOUNDS = {
 };
 
 const MAX_VALID_COORD = 10000;
+
+function traceGeometrySync(message: string): void {
+  console.log(`[GeomSync] ${message}`);
+  void logToDesktopTerminal('info', `[GeomSync] ${message}`);
+}
 
 export function useGeometryStreaming(params: UseGeometryStreamingParams): void {
   const {
@@ -61,6 +69,8 @@ export function useGeometryStreaming(params: UseGeometryStreamingParams): void {
     clearPendingMeshColorUpdates,
     clearPendingColorUpdates,
     clearColorRef,
+    releaseGeometryAfterFinalize = false,
+    onGeometryReleased,
   } = params;
 
   // ─── Tracking refs ───────────────────────────────────────────────────
@@ -71,6 +81,28 @@ export function useGeometryStreaming(params: UseGeometryStreamingParams): void {
   const finalBoundsRefittedRef = useRef(false);
   const cameraSnapshotRef = useRef<{ px: number; py: number; pz: number; tx: number; ty: number; tz: number } | null>(null);
   const prevIsStreamingRef = useRef(isStreaming);
+  const queuePumpTimerRef = useRef<ReturnType<typeof globalThis.setTimeout> | null>(null);
+
+  const ensureQueuePump = () => {
+    if (queuePumpTimerRef.current !== null) return;
+    queuePumpTimerRef.current = globalThis.setTimeout(() => {
+      queuePumpTimerRef.current = null;
+      const renderer = rendererRef.current;
+      if (!renderer || !isInitialized) return;
+      const device = renderer.getGPUDevice();
+      const pipeline = renderer.getPipeline();
+      const scene = renderer.getScene();
+      if (!device || !pipeline || !scene.hasQueuedMeshes()) return;
+      const flushed = scene.flushPending(device, pipeline);
+      if (flushed) {
+        renderer.clearCaches();
+        renderer.requestRender();
+      }
+      if (scene.hasQueuedMeshes()) {
+        ensureQueuePump();
+      }
+    }, 0);
+  };
 
   // ─── Main geometry effect ────────────────────────────────────────────
   // Runs on every geometry change (new file, incremental batch, visibility toggle).
@@ -81,6 +113,7 @@ export function useGeometryStreaming(params: UseGeometryStreamingParams): void {
     // Geometry cleared/null — reset so next load is fresh
     if (!geometry) {
       if (lastGeometryLengthRef.current > 0 || lastGeometryRef.current !== null) {
+        traceGeometrySync(`geometry cleared lastLength=${lastGeometryLengthRef.current}`);
         lastGeometryLengthRef.current = 0;
         lastGeometryRef.current = null;
         processedMeshIdsRef.current.clear();
@@ -121,7 +154,9 @@ export function useGeometryStreaming(params: UseGeometryStreamingParams): void {
     }
 
     if (isNewFile) {
+      traceGeometrySync(`new file currentLength=${currentLength} lastLength=${lastLength} releaseAfterFinalize=${releaseGeometryAfterFinalize}`);
       scene.clear();
+      scene.setEphemeralStreamingMode(releaseGeometryAfterFinalize);
       processedMeshIdsRef.current.clear();
       cameraFittedRef.current = false;
       finalBoundsRefittedRef.current = false;
@@ -132,14 +167,18 @@ export function useGeometryStreaming(params: UseGeometryStreamingParams): void {
       geometryBoundsRef.current = { ...DEFAULT_BOUNDS };
     } else if (!isIncremental && currentLength !== lastLength) {
       if (currentLength < lastLength) {
+        traceGeometrySync(`geometry rebuilt after shrink currentLength=${currentLength} lastLength=${lastLength}`);
         // Length decreased (model hidden) — rebuild scene, keep camera
         scene.clear();
+        scene.setEphemeralStreamingMode(releaseGeometryAfterFinalize);
         processedMeshIdsRef.current.clear();
         lastGeometryLengthRef.current = 0;
         lastGeometryRef.current = geometry;
       } else {
+        traceGeometrySync(`geometry rebuilt after replace currentLength=${currentLength} lastLength=${lastLength} releaseAfterFinalize=${releaseGeometryAfterFinalize}`);
         // New file while another was open — full reset
         scene.clear();
+        scene.setEphemeralStreamingMode(releaseGeometryAfterFinalize);
         processedMeshIdsRef.current.clear();
         cameraFittedRef.current = false;
         finalBoundsRefittedRef.current = false;
@@ -193,6 +232,10 @@ export function useGeometryStreaming(params: UseGeometryStreamingParams): void {
         if (isStreaming) {
           // Queue for the animation loop — zero GPU work here.
           scene.queueMeshes(newMeshes);
+          // Desktop benchmark windows can become background-throttled, which
+          // stalls requestAnimationFrame-based draining. Keep a timer-based
+          // pump active so large native loads still finish offscreen.
+          ensureQueuePump();
         } else {
           // Non-streaming: process immediately (visibility toggles, etc.)
           scene.appendToBatches(newMeshes, device, pipeline, false);
@@ -230,63 +273,105 @@ export function useGeometryStreaming(params: UseGeometryStreamingParams): void {
     renderer.requestRender();
   }, [geometry, geometryVersion, coordinateInfo, isInitialized, isStreaming]);
 
+  useEffect(() => {
+    return () => {
+      if (queuePumpTimerRef.current !== null) {
+        globalThis.clearTimeout(queuePumpTimerRef.current);
+        queuePumpTimerRef.current = null;
+      }
+    };
+  }, []);
+
   // ─── Streaming complete: finalize + bounds refit ─────────────────────
   useEffect(() => {
     const renderer = rendererRef.current;
     if (!renderer || !isInitialized) return;
 
     if (prevIsStreamingRef.current && !isStreaming) {
-      // Flush any remaining queued meshes synchronously before finalize
-      const device = renderer.getGPUDevice();
-      const pipeline = renderer.getPipeline();
       const scene = renderer.getScene();
-      if (device && pipeline && scene.hasQueuedMeshes()) {
-        scene.flushPending(device, pipeline);
-      }
-
+      traceGeometrySync(
+        `stream transition complete geometryLength=${geometry?.length ?? 0} queued=${scene.hasQueuedMeshes()} batches=${scene.getBatchedMeshes().length}`
+      );
       renderer.requestRender();
 
-      // Defer heavy work so the browser processes pending input events first.
-      // Streaming fragments keep rendering until proper batches replace them.
       const capturedGeometry = geometry;
-      const timer = setTimeout(() => {
-        const r = rendererRef.current;
-        if (!r) return;
+      let timeoutId: ReturnType<typeof globalThis.setTimeout> | null = null;
+      let rafId: number | null = null;
 
-        // Compute exact bounds and refit camera (fast ~15ms scan)
-        if (cameraFittedRef.current && !finalBoundsRefittedRef.current && capturedGeometry && capturedGeometry.length > 0) {
-          const t0 = performance.now();
-          const exactBounds = computeBounds(capturedGeometry);
-          if (exactBounds) {
-            if (!userMovedCamera(r, cameraSnapshotRef.current)) {
-              r.getCamera().fitToBounds(exactBounds.min, exactBounds.max);
+      const startFinalize = () => {
+        timeoutId = globalThis.setTimeout(() => {
+          const r = rendererRef.current;
+          if (!r) return;
+
+          console.log('[GeomStream] Streaming ended — starting finalize');
+          traceGeometrySync(
+            `finalize start geometryLength=${capturedGeometry?.length ?? 0} releaseAfterFinalize=${releaseGeometryAfterFinalize}`
+          );
+
+          // Compute exact bounds and refit camera (fast ~15ms scan)
+          if (cameraFittedRef.current && !finalBoundsRefittedRef.current && capturedGeometry && capturedGeometry.length > 0) {
+            const t0 = performance.now();
+            const exactBounds = computeBounds(capturedGeometry);
+            console.log(`[GeomStream] computeBounds: ${(performance.now() - t0).toFixed(0)}ms`);
+            if (exactBounds) {
+              if (!userMovedCamera(r, cameraSnapshotRef.current)) {
+                r.getCamera().fitToBounds(exactBounds.min, exactBounds.max);
+              }
+              geometryBoundsRef.current = exactBounds;
+              finalBoundsRefittedRef.current = true;
             }
-            geometryBoundsRef.current = exactBounds;
-            finalBoundsRefittedRef.current = true;
           }
-        }
 
-        // Time-sliced finalize: rebuild proper batches in ~8ms chunks
-        const dev = r.getGPUDevice();
-        const pipe = r.getPipeline();
-        if (dev && pipe) {
-          const t0 = performance.now();
-          r.getScene().finalizeStreamingAsync(dev, pipe).then(() => {
-            const batchCount = r.getScene().getBatchedMeshes().length;
-            let totalIdx = 0;
-            for (const b of r.getScene().getBatchedMeshes()) totalIdx += b.indexCount;
-            console.log(`[ifc-lite] GPU finalized: ${batchCount} batches, ${(totalIdx / 3 / 1e6).toFixed(1)}M triangles in ${(performance.now() - t0).toFixed(0)}ms`);
+          // Time-sliced finalize: rebuild proper batches in ~8ms chunks
+          if (releaseGeometryAfterFinalize) {
+            r.getScene().finishEphemeralStreaming();
+            onGeometryReleased?.();
             r.clearCaches();
             r.requestRender();
-          });
+            traceGeometrySync(`ephemeral finalize complete batches=${r.getScene().getBatchedMeshes().length}`);
+            return;
+          }
+
+          const dev = r.getGPUDevice();
+          const pipe = r.getPipeline();
+          if (dev && pipe) {
+            const t0 = performance.now();
+            r.getScene().finalizeStreamingAsync(dev, pipe).then(() => {
+              const batchCount = r.getScene().getBatchedMeshes().length;
+              let totalIdx = 0;
+              for (const b of r.getScene().getBatchedMeshes()) totalIdx += b.indexCount;
+              console.log(`[GeomStream] finalizeStreamingAsync complete: ${(performance.now() - t0).toFixed(0)}ms → ${batchCount} consolidated batches, ${(totalIdx / 3 / 1e6).toFixed(1)}M triangles`);
+              traceGeometrySync(
+                `finalize complete elapsed=${(performance.now() - t0).toFixed(0)}ms batches=${batchCount} queued=${r.getScene().hasQueuedMeshes()}`
+              );
+              r.clearCaches();
+              r.requestRender();
+            });
+          }
+        }, 0);
+      };
+
+      const waitForQueueDrain = () => {
+        const currentRenderer = rendererRef.current;
+        if (!currentRenderer) return;
+        if (!currentRenderer.getScene().hasQueuedMeshes()) {
+          startFinalize();
+          return;
         }
-      }, 0);
+        currentRenderer.requestRender();
+        rafId = requestAnimationFrame(waitForQueueDrain);
+      };
+
+      waitForQueueDrain();
 
       prevIsStreamingRef.current = isStreaming;
-      return () => clearTimeout(timer);
+      return () => {
+        if (timeoutId !== null) globalThis.clearTimeout(timeoutId);
+        if (rafId !== null) cancelAnimationFrame(rafId);
+      };
     }
     prevIsStreamingRef.current = isStreaming;
-  }, [isStreaming, isInitialized]);
+  }, [isStreaming, isInitialized, releaseGeometryAfterFinalize, onGeometryReleased]);
 
   // ─── Mesh color updates (style/material deferred colors) ─────────────
   useEffect(() => {

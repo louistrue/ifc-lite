@@ -33,6 +33,7 @@ import { createLensSlice, type LensSlice } from './slices/lensSlice.js';
 import { createScriptSlice, type ScriptSlice } from './slices/scriptSlice.js';
 import { createChatSlice, type ChatSlice } from './slices/chatSlice.js';
 import { createCesiumSlice, type CesiumSlice } from './slices/cesiumSlice.js';
+import { createDesktopEntitlementSlice, type DesktopEntitlementSlice } from './slices/desktopEntitlementSlice.js';
 import { invalidateVisibleBasketCache } from './basketVisibleSet.js';
 
 // Import constants for reset function
@@ -77,6 +78,7 @@ export type { ScriptSlice } from './slices/scriptSlice.js';
 
 // Re-export Chat types
 export type { ChatSlice } from './slices/chatSlice.js';
+export type { DesktopEntitlementSlice } from './slices/desktopEntitlementSlice.js';
 
 // Re-export Cesium types
 export type { CesiumSlice, CesiumDataSource } from './slices/cesiumSlice.js';
@@ -102,14 +104,15 @@ export type ViewerState = LoadingSlice &
   LensSlice &
   ScriptSlice &
   ChatSlice &
-  CesiumSlice & {
+  CesiumSlice &
+  DesktopEntitlementSlice & {
     resetViewerState: () => void;
   };
 
 /**
  * Main viewer store combining all slices
  */
-export const useViewerStore = create<ViewerState>()((...args) => ({
+const createViewerStore = () => create<ViewerState>()((...args) => ({
   // Spread all slices
   ...createLoadingSlice(...args),
   ...createSelectionSlice(...args),
@@ -132,6 +135,7 @@ export const useViewerStore = create<ViewerState>()((...args) => ({
   ...createScriptSlice(...args),
   ...createChatSlice(...args),
   ...createCesiumSlice(...args),
+  ...createDesktopEntitlementSlice(...args),
 
   // Reset all viewer state when loading new file
   // Note: Does NOT clear models - use clearAllModels() for that
@@ -163,6 +167,13 @@ export const useViewerStore = create<ViewerState>()((...args) => ({
       isolatedEntitiesByModel: new Map(),
 
       // Data
+      loading: false,
+      geometryStreamingActive: false,
+      geometryUpdateTick: 0,
+      progress: null,
+      geometryProgress: null,
+      metadataProgress: null,
+      error: null,
       pendingColorUpdates: null,
       pendingMeshColorUpdates: null,
 
@@ -331,3 +342,16 @@ export const useViewerStore = create<ViewerState>()((...args) => ({
     });
   },
 }));
+
+const STORE_SINGLETON_KEY = '__ifc_lite_viewer_store__';
+const globalStoreRegistry = globalThis as typeof globalThis & {
+  [STORE_SINGLETON_KEY]?: ReturnType<typeof createViewerStore>;
+};
+
+export function getViewerStoreApi() {
+  return globalStoreRegistry[STORE_SINGLETON_KEY] ?? (
+    globalStoreRegistry[STORE_SINGLETON_KEY] = createViewerStore()
+  );
+}
+
+export const useViewerStore = getViewerStoreApi();

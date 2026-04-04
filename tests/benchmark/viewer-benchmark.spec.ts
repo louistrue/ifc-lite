@@ -11,6 +11,11 @@ interface ViewerBenchmarkResult {
   file: string;
   sizeMB: number;
   timestamp: string;
+  environment: {
+    runtime: 'browser-wasm';
+    cacheMode: string;
+    buildMode: string;
+  };
   metrics: ViewerBenchmarkMetrics;
   thresholds: {
     passed: boolean;
@@ -26,17 +31,21 @@ interface Baseline {
 }
 
 interface ThresholdConfig {
-  firstBatchWait: number; // percentage increase allowed
-  geometryStreaming: number;
-  entityScan: number;
-  dataModelParse: number;
+  firstBatchWaitMs: number;
+  firstVisibleGeometryMs: number;
+  streamCompleteMs: number;
+  spatialReadyMs: number;
+  metadataCompleteMs: number;
+  totalWallClockMs: number;
 }
 
 const DEFAULT_THRESHOLDS: ThresholdConfig = {
-  firstBatchWait: 50, // +50% (allow for system variance)
-  geometryStreaming: 50, // +50%
-  entityScan: 50, // +50%
-  dataModelParse: 50, // +50%
+  firstBatchWaitMs: 50,
+  firstVisibleGeometryMs: 50,
+  streamCompleteMs: 50,
+  spatialReadyMs: 50,
+  metadataCompleteMs: 50,
+  totalWallClockMs: 50,
 };
 
 function loadBaseline(): Baseline {
@@ -64,42 +73,25 @@ function checkThresholds(
     return { passed: true, violations: [] };
   }
 
-  // Check first batch wait
-  if (metrics.firstBatchWaitMs !== null && baseline.firstBatchWaitMs !== null) {
-    const increase = ((metrics.firstBatchWaitMs - baseline.firstBatchWaitMs) / baseline.firstBatchWaitMs) * 100;
-    if (increase > thresholds.firstBatchWait) {
-      violations.push(
-        `First batch wait increased by ${increase.toFixed(1)}% (${metrics.firstBatchWaitMs}ms vs ${baseline.firstBatchWaitMs}ms baseline)`
-      );
-    }
-  }
+  const kpiMetrics: Array<keyof ThresholdConfig> = [
+    'firstBatchWaitMs',
+    'firstVisibleGeometryMs',
+    'streamCompleteMs',
+    'spatialReadyMs',
+    'metadataCompleteMs',
+    'totalWallClockMs',
+  ];
 
-  // Check geometry streaming
-  if (metrics.geometryStreamingMs !== null && baseline.geometryStreamingMs !== null) {
-    const increase = ((metrics.geometryStreamingMs - baseline.geometryStreamingMs) / baseline.geometryStreamingMs) * 100;
-    if (increase > thresholds.geometryStreaming) {
-      violations.push(
-        `Geometry streaming increased by ${increase.toFixed(1)}% (${metrics.geometryStreamingMs}ms vs ${baseline.geometryStreamingMs}ms baseline)`
-      );
+  for (const metricName of kpiMetrics) {
+    const currentValue = metrics[metricName];
+    const baselineValue = baseline[metricName];
+    if (currentValue === null || baselineValue === null || baselineValue <= 0) {
+      continue;
     }
-  }
-
-  // Check entity scan
-  if (metrics.entityScanMs !== null && baseline.entityScanMs !== null) {
-    const increase = ((metrics.entityScanMs - baseline.entityScanMs) / baseline.entityScanMs) * 100;
-    if (increase > thresholds.entityScan) {
+    const increase = ((currentValue - baselineValue) / baselineValue) * 100;
+    if (increase > thresholds[metricName]) {
       violations.push(
-        `Entity scan increased by ${increase.toFixed(1)}% (${metrics.entityScanMs}ms vs ${baseline.entityScanMs}ms baseline)`
-      );
-    }
-  }
-
-  // Check data model parse
-  if (metrics.dataModelParseMs !== null && baseline.dataModelParseMs !== null) {
-    const increase = ((metrics.dataModelParseMs - baseline.dataModelParseMs) / baseline.dataModelParseMs) * 100;
-    if (increase > thresholds.dataModelParse) {
-      violations.push(
-        `Data model parse increased by ${increase.toFixed(1)}% (${metrics.dataModelParseMs}ms vs ${baseline.dataModelParseMs}ms baseline)`
+        `${metricName} increased by ${increase.toFixed(1)}% (${currentValue}ms vs ${baselineValue}ms baseline)`
       );
     }
   }
@@ -185,6 +177,9 @@ test.describe('Viewer Performance Benchmarks', () => {
       console.log(`\n--- Geometry Streaming ---`);
       console.log(`  Model Open: ${metrics.modelOpenMs?.toFixed(0) || 'N/A'} ms`);
       console.log(`  First Batch Wait: ${metrics.firstBatchWaitMs?.toFixed(0) || 'N/A'} ms`);
+      console.log(`  First Append Batch: ${metrics.firstAppendGeometryBatchMs?.toFixed(0) || 'N/A'} ms`);
+      console.log(`  First Visible Geometry: ${metrics.firstVisibleGeometryMs?.toFixed(0) || 'N/A'} ms`);
+      console.log(`  Stream Complete: ${metrics.streamCompleteMs?.toFixed(0) || 'N/A'} ms`);
       console.log(`  First Batch Meshes: ${metrics.firstBatchMeshes?.toLocaleString() || 'N/A'}`);
       console.log(`  Total Batches: ${metrics.totalBatches?.toLocaleString() || 'N/A'}`);
       console.log(`  Total Meshes: ${metrics.totalMeshes?.toLocaleString() || 'N/A'}`);
@@ -193,6 +188,10 @@ test.describe('Viewer Performance Benchmarks', () => {
       console.log(`  JS Process: ${metrics.jsProcessMs?.toFixed(0) || 'N/A'} ms`);
 
       console.log(`\n--- Data Model Parsing ---`);
+      console.log(`  Metadata Start: ${metrics.metadataStartMs?.toFixed(0) || 'N/A'} ms`);
+      console.log(`  Spatial Ready: ${metrics.spatialReadyMs?.toFixed(0) || 'N/A'} ms`);
+      console.log(`  Metadata Complete: ${metrics.metadataCompleteMs?.toFixed(0) || 'N/A'} ms`);
+      console.log(`  Metadata Failed: ${metrics.metadataFailedMs?.toFixed(0) || 'N/A'} ms`);
       console.log(`  Entity Scan: ${metrics.entityScanMs?.toFixed(0) || 'N/A'} ms`);
       console.log(`  Entity Count: ${metrics.entityCount?.toLocaleString() || 'N/A'}`);
       console.log(`  Data Model Parse: ${metrics.dataModelParseMs?.toFixed(0) || 'N/A'} ms`);
@@ -200,25 +199,22 @@ test.describe('Viewer Performance Benchmarks', () => {
 
       if (baselineMetrics) {
         console.log(`\n--- Comparison with Baseline ---`);
-        if (metrics.firstBatchWaitMs !== null && baselineMetrics.firstBatchWaitMs !== null) {
-          const diff = metrics.firstBatchWaitMs - baselineMetrics.firstBatchWaitMs;
-          const pct = ((diff / baselineMetrics.firstBatchWaitMs) * 100).toFixed(1);
-          console.log(`  First Batch Wait: ${diff > 0 ? '+' : ''}${diff.toFixed(0)}ms (${pct > 0 ? '+' : ''}${pct}%)`);
-        }
-        if (metrics.geometryStreamingMs !== null && baselineMetrics.geometryStreamingMs !== null) {
-          const diff = metrics.geometryStreamingMs - baselineMetrics.geometryStreamingMs;
-          const pct = ((diff / baselineMetrics.geometryStreamingMs) * 100).toFixed(1);
-          console.log(`  Geometry Streaming: ${diff > 0 ? '+' : ''}${diff.toFixed(0)}ms (${pct > 0 ? '+' : ''}${pct}%)`);
-        }
-        if (metrics.entityScanMs !== null && baselineMetrics.entityScanMs !== null) {
-          const diff = metrics.entityScanMs - baselineMetrics.entityScanMs;
-          const pct = ((diff / baselineMetrics.entityScanMs) * 100).toFixed(1);
-          console.log(`  Entity Scan: ${diff > 0 ? '+' : ''}${diff.toFixed(0)}ms (${pct > 0 ? '+' : ''}${pct}%)`);
-        }
-        if (metrics.dataModelParseMs !== null && baselineMetrics.dataModelParseMs !== null) {
-          const diff = metrics.dataModelParseMs - baselineMetrics.dataModelParseMs;
-          const pct = ((diff / baselineMetrics.dataModelParseMs) * 100).toFixed(1);
-          console.log(`  Data Model Parse: ${diff > 0 ? '+' : ''}${diff.toFixed(0)}ms (${pct > 0 ? '+' : ''}${pct}%)`);
+        const comparisonMetrics: Array<keyof ThresholdConfig> = [
+          'firstBatchWaitMs',
+          'firstVisibleGeometryMs',
+          'streamCompleteMs',
+          'spatialReadyMs',
+          'metadataCompleteMs',
+          'totalWallClockMs',
+        ];
+        for (const metricName of comparisonMetrics) {
+          const currentValue = metrics[metricName];
+          const baselineValue = baselineMetrics[metricName];
+          if (currentValue !== null && baselineValue !== null && baselineValue > 0) {
+            const diff = currentValue - baselineValue;
+            const pct = ((diff / baselineValue) * 100).toFixed(1);
+            console.log(`  ${metricName}: ${diff > 0 ? '+' : ''}${diff.toFixed(0)}ms (${diff > 0 ? '+' : ''}${pct}%)`);
+          }
         }
       } else {
         console.log(`\n--- No Baseline Available ---`);
@@ -242,6 +238,11 @@ test.describe('Viewer Performance Benchmarks', () => {
         file: fileName,
         sizeMB: metrics.fileSizeMB || 0,
         timestamp: new Date().toISOString(),
+        environment: {
+          runtime: 'browser-wasm',
+          cacheMode: process.env.VIEWER_BENCHMARK_CACHE_MODE ?? 'default',
+          buildMode: process.env.VIEWER_BENCHMARK_BUILD_MODE ?? 'dev',
+        },
         metrics,
         thresholds: thresholdResult,
       };

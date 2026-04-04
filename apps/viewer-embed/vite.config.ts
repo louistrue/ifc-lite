@@ -64,6 +64,17 @@ export default defineConfig({
   build: {
     target: 'esnext',
     chunkSizeWarningLimit: 6000,
+    rollupOptions: {
+      // Desktop-only Tauri APIs are dynamically imported in shared viewer code.
+      // They are never reached at runtime in the embed build, but Rollup still
+      // resolves them statically. Externalizing prevents the build failure.
+      external: [
+        '@tauri-apps/api/core',
+        '@tauri-apps/plugin-dialog',
+        '@tauri-apps/plugin-fs',
+        '@tauri-apps/plugin-shell',
+      ],
+    },
   },
   optimizeDeps: {
     exclude: ['@duckdb/duckdb-wasm', '@ifc-lite/wasm', 'parquet-wasm'],

@@ -49,9 +49,20 @@ interface ViewportProps {
   /** When true, the WebGPU canvas uses a transparent clear color so the
    *  CesiumJS globe behind it is visible. */
   cesiumActive?: boolean;
+  releaseGeometryAfterStream?: boolean;
+  onGeometryReleased?: () => void;
 }
 
-export function Viewport({ geometry, geometryVersion, coordinateInfo, computedIsolatedIds, modelIdToIndex, cesiumActive }: ViewportProps) {
+export function Viewport({
+  geometry,
+  geometryVersion,
+  coordinateInfo,
+  computedIsolatedIds,
+  modelIdToIndex,
+  cesiumActive,
+  releaseGeometryAfterStream = false,
+  onGeometryReleased,
+}: ViewportProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rendererRef = useRef<Renderer | null>(null);
   const [isInitialized, setIsInitialized] = useState(false);
@@ -97,7 +108,7 @@ export function Viewport({ geometry, geometryVersion, coordinateInfo, computedIs
   }, [modelIdToIndex]);
 
   // Compute selectedModelIndex for renderer (multi-model selection highlighting)
-  const selectedModelIndex = selectedEntity && modelIdToIndex
+  const selectedModelIndex = models.size > 1 && selectedEntity && modelIdToIndex
     ? modelIdToIndex.get(selectedEntity.modelId) ?? undefined
     : undefined;
 
@@ -117,12 +128,13 @@ export function Viewport({ geometry, geometryVersion, coordinateInfo, computedIs
     }
 
     const globalId = pickResult.expressId;
+    const resolvedRef = resolveEntityRef(globalId);
 
     // Set globalId for renderer (highlighting uses globalIds directly)
     setSelectedEntityId(globalId);
 
     // Resolve globalId → EntityRef for property panel (single source of truth, never null)
-    setSelectedEntity(resolveEntityRef(globalId));
+    setSelectedEntity(resolvedRef);
   }, [setSelectedEntityId, setSelectedEntity]);
 
   // Ref to always access latest handlePickForSelection from event handlers
@@ -476,8 +488,10 @@ export function Viewport({ geometry, geometryVersion, coordinateInfo, computedIs
 
   // Helper: get pick options with visibility filtering
   const getPickOptions = () => {
-    const currentProgress = useViewerStore.getState().progress;
-    const currentIsStreaming = currentProgress !== null && currentProgress.percent < 100;
+    const currentState = useViewerStore.getState();
+    const currentProgress = currentState.progress;
+    const currentIsStreaming = currentState.geometryStreamingActive
+      || (currentProgress !== null && currentProgress.percent < 100);
     return {
       isStreaming: currentIsStreaming,
       hiddenIds: hiddenEntitiesRef.current,
@@ -675,8 +689,7 @@ export function Viewport({ geometry, geometryVersion, coordinateInfo, computedIs
   const showHiddenLines = useViewerStore((s) => s.drawing2DDisplayOptions.showHiddenLines);
 
   // ===== Streaming progress =====
-  const progress = useViewerStore((state) => state.progress);
-  const isStreaming = progress !== null && progress.percent < 100;
+  const isStreaming = useViewerStore((state) => state.geometryStreamingActive);
 
   // Mouse isDragging proxy ref for animation loop
   // The animation loop reads this to decide whether to update rotation
@@ -829,6 +842,8 @@ export function Viewport({ geometry, geometryVersion, coordinateInfo, computedIs
     clearPendingColorUpdates,
     clearPendingMeshColorUpdates,
     clearColorRef,
+    releaseGeometryAfterFinalize: releaseGeometryAfterStream,
+    onGeometryReleased,
   });
 
   useRenderUpdates({

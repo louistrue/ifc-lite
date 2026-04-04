@@ -14,6 +14,11 @@ export interface MeshData {
   normals: Float32Array;    // [nx,ny,nz, ...]
   indices: Uint32Array;     // Triangle indices
   color: [number, number, number, number];
+  /** Per-vertex entity IDs for color-merged batches (desktop fast path).
+   *  When present the renderer writes these instead of repeating `expressId`
+   *  for every vertex, so picking/selection resolves to the correct individual
+   *  entity even though many entities share a single GPU batch. */
+  entityIds?: Uint32Array;
 }
 
 export interface Vec3 {

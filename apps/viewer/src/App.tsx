@@ -7,29 +7,13 @@
  */
 
 import { ViewerLayout } from './components/viewer/ViewerLayout';
-import { UpgradePage } from './components/viewer/UpgradePage';
 import { BimProvider } from './sdk/BimProvider';
 import { Toaster } from './components/ui/toast';
-import { ClerkChatSync } from './lib/llm/ClerkChatSync';
-import { isClerkConfigured } from './lib/llm/clerk-auth';
-import { useEffect, useState } from 'react';
 
 export function App() {
-  const clerkEnabled = isClerkConfigured();
-  const [pathname, setPathname] = useState(() => window.location.pathname);
-
-  useEffect(() => {
-    const onRouteChange = () => setPathname(window.location.pathname);
-    window.addEventListener('popstate', onRouteChange);
-    return () => window.removeEventListener('popstate', onRouteChange);
-  }, []);
-
-  const isUpgradeRoute = pathname === '/upgrade';
-
   return (
     <BimProvider>
-      {clerkEnabled && <ClerkChatSync />}
-      {isUpgradeRoute ? <UpgradePage /> : <ViewerLayout />}
+      <ViewerLayout />
       <Toaster />
     </BimProvider>
   );

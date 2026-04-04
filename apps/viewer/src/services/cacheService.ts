@@ -71,7 +71,7 @@ let cacheService: ICacheService | null = null;
 export async function getCacheService(): Promise<ICacheService> {
   if (cacheService) return cacheService;
 
-  if (isTauri) {
+  if (isTauri()) {
     // Desktop: Use Tauri native filesystem
     const mod = await import('./desktop-cache.js');
     cacheService = {

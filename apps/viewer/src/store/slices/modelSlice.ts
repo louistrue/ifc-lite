@@ -25,6 +25,10 @@ export interface ModelSlice {
   // Actions
   /** Add a new model to the federation */
   addModel: (model: FederatedModel) => void;
+  /** Add or merge a model in place */
+  upsertModel: (model: FederatedModel) => void;
+  /** Update an existing model with partial fields */
+  updateModel: (modelId: string, patch: Partial<FederatedModel>) => void;
   /** Remove a model from the federation */
   removeModel: (modelId: string) => void;
   /** Clear all models */
@@ -81,7 +85,12 @@ export const createModelSlice: StateCreator<ModelSlice, [], [], ModelSlice> = (s
     // If first model, make it active
     // If adding more models, collapse all existing by default
     if (state.models.size === 0) {
-      return { models: newModels, activeModelId: model.id };
+      return {
+        models: newModels,
+        activeModelId: model.id,
+        ifcDataStore: model.ifcDataStore ?? null,
+        geometryResult: model.geometryResult ?? null,
+      };
     } else {
       // Collapse existing models when adding new ones
       for (const [id, m] of newModels) {
@@ -91,6 +100,36 @@ export const createModelSlice: StateCreator<ModelSlice, [], [], ModelSlice> = (s
       }
       return { models: newModels };
     }
+  }),
+
+  upsertModel: (model) => set((state) => {
+    const newModels = new Map(state.models);
+    const existing = newModels.get(model.id);
+    newModels.set(model.id, existing ? { ...existing, ...model } : model);
+    const activeModelId = state.activeModelId ?? model.id;
+    const activeModel = newModels.get(activeModelId) ?? null;
+
+    return {
+      models: newModels,
+      activeModelId,
+      ifcDataStore: activeModel?.ifcDataStore ?? null,
+      geometryResult: activeModel?.geometryResult ?? null,
+    };
+  }),
+
+  updateModel: (modelId, patch) => set((state) => {
+    const model = state.models.get(modelId);
+    if (!model) return {};
+
+    const updatedModel = { ...model, ...patch };
+    const newModels = new Map(state.models);
+    newModels.set(modelId, updatedModel);
+
+    return {
+      models: newModels,
+      ifcDataStore: state.activeModelId === modelId ? updatedModel.ifcDataStore : state.ifcDataStore,
+      geometryResult: state.activeModelId === modelId ? updatedModel.geometryResult : state.geometryResult,
+    };
   }),
 
   removeModel: (modelId) => set((state) => {
@@ -107,7 +146,14 @@ export const createModelSlice: StateCreator<ModelSlice, [], [], ModelSlice> = (s
       newActiveId = remaining.length > 0 ? remaining[0] : null;
     }
 
-    return { models: newModels, activeModelId: newActiveId };
+    const activeModel = newActiveId ? newModels.get(newActiveId) : null;
+
+    return {
+      models: newModels,
+      activeModelId: newActiveId,
+      ifcDataStore: activeModel?.ifcDataStore ?? null,
+      geometryResult: activeModel?.geometryResult ?? null,
+    };
   }),
 
   clearAllModels: () => {
@@ -116,10 +162,19 @@ export const createModelSlice: StateCreator<ModelSlice, [], [], ModelSlice> = (s
     return set({
       models: new Map(),
       activeModelId: null,
+      ifcDataStore: null,
+      geometryResult: null,
     });
   },
 
-  setActiveModel: (modelId) => set({ activeModelId: modelId }),
+  setActiveModel: (modelId) => set((state) => {
+    const activeModel = modelId ? state.models.get(modelId) : null;
+    return {
+      activeModelId: modelId,
+      ifcDataStore: activeModel?.ifcDataStore ?? null,
+      geometryResult: activeModel?.geometryResult ?? null,
+    };
+  }),
 
   setModelVisibility: (modelId, visible) => set((state) => {
     const model = state.models.get(modelId);

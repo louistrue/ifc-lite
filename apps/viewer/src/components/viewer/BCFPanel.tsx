@@ -13,7 +13,7 @@
  * - Import/export BCF files
  */
 
-import React, { useCallback, useState, useMemo, useRef } from 'react';
+import React, { useCallback, useEffect, useState, useMemo, useRef } from 'react';
 import {
   X,
   MessageSquare,
@@ -38,6 +38,8 @@ import { useBCF } from '@/hooks/useBCF';
 import { BCFTopicList } from './bcf/BCFTopicList';
 import { BCFTopicDetail } from './bcf/BCFTopicDetail';
 import { BCFCreateTopicForm } from './bcf/BCFCreateTopicForm';
+import { openGenericFileDialog } from '@/services/file-dialog';
+import { claimNextDesktopPanelAction, subscribeDesktopPanelActions } from '@/services/desktop-panel-actions';
 
 // ============================================================================
 // Main BCF Panel Component
@@ -132,8 +134,7 @@ export function BCFPanel({ onClose }: BCFPanelProps) {
   }, [bcfProject, setBcfProject, getDefaultProjectName]);
 
   // Import BCF file
-  const handleImport = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+  const handleImportFile = useCallback(async (file: File | null | undefined) => {
     if (!file) return;
 
     try {
@@ -151,6 +152,33 @@ export function BCFPanel({ onClose }: BCFPanelProps) {
       }
     }
   }, [setBcfProject, setBcfLoading, setBcfError]);
+
+  const handleImport = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    await handleImportFile(e.target.files?.[0]);
+  }, [handleImportFile]);
+
+  const importFromDialog = useCallback(async (): Promise<boolean> => {
+    const file = await openGenericFileDialog({
+      title: 'Import BCF File',
+      filters: [
+        { name: 'BCF Files', extensions: ['bcfzip', 'bcf'] },
+        { name: 'All Files', extensions: ['*'] },
+      ],
+    });
+    if (file) {
+      await handleImportFile(file);
+      return true;
+    }
+    return false;
+  }, [handleImportFile]);
+
+  const handleImportClick = useCallback(async () => {
+    const imported = await importFromDialog();
+    if (imported) {
+      return;
+    }
+    fileInputRef.current?.click();
+  }, [importFromDialog]);
 
   // Export BCF file
   const handleExport = useCallback(async () => {
@@ -265,6 +293,20 @@ export function BCFPanel({ onClose }: BCFPanelProps) {
     setShowAuthorDialog(false);
   }, [tempAuthor, setBcfAuthor]);
 
+  useEffect(() => {
+    const drainDesktopActions = () => {
+      if (claimNextDesktopPanelAction('bcf-import')) {
+        void importFromDialog();
+      }
+      if (claimNextDesktopPanelAction('bcf-export')) {
+        void handleExport();
+      }
+    };
+
+    drainDesktopActions();
+    return subscribeDesktopPanelActions(drainDesktopActions);
+  }, [handleExport, importFromDialog]);
+
   return (
     <div className="flex flex-col h-full bg-background">
       {/* Header */}
@@ -290,7 +332,7 @@ export function BCFPanel({ onClose }: BCFPanelProps) {
             variant="ghost"
             size="icon"
             className="h-7 w-7"
-            onClick={() => fileInputRef.current?.click()}
+            onClick={() => { void handleImportClick(); }}
             title="Import BCF"
           >
             <Upload className="h-4 w-4" />

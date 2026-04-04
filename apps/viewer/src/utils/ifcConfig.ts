@@ -46,6 +46,9 @@ export const CACHE_SIZE_THRESHOLD = 10 * 1024 * 1024;
  *  and including it would make the IndexedDB write prohibitively large. */
 export const CACHE_MAX_SOURCE_SIZE = 150 * 1024 * 1024;
 
+/** Route desktop IFCs above this threshold through the bounded-memory path. */
+export const HUGE_NATIVE_FILE_THRESHOLD = 128 * 1024 * 1024;
+
 /** File size thresholds for various optimizations */
 export const THRESHOLDS = {
   /** Use streaming Parquet above this (150MB) */
@@ -65,7 +68,9 @@ export const THRESHOLDS = {
 // ============================================================================
 
 /** Detect if running in Tauri (desktop) environment */
-export const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+export function isTauri(): boolean {
+  return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+}
 
 // ============================================================================
 // Dynamic Batch Configuration

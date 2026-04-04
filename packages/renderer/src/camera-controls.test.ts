@@ -243,6 +243,32 @@ describe('CameraControls – external pivot orbit', () => {
   });
 });
 
+describe('CameraControls – zoom', () => {
+  let state: CameraInternalState;
+  let controls: CameraControls;
+
+  beforeEach(() => {
+    state = makeState(makeCamera(vec3(0, 10, 20), vec3(0, 0, 0)));
+    controls = new CameraControls(state, () => {});
+  });
+
+  it('allows zooming in beyond the old hard floor', () => {
+    for (let i = 0; i < 220; i++) {
+      controls.zoom(-100);
+    }
+
+    const distance = len(sub(state.camera.position, state.camera.target));
+    assert.ok(
+      distance < 0.001,
+      `camera should zoom closer than the old 0.001 limit (distance=${distance})`,
+    );
+    assert.ok(
+      distance >= CC.MIN_PERSPECTIVE_DISTANCE,
+      `camera should still respect the minimum zoom floor (distance=${distance})`,
+    );
+  });
+});
+
 describe('CameraControls – pan', () => {
   it('moves both position and target by the same offset', () => {
     const state = makeState(makeCamera(vec3(0, 10, 20), vec3(0, 0, 0)));

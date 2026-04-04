@@ -10,6 +10,20 @@ import { BVH, type MeshWithBounds } from './bvh.js';
 import type { AABB } from './aabb.js';
 import type { MeshData } from '@ifc-lite/geometry';
 
+function yieldToEventLoop(): Promise<void> {
+  const maybeScheduler = (globalThis as typeof globalThis & {
+    scheduler?: { yield?: () => Promise<void> };
+  }).scheduler;
+  if (typeof maybeScheduler?.yield === 'function') {
+    return maybeScheduler.yield();
+  }
+  return new Promise<void>((resolve) => {
+    const channel = new MessageChannel();
+    channel.port1.onmessage = () => resolve();
+    channel.port2.postMessage(null);
+  });
+}
+
 /**
  * Build BVH spatial index from geometry meshes
  */
@@ -51,8 +65,7 @@ export async function buildSpatialIndexAsync(
       };
       i++;
       if (i % 500 === 0 && performance.now() - chunkStart >= budgetMs) {
-        // Yield to event loop
-        await new Promise<void>(r => setTimeout(r, 0));
+        await yieldToEventLoop();
         break;
       }
     }

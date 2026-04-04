@@ -20,7 +20,7 @@
  */
 
 // Re-export everything from the modular store
-export { useViewerStore } from './store/index.js';
+export { getViewerStoreApi, useViewerStore } from './store/index.js';
 export type { ViewerState } from './store/index.js';
 
 // Re-export types for backward compatibility
