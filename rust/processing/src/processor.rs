@@ -12,8 +12,8 @@ use crate::types::response::{
     QuickMetadataEntitySummary, QuickMetadataSpatialNode,
 };
 use ifc_lite_core::{
-    build_entity_index, AttributeValue, DecodedEntity, EntityDecoder, EntityIndex,
-    EntityScanner, IfcType,
+    build_entity_index, extract_length_unit_scale, AttributeValue, DecodedEntity, EntityDecoder,
+    EntityIndex, EntityScanner, IfcType,
 };
 use ifc_lite_geometry::{calculate_normals, GeometryRouter};
 use rayon::prelude::*;
@@ -1028,10 +1028,26 @@ pub fn process_geometry_streaming_filtered_with_options(
                 parent.elements.extend(element_ids);
             }
         }
-        let mut root_id = spatial_nodes
+        let project_id = spatial_nodes
             .values()
             .find(|node| node.type_name == "IfcProject")
             .map(|node| node.express_id);
+
+        // Apply length unit scale to storey elevations so they are in meters.
+        // The raw elevations are in file units (e.g. millimeters) and must be
+        // converted before the bootstrap is emitted to the front-end.
+        let length_unit_scale = project_id
+            .and_then(|pid| extract_length_unit_scale(&mut decoder, pid).ok())
+            .unwrap_or(1.0);
+        if (length_unit_scale - 1.0).abs() > f64::EPSILON {
+            for node in spatial_nodes.values_mut() {
+                if let Some(ref mut elevation) = node.elevation {
+                    *elevation *= length_unit_scale;
+                }
+            }
+        }
+
+        let mut root_id = project_id;
         if root_id.is_none() {
             root_id = spatial_nodes
                 .values()
