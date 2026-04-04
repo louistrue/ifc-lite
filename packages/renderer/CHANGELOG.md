@@ -1,5 +1,19 @@
 # @ifc-lite/renderer
 
+## 1.15.0
+
+### Minor Changes
+
+- [#513](https://github.com/louistrue/ifc-lite/pull/513) [`082eadd`](https://github.com/louistrue/ifc-lite/commit/082eaddd10b158d1b3fe6067f9abf949596a0162) Thanks [@louistrue](https://github.com/louistrue)! - Add CesiumJS 3D Tiles integration with synchronized camera controls, and expose renderer camera state for external consumers.
+
+### Patch Changes
+
+- [#513](https://github.com/louistrue/ifc-lite/pull/513) [`082eadd`](https://github.com/louistrue/ifc-lite/commit/082eaddd10b158d1b3fe6067f9abf949596a0162) Thanks [@louistrue](https://github.com/louistrue)! - Fix tile rendering issues in camera controls and projection handling.
+
+- Updated dependencies [[`082eadd`](https://github.com/louistrue/ifc-lite/commit/082eaddd10b158d1b3fe6067f9abf949596a0162), [`05fd49f`](https://github.com/louistrue/ifc-lite/commit/05fd49f3fded214c5c5f59c61b0b55fcb7457f7b)]:
+  - @ifc-lite/geometry@1.16.3
+  - @ifc-lite/wasm@1.16.2
+
 ## 1.14.9
 
 ### Patch Changes
