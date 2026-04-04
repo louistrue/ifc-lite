@@ -649,7 +649,15 @@ export class Renderer {
      * Render frame
      */
     /** Get diagnostic info for mobile debugging */
-    getDiagnostics(): { calls: number; skips: number; errors: number; lastError: string; batches: number; meshes: number; contextOk: boolean } {
+    getDiagnostics(): {
+        calls: number; skips: number; errors: number; lastError: string;
+        batches: number; meshes: number; contextOk: boolean;
+        gpuErrors: number; lastGpuError: string;
+        camPos: string; camTgt: string; bounds: string;
+    } {
+        const pos = this.camera.getPosition();
+        const tgt = this.camera.getTarget();
+        const b = this.modelBounds;
         return {
             calls: this._renderCallCount,
             skips: this._renderSkipCount,
@@ -658,6 +666,11 @@ export class Renderer {
             batches: this.scene.getBatchedMeshes().length,
             meshes: this.scene.getMeshes().length,
             contextOk: this.device.isInitialized(),
+            gpuErrors: this.device._uncapturedErrorCount,
+            lastGpuError: this.device._lastUncapturedError,
+            camPos: `${pos.x.toFixed(1)},${pos.y.toFixed(1)},${pos.z.toFixed(1)}`,
+            camTgt: `${tgt.x.toFixed(1)},${tgt.y.toFixed(1)},${tgt.z.toFixed(1)}`,
+            bounds: b ? `${b.min.x.toFixed(0)}..${b.max.x.toFixed(0)} ${b.min.y.toFixed(0)}..${b.max.y.toFixed(0)} ${b.min.z.toFixed(0)}..${b.max.z.toFixed(0)}` : 'none',
         };
     }
 

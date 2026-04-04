@@ -730,10 +730,15 @@ export function Viewport({
       if (!renderer) return;
       const diag = renderer.getDiagnostics?.();
       if (!diag) return;
-      const line = `[live] r=${diag.calls} s=${diag.skips} e=${diag.errors} b=${diag.batches} m=${diag.meshes} ctx=${diag.contextOk}` +
-        (diag.lastError ? ` err=${diag.lastError.slice(0, 40)}` : '');
-      mobileDebugRef.current = [...mobileDebugRef.current.slice(-6), line];
-      setMobileDebug(mobileDebugRef.current.join('\n'));
+      const lines = [
+        `r=${diag.calls} s=${diag.skips} e=${diag.errors} b=${diag.batches} gpu_err=${diag.gpuErrors}`,
+        `cam=${diag.camPos} tgt=${diag.camTgt}`,
+        `bounds=${diag.bounds}`,
+      ];
+      if (diag.lastGpuError) lines.push(`GPU: ${diag.lastGpuError.slice(0, 50)}`);
+      if (diag.lastError) lines.push(`ERR: ${diag.lastError.slice(0, 50)}`);
+      mobileDebugRef.current = lines;
+      setMobileDebug(lines.join('\n'));
     }, 2000);
     return () => clearInterval(id);
   }, [isInitialized]);
