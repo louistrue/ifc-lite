@@ -275,6 +275,7 @@ export function useGeometryStreaming(params: UseGeometryStreamingParams): void {
             const batchCount = r.getScene().getBatchedMeshes().length;
             let totalIdx = 0;
             for (const b of r.getScene().getBatchedMeshes()) totalIdx += b.indexCount;
+            console.log(`[ifc-lite] GPU finalized: ${batchCount} batches, ${(totalIdx / 3 / 1e6).toFixed(1)}M triangles in ${(performance.now() - t0).toFixed(0)}ms`);
             r.clearCaches();
             r.requestRender();
           });

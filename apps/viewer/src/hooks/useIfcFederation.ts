@@ -126,6 +126,7 @@ export function useIfcFederation() {
     options?: { name?: string }
   ): Promise<string | null> => {
     const modelId = crypto.randomUUID();
+    const addStart = performance.now();
     try {
       // IMPORTANT: Before adding a new model, check if there's a legacy model
       // (loaded via loadFile) that's not in the Map yet. If so, migrate it first.
@@ -474,6 +475,7 @@ export function useIfcFederation() {
 
       setProgress({ phase: 'Complete', percent: 100 });
       setLoading(false);
+      console.log(`[ifc-lite] Added model ${file.name} (${fileSizeMB.toFixed(1)}MB) in ${(performance.now() - addStart).toFixed(0)}ms`);
 
       return modelId;
 

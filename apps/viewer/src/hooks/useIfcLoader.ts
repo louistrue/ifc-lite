@@ -102,6 +102,7 @@ export function useIfcLoader() {
   const loadFile = useCallback(async (file: File) => {
     const { resetViewerState, clearAllModels } = useViewerStore.getState();
     const currentSession = ++loadSessionRef.current;
+    const loadStart = performance.now();
 
     try {
       // Reset all viewer state before loading new file
@@ -260,6 +261,7 @@ export function useIfcLoader() {
         if (cacheResult) {
           const success = await loadFromCache(cacheResult, file.name, cacheKey);
           if (success) {
+            console.log(`[ifc-lite] ${file.name} (${fileSizeMB.toFixed(1)}MB) loaded from cache in ${(performance.now() - loadStart).toFixed(0)}ms`);
             setLoading(false);
             return;
           }
@@ -272,6 +274,7 @@ export function useIfcLoader() {
         // Pass buffer directly - server uses File object for parsing, buffer is only for size checks
         const serverSuccess = await loadFromServer(file, buffer, () => loadSessionRef.current !== currentSession);
         if (serverSuccess) {
+          console.log(`[ifc-lite] ${file.name} (${fileSizeMB.toFixed(1)}MB) loaded via server in ${(performance.now() - loadStart).toFixed(0)}ms`);
           setLoading(false);
           return;
         }
@@ -512,6 +515,11 @@ export function useIfcLoader() {
 
       if (loadSessionRef.current !== currentSession) return;
 
+      const totalMs = performance.now() - loadStart;
+      const totalVerts = allMeshes.reduce((sum, m) => sum + m.positions.length / 3, 0);
+      console.log(
+        `[ifc-lite] ${file.name} (${fileSizeMB.toFixed(1)}MB) → ${allMeshes.length} meshes, ${(totalVerts / 1000).toFixed(0)}k verts in ${(totalMs / 1000).toFixed(1)}s`
+      );
       setLoading(false);
     } catch (err) {
       if (loadSessionRef.current !== currentSession) return;
