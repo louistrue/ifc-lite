@@ -10,10 +10,6 @@ import { WebGPUDevice } from './device.js';
 import { mainShaderSource } from './shaders/main.wgsl.js';
 import type { InstancedMesh } from './types.js';
 
-// Mobile GPU detection — shared across pipeline classes
-const _isMobileGPU = typeof navigator !== 'undefined' &&
-    /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-
 export class RenderPipeline {
     private device: GPUDevice;
     private webgpuDevice: WebGPUDevice;
@@ -46,22 +42,14 @@ export class RenderPipeline {
 
         // Check MSAA support and adjust sample count
         // 4x MSAA provides good anti-aliasing for thin geometry
-        // Mobile GPUs often struggle with MSAA + dual render targets → fall back to 1
-        const isMobileGPU = typeof navigator !== 'undefined' &&
-            /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
         const maxSampleCount = (this.device as any).limits?.maxSampleCount ?? 4;
-        this.sampleCount = isMobileGPU ? 1 : Math.min(4, maxSampleCount);
+        this.sampleCount = Math.min(4, maxSampleCount);
 
         // Create depth texture with MSAA support
-        // TEXTURE_BINDING needed for post-processing. On mobile (MSAA=1, no post-proc)
-        // skip TEXTURE_BINDING to reduce GPU memory pressure.
-        const depthUsage = _isMobileGPU
-            ? GPUTextureUsage.RENDER_ATTACHMENT
-            : GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING;
         this.depthTexture = this.device.createTexture({
             size: { width, height },
             format: this.depthFormat,
-            usage: depthUsage,
+            usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
             sampleCount: this.sampleCount > 1 ? this.sampleCount : 1,
         });
         this.depthTextureView = this.depthTexture.createView();
@@ -371,15 +359,12 @@ export class RenderPipeline {
         this.currentWidth = width;
         this.currentHeight = height;
 
-        const depthUsage = _isMobileGPU
-            ? GPUTextureUsage.RENDER_ATTACHMENT
-            : GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING;
         this.depthTexture.destroy();
         this.objectIdTexture.destroy();
         this.depthTexture = this.device.createTexture({
             size: { width, height },
             format: this.depthFormat,
-            usage: depthUsage,
+            usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
             sampleCount: this.sampleCount > 1 ? this.sampleCount : 1,
         });
         this.depthTextureView = this.depthTexture.createView();

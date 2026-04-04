@@ -775,6 +775,13 @@ export class Renderer {
             this.instancedPipeline.resize(this.canvas.width, this.canvas.height);
         }
 
+        // Push a validation error scope to capture the EXACT error (for mobile debugging)
+        // Only do this for the first few renders to avoid performance overhead
+        const captureGpuError = this._renderCallCount <= 5;
+        if (captureGpuError) {
+            device.pushErrorScope('validation');
+        }
+
         // Get current texture safely - may return null if context needs reconfiguration
         const currentTexture = this.device.getCurrentTexture();
         if (!currentTexture) {
@@ -1464,6 +1471,18 @@ export class Renderer {
             }
 
             device.queue.submit([encoder.finish()]);
+
+            // Pop validation error scope and capture the exact error
+            if (captureGpuError) {
+                device.popErrorScope().then((error) => {
+                    if (error) {
+                        const msg = error.message || String(error);
+                        console.error('[WebGPU] Validation error in render pass:', msg);
+                        this.device._lastUncapturedError = `VALIDATION: ${msg}`;
+                        this.device._uncapturedErrorCount++;
+                    }
+                });
+            }
         } catch (error) {
             this._renderErrorCount++;
             this._lastRenderError = error instanceof Error ? error.message : String(error);
