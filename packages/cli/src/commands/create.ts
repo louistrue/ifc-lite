@@ -439,7 +439,7 @@ export function addElement(creator: IfcCreator, storey: number, elementType: str
   }
 }
 
-function parseElementParams(args: string[]): Record<string, unknown> {
+export function parseElementParams(args: string[]): Record<string, unknown> {
   const params: Record<string, unknown> = {};
 
   const numFlags = [
@@ -490,6 +490,6 @@ function parseElementParams(args: string[]): Record<string, unknown> {
 }
 
 /** Convert --kebab-flag to PascalCase key */
-function flagToKey(flag: string): string {
+export function flagToKey(flag: string): string {
   return flag.slice(2).split('-').map(s => s.charAt(0).toUpperCase() + s.slice(1)).join('');
 }

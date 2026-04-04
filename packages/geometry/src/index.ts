@@ -63,6 +63,11 @@ import { GeometryQuality } from './progressive-loader.js';
 import { createPlatformBridge, isTauri, type GeometryStats as PlatformGeometryStats, type IPlatformBridge } from './platform-bridge.js';
 import type { GeometryResult, MeshData, CoordinateInfo } from './types.js';
 
+// Extracted sub-modules
+import { getStreamingBatchSize, convertMeshCollectionToBatch, convertInstancedCollectionToBatch, withBuildingRotation } from './geometry-coordinate.js';
+import { streamNativeGeometry, type QueuedNativeStreamingEvent } from './geometry-native.js';
+import { processParallel } from './geometry-parallel.js';
+
 interface ByteStreamingPrePassResult {
   jobs: Uint32Array;
   totalJobs: number;
@@ -132,27 +137,8 @@ export type StreamingInstancedGeometryEvent =
   | { type: 'batch'; geometries: import('@ifc-lite/wasm').InstancedGeometry[]; totalSoFar: number; coordinateInfo?: import('./types.js').CoordinateInfo }
   | { type: 'complete'; totalGeometries: number; totalInstances: number; coordinateInfo: import('./types.js').CoordinateInfo };
 
-type QueuedNativeStreamingEvent =
-  | { type: 'batch'; meshes: MeshData[]; nativeTelemetry?: import('./platform-bridge.js').NativeBatchTelemetry }
-  | { type: 'colorUpdate'; updates: Map<number, [number, number, number, number]> };
-
-const MAX_NATIVE_STREAM_QUEUE_EVENTS = 8;
-const MAX_NATIVE_STREAM_QUEUE_MESHES = 32768;
-const MAX_NATIVE_STREAM_EVENTS_PER_TURN = 4;
-const MAX_NATIVE_STREAM_MESHES_PER_TURN = 8192;
-const MAX_NATIVE_STREAM_DRAIN_MS = 10;
-
-function yieldToEventLoop(): Promise<void> {
-  const maybeScheduler = (globalThis as typeof globalThis & {
-    scheduler?: { yield?: () => Promise<void> };
-  }).scheduler;
-  if (typeof maybeScheduler?.yield === 'function') {
-    return maybeScheduler.yield();
-  }
-  return new Promise<void>((resolve) => {
-    globalThis.setTimeout(resolve, 0);
-  });
-}
+// QueuedNativeStreamingEvent, native stream constants, and yieldToEventLoop
+// have been extracted to ./geometry-native.ts
 
 export class GeometryProcessor {
   private static largeFileByteStreamingThreshold = 256 * 1024 * 1024;
@@ -301,78 +287,9 @@ export class GeometryProcessor {
     return { meshes, buildingRotation };
   }
 
-  private getStreamingBatchSize(buffer: Uint8Array, batchConfig: number | DynamicBatchConfig): number {
-    if (typeof batchConfig === 'number') {
-      return batchConfig;
-    }
-
-    const fileSizeMB = batchConfig.fileSizeMB
-      ? batchConfig.fileSizeMB
-      : buffer.length / (1024 * 1024);
-
-    return fileSizeMB < 10 ? 100
-      : fileSizeMB < 50 ? 200
-      : fileSizeMB < 100 ? 300
-      : fileSizeMB < 300 ? 500
-      : fileSizeMB < 500 ? 1500
-      : 3000;
-  }
-
-  private convertMeshCollectionToBatch(collection: import('@ifc-lite/wasm').MeshCollection): MeshData[] {
-    const batch: MeshData[] = [];
-
-    try {
-      for (let i = 0; i < collection.length; i++) {
-        const mesh = collection.get(i);
-        if (!mesh) continue;
-
-        try {
-          batch.push({
-            expressId: mesh.expressId,
-            ifcType: mesh.ifcType,
-            positions: mesh.positions,
-            normals: mesh.normals,
-            indices: mesh.indices,
-            color: [mesh.color[0], mesh.color[1], mesh.color[2], mesh.color[3]],
-          });
-        } finally {
-          mesh.free();
-        }
-      }
-    } finally {
-      collection.free();
-    }
-
-    return batch;
-  }
-
-  private withBuildingRotation(
-    coordinateInfo: CoordinateInfo,
-    buildingRotation?: number
-  ): CoordinateInfo {
-    return buildingRotation !== undefined
-      ? { ...coordinateInfo, buildingRotation }
-      : coordinateInfo;
-  }
-
-  private convertInstancedCollectionToBatch(
-    collection: import('@ifc-lite/wasm').InstancedMeshCollection
-  ): import('@ifc-lite/wasm').InstancedGeometry[] {
-    const batch: import('@ifc-lite/wasm').InstancedGeometry[] = [];
-
-    try {
-      for (let i = 0; i < collection.length; i++) {
-        const geometry = collection.get(i);
-        if (geometry) {
-          batch.push(geometry);
-        }
-      }
-    } finally {
-      collection.free();
-    }
-
-    return batch;
-  }
+  // getStreamingBatchSize, convertMeshCollectionToBatch,
+  // convertInstancedCollectionToBatch, and withBuildingRotation have been
+  // extracted to ./geometry-coordinate.ts and are used as free functions.
 
   private async *processStreamingBytes(
     buffer: Uint8Array,
@@ -401,7 +318,7 @@ export class GeometryProcessor {
 
     const buildingRotation = prePass.buildingRotation ?? undefined;
     if (!prePass.jobs || prePass.totalJobs === 0) {
-      const coordinateInfo = this.withBuildingRotation(
+      const coordinateInfo = withBuildingRotation(
         this.coordinateHandler.getFinalCoordinateInfo(),
         buildingRotation,
       );
@@ -409,7 +326,7 @@ export class GeometryProcessor {
       return;
     }
 
-    const batchSize = this.getStreamingBatchSize(buffer, batchConfig);
+    const batchSize = getStreamingBatchSize(buffer, batchConfig);
     // Cap at ~30 batches max to avoid excessive per-batch overhead
     const maxBatches = 30;
     const effectiveBatchSize = Math.max(batchSize, Math.ceil(prePass.totalJobs / maxBatches));
@@ -433,7 +350,7 @@ export class GeometryProcessor {
         prePass.styleColors,
       );
 
-      const batch = this.convertMeshCollectionToBatch(collection);
+      const batch = convertMeshCollectionToBatch(collection);
       if (batch.length === 0) {
         await new Promise(resolve => setTimeout(resolve, 0));
         continue;
@@ -443,7 +360,7 @@ export class GeometryProcessor {
       totalMeshes += batch.length;
       const currentCoordinateInfo = this.coordinateHandler.getCurrentCoordinateInfo();
       const coordinateInfo = currentCoordinateInfo
-        ? this.withBuildingRotation(currentCoordinateInfo, buildingRotation)
+        ? withBuildingRotation(currentCoordinateInfo, buildingRotation)
         : null;
 
       yield {
@@ -458,7 +375,7 @@ export class GeometryProcessor {
 
     api.clearPrePassCache?.();
 
-    const coordinateInfo = this.withBuildingRotation(
+    const coordinateInfo = withBuildingRotation(
       this.coordinateHandler.getFinalCoordinateInfo(),
       buildingRotation,
     );
@@ -480,7 +397,7 @@ export class GeometryProcessor {
     yield { type: 'model-open', modelID: 0 };
 
     if (!prePass.jobs || prePass.totalJobs === 0) {
-      const coordinateInfo = this.withBuildingRotation(
+      const coordinateInfo = withBuildingRotation(
         this.coordinateHandler.getFinalCoordinateInfo(),
         buildingRotation,
       );
@@ -510,7 +427,7 @@ export class GeometryProcessor {
         prePass.styleColors,
       );
 
-      const batch = this.convertInstancedCollectionToBatch(collection);
+      const batch = convertInstancedCollectionToBatch(collection);
       if (batch.length === 0) {
         await new Promise(resolve => setTimeout(resolve, 0));
         continue;
@@ -545,7 +462,7 @@ export class GeometryProcessor {
       totalInstances += batch.reduce((sum, geometry) => sum + geometry.instance_count, 0);
       const currentCoordinateInfo = this.coordinateHandler.getCurrentCoordinateInfo();
       const coordinateInfo = currentCoordinateInfo
-        ? this.withBuildingRotation(currentCoordinateInfo, buildingRotation)
+        ? withBuildingRotation(currentCoordinateInfo, buildingRotation)
         : null;
 
       yield {
@@ -560,7 +477,7 @@ export class GeometryProcessor {
 
     api.clearPrePassCache?.();
 
-    const coordinateInfo = this.withBuildingRotation(
+    const coordinateInfo = withBuildingRotation(
       this.coordinateHandler.getFinalCoordinateInfo(),
       buildingRotation,
     );
@@ -600,12 +517,9 @@ export class GeometryProcessor {
     if (this.isNative && this.platformBridge) {
       yield { type: 'model-open', modelID: 0 };
 
-      // NATIVE PATH - Use Tauri streaming
+      // NATIVE PATH - Use Tauri streaming (simpler queue without coalescing)
       console.time('[GeometryProcessor] native-streaming');
-      const queuedEvents: Array<
-        | { type: 'batch'; meshes: MeshData[]; nativeTelemetry?: import('./platform-bridge.js').NativeBatchTelemetry }
-        | { type: 'colorUpdate'; updates: Map<number, [number, number, number, number]> }
-      > = [];
+      const queuedEvents: QueuedNativeStreamingEvent[] = [];
       let resolvePending: (() => void) | null = null;
       let completed = false;
       let streamError: Error | null = null;
@@ -698,7 +612,7 @@ export class GeometryProcessor {
       let totalMeshes = 0;
       let extractedBuildingRotation: number | undefined = undefined;
 
-      const wasmBatchSize = this.getStreamingBatchSize(buffer, batchConfig);
+      const wasmBatchSize = getStreamingBatchSize(buffer, batchConfig);
 
       // Use WASM batches directly for maximum throughput
       for await (const item of collector.collectMeshesStreaming(wasmBatchSize)) {
@@ -760,9 +674,11 @@ export class GeometryProcessor {
       throw new Error('Native platform bridge does not support file-path streaming');
     }
 
-    yield* this.streamNativeGeometry(
+    yield* streamNativeGeometry(
       (options) => this.platformBridge!.processGeometryStreamingPath!(path, options, cacheKey),
-      estimatedBytes > 0 ? estimatedBytes / 1000 : 0
+      estimatedBytes > 0 ? estimatedBytes / 1000 : 0,
+      this.coordinateHandler,
+      (stats) => { this.lastNativeStats = stats; },
     );
   }
 
@@ -779,9 +695,11 @@ export class GeometryProcessor {
       throw new Error('Native platform bridge does not support cached geometry streaming');
     }
 
-    yield* this.streamNativeGeometry(
+    yield* streamNativeGeometry(
       (options) => this.platformBridge!.processGeometryStreamingCache!(cacheKey, options),
-      0
+      0,
+      this.coordinateHandler,
+      (stats) => { this.lastNativeStats = stats; },
     );
   }
 
@@ -818,7 +736,7 @@ export class GeometryProcessor {
     // Larger batches = fewer callbacks = less overhead for huge models
     const fileSizeMB = buffer.length / (1024 * 1024);
     const effectiveBatchSize = fileSizeMB < 50 ? batchSize : fileSizeMB < 200 ? Math.max(batchSize, 50) : fileSizeMB < 300 ? Math.max(batchSize, 100) : Math.max(batchSize, 200);
-    const byteBatchSize = Math.max(effectiveBatchSize, this.getStreamingBatchSize(buffer, batchSize));
+    const byteBatchSize = Math.max(effectiveBatchSize, getStreamingBatchSize(buffer, batchSize));
 
     if (buffer.length >= GeometryProcessor.largeFileByteStreamingThreshold) {
       yield* this.processInstancedStreamingBytes(buffer, byteBatchSize);
@@ -902,201 +820,7 @@ export class GeometryProcessor {
       await this.init();
     }
 
-    this.coordinateHandler.reset();
-
-    yield { type: 'start', totalEstimate: buffer.length / 1000 };
-    yield { type: 'model-open', modelID: 0 };
-
-    // Copy file bytes into SharedArrayBuffer for zero-copy sharing with workers
-    const sharedBuffer = new SharedArrayBuffer(buffer.byteLength);
-    new Uint8Array(sharedBuffer).set(buffer);
-
-    // ── PHASE 1: Full pre-pass in worker ──
-    const makeWorker = () => new Worker(
-      new URL('./geometry.worker.ts', import.meta.url),
-      { type: 'module' },
-    );
-
-    const prePassResult = await new Promise<any>((resolve, reject) => {
-      const w = makeWorker();
-      w.onmessage = (e: MessageEvent) => {
-        if (e.data.type === 'prepass-result') { w.terminate(); resolve(e.data.result); }
-        else if (e.data.type === 'error') { w.terminate(); reject(new Error(e.data.message)); }
-      };
-      w.onerror = (e) => { w.terminate(); reject(new Error(e.message)); };
-      w.postMessage({ type: 'prepass', sharedBuffer });
-    });
-
-    if (!prePassResult || !prePassResult.jobs || prePassResult.totalJobs === 0) {
-      const coordinateInfo = this.coordinateHandler.getFinalCoordinateInfo();
-      yield { type: 'complete', totalMeshes: 0, coordinateInfo };
-      return;
-    }
-
-    const { jobs: jobsFlat, totalJobs, unitScale, rtcOffset, needsShift,
-            voidKeys, voidCounts, voidValues, styleIds, styleColors } = prePassResult;
-    const rtcX = rtcOffset?.[0] ?? 0;
-    const rtcY = rtcOffset?.[1] ?? 0;
-    const rtcZ = rtcOffset?.[2] ?? 0;
-
-    // ── PHASE 2: Dynamic worker provisioning based on device capability ──
-    const cores = typeof navigator !== 'undefined' ? (navigator.hardwareConcurrency ?? 2) : 2;
-    const deviceMemoryGB = typeof navigator !== 'undefined' ? ((navigator as unknown as { deviceMemory?: number }).deviceMemory ?? 8) : 8;
-    const fileSizeGB = buffer.byteLength / (1024 * 1024 * 1024);
-
-    // Determine optimal workers:
-    // - Desktop (16+ cores, 16+ GB): up to 8 workers
-    // - Laptop (8 cores, 8 GB): 2-4 workers (avoid thermal throttling on fanless)
-    // - Low-end (4 cores, 4 GB): 1-2 workers
-    // - Large files need more memory per worker, so fewer workers
-    let maxWorkers: number;
-    if (cores >= 16 && deviceMemoryGB >= 16) {
-      maxWorkers = Math.min(8, Math.floor(cores / 2));
-    } else if (cores >= 8 && deviceMemoryGB >= 8) {
-      // MacBook Air M-series: 8 cores but fanless → throttles with too many workers
-      // Use 3 workers: enough parallelism without severe throttling
-      maxWorkers = fileSizeGB > 0.5 ? 2 : 3;
-    } else {
-      maxWorkers = Math.max(1, Math.min(2, Math.floor(cores / 2)));
-    }
-
-    const workerCount = Math.min(maxWorkers, totalJobs);
-    const jobsPerWorker = Math.ceil(totalJobs / workerCount);
-
-    const chunks: [number, number][] = [];
-    for (let i = 0; i < workerCount; i++) {
-      const start = i * jobsPerWorker;
-      const end = Math.min(start + jobsPerWorker, totalJobs);
-      if (start < end) chunks.push([start, end]);
-    }
-
-    // Queue-based async generator: workers push batches, generator yields them
-    const batchQueue: MeshData[][] = [];
-    let resolveWaiting: (() => void) | null = null;
-    let workersCompleted = 0;
-    let totalMeshes = 0;
-    let workerError: Error | null = null;
-
-    const workers: Worker[] = [];
-
-    for (let i = 0; i < chunks.length; i++) {
-      const [jobStart, jobEnd] = chunks[i];
-      if (jobStart >= jobEnd) {
-        workersCompleted++;
-        continue;
-      }
-      const workerJobs = jobsFlat.slice(jobStart * 3, jobEnd * 3);
-
-      const worker = new Worker(
-        new URL('./geometry.worker.ts', import.meta.url),
-        { type: 'module' }
-      );
-
-      workers.push(worker);
-
-      worker.onmessage = (e: MessageEvent) => {
-        const msg = e.data;
-
-        if (msg.type === 'batch') {
-          // Convert transferable data back to MeshData[]
-          const meshes: MeshData[] = msg.meshes.map((m: {
-            expressId: number;
-            ifcType?: string;
-            positions: Float32Array;
-            normals: Float32Array;
-            indices: Uint32Array;
-            color: [number, number, number, number];
-          }) => ({
-            expressId: m.expressId,
-            ifcType: m.ifcType,
-            positions: m.positions instanceof Float32Array ? m.positions : new Float32Array(m.positions),
-            normals: m.normals instanceof Float32Array ? m.normals : new Float32Array(m.normals),
-            indices: m.indices instanceof Uint32Array ? m.indices : new Uint32Array(m.indices),
-            color: m.color,
-          }));
-
-          if (meshes.length > 0) {
-            batchQueue.push(meshes);
-            if (resolveWaiting) {
-              resolveWaiting();
-              resolveWaiting = null;
-            }
-          }
-        } else if (msg.type === 'complete') {
-          totalMeshes += msg.totalMeshes;
-          workersCompleted++;
-          worker.terminate();
-          if (resolveWaiting) {
-            resolveWaiting();
-            resolveWaiting = null;
-          }
-        } else if (msg.type === 'error') {
-          workerError = new Error(`Geometry worker error: ${msg.message}`);
-          workersCompleted++;
-          worker.terminate();
-          if (resolveWaiting) {
-            resolveWaiting();
-            resolveWaiting = null;
-          }
-        }
-      };
-
-      worker.onerror = (e) => {
-        workerError = new Error(`Geometry worker failed: ${e.message}`);
-        workersCompleted++;
-        worker.terminate();
-        if (resolveWaiting) {
-          resolveWaiting();
-          resolveWaiting = null;
-        }
-      };
-
-      // Send work — sharedBuffer is zero-copy, typed arrays are transferred
-      worker.postMessage({
-        type: 'process' as const,
-        sharedBuffer,
-        jobsFlat: workerJobs,
-        unitScale,
-        rtcX, rtcY, rtcZ,
-        needsShift,
-        voidKeys, voidCounts, voidValues,
-        styleIds, styleColors,
-      });
-    }
-
-    // Yield batches as they arrive from any worker
-    while (true) {
-      while (batchQueue.length > 0) {
-        const batch = batchQueue.shift()!;
-        this.coordinateHandler.processMeshesIncremental(batch);
-        const coordinateInfo = this.coordinateHandler.getCurrentCoordinateInfo();
-        yield {
-          type: 'batch',
-          meshes: batch,
-          totalSoFar: totalMeshes,
-          coordinateInfo: coordinateInfo || undefined,
-        };
-      }
-
-      if (workerError) {
-        // Terminate remaining workers
-        for (const w of workers) {
-          try { w.terminate(); } catch { /* ignore */ }
-        }
-        throw workerError;
-      }
-
-      if (workersCompleted >= chunks.length && batchQueue.length === 0) {
-        break;
-      }
-
-      await new Promise<void>((resolve) => {
-        resolveWaiting = resolve;
-      });
-    }
-
-    const coordinateInfo = this.coordinateHandler.getFinalCoordinateInfo();
-    yield { type: 'complete', totalMeshes, coordinateInfo };
+    yield* processParallel(buffer, this.coordinateHandler);
   }
 
   /**
@@ -1196,160 +920,8 @@ export class GeometryProcessor {
     return this.lastNativeStats;
   }
 
-  private enqueueNativeStreamingEvent(
-    queuedEvents: QueuedNativeStreamingEvent[],
-    event: QueuedNativeStreamingEvent,
-    queueState: { queuedMeshes: number; coalescedBatchCount: number }
-  ): void {
-    if (event.type === 'colorUpdate') {
-      const lastEvent = queuedEvents[queuedEvents.length - 1];
-      if (lastEvent?.type === 'colorUpdate') {
-        for (const [expressId, color] of event.updates) {
-          lastEvent.updates.set(expressId, color);
-        }
-        return;
-      }
-      queuedEvents.push(event);
-      return;
-    }
-
-    const lastEvent = queuedEvents[queuedEvents.length - 1];
-    const shouldCoalesce =
-      lastEvent?.type === 'batch' &&
-      (queuedEvents.length >= MAX_NATIVE_STREAM_QUEUE_EVENTS || queueState.queuedMeshes >= MAX_NATIVE_STREAM_QUEUE_MESHES);
-
-    if (shouldCoalesce) {
-      for (let i = 0; i < event.meshes.length; i++) {
-        lastEvent.meshes.push(event.meshes[i]);
-      }
-      lastEvent.nativeTelemetry = event.nativeTelemetry;
-      queueState.coalescedBatchCount += 1;
-    } else {
-      queuedEvents.push(event);
-    }
-
-    queueState.queuedMeshes += event.meshes.length;
-  }
-
-  private async *streamNativeGeometry(
-    startStream: (options: {
-      onBatch: (batch: import('./platform-bridge.js').GeometryBatch) => void;
-      onColorUpdate: (updates: Map<number, [number, number, number, number]>) => void;
-      onComplete: (stats: PlatformGeometryStats) => void;
-      onError: (error: Error) => void;
-    }) => Promise<PlatformGeometryStats>,
-    totalEstimate: number
-  ): AsyncGenerator<StreamingGeometryEvent> {
-    this.coordinateHandler.reset();
-
-    yield { type: 'start', totalEstimate };
-    await yieldToEventLoop();
-    yield { type: 'model-open', modelID: 0 };
-
-    const queuedEvents: QueuedNativeStreamingEvent[] = [];
-    const queueState = { queuedMeshes: 0, coalescedBatchCount: 0 };
-    let resolvePending: (() => void) | null = null;
-    let completed = false;
-    let streamError: Error | null = null;
-    let completedTotalMeshes: number | undefined;
-    let totalMeshes = 0;
-
-    const wake = () => {
-      if (resolvePending) {
-        resolvePending();
-        resolvePending = null;
-      }
-    };
-
-    const streamingPromise = startStream({
-      onBatch: (batch) => {
-        this.enqueueNativeStreamingEvent(
-          queuedEvents,
-          { type: 'batch', meshes: batch.meshes, nativeTelemetry: batch.nativeTelemetry },
-          queueState
-        );
-        wake();
-      },
-      onColorUpdate: (updates) => {
-        this.enqueueNativeStreamingEvent(queuedEvents, { type: 'colorUpdate', updates: new Map(updates) }, queueState);
-        wake();
-      },
-      onComplete: (stats) => {
-        this.lastNativeStats = stats;
-        completedTotalMeshes = stats.totalMeshes;
-        completed = true;
-        wake();
-      },
-      onError: (error) => {
-        streamError = error;
-        completed = true;
-        wake();
-      },
-    });
-
-    while (!completed || queuedEvents.length > 0) {
-      let drainedEventCount = 0;
-      let drainedMeshCount = 0;
-      let drainStartedAt = performance.now();
-      while (queuedEvents.length > 0) {
-        const event = queuedEvents.shift()!;
-        if (event.type === 'colorUpdate') {
-          yield { type: 'colorUpdate', updates: event.updates };
-          continue;
-        }
-
-        queueState.queuedMeshes = Math.max(0, queueState.queuedMeshes - event.meshes.length);
-        // Native desktop streaming already produces site-local geometry, so
-        // avoid the generic JS RTC/outlier scan on every streamed batch.
-        this.coordinateHandler.processTrustedMeshesIncremental(event.meshes);
-        totalMeshes += event.meshes.length;
-        const coordinateInfo = this.coordinateHandler.getCurrentCoordinateInfo();
-        yield {
-          type: 'batch',
-          meshes: event.meshes,
-          totalSoFar: totalMeshes,
-          coordinateInfo: coordinateInfo || undefined,
-          nativeTelemetry: event.nativeTelemetry,
-        };
-        drainedEventCount += 1;
-        drainedMeshCount += event.meshes.length;
-
-        if (queuedEvents.length > 0) {
-          const shouldYield =
-            drainedEventCount >= MAX_NATIVE_STREAM_EVENTS_PER_TURN ||
-            drainedMeshCount >= MAX_NATIVE_STREAM_MESHES_PER_TURN ||
-            performance.now() - drainStartedAt >= MAX_NATIVE_STREAM_DRAIN_MS;
-          if (shouldYield) {
-            await yieldToEventLoop();
-            drainedEventCount = 0;
-            drainedMeshCount = 0;
-            drainStartedAt = performance.now();
-          }
-        }
-      }
-
-      if (streamError) {
-        throw streamError;
-      }
-
-      if (!completed) {
-        await new Promise<void>((resolve) => {
-          resolvePending = resolve;
-        });
-      }
-    }
-
-    await streamingPromise;
-
-    if (queueState.coalescedBatchCount > 0) {
-      console.info(
-        `[GeometryProcessor] Coalesced ${queueState.coalescedBatchCount} native batches while JS drained the queue`
-      );
-    }
-
-    const coordinateInfo = this.coordinateHandler.getFinalCoordinateInfo();
-    yield { type: 'complete', totalMeshes: completedTotalMeshes ?? totalMeshes, coordinateInfo };
-  }
+  // enqueueNativeStreamingEvent and streamNativeGeometry have been
+  // extracted to ./geometry-native.ts
 
   /**
    * Parse symbolic representations (Plan, Annotation, FootPrint) from IFC content
