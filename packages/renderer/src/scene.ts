@@ -524,8 +524,8 @@ export class Scene {
     // This preserves the per-frame time budget while cutting appendToBatches()
     // overhead and front-of-array churn during huge desktop streams.
     const MAX_MESHES_PER_FLUSH = 4096;
-    const MESHES_PER_APPEND = 128;
-    const FLUSH_BUDGET_MS = 10;
+    const MESHES_PER_APPEND = 512;
+    const FLUSH_BUDGET_MS = 12;
     const start = performance.now();
     let processed = 0;
 
@@ -1109,18 +1109,24 @@ export class Scene {
     const expressIds = meshDataArray.map(m => m.expressId);
 
     // Create vertex buffer (interleaved positions + normals)
+    // Use mappedAtCreation to avoid a separate writeBuffer IPC round-trip
+    // (significant win on Chrome/Dawn where each writeBuffer is a Mojo IPC call)
     const vertexBuffer = device.createBuffer({
       size: merged.vertexData.byteLength,
       usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+      mappedAtCreation: true,
     });
-    device.queue.writeBuffer(vertexBuffer, 0, merged.vertexData);
+    new Float32Array(vertexBuffer.getMappedRange()).set(merged.vertexData);
+    vertexBuffer.unmap();
 
     // Create index buffer
     const indexBuffer = device.createBuffer({
       size: merged.indices.byteLength,
       usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
+      mappedAtCreation: true,
     });
-    device.queue.writeBuffer(indexBuffer, 0, merged.indices);
+    new Uint32Array(indexBuffer.getMappedRange()).set(merged.indices);
+    indexBuffer.unmap();
 
     // Create uniform buffer for this batch
     const uniformBuffer = device.createBuffer({
