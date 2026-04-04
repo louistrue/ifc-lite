@@ -305,6 +305,13 @@ export class RenderPipeline {
     isSingleTarget(): boolean { return this.singleTargetMode; }
     getBindGroup(): GPUBindGroup { return this.bindGroup; }
 
+    destroy(): void {
+        this.depthTexture.destroy();
+        this.objectIdTexture.destroy();
+        this.multisampleTexture?.destroy();
+        this.uniformBuffer.destroy();
+    }
+
     needsResize(width: number, height: number): boolean {
         return this.currentWidth !== width || this.currentHeight !== height;
     }
@@ -576,5 +583,29 @@ export class InstancedRenderPipeline {
             layout,
             entries: [{ binding: 0, resource: { buffer: instanceBuffer } }],
         });
+    }
+
+    updateUniforms(
+        viewProj: Float32Array,
+        sectionPlaneData?: { normal: [number, number, number]; distance: number; enabled: boolean } | null,
+    ): void {
+        const buffer = new Float32Array(48);
+        buffer.set(viewProj, 0);
+        // Identity model matrix
+        buffer[16] = 1; buffer[21] = 1; buffer[26] = 1; buffer[31] = 1;
+        if (sectionPlaneData) {
+            buffer[40] = sectionPlaneData.normal[0];
+            buffer[41] = sectionPlaneData.normal[1];
+            buffer[42] = sectionPlaneData.normal[2];
+            buffer[43] = sectionPlaneData.distance;
+        }
+        const flags = new Uint32Array(buffer.buffer, 176, 4);
+        flags[1] = sectionPlaneData?.enabled ? 1 : 0;
+        this.device.queue.writeBuffer(this.uniformBuffer, 0, buffer);
+    }
+
+    destroy(): void {
+        this.depthTexture.destroy();
+        this.uniformBuffer.destroy();
     }
 }
