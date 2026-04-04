@@ -1030,7 +1030,7 @@ pub fn process_geometry_streaming_filtered_with_options(
         }
         let project_id = spatial_nodes
             .values()
-            .find(|node| node.type_name == "IfcProject")
+            .find(|node| node.type_name.eq_ignore_ascii_case("IfcProject"))
             .map(|node| node.express_id);
 
         // Apply length unit scale to storey elevations so they are in meters.
