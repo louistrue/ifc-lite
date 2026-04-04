@@ -42,7 +42,7 @@ export class RenderPipeline {
 
         // Check MSAA support and adjust sample count
         // 4x MSAA provides good anti-aliasing for thin geometry
-        const maxSampleCount = (this.device as any).limits?.maxSampleCount ?? 4;
+        const maxSampleCount = (this.device.limits as unknown as Record<string, number>)?.maxSampleCount ?? 4;
         this.sampleCount = Math.min(4, maxSampleCount);
 
         // Create depth texture with MSAA support

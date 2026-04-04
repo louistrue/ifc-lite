@@ -47,7 +47,7 @@ import {
   extractDocumentsOnDemand,
   extractRelationshipsOnDemand,
 } from '@ifc-lite/parser';
-import { exportToStep } from '@ifc-lite/export';
+import { exportToStep, type StepExportOptions } from '@ifc-lite/export';
 
 const MODEL_ID = 'default';
 
@@ -479,7 +479,7 @@ export class HeadlessBackend implements BimBackend {
           exportOpts.isolatedEntityIds = isolatedIds;
           exportOpts.hiddenEntityIds = new Set<number>();
         }
-        return exportToStep(store, exportOpts as any);
+        return exportToStep(store, exportOpts as Partial<StepExportOptions>);
       },
       download(_content: string, _filename: string, _mimeType: string): void {
         /* no-op — CLI writes to stdout/file directly */

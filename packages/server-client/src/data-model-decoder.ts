@@ -90,7 +90,6 @@ export interface DataModel {
 export async function decodeDataModel(data: ArrayBuffer): Promise<DataModel> {
   // Initialize WASM module (only runs once)
   const parquet = await ensureParquetInit();
-  // @ts-ignore - Apache Arrow types
   const arrow = await import('apache-arrow');
 
   const view = new DataView(data);
@@ -126,19 +125,13 @@ export async function decodeDataModel(data: ArrayBuffer): Promise<DataModel> {
   const spatialData = new Uint8Array(data, offset, spatialLen);
 
   // Parse Parquet tables
-  // @ts-ignore - parquet-wasm API
   const entitiesTable = parquet.readParquet(entitiesData);
-  // @ts-ignore
   const propertiesTable = parquet.readParquet(propertiesData);
-  // @ts-ignore
   const relationshipsTable = parquet.readParquet(relationshipsData);
 
   // Convert to Arrow tables
-  // @ts-ignore
   const entitiesArrow = arrow.tableFromIPC(entitiesTable.intoIPCStream());
-  // @ts-ignore
   const propertiesArrow = arrow.tableFromIPC(propertiesTable.intoIPCStream());
-  // @ts-ignore
   const relationshipsArrow = arrow.tableFromIPC(relationshipsTable.intoIPCStream());
 
   // OPTIMIZED: Extract ALL columns as arrays upfront
@@ -194,9 +187,7 @@ export async function decodeDataModel(data: ArrayBuffer): Promise<DataModel> {
   }
 
   // OPTIMIZED: Parse quantities Parquet table
-  // @ts-ignore
   const quantitiesTable = parquet.readParquet(quantitiesData);
-  // @ts-ignore
   const quantitiesArrow = arrow.tableFromIPC(quantitiesTable.intoIPCStream());
 
   // Extract all quantity columns as arrays upfront
@@ -276,9 +267,7 @@ export async function decodeDataModel(data: ArrayBuffer): Promise<DataModel> {
   const projectId = spatialView.getUint32(spatialOffset, true);
 
   // OPTIMIZED: Parse nodes Parquet table with bulk array extraction
-  // @ts-ignore
   const nodesTable = parquet.readParquet(nodesData);
-  // @ts-ignore
   const nodesArrow = arrow.tableFromIPC(nodesTable.intoIPCStream());
 
   // Extract ALL columns as arrays upfront (same optimization as entities)
@@ -302,17 +291,17 @@ export async function decodeDataModel(data: ArrayBuffer): Promise<DataModel> {
     let elementIds: number[] = [];
 
     if (childrenIdsList) {
-      const childrenVector = childrenIdsList.get(i);
+      const childrenVector = childrenIdsList.get(i) as { toArray(): Uint32Array } | null;
       if (childrenVector) {
         // Use spread operator - slightly faster than Array.from for small arrays
-        childrenIds = [...(childrenVector.toArray() as Uint32Array)];
+        childrenIds = [...childrenVector.toArray()];
       }
     }
 
     if (elementIdsList) {
-      const elementVector = elementIdsList.get(i);
+      const elementVector = elementIdsList.get(i) as { toArray(): Uint32Array } | null;
       if (elementVector) {
-        elementIds = [...(elementVector.toArray() as Uint32Array)];
+        elementIds = [...elementVector.toArray()];
       }
     }
 
@@ -332,9 +321,7 @@ export async function decodeDataModel(data: ArrayBuffer): Promise<DataModel> {
   // OPTIMIZED: Parse lookup tables in parallel using Promise.all
   // Each table is independent, so we can parse them concurrently
   const parseLookupTable = (tableData: Uint8Array): Map<number, number> => {
-    // @ts-ignore
     const table = parquet.readParquet(tableData);
-    // @ts-ignore
     const arrowTable = arrow.tableFromIPC(table.intoIPCStream());
     const elemIds = arrowTable.getChild('element_id')?.toArray() as Uint32Array;
     const spatIds = arrowTable.getChild('spatial_id')?.toArray() as Uint32Array;

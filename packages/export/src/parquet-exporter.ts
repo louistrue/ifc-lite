@@ -382,7 +382,6 @@ export class ParquetExporter {
     private async toParquet(columns: Record<string, any[]>): Promise<Uint8Array> {
         try {
             // Dynamic imports for better tree-shaking
-            // @ts-ignore - apache-arrow types have module resolution issues
             const arrow = await import('apache-arrow');
 
             // Build Arrow vectors from column data
@@ -426,16 +425,10 @@ export class ParquetExporter {
 
             // Try to use parquet-wasm for conversion
             try {
-                // @ts-ignore - parquet-wasm may have type issues
                 const parquet = await import('parquet-wasm');
 
                 // parquet-wasm 0.5+ API: read Arrow IPC and write Parquet
-                // First, read the IPC buffer into a parquet-wasm Table
-                // @ts-ignore - parquet-wasm types may not match exactly
                 const arrowTable = parquet.Table.fromIPCStream(ipcBuffer);
-
-                // Then write to Parquet format
-                // @ts-ignore - parquet-wasm types may not match exactly
                 const parquetBuffer = parquet.writeParquet(arrowTable);
 
                 return new Uint8Array(parquetBuffer);

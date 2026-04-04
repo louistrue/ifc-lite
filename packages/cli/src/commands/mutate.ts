@@ -215,7 +215,7 @@ export async function mutateCommand(args: string[]): Promise<void> {
   const schema = store.schemaVersion ?? 'IFC4';
   const exporter = new StepExporter(store, mutationView);
   const result = exporter.export({
-    schema: schema as any,
+    schema: schema as 'IFC2X3' | 'IFC4' | 'IFC4X3' | 'IFC5',
     applyMutations: true,
   });
 

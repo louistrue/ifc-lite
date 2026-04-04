@@ -438,7 +438,7 @@ export async function queryCommand(args: string[]): Promise<void> {
       const summary: Record<string, Record<string, number>> = {};
       for (const [storeyName, elements] of Object.entries(tree)) {
         const counts: Record<string, number> = {};
-        for (const elem of elements as any[]) {
+        for (const elem of elements as Array<{ type: string; name: string; globalId: string }>) {
           counts[elem.type] = (counts[elem.type] || 0) + 1;
         }
         summary[storeyName] = counts;

@@ -574,8 +574,8 @@ function buildCreateMethods(): MethodSchema[] {
     tsParamTypes: ['{ Name?: string; Description?: string; Schema?: string; LengthUnit?: string; Author?: string; Organization?: string }'],
     tsReturn: 'number',
     call: (_sdk, args, context) => {
-      const params = (args[0] ?? {}) as Record<string, unknown>;
-      const creator = new IfcCreator(params as any);
+      const params = (args[0] ?? {}) as ConstructorParameters<typeof IfcCreator>[0];
+      const creator = new IfcCreator(params);
       return creatorRegistry.registerForSession(context.sandboxSessionId, creator);
     },
     returns: 'value',
@@ -618,6 +618,11 @@ function buildCreateMethods(): MethodSchema[] {
   });
 
   // ── Auto-discover all other public methods from IfcCreator.prototype ──
+  // Type-safe dynamic dispatch: methods are validated against ALLOWED_METHODS
+  // so we use an indexed type rather than `as any`.
+  type CreatorMethod = (...args: unknown[]) => unknown;
+  type IndexedCreator = Record<string, CreatorMethod>;
+
   const proto = IfcCreator.prototype as unknown as Record<string, unknown>;
   const methodNames = Object.getOwnPropertyNames(proto)
     .filter(name => typeof proto[name] === 'function' && ALLOWED_METHODS.has(name))
@@ -639,7 +644,7 @@ function buildCreateMethods(): MethodSchema[] {
             tsReturn: 'number',
             call: (_sdk, args, context) => {
               const creator = creatorRegistry.getForSession(context.sandboxSessionId, args[0] as number);
-              return (creator as any)[name](args[1]);
+              return (creator as unknown as IndexedCreator)[name](args[1]);
             },
             returns: 'value',
             llmSemantics: CREATE_METHOD_SEMANTICS[name],
@@ -654,7 +659,7 @@ function buildCreateMethods(): MethodSchema[] {
             tsReturn: 'number',
             call: (_sdk, args, context) => {
               const creator = creatorRegistry.getForSession(context.sandboxSessionId, args[0] as number);
-              return (creator as any)[name](args[1], args[2]);
+              return (creator as unknown as IndexedCreator)[name](args[1], args[2]);
             },
             returns: 'value',
             llmSemantics: CREATE_METHOD_SEMANTICS[name],
@@ -672,7 +677,7 @@ function buildCreateMethods(): MethodSchema[] {
           tsReturn: name === 'addIfcMaterial' ? 'void' : 'number',
           call: (_sdk, args, context) => {
             const creator = creatorRegistry.getForSession(context.sandboxSessionId, args[0] as number);
-            return (creator as any)[name](args[1], args[2]);
+            return (creator as unknown as IndexedCreator)[name](args[1], args[2]);
           },
           returns: name === 'addIfcMaterial' ? 'void' : 'value',
           llmSemantics: CREATE_METHOD_SEMANTICS[name],
@@ -688,7 +693,7 @@ function buildCreateMethods(): MethodSchema[] {
           tsReturn: 'number',
           call: (_sdk, args, context) => {
             const creator = creatorRegistry.getForSession(context.sandboxSessionId, args[0] as number);
-            return (creator as any)[name](args[1]);
+            return (creator as unknown as IndexedCreator)[name](args[1]);
           },
           returns: 'value',
           llmSemantics: CREATE_METHOD_SEMANTICS[name],
@@ -704,7 +709,7 @@ function buildCreateMethods(): MethodSchema[] {
           tsReturn: 'number',
           call: (_sdk, args, context) => {
             const creator = creatorRegistry.getForSession(context.sandboxSessionId, args[0] as number);
-            return (creator as any)[name]();
+            return (creator as unknown as IndexedCreator)[name]();
           },
           returns: 'value',
           llmSemantics: CREATE_METHOD_SEMANTICS[name],

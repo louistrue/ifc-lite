@@ -941,7 +941,7 @@ export class GeometryProcessor {
 
     // ── PHASE 2: Dynamic worker provisioning based on device capability ──
     const cores = typeof navigator !== 'undefined' ? (navigator.hardwareConcurrency ?? 2) : 2;
-    const deviceMemoryGB = typeof navigator !== 'undefined' ? ((navigator as any).deviceMemory ?? 8) : 8;
+    const deviceMemoryGB = typeof navigator !== 'undefined' ? ((navigator as unknown as { deviceMemory?: number }).deviceMemory ?? 8) : 8;
     const fileSizeGB = buffer.byteLength / (1024 * 1024 * 1024);
 
     // Determine optimal workers:
