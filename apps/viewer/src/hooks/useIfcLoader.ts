@@ -520,12 +520,15 @@ export function useIfcLoader() {
                   await saveToCache(cacheKey, dataStore, geometryData, buffer, file.name);
                 }
 
-                // Release closure references to MeshData objects. The store's
-                // geometryResult.meshes still holds references to the same
-                // objects, so they remain alive — but clearing allMeshes
-                // allows this closure (and the buffer ref) to be GC'd sooner.
-                allMeshes.length = 0;
-                cumulativeColorUpdates.clear();
+                // Release closure references to MeshData objects after a delay.
+                // buildSpatialIndexGuarded starts an async spatial index build that
+                // reads from allMeshes — clearing immediately would corrupt it.
+                // The store's geometryResult.meshes still holds references to the same
+                // objects, so they remain alive for rendering/visibility.
+                setTimeout(() => {
+                  allMeshes.length = 0;
+                  cumulativeColorUpdates.clear();
+                }, 5000);
               }).catch(err => {
                 // Data model parsing failed - spatial index and caching skipped
                 console.warn('[useIfc] Skipping spatial index/cache - data model unavailable:', err);
