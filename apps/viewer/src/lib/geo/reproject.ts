@@ -313,9 +313,6 @@ export async function computeFootprintGeoJSON(
     : { x: 0, z: 0 };
 
   const bounds = coordinateInfo.shiftedBounds;
-  console.debug('[footprint] bounds:', JSON.stringify(bounds));
-  console.debug('[footprint] shift:', JSON.stringify(shift), 'rtcYup:', JSON.stringify(rtcYup));
-  console.debug('[footprint] conversion:', { eastings: conversion.eastings, northings: conversion.northings, scale, abscissa, ordinate });
 
   // Four corners of the bounding box on the XZ plane (viewer Y-up)
   const corners = [
@@ -352,7 +349,6 @@ export async function computeFootprintGeoJSON(
 
   // Close the ring (GeoJSON requirement)
   ring.push(ring[0]);
-  console.debug('[footprint] result ring:', ring);
   return ring;
 }
 

@@ -101,7 +101,6 @@ function addFootprintToMap(map: InstanceType<typeof import('maplibre-gl').Map>, 
 
   if (map.getSource('building-footprint')) {
     (map.getSource('building-footprint') as import('maplibre-gl').GeoJSONSource).setData(geojson);
-    console.debug('[LocationMap] updated existing footprint source');
     return;
   }
 
@@ -128,7 +127,6 @@ function addFootprintToMap(map: InstanceType<typeof import('maplibre-gl').Map>, 
     },
   });
 
-  console.debug('[LocationMap] added footprint source + layers');
 }
 
 /** Remove footprint layers and source from a MapLibre map */
@@ -192,7 +190,6 @@ export function LocationMap({
     if (!mapConversion || !projectedCRS || !coordinateInfo) {
       setFootprint(null);
       footprintRef.current = null;
-      console.debug('[LocationMap] footprint: missing data', { mapConversion: !!mapConversion, projectedCRS: !!projectedCRS, coordinateInfo: !!coordinateInfo });
       return;
     }
 
@@ -200,10 +197,6 @@ export function LocationMap({
 
     computeFootprintGeoJSON(mapConversion, projectedCRS, coordinateInfo).then(fp => {
       if (cancelled) return;
-      console.debug('[LocationMap] footprint computed:', fp ? `${fp.length} points` : 'null');
-      if (fp) {
-        console.debug('[LocationMap] footprint coords sample:', fp[0], fp[1]);
-      }
       setFootprint(fp);
       footprintRef.current = fp;
     });
@@ -405,7 +398,6 @@ export function LocationMap({
 
       // If footprint was already computed before the map was created, add it now
       if (footprintRef.current) {
-        console.debug('[LocationMap] adding footprint layer on map load (footprint was ready before map)');
         map.once('load', () => {
           addFootprintToMap(map, footprintRef.current!);
         });
@@ -425,8 +417,6 @@ export function LocationMap({
       removeFootprintFromMap(map);
       return;
     }
-
-    console.debug('[LocationMap] footprint effect: adding layer, styleVersion=', styleVersion);
 
     if (map.isStyleLoaded()) {
       addFootprintToMap(map, footprint);

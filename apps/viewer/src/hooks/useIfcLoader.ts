@@ -103,9 +103,6 @@ export function useIfcLoader() {
     const { resetViewerState, clearAllModels } = useViewerStore.getState();
     const currentSession = ++loadSessionRef.current;
 
-    // Track total elapsed time for complete user experience
-    const totalStartTime = performance.now();
-
     try {
       // Reset all viewer state before loading new file
       // Also clear models Map to ensure clean single-file state
@@ -117,12 +114,8 @@ export function useIfcLoader() {
       setProgress({ phase: 'Loading file', percent: 0 });
 
       // Read file from disk
-      const fileReadStart = performance.now();
       const buffer = await file.arrayBuffer();
-      const fileReadMs = performance.now() - fileReadStart;
       const fileSizeMB = buffer.byteLength / (1024 * 1024);
-      console.log(`[useIfc] File: ${file.name}, size: ${fileSizeMB.toFixed(2)}MB, read in ${fileReadMs.toFixed(0)}ms`);
-
       // Detect file format (IFCX/IFC5 vs IFC4 STEP vs GLB)
       const format = detectFormat(buffer);
 
@@ -162,9 +155,6 @@ export function useIfcLoader() {
 
           // Check if this is an overlay-only file (no geometry)
           if (meshes.length === 0) {
-            console.warn(`[useIfc] IFCX file "${file.name}" has no geometry - this appears to be an overlay file that adds properties to a base model.`);
-            console.warn('[useIfc] To use this file, load it together with a base IFCX file (select both files at once).');
-
             // Check if file has data references that suggest it's an overlay
             const hasReferences = ifcxResult.entityCount > 0;
             if (hasReferences) {
@@ -270,7 +260,6 @@ export function useIfcLoader() {
         if (cacheResult) {
           const success = await loadFromCache(cacheResult, file.name, cacheKey);
           if (success) {
-            console.log(`[useIfc] TOTAL LOAD TIME (from cache): ${(performance.now() - totalStartTime).toFixed(0)}ms`);
             setLoading(false);
             return;
           }
@@ -283,13 +272,11 @@ export function useIfcLoader() {
         // Pass buffer directly - server uses File object for parsing, buffer is only for size checks
         const serverSuccess = await loadFromServer(file, buffer, () => loadSessionRef.current !== currentSession);
         if (serverSuccess) {
-          console.log(`[useIfc] TOTAL LOAD TIME (server): ${(performance.now() - totalStartTime).toFixed(0)}ms`);
           setLoading(false);
           return;
         }
         // Server not available - continue with local WASM (no error logging needed)
       } else if (format === 'unknown') {
-        console.warn('[useIfc] Unknown file format - attempting to parse as IFC4 STEP');
       }
 
       // Using local WASM parsing
@@ -369,8 +356,6 @@ export function useIfcLoader() {
 
       // Timing instrumentation
       let batchCount = 0;
-      let firstGeometryTime = 0; // Time to first rendered geometry
-      let modelOpenMs = 0;
       let lastTotalMeshes = 0;
 
       // OPTIMIZATION: Accumulate meshes and batch state updates
@@ -396,8 +381,6 @@ export function useIfcLoader() {
               break;
             case 'model-open':
               setProgress({ phase: 'Processing geometry', percent: 50 });
-              modelOpenMs = performance.now() - totalStartTime;
-              console.log(`[useIfc] Model opened at ${modelOpenMs.toFixed(0)}ms`);
               break;
             case 'colorUpdate': {
               // Accumulate color updates locally during streaming.
@@ -424,10 +407,7 @@ export function useIfcLoader() {
 
               // Track time to first geometry
               if (batchCount === 1) {
-                firstGeometryTime = performance.now() - totalStartTime;
-                console.log(`[useIfc] Batch #1: ${event.meshes.length} meshes, wait: ${firstGeometryTime.toFixed(0)}ms`);
               }
-
 
               // Collect meshes for BVH building (use loop to avoid stack overflow with large batches)
               for (let i = 0; i < event.meshes.length; i++) allMeshes.push(event.meshes[i]);
@@ -485,8 +465,6 @@ export function useIfcLoader() {
               updateCoordinateInfo(finalCoordinateInfo);
 
               setProgress({ phase: 'Complete', percent: 100 });
-              console.log(`[useIfc] Geometry streaming complete: ${batchCount} batches, ${lastTotalMeshes} meshes`);
-
               // Build spatial index and cache in background (non-blocking)
               // Wait for data model to complete first
               dataStorePromise.then(dataStore => {
@@ -521,7 +499,6 @@ export function useIfcLoader() {
                 }
               }).catch(err => {
                 // Data model parsing failed - spatial index and caching skipped
-                console.warn('[useIfc] Skipping spatial index/cache - data model unavailable:', err);
               });
               break;
           }
@@ -535,14 +512,6 @@ export function useIfcLoader() {
 
       if (loadSessionRef.current !== currentSession) return;
 
-      const totalElapsedMs = performance.now() - totalStartTime;
-      const totalVertices = allMeshes.reduce((sum, m) => sum + m.positions.length / 3, 0);
-      console.log(
-        `[useIfc] ✓ ${file.name} (${fileSizeMB.toFixed(1)}MB) → ` +
-        `${allMeshes.length} meshes, ${(totalVertices / 1000).toFixed(0)}k vertices | ` +
-        `first: ${firstGeometryTime.toFixed(0)}ms, total: ${totalElapsedMs.toFixed(0)}ms`
-      );
-      console.log(`[useIfc] TOTAL LOAD TIME (local): ${totalElapsedMs.toFixed(0)}ms (${(totalElapsedMs / 1000).toFixed(1)}s)`);
       setLoading(false);
     } catch (err) {
       if (loadSessionRef.current !== currentSession) return;

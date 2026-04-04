@@ -132,7 +132,6 @@ export function useIfcServer() {
   ): Promise<boolean> => {
     const { setProgress, setIfcDataStore, setGeometryResult } = useViewerStore.getState();
     try {
-      const serverStart = performance.now();
       setProgress({ phase: 'Connecting to server', percent: 5 });
 
       const client = new IfcServerClient({ baseUrl: SERVER_URL });
@@ -151,8 +150,6 @@ export function useIfcServer() {
 
       let allMeshes: MeshData[];
       let result: ServerParseResultType;
-      let parseTime: number;
-      let convertTime: number;
 
       // Use streaming for large files (>150MB) for progressive rendering
       // Smaller files use non-streaming path (faster - avoids ~1.1s background re-processing overhead)
@@ -164,8 +161,6 @@ export function useIfcServer() {
 
       if (parquetSupported && fileSizeMB > USE_STREAMING_THRESHOLD_MB) {
         // STREAMING PATH - for large files, render progressively
-        console.log(`[useIfc] Using STREAMING endpoint for large file (${fileSizeMB.toFixed(1)}MB)`);
-
         allMeshes = [];
         let totalVertices = 0;
         let totalTriangles = 0;
@@ -176,8 +171,6 @@ export function useIfcServer() {
 
         // Progressive bounds calculation
         const bounds = createEmptyBounds();
-
-        const parseStart = performance.now();
 
         // Throttle server streaming updates - large files get less frequent UI updates
         let lastServerStreamRenderTime = 0;
@@ -232,14 +225,9 @@ export function useIfcServer() {
           }
         });
 
-        parseTime = performance.now() - parseStart;
         cacheKey = streamResult.cache_key;
         streamMetadata = streamResult.metadata;
         streamStats = streamResult.stats;
-
-        console.log(`[useIfc] Streaming complete in ${parseTime.toFixed(0)}ms`);
-        console.log(`  ${batchCount} batches, ${allMeshes.length} meshes`);
-        console.log(`  Cache key: ${cacheKey}`);
 
         // Build final result object for data model fetching
         // Note: meshes field is omitted - allMeshes is passed separately to convertServerDataModel
@@ -248,7 +236,6 @@ export function useIfcServer() {
           metadata: streamMetadata,
           stats: streamStats,
         } as ParquetStreamResult;
-        convertTime = 0; // Already converted inline
 
         // Final geometry set with complete bounds
         // Server already applies RTC shift to mesh positions, so bounds are shifted
@@ -286,49 +273,23 @@ export function useIfcServer() {
 
       } else if (parquetSupported) {
         // NON-STREAMING PATH - for smaller files, use batch request (with cache check)
-        console.log(`[useIfc] Using PARQUET endpoint - 15x smaller payload, faster transfer`);
-
         // Use Parquet endpoint - much smaller payload (~15x compression)
-        const parseStart = performance.now();
         const parquetResult = await client.parseParquet(file);
         result = parquetResult;
-        parseTime = performance.now() - parseStart;
-
-        console.log(`[useIfc] Server parse response received in ${parseTime.toFixed(0)}ms`);
-        console.log(`  Server stats: ${parquetResult.stats.total_time_ms}ms total (parse: ${parquetResult.stats.parse_time_ms}ms, geometry: ${parquetResult.stats.geometry_time_ms}ms)`);
-        console.log(`  Parquet payload: ${(parquetResult.parquet_stats.payload_size / 1024 / 1024).toFixed(2)}MB, decode: ${parquetResult.parquet_stats.decode_time_ms}ms`);
-        console.log(`  Meshes: ${parquetResult.meshes.length}, Vertices: ${parquetResult.stats.total_vertices}, Triangles: ${parquetResult.stats.total_triangles}`);
-        console.log(`  Cache key: ${parquetResult.cache_key}`);
 
         setProgress({ phase: 'Converting meshes', percent: 70 });
 
         // Convert server mesh format to viewer format (TypedArrays)
-        const convertStart = performance.now();
         allMeshes = parquetResult.meshes.map(convertServerMesh);
-        convertTime = performance.now() - convertStart;
-        console.log(`[useIfc] Mesh conversion: ${convertTime.toFixed(0)}ms for ${allMeshes.length} meshes`);
       } else {
-        console.log(`[useIfc] Parquet not available, using JSON endpoint (install parquet-wasm for 15x faster transfer)`);
-        console.log(`[useIfc] Using FULL PARSE (parallel) - all geometry processed at once`);
-
         // Fallback to JSON endpoint
-        const parseStart = performance.now();
         result = await client.parse(file);
-        parseTime = performance.now() - parseStart;
-
-        console.log(`[useIfc] Server parse response received in ${parseTime.toFixed(0)}ms`);
-        console.log(`  Server stats: ${result.stats.total_time_ms}ms total (parse: ${result.stats.parse_time_ms}ms, geometry: ${result.stats.geometry_time_ms}ms)`);
-        console.log(`  Meshes: ${result.meshes.length}, Vertices: ${result.stats.total_vertices}, Triangles: ${result.stats.total_triangles}`);
-        console.log(`  Cache key: ${result.cache_key}`);
 
         setProgress({ phase: 'Converting meshes', percent: 70 });
 
         // Convert server mesh format to viewer format
-        const convertStart = performance.now();
         const jsonResult = result as ParseResponse;
         allMeshes = jsonResult.meshes.map(convertServerMesh);
-        convertTime = performance.now() - convertStart;
-        console.log(`[useIfc] Mesh conversion: ${convertTime.toFixed(0)}ms for ${allMeshes.length} meshes`);
       }
 
       // For non-streaming paths, calculate bounds and set geometry
@@ -376,23 +337,14 @@ export function useIfcServer() {
           hasLargeCoordinates: serverCoordInfo?.is_geo_referenced ?? false,
         };
 
-        console.log(`[useIfc] Calculated bounds:`, {
-          min: `(${bounds.min.x.toFixed(1)}, ${bounds.min.y.toFixed(1)}, ${bounds.min.z.toFixed(1)})`,
-          max: `(${bounds.max.x.toFixed(1)}, ${bounds.max.y.toFixed(1)}, ${bounds.max.z.toFixed(1)})`,
-          size: `${(bounds.max.x - bounds.min.x).toFixed(1)} x ${(bounds.max.y - bounds.min.y).toFixed(1)} x ${(bounds.max.z - bounds.min.z).toFixed(1)}`,
-        });
-
         // Set all geometry at once
         setProgress({ phase: 'Rendering geometry', percent: 80 });
-        const renderStart = performance.now();
         setGeometryResult({
           meshes: allMeshes,
           totalVertices: result.stats.total_vertices,
           totalTriangles: result.stats.total_triangles,
           coordinateInfo,
         });
-        const renderTime = performance.now() - renderStart;
-        console.log(`[useIfc] Geometry set: ${renderTime.toFixed(0)}ms`);
       }
 
       // Fetch and decode data model asynchronously (geometry already displayed)
@@ -403,8 +355,6 @@ export function useIfcServer() {
       (async () => {
         if (isStale?.()) return;
         setProgress({ phase: 'Fetching data model', percent: 85 });
-        const dataModelStart = performance.now();
-
         try {
           // If data model was included in response (ParquetParseResponse), use it directly
           // Otherwise, fetch from the data model endpoint
@@ -414,24 +364,14 @@ export function useIfcServer() {
           }
 
           if (!dataModelBuffer || dataModelBuffer.byteLength === 0) {
-            console.log('[useIfc] Fetching data model from server (background processing)...');
             dataModelBuffer = await client.fetchDataModel(cacheKey);
           }
 
           if (!dataModelBuffer) {
-            console.log('[useIfc] ⚡ Data model not available - property panel disabled');
             return;
           }
 
           const dataModel: DataModel = await decodeDataModel(dataModelBuffer);
-
-          console.log(`[useIfc] Data model decoded in ${(performance.now() - dataModelStart).toFixed(0)}ms`);
-          console.log(`  Entities: ${dataModel.entities.size}`);
-          console.log(`  PropertySets: ${dataModel.propertySets.size}`);
-          const quantitySetsSize = (dataModel as { quantitySets?: Map<number, unknown> }).quantitySets?.size ?? 0;
-          console.log(`  QuantitySets: ${quantitySetsSize}`);
-          console.log(`  Relationships: ${dataModel.relationships.length}`);
-          console.log(`  Spatial nodes: ${dataModel.spatialHierarchy.nodes.length}`);
 
           // Convert server data model directly to IfcDataStore format
           const dataStore = convertServerDataModel(
@@ -443,23 +383,14 @@ export function useIfcServer() {
 
           if (isStale?.()) return;
           setIfcDataStore(dataStore);
-          console.log('[useIfc] ✅ Property panel ready with server data model');
-          console.log(`[useIfc] Data model loaded in ${(performance.now() - dataModelStart).toFixed(0)}ms (background)`);
 
           buildSpatialIndexGuarded(allMeshes, dataStore, setIfcDataStore);
         } catch (err) {
-          console.warn('[useIfc] Failed to decode data model:', err);
-          console.log('[useIfc] ⚡ Skipping data model (decoding failed)');
         }
       })(); // End of async data model fetch block - runs in background, doesn't block
 
       // Geometry is ready - mark complete immediately (data model loads in background)
       setProgress({ phase: 'Complete', percent: 100 });
-      const totalServerTime = performance.now() - serverStart;
-      console.log(`[useIfc] SERVER PARALLEL complete: ${file.name}`);
-      console.log(`  Total time: ${totalServerTime.toFixed(0)}ms`);
-      console.log(`  Breakdown: parse=${parseTime.toFixed(0)}ms, convert=${convertTime.toFixed(0)}ms`);
-
       return true;
     } catch (err) {
       console.error('[useIfc] Server parse failed:', err);

@@ -545,13 +545,8 @@ export class ColumnarParser {
         const uint8Buffer = new Uint8Array(buffer);
         const totalEntities = entityRefs.length;
 
-        // Phase timing for performance telemetry
-        let phaseStart = startTime;
-        const logPhase = (name: string) => {
-            const now = performance.now();
-            console.log(`[parseLite] ${name}: ${Math.round(now - phaseStart)}ms`);
-            phaseStart = now;
-        };
+        // Phase timing placeholder (telemetry removed for production)
+        const logPhase = (_name: string) => {};
 
         options.onProgress?.({ phase: 'building', percent: 0 });
 
@@ -865,7 +860,6 @@ export class ColumnarParser {
                 }
             }
         }
-        console.log(`[parseLite] propertyRels: ${propertyRelRefs.length} rels, ${totalPropRelObjects} total relatedObjects`);
         await yieldIfNeeded();
 
         // Association rels: byte-level scanning, no addEdge (same reasoning as property rels)

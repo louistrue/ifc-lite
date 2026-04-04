@@ -184,7 +184,6 @@ export class IfcParser {
   async parseColumnar(buffer: ArrayBuffer, options: ParseOptions = {}): Promise<IfcDataStore> {
     const uint8Buffer = new Uint8Array(buffer);
     const fileSizeMB = buffer.byteLength / (1024 * 1024);
-    const scanStartTime = performance.now();
 
     // Fast scan: prefer Web Worker (non-blocking), fall back to main-thread scanners
     options.onProgress?.({ phase: 'scanning', percent: 0 });
@@ -262,14 +261,11 @@ export class IfcParser {
       }
     }
 
-    const scanElapsedMs = performance.now() - scanStartTime;
-    console.log(`[IfcParser] Fast scan: ${processed} entities in ${scanElapsedMs.toFixed(0)}ms`);
     options.onProgress?.({ phase: 'scanning', percent: 100 });
 
     // Build columnar structures with on-demand property extraction
     const columnarParser = new ColumnarParser();
     const dataStore = await columnarParser.parseLite(buffer, entityRefs, options);
-    console.log(`[ColumnarParser] Parsed ${dataStore.entityCount} entities in ${dataStore.parseTime.toFixed(0)}ms`);
     return dataStore;
   }
 }

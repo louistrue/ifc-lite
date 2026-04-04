@@ -126,8 +126,6 @@ export function useIfcFederation() {
     options?: { name?: string }
   ): Promise<string | null> => {
     const modelId = crypto.randomUUID();
-    const totalStartTime = performance.now();
-
     try {
       // IMPORTANT: Before adding a new model, check if there's a legacy model
       // (loaded via loadFile) that's not in the Map yet. If so, migrate it first.
@@ -171,7 +169,6 @@ export function useIfcFederation() {
           maxExpressId: legacyMaxExpressId,
         };
         storeAddModel(legacyModel);
-        console.log(`[useIfc] Migrated legacy model "${legacyModel.name}" to federation (offset: ${legacyOffset}, maxId: ${legacyMaxExpressId})`);
       }
 
       setLoading(true);
@@ -204,7 +201,6 @@ export function useIfcFederation() {
 
         // Check if this is an overlay-only IFCX file (no geometry)
         if (meshes.length === 0 && ifcxResult.entityCount > 0) {
-          console.warn(`[useIfc] IFCX file "${file.name}" has no geometry - this is an overlay file.`);
           setError(`"${file.name}" is an overlay file with no geometry. Please load it together with a base IFCX file (select all files at once for federated loading).`);
           setLoading(false);
           return null;
@@ -423,8 +419,6 @@ export function useIfcFederation() {
                                         Math.abs(webglAdjustZ) > 0.01;
 
           if (hasSignificantAdjust) {
-            console.log(`[useIfc] Aligning model "${file.name}" using RTC adjustment: X=${webglAdjustX.toFixed(2)}m, Y=${webglAdjustY.toFixed(2)}m, Z=${webglAdjustZ.toFixed(2)}m`);
-
             // Apply adjustment to all mesh vertices
             // SUBTRACT adjustment: if firstRtc > newRtc, first was shifted MORE,
             // so new model needs to be shifted in same direction (subtract more)
@@ -449,7 +443,6 @@ export function useIfcFederation() {
           }
         } else {
           // No RTC info - can't align reliably. This happens with old cache entries.
-          console.warn(`[useIfc] Cannot align "${file.name}" - missing RTC offset. Clear cache and reload.`);
         }
       }
 
@@ -481,9 +474,6 @@ export function useIfcFederation() {
 
       setProgress({ phase: 'Complete', percent: 100 });
       setLoading(false);
-
-      const totalElapsedMs = performance.now() - totalStartTime;
-      console.log(`[useIfc] ✓ Added model ${file.name} (${fileSizeMB.toFixed(1)}MB) | ${totalElapsedMs.toFixed(0)}ms`);
 
       return modelId;
 
@@ -684,10 +674,6 @@ export function useIfcFederation() {
         storeAddModel(layerModel);
       }
 
-      console.log(`[useIfc] Federated IFCX loaded: ${layers.length} layers, ${result.entityCount} entities, ${meshes.length} meshes`);
-      console.log(`[useIfc] Composition stats: ${result.compositionStats.inheritanceResolutions} inheritance resolutions, ${result.compositionStats.crossLayerReferences} cross-layer refs`);
-      console.log(`[useIfc] Layers in Models panel: ${layers.map((l: { name: string }) => l.name).join(', ')}`);
-
       setProgress({ phase: 'Complete', percent: 100 });
       setLoading(false);
     } catch (err: unknown) {
@@ -753,7 +739,6 @@ export function useIfcFederation() {
       ) as ArrayBuffer;
 
       existingBuffers = [{ buffer: sourceBuffer, name: modelName }];
-      console.log(`[useIfc] Converting single IFCX file "${modelName}" to federated mode`);
     } else {
       setError('Cannot add overlays: no IFCX model loaded');
       return;
@@ -773,9 +758,6 @@ export function useIfcFederation() {
 
     // Combine: existing layers + new overlays (new overlays are strongest = first in array)
     const allBuffers = [...newBuffers, ...existingBuffers];
-
-    console.log(`[useIfc] Re-composing federated IFCX with ${newBuffers.length} new overlay(s)`);
-    console.log(`[useIfc] Total layers: ${allBuffers.length} (${existingBuffers.length} existing + ${newBuffers.length} new)`);
 
     await loadFederatedIfcxFromBuffers(allBuffers, { resetState: false });
   }, [setError, loadFederatedIfcxFromBuffers]);
