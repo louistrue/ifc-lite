@@ -1305,7 +1305,15 @@ fn add_triangle_to_mesh(mesh: &mut Mesh, triangle: &Triangle) {
     mesh.add_triangle(base_idx, base_idx + 1, base_idx + 2);
 }
 
-/// Calculate smooth normals for a mesh
+/// Calculate smooth normals for a mesh.
+/// On desktop, this is a no-op because the frontend computes normals in JS
+/// after decoding (normals are not sent over IPC to save bandwidth).
+/// WASM path keeps full normal calculation.
+#[cfg(not(target_arch = "wasm32"))]
+#[inline]
+pub fn calculate_normals(_mesh: &mut Mesh) {}
+
+#[cfg(target_arch = "wasm32")]
 #[inline]
 pub fn calculate_normals(mesh: &mut Mesh) {
     let vertex_count = mesh.vertex_count();
