@@ -67,7 +67,7 @@ export class WebGPUDevice {
       device: this.device,
       format: this.format,
       usage: GPUTextureUsage.RENDER_ATTACHMENT,
-        alphaMode: 'premultiplied',
+        alphaMode: 'opaque',
     });
       this.contextConfigured = true;
     } catch (e) {

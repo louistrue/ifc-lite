@@ -524,14 +524,12 @@ export function Viewport({
       return Math.max(64, Math.floor(size / 64) * 64);
     };
 
-    // Apply devicePixelRatio for sharp rendering on high-DPR screens (mobile).
-    // Clamp to 2 on mobile to avoid GPU memory pressure on high-DPR phones.
-    const isMobileDevice = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-    const dpr = Math.min(window.devicePixelRatio || 1, isMobileDevice ? 2 : 3);
-
+    // Use CSS pixel dimensions for canvas. The Renderer.render() method manages
+    // its own dimension alignment via getBoundingClientRect() — do NOT apply DPR
+    // here as it creates a mismatch that causes constant context reconfiguration.
     const rect = canvas.getBoundingClientRect();
-    const width = alignToWebGPU(Math.max(1, Math.floor(rect.width * dpr)));
-    const height = Math.max(1, Math.floor(rect.height * dpr));
+    const width = alignToWebGPU(Math.max(1, Math.floor(rect.width)));
+    const height = Math.max(1, Math.floor(rect.height));
     canvas.width = width;
     canvas.height = height;
 
@@ -656,13 +654,12 @@ export function Viewport({
         },
       });
 
-      // ResizeObserver — apply the same DPR scaling as initialization
+      // ResizeObserver — let renderer handle its own dimension alignment
       resizeObserver = new ResizeObserver(() => {
         if (aborted) return;
         const rect = canvas.getBoundingClientRect();
-        const currentDpr = Math.min(window.devicePixelRatio || 1, isMobileDevice ? 2 : 3);
-        const w = alignToWebGPU(Math.max(1, Math.floor(rect.width * currentDpr)));
-        const h = Math.max(1, Math.floor(rect.height * currentDpr));
+        const w = alignToWebGPU(Math.max(1, Math.floor(rect.width)));
+        const h = Math.max(1, Math.floor(rect.height));
         renderer.resize(w, h);
         renderCurrent();
       });

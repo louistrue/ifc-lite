@@ -174,11 +174,18 @@ export class Renderer {
             this.device.getFormat(),
             this.pipeline.getSampleCount()
         );
-        this.postProcessor = new PostProcessor(this.device, {
-            enableContactShading: true,
-            contactRadius: 1.0,
-            contactIntensity: 0.3,
-        }, this.pipeline.getSampleCount());
+        // PostProcessor is optional — if it fails (e.g. mobile GPU lacking
+        // depth TEXTURE_BINDING), rendering still works without post-processing.
+        try {
+            this.postProcessor = new PostProcessor(this.device, {
+                enableContactShading: true,
+                contactRadius: 1.0,
+                contactIntensity: 0.3,
+            }, this.pipeline.getSampleCount());
+        } catch (e) {
+            console.warn('[Renderer] PostProcessor init failed (post-processing disabled):', e);
+            this.postProcessor = null;
+        }
         this.camera.setAspect(width / height);
 
         // Update picking manager with initialized picker
