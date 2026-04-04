@@ -1773,6 +1773,9 @@ export function useIfcLoader() {
         });
       };
 
+      // Declare at function scope so the catch block can always reach it.
+      let closeGeometryIterator: (() => Promise<void>) | null = null;
+
       try {
         // Use dynamic batch sizing for optimal throughput
         const dynamicBatchConfig = getDynamicBatchConfig(fileSizeMB);
@@ -1784,7 +1787,7 @@ export function useIfcLoader() {
             });
         const geometryIterator = geometryEvents[Symbol.asyncIterator]();
         let geometryIteratorClosed = false;
-        const closeGeometryIterator = async () => {
+        closeGeometryIterator = async () => {
           if (geometryIteratorClosed || typeof geometryIterator.return !== 'function') return;
           geometryIteratorClosed = true;
           try {
@@ -1988,12 +1991,10 @@ export function useIfcLoader() {
               break;
           }
         }
-        await closeGeometryIterator();
+        await closeGeometryIterator?.();
       } catch (err) {
         // Close the geometry iterator to release WASM resources on failure.
-        // Guard: closeGeometryIterator may not be defined if the error occurred
-        // before the iterator was created (e.g. processAdaptive/processStreaming threw).
-        if (typeof closeGeometryIterator === 'function') {
+        if (closeGeometryIterator) {
           await closeGeometryIterator();
         }
         if (loadSessionRef.current !== currentSession) return;
