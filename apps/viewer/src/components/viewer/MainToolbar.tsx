@@ -65,7 +65,7 @@ import { ExportDialog } from './ExportDialog';
 import { BulkPropertyEditor } from './BulkPropertyEditor';
 import { DataConnector } from './DataConnector';
 import { ExportChangesButton } from './ExportChangesButton';
-import { CesiumSettingsDialog } from './CesiumSettingsDialog';
+// CesiumSettingsDialog removed — settings now shown as overlay on Cesium viewer
 import { useFloorplanView } from '@/hooks/useFloorplanView';
 import { recordRecentFiles, cacheFileBlobs } from '@/lib/recent-files';
 import { ThemeSwitch } from './ThemeSwitch';
@@ -913,7 +913,6 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
               {cesiumEnabled ? 'Hide' : 'Show'} 3D World Context (Cesium)
             </TooltipContent>
           </Tooltip>
-          <CesiumSettingsDialog />
         </div>
       )}
 

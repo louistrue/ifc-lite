@@ -83,7 +83,7 @@ function loadDataSource(): CesiumDataSource {
   const stored = loadFromStorage(STORAGE_KEY_DATA_SOURCE, '');
   return VALID_DATA_SOURCES.has(stored as CesiumDataSource)
     ? (stored as CesiumDataSource)
-    : 'osm-buildings';
+    : 'google-photorealistic';
 }
 
 /** Resolve the Cesium ion token: user override > build-time default */
