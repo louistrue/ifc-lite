@@ -812,7 +812,44 @@ pub fn process_geometry_streaming_filtered_with_options(
         !options.include_presentation_layers;
     let mut deferred_styled_item_positions: Vec<(usize, usize)> = Vec::new();
 
-    while let Some((id, type_name, start, end)) = scanner.next_entity() {
+    // ── Desktop fast path: iterate entity_index instead of re-scanning ──
+    // build_entity_index already parsed all entity boundaries using SIMD.
+    // Re-scanning with EntityScanner would walk the file byte-by-byte a
+    // second time (~2.5s for 1GB).  Instead, iterate the pre-built index
+    // and extract type names inline.
+    #[cfg(not(target_arch = "wasm32"))]
+    let mut entity_index_entries: Vec<(u32, usize, usize)> = entity_index
+        .iter()
+        .map(|(&id, &(start, end))| (id, start, end))
+        .collect();
+    // Sort by byte position for cache-friendly sequential access
+    #[cfg(not(target_arch = "wasm32"))]
+    entity_index_entries.sort_unstable_by_key(|&(_, start, _)| start);
+
+    #[cfg(not(target_arch = "wasm32"))]
+    let mut scan_iter: Box<dyn Iterator<Item = (u32, &str, usize, usize)> + '_> = Box::new(
+        entity_index_entries.iter().filter_map(|&(id, start, end)| {
+            // Extract type name from entity text: #ID=TYPENAME(...)
+            let bytes = content.as_bytes();
+            // Find '=' after #ID
+            let eq_pos = bytes[start..end].iter().position(|&b| b == b'=')? + start;
+            // Skip whitespace after '='
+            let mut type_start = eq_pos + 1;
+            while type_start < end && bytes[type_start].is_ascii_whitespace() {
+                type_start += 1;
+            }
+            // Find '(' after type name
+            let type_end = bytes[type_start..end].iter().position(|&b| b == b'(')? + type_start;
+            let type_name = std::str::from_utf8(&bytes[type_start..type_end]).ok()?;
+            Some((id, type_name, start, end))
+        }),
+    );
+
+    #[cfg(target_arch = "wasm32")]
+    let mut scan_iter: Box<dyn Iterator<Item = (u32, &str, usize, usize)> + '_> =
+        Box::new(std::iter::from_fn(move || scanner.next_entity()));
+
+    while let Some((id, type_name, start, end)) = scan_iter.next() {
         total_entities += 1;
         if let Some(spatial_nodes) = quick_spatial_nodes.as_mut() {
             // Case-insensitive check without allocating a new uppercase string.
