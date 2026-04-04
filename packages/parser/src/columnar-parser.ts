@@ -630,6 +630,9 @@ export class ColumnarParser {
             'IFCFLOWSEGMENT', 'IFCFLOWTERMINAL', 'IFCFLOWCONTROLLER', 'IFCFLOWFITTING',
             'IFCSPACE', 'IFCOPENINGELEMENT', 'IFCSITE', 'IFCBUILDING', 'IFCBUILDINGSTOREY',
             'IFCPROJECT', 'IFCCOVERING', 'IFCANNOTATION', 'IFCGRID',
+            // Unit entities — needed by extractLengthUnitScale() to convert
+            // storey elevations and other length values to meters.
+            'IFCUNITASSIGNMENT', 'IFCSIUNIT', 'IFCCONVERSIONBASEDUNIT', 'IFCMEASUREWITHUNIT',
         ]);
 
         // Category constants for the lookup cache
