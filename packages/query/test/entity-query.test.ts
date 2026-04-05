@@ -83,12 +83,11 @@ describe('EntityQuery', () => {
       expect(results.map(r => r.expressId).sort()).toEqual([1, 4]);
     });
 
-    it('should return empty array when IDs do not exist in store', () => {
+    it('should return QueryResultEntity wrappers for non-existent IDs', () => {
       const store = makeStore();
-      // IDs that are passed through but may not correspond to valid entities
+      // IDs are passed through — QueryResultEntity uses lazy loading
       const query = new EntityQuery(store as any, null, [900, 901]);
       const results = query.execute();
-      // The query returns QueryResultEntity for the IDs even if they have no data
       expect(results).toHaveLength(2);
     });
   });

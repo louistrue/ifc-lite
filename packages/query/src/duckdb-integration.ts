@@ -59,7 +59,10 @@ export class DuckDBIntegration {
         const duckdb = await new Function('return import("@duckdb/duckdb-wasm")')() as DuckDBModule;
         const bundle = await duckdb.selectBundle(duckdb.getJsDelivrBundles());
 
-        const worker = new Worker(bundle.mainWorker!);
+        if (!bundle.mainWorker) {
+          throw new Error('DuckDB bundle missing mainWorker');
+        }
+        const worker = new Worker(bundle.mainWorker);
         this.db = new duckdb.AsyncDuckDB(new duckdb.ConsoleLogger(), worker);
         await this.db.instantiate(bundle.mainModule, bundle.pthreadWorker);
         this.conn = await this.db.connect();

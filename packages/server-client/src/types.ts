@@ -21,11 +21,11 @@ export interface MeshData {
   /** IFC type name (e.g., "IfcWall") */
   ifc_type: string;
   /** Vertex positions as flat array (x, y, z triplets) */
-  positions: number[] | Float32Array;
+  positions: Float32Array;
   /** Vertex normals as flat array (x, y, z triplets) */
-  normals: number[] | Float32Array;
+  normals: Float32Array;
   /** Triangle indices */
-  indices: number[] | Uint32Array;
+  indices: Uint32Array;
   /** RGBA color [r, g, b, a] in 0-1 range */
   color: [number, number, number, number];
 }

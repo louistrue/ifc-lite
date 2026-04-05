@@ -62,7 +62,7 @@ export const RELATIONSHIP_TYPES = new Set([
 ]);
 
 // Map IFC relationship type strings to RelationshipType enum
-// MUST cover ALL RelationshipType enum values (14 types total)
+// MUST cover ALL RelationshipType enum values (15 types total)
 export const REL_TYPE_MAP: Record<string, RelationshipType> = {
     'IFCRELCONTAINEDINSPATIALSTRUCTURE': RelationshipType.ContainsElements,
     'IFCRELAGGREGATES': RelationshipType.Aggregates,

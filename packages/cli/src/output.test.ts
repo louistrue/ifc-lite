@@ -127,7 +127,7 @@ describe('validateViewerPort', () => {
     expect(() => validateViewerPort('')).toThrow();
   });
 
-  it('calls fatal for floating point port', () => {
+  it('parses integer portion from floating point string', () => {
     // parseInt('3.5', 10) returns 3, which is valid
     expect(validateViewerPort('3.5')).toBe(3);
   });

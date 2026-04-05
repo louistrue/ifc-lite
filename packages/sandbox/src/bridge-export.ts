@@ -63,7 +63,7 @@ export function buildExportNamespace(): NamespaceSchema {
             },
           );
         },
-        returns: 'string',
+        returns: 'value',
       },
       {
         name: 'download',

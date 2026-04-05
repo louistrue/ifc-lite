@@ -121,8 +121,9 @@ export function createMockAccessor(entities: MockEntity[]): IFCDataAccessor {
       const entity = entityMap.get(expressId);
       if (!entity?.parent) return undefined;
       if (entity.parent.relation !== relationType) return undefined;
+      if (entity.parent.expressId == null) return undefined;
       return {
-        expressId: entity.parent.expressId ?? 999,
+        expressId: entity.parent.expressId,
         entityType: entity.parent.type,
         predefinedType: entity.parent.predefinedType,
       };
