@@ -7,6 +7,7 @@ import { Panel, Group as PanelGroup, Separator as PanelResizeHandle } from 'reac
 import type { PanelImperativeHandle } from 'react-resizable-panels';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { MainToolbar } from './MainToolbar';
+import { MobileToolbar } from './MobileToolbar';
 import { HierarchyPanel } from './HierarchyPanel';
 import { PropertiesPanel } from './PropertiesPanel';
 import { StatusBar } from './StatusBar';
@@ -166,10 +167,12 @@ export function ViewerLayout() {
     cleanupRef.current = cleanup;
   }, [bottomHeight]);
 
-  // Detect mobile viewport
+  // Detect mobile viewport — use both width check AND touch capability
   useEffect(() => {
     const checkMobile = () => {
-      const mobile = window.innerWidth < 768;
+      const narrowScreen = window.innerWidth < 768;
+      const hasTouchScreen = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+      const mobile = narrowScreen || (hasTouchScreen && window.innerWidth < 1024);
       setIsMobile(mobile);
       // Auto-collapse panels on mobile
       if (mobile) {
@@ -200,9 +203,9 @@ export function ViewerLayout() {
         <HoverTooltip />
         <CommandPalette open={commandPaletteOpen} onOpenChange={setCommandPaletteOpen} />
 
-        {/* Main Toolbar */}
-        <MainToolbar onShowShortcuts={shortcutsDialog.toggle} />
-        <DesktopEntitlementBanner />
+        {/* Main Toolbar — use compact MobileToolbar on mobile */}
+        {isMobile ? <MobileToolbar /> : <MainToolbar onShowShortcuts={shortcutsDialog.toggle} />}
+        {!isMobile && <DesktopEntitlementBanner />}
 
         {/* Main Content Area - Desktop Layout */}
         {!isMobile && (
@@ -293,28 +296,43 @@ export function ViewerLayout() {
 
         {/* Main Content Area - Mobile Layout */}
         {isMobile && (
-          <div className="flex-1 min-h-0 relative">
+          <div className="flex-1 min-h-0 relative overflow-hidden">
             {/* Full-screen Viewport */}
             <div className="h-full w-full">
               <ViewportContainer />
             </div>
 
+            {/* Backdrop overlay when sheet is open */}
+            {(!leftPanelCollapsed || !rightPanelCollapsed) && (
+              <div
+                className="absolute inset-0 bg-black/40 z-30 animate-in fade-in duration-200"
+                onClick={() => {
+                  setLeftPanelCollapsed(true);
+                  setRightPanelCollapsed(true);
+                }}
+              />
+            )}
+
             {/* Mobile Bottom Sheet - Hierarchy */}
             {!leftPanelCollapsed && (
-              <div className="absolute inset-x-0 bottom-0 h-[50vh] bg-background border-t rounded-t-xl shadow-xl z-40 animate-in slide-in-from-bottom">
-                <div className="flex items-center justify-between p-2 border-b">
-                  <span className="font-medium text-sm">Hierarchy</span>
+              <div className="absolute inset-x-0 bottom-0 h-[60vh] bg-background border-t rounded-t-2xl shadow-2xl z-40 animate-in slide-in-from-bottom duration-300">
+                {/* Drag handle */}
+                <div className="flex justify-center pt-2 pb-1">
+                  <div className="w-10 h-1 rounded-full bg-muted-foreground/30" />
+                </div>
+                <div className="flex items-center justify-between px-4 pb-2">
+                  <span className="font-semibold text-sm">Hierarchy</span>
                   <button
-                    className="p-1 hover:bg-muted rounded"
+                    className="p-2 -mr-2 hover:bg-muted rounded-full active:bg-muted/80 touch-manipulation"
                     onClick={() => setLeftPanelCollapsed(true)}
                   >
                     <span className="sr-only">Close</span>
-                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                     </svg>
                   </button>
                 </div>
-                <div className="h-[calc(50vh-48px)] overflow-auto">
+                <div className="h-[calc(60vh-56px)] overflow-auto overscroll-contain border-t">
                   <HierarchyPanel />
                 </div>
               </div>
@@ -322,13 +340,17 @@ export function ViewerLayout() {
 
             {/* Mobile Bottom Sheet - Properties, BCF, IDS, or Lists */}
             {!rightPanelCollapsed && (
-              <div className="absolute inset-x-0 bottom-0 h-[50vh] bg-background border-t rounded-t-xl shadow-xl z-40 animate-in slide-in-from-bottom">
-                <div className="flex items-center justify-between p-2 border-b">
-                  <span className="font-medium text-sm">
+              <div className="absolute inset-x-0 bottom-0 h-[60vh] bg-background border-t rounded-t-2xl shadow-2xl z-40 animate-in slide-in-from-bottom duration-300">
+                {/* Drag handle */}
+                <div className="flex justify-center pt-2 pb-1">
+                  <div className="w-10 h-1 rounded-full bg-muted-foreground/30" />
+                </div>
+                <div className="flex items-center justify-between px-4 pb-2">
+                  <span className="font-semibold text-sm">
                     {activeAnalysisExtension ? activeAnalysisExtension.label : scriptPanelVisible ? 'Script' : listPanelVisible ? 'Lists' : lensPanelVisible ? 'Lens' : idsPanelVisible ? 'IDS Validation' : bcfPanelVisible ? 'BCF Issues' : 'Properties'}
                   </span>
                   <button
-                    className="p-1 hover:bg-muted rounded"
+                    className="p-2 -mr-2 hover:bg-muted rounded-full active:bg-muted/80 touch-manipulation"
                     onClick={() => {
                       setRightPanelCollapsed(true);
                       if (scriptPanelVisible) setScriptPanelVisible(false);
@@ -340,12 +362,12 @@ export function ViewerLayout() {
                     }}
                   >
                     <span className="sr-only">Close</span>
-                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                     </svg>
                   </button>
                 </div>
-                <div className="h-[calc(50vh-48px)] overflow-auto">
+                <div className="h-[calc(60vh-56px)] overflow-auto overscroll-contain border-t">
                   {activeBottomAnalysisExtension ? (
                     activeBottomAnalysisExtension.renderPanel({ onClose: closeActiveAnalysisExtension })
                   ) : activeRightAnalysisExtension ? (
@@ -367,32 +389,36 @@ export function ViewerLayout() {
               </div>
             )}
 
-            {/* Mobile Action Buttons */}
-            <div className="absolute bottom-4 left-4 right-4 flex justify-center gap-2 z-30">
-              <button
-                className="px-4 py-2 bg-primary text-primary-foreground rounded-full shadow-lg text-sm font-medium"
-                onClick={() => {
-                  setRightPanelCollapsed(true);
-                  setLeftPanelCollapsed(!leftPanelCollapsed);
-                }}
-              >
-                Hierarchy
-              </button>
-              <button
-                className="px-4 py-2 bg-primary text-primary-foreground rounded-full shadow-lg text-sm font-medium"
-                onClick={() => {
-                  setLeftPanelCollapsed(true);
-                  setRightPanelCollapsed(!rightPanelCollapsed);
-                }}
-              >
-                Properties
-              </button>
-            </div>
+            {/* Mobile Floating Action Buttons — pill-shaped, bottom-safe-area aware */}
+            {leftPanelCollapsed && rightPanelCollapsed && (
+              <div className="absolute bottom-4 left-3 right-3 flex justify-center gap-2 z-20" style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
+                <button
+                  className="flex items-center gap-1.5 px-4 py-2.5 bg-background/90 backdrop-blur-sm text-foreground border border-border rounded-full shadow-lg text-xs font-medium active:scale-95 transition-transform touch-manipulation"
+                  onClick={() => {
+                    setRightPanelCollapsed(true);
+                    setLeftPanelCollapsed(false);
+                  }}
+                >
+                  <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h10M4 18h7" /></svg>
+                  Hierarchy
+                </button>
+                <button
+                  className="flex items-center gap-1.5 px-4 py-2.5 bg-background/90 backdrop-blur-sm text-foreground border border-border rounded-full shadow-lg text-xs font-medium active:scale-95 transition-transform touch-manipulation"
+                  onClick={() => {
+                    setLeftPanelCollapsed(true);
+                    setRightPanelCollapsed(false);
+                  }}
+                >
+                  <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg>
+                  Properties
+                </button>
+              </div>
+            )}
           </div>
         )}
 
-        {/* Status Bar */}
-        <StatusBar />
+        {/* Status Bar — hidden on mobile to maximize viewport space */}
+        {!isMobile && <StatusBar />}
       </div>
     </TooltipProvider>
   );

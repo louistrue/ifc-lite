@@ -13,6 +13,9 @@ import type { MeshData } from '@ifc-lite/geometry';
 import type { SectionPlane } from '@/store';
 import { getEntityCenter } from '../../utils/viewportUtils.js';
 
+/** Locked gesture mode for 2-finger interactions */
+type TwoFingerGesture = 'none' | 'pinch' | 'pan';
+
 export interface TouchState {
   touches: Touch[];
   lastDistance: number;
@@ -21,6 +24,12 @@ export interface TouchState {
   tapStartPos: { x: number; y: number };
   didMove: boolean;
   multiTouch: boolean;
+  /** Locked 2-finger gesture mode (reset on finger lift) */
+  twoFingerGesture: TwoFingerGesture;
+  /** Accumulated distance change since 2-finger gesture start */
+  gestureDistanceAccum: number;
+  /** Accumulated center movement since 2-finger gesture start */
+  gesturePanAccum: number;
 }
 
 export interface UseTouchControlsParams {
@@ -139,6 +148,10 @@ export function useTouchControls(params: UseTouchControlsParams): void {
           x: (touchState.touches[0].clientX + touchState.touches[1].clientX) / 2,
           y: (touchState.touches[0].clientY + touchState.touches[1].clientY) / 2,
         };
+        // Reset gesture lock for new 2-finger interaction
+        touchState.twoFingerGesture = 'none';
+        touchState.gestureDistanceAccum = 0;
+        touchState.gesturePanAccum = 0;
       }
     };
 
@@ -173,11 +186,30 @@ export function useTouchControls(params: UseTouchControlsParams): void {
         const centerY = (touchState.touches[0].clientY + touchState.touches[1].clientY) / 2;
         const panDx = centerX - touchState.lastCenter.x;
         const panDy = centerY - touchState.lastCenter.y;
-        camera.pan(panDx, panDy, false);
 
         const zoomDelta = distance - touchState.lastDistance;
-        const rect = canvas.getBoundingClientRect();
-        camera.zoom(zoomDelta * 10, false, centerX - rect.left, centerY - rect.top, canvas.width, canvas.height);
+
+        // Determine dominant gesture if not yet locked
+        if (touchState.twoFingerGesture === 'none') {
+          touchState.gestureDistanceAccum += Math.abs(zoomDelta);
+          touchState.gesturePanAccum += Math.abs(panDx) + Math.abs(panDy);
+
+          // Lock gesture after enough movement (8px threshold)
+          const threshold = 8;
+          if (touchState.gestureDistanceAccum > threshold || touchState.gesturePanAccum > threshold) {
+            touchState.twoFingerGesture =
+              touchState.gestureDistanceAccum > touchState.gesturePanAccum ? 'pinch' : 'pan';
+          }
+        }
+
+        // Apply only the locked gesture
+        if (touchState.twoFingerGesture === 'pan') {
+          camera.pan(panDx, panDy, false);
+        } else if (touchState.twoFingerGesture === 'pinch') {
+          const rect = canvas.getBoundingClientRect();
+          camera.zoom(zoomDelta * 3, false, centerX - rect.left, centerY - rect.top, canvas.width, canvas.height);
+        }
+        // While gesture is 'none' (detecting), don't apply either — avoids jitter
 
         touchState.lastDistance = distance;
         touchState.lastCenter = { x: centerX, y: centerY };
@@ -229,8 +261,11 @@ export function useTouchControls(params: UseTouchControlsParams): void {
           handlePickForSelection(pickResult);
         }
 
-        // Reset multi-touch flag when all touches end
+        // Reset multi-touch and gesture lock when all touches end
         touchState.multiTouch = false;
+        touchState.twoFingerGesture = 'none';
+        touchState.gestureDistanceAccum = 0;
+        touchState.gesturePanAccum = 0;
       }
     };
 
@@ -245,16 +280,27 @@ export function useTouchControls(params: UseTouchControlsParams): void {
       touchState.multiTouch = false;
     };
 
-    canvas.addEventListener('touchstart', handleTouchStart);
-    canvas.addEventListener('touchmove', handleTouchMove);
-    canvas.addEventListener('touchend', handleTouchEnd);
+    // Use { passive: false } to ensure preventDefault() works on mobile
+    // Safari and Chrome mobile require this for smooth touch handling
+    canvas.addEventListener('touchstart', handleTouchStart, { passive: false });
+    canvas.addEventListener('touchmove', handleTouchMove, { passive: false });
+    canvas.addEventListener('touchend', handleTouchEnd, { passive: false });
     canvas.addEventListener('touchcancel', handleTouchCancel);
+
+    // Prevent iOS Safari pull-to-refresh and elastic bounce on the canvas
+    const preventOverscroll = (e: TouchEvent) => {
+      if (e.target === canvas) {
+        e.preventDefault();
+      }
+    };
+    document.addEventListener('touchmove', preventOverscroll, { passive: false });
 
     return () => {
       canvas.removeEventListener('touchstart', handleTouchStart);
       canvas.removeEventListener('touchmove', handleTouchMove);
       canvas.removeEventListener('touchend', handleTouchEnd);
       canvas.removeEventListener('touchcancel', handleTouchCancel);
+      document.removeEventListener('touchmove', preventOverscroll);
     };
   }, [isInitialized]);
 }
