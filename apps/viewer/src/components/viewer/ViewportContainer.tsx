@@ -18,7 +18,7 @@ import { useWebGPU } from '@/hooks/useWebGPU';
 import { openIfcFileDialog } from '@/services/file-dialog';
 import { logToDesktopTerminal } from '@/services/desktop-logger';
 import { cacheFileBlobs, formatFileSize, getCachedFile, getRecentFiles, recordRecentFiles, type RecentFileEntry } from '@/lib/recent-files';
-import { isTauri } from '@/utils/ifcConfig';
+import { isTauri } from '@/lib/platform';
 import { Upload, MousePointer, Layers, Info, Command, AlertTriangle, ChevronDown, ExternalLink, Plus, Clock3 } from 'lucide-react';
 import type { MeshData, CoordinateInfo, GeometryResult } from '@ifc-lite/geometry';
 import { extractGeoreferencingOnDemand, type IfcDataStore, type MapConversion, type ProjectedCRS } from '@ifc-lite/parser';
@@ -847,8 +847,8 @@ export function ViewportContainer() {
         </div>
       )}
 
-      {/* Cesium 3D world context overlay — rendered behind the WebGPU canvas */}
-      {cesiumEnabled && georef && (
+      {/* Cesium 3D world context overlay — rendered behind the WebGPU canvas (web only) */}
+      {cesiumEnabled && georef && !isTauri() && (
         <CesiumOverlay
           mapConversion={georef.mapConversion}
           projectedCRS={georef.projectedCRS}
@@ -862,7 +862,7 @@ export function ViewportContainer() {
         coordinateInfo={mergedGeometryResult?.coordinateInfo}
         computedIsolatedIds={computedIsolatedIds}
         modelIdToIndex={modelIdToIndex}
-        cesiumActive={cesiumEnabled && georef !== null}
+        cesiumActive={cesiumEnabled && georef !== null && !isTauri()}
         releaseGeometryAfterStream={false}
         onGeometryReleased={releaseGeometryMemory}
       />

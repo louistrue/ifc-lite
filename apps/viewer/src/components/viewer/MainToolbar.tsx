@@ -1157,8 +1157,8 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
         </TooltipContent>
       </Tooltip>
 
-      {/* Cesium 3D Context toggle + settings */}
-      {hasModelsLoaded && (
+      {/* Cesium 3D Context toggle + settings (web only — Cesium not bundled in desktop) */}
+      {hasModelsLoaded && !desktopShell && (
         <div className="flex items-center">
           <Tooltip>
             <TooltipTrigger asChild>

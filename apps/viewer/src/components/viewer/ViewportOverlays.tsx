@@ -21,6 +21,9 @@ import type { CesiumDataSource } from '@/store/slices/cesiumSlice';
 import { goHomeFromStore } from '@/store/homeView';
 import { useIfc } from '@/hooks/useIfc';
 import { cn } from '@/lib/utils';
+import { isTauri } from '@/lib/platform';
+
+const isDesktop = isTauri();
 import { ViewCube, type ViewCubeRef } from './ViewCube';
 import { AxisHelper, type AxisHelperRef } from './AxisHelper';
 
@@ -146,8 +149,8 @@ export function ViewportOverlays({ hideViewCube = false }: { hideViewCube?: bool
 
   return (
     <>
-      {/* Bottom-right: Cesium settings overlay OR Navigation controls */}
-      {cesiumEnabled ? (
+      {/* Bottom-right: Cesium settings overlay OR Navigation controls (Cesium is web-only) */}
+      {cesiumEnabled && !isDesktop ? (
         <CesiumSettingsOverlay
           dataSource={cesiumDataSource}
           onDataSourceChange={setCesiumDataSource}
