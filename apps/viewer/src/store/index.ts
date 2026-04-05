@@ -224,6 +224,7 @@ const createViewerStore = () => create<ViewerState>()((...args) => ({
       separationLinesRadius: UI_DEFAULTS.SEPARATION_LINES_RADIUS,
 
       // Cesium
+      cesiumAvailable: false,
       cesiumEnabled: false,
       cesiumTerrainHeight: null,
       cesiumTerrainClamp: false,

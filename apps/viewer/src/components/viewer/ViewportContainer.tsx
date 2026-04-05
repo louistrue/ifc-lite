@@ -43,6 +43,7 @@ export function ViewportContainer() {
   const cesiumEnabled = useViewerStore((s) => s.cesiumEnabled);
   const georefMutations = useViewerStore((s) => s.georefMutations);
   const setCesiumSourceModelId = useViewerStore((s) => s.setCesiumSourceModelId);
+  const setCesiumAvailable = useViewerStore((s) => s.setCesiumAvailable);
   // Subscribe to mutationVersion so Cesium reacts to georef edits
   const mutationVersion = useViewerStore((s) => s.mutationVersion);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -251,6 +252,31 @@ export function ViewportContainer() {
 
     return null;
   }, [cesiumEnabled, storeModels, ifcDataStore, georefMutations, mutationVersion, mergedGeometryResult]);
+
+  // Determine whether Cesium button should be visible (model has georef or user added it via mutations).
+  // Runs independently of cesiumEnabled so the button appears/disappears reactively.
+  useEffect(() => {
+    function hasGeoref(): boolean {
+      // Check federated models
+      for (const [modelId, model] of storeModels) {
+        const ds = model.ifcDataStore;
+        if (!ds) continue;
+        const original = extractGeoreferencingOnDemand(ds as IfcDataStore);
+        const mutCRS = georefMutations.get(modelId)?.projectedCRS;
+        const crsName = mutCRS?.name ?? original?.projectedCRS?.name;
+        if (crsName) return true;
+      }
+      // Fallback to legacy single-model
+      if (ifcDataStore) {
+        const original = extractGeoreferencingOnDemand(ifcDataStore as IfcDataStore);
+        const mutCRS = georefMutations.get('__legacy__')?.projectedCRS;
+        const crsName = mutCRS?.name ?? original?.projectedCRS?.name;
+        if (crsName) return true;
+      }
+      return false;
+    }
+    setCesiumAvailable(hasGeoref());
+  }, [storeModels, ifcDataStore, georefMutations, mutationVersion, setCesiumAvailable]);
 
   // Sync the active Cesium source model ID so terrain actions are scoped correctly
   useEffect(() => {
