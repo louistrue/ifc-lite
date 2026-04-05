@@ -4,6 +4,7 @@
 
 import {
   IfcTypeEnumFromString,
+  IfcTypeEnumToString,
   isBuildingLikeSpatialType,
   isStoreyLikeSpatialType,
   type SpatialHierarchy,
@@ -103,7 +104,9 @@ function buildEntityLookup() {
           return typeNameById.get(expressId) ?? 'Unknown';
         },
         getByType(type: string | number) {
-          const key = typeof type === 'string' ? type.toUpperCase() : String(type);
+          const key = typeof type === 'string'
+            ? type.toUpperCase()
+            : IfcTypeEnumToString(type).toUpperCase();
           return byType.get(key) ?? [];
         },
       };
