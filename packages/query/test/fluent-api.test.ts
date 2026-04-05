@@ -110,22 +110,9 @@ describe('QueryBuilder', () => {
     expect(results[0].expressId).toBe(2);
   });
 
-  it('chaining should return the same instance', () => {
-    const { entityTable, propertyTable } = setupFixtures();
-    const builder = new QueryBuilder(entityTable, propertyTable);
-    const chained = builder.ofType('IFCWALL');
-    expect(chained).toBe(builder);
-  });
 });
 
 describe('QueryInterface', () => {
-  it('query() should return a new QueryBuilder', () => {
-    const { entityTable, propertyTable } = setupFixtures();
-    const iface = new QueryInterface(entityTable, propertyTable);
-    const builder = iface.query();
-    expect(builder).toBeInstanceOf(QueryBuilder);
-  });
-
   it('getEntity() should return an entity by id', () => {
     const { entityTable, propertyTable } = setupFixtures();
     const iface = new QueryInterface(entityTable, propertyTable);

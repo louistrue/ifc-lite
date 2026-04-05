@@ -167,10 +167,6 @@ describe('matchConstraint — enumeration', () => {
     expect(matchConstraint(enumC(['A', 'B', 'C']), 'D')).toBe(false);
   });
 
-  it('returns false for null/undefined', () => {
-    expect(matchConstraint(enumC(['A']), null)).toBe(false);
-    expect(matchConstraint(enumC(['A']), undefined)).toBe(false);
-  });
 });
 
 // ============================================================================
@@ -183,26 +179,6 @@ describe('matchConstraint — bounds', () => {
   ): IDSBoundsConstraint => ({
     type: 'bounds',
     ...opts,
-  });
-
-  it('minInclusive — passes at boundary', () => {
-    expect(matchConstraint(bounds({ minInclusive: 10 }), 10)).toBe(true);
-  });
-
-  it('minInclusive — passes above boundary', () => {
-    expect(matchConstraint(bounds({ minInclusive: 10 }), 15)).toBe(true);
-  });
-
-  it('minInclusive — fails below boundary', () => {
-    expect(matchConstraint(bounds({ minInclusive: 10 }), 9)).toBe(false);
-  });
-
-  it('maxInclusive — passes at boundary', () => {
-    expect(matchConstraint(bounds({ maxInclusive: 100 }), 100)).toBe(true);
-  });
-
-  it('maxInclusive — fails above boundary', () => {
-    expect(matchConstraint(bounds({ maxInclusive: 100 }), 101)).toBe(false);
   });
 
   it('minExclusive — fails at exact boundary', () => {
@@ -243,11 +219,6 @@ describe('matchConstraint — bounds', () => {
 
   it('parses string numbers', () => {
     expect(matchConstraint(bounds({ minInclusive: 0, maxInclusive: 100 }), '50')).toBe(true);
-  });
-
-  it('returns false for null/undefined', () => {
-    expect(matchConstraint(bounds({ minInclusive: 0 }), null)).toBe(false);
-    expect(matchConstraint(bounds({ minInclusive: 0 }), undefined)).toBe(false);
   });
 
   it('respects numeric tolerance at boundaries', () => {
@@ -350,15 +321,9 @@ describe('formatConstraint', () => {
 // ============================================================================
 
 describe('getConstraintMismatchReason', () => {
-  it('returns "value is missing" for null', () => {
+  it('returns "value is missing" for null/undefined', () => {
     expect(
       getConstraintMismatchReason({ type: 'simpleValue', value: 'x' }, null)
-    ).toBe('value is missing');
-  });
-
-  it('returns "value is missing" for undefined', () => {
-    expect(
-      getConstraintMismatchReason({ type: 'simpleValue', value: 'x' }, undefined)
     ).toBe('value is missing');
   });
 

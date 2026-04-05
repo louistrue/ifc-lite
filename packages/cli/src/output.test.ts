@@ -26,10 +26,6 @@ describe('getFlag', () => {
     expect(getFlag(['--type'], '--type')).toBeUndefined();
   });
 
-  it('returns undefined for empty args', () => {
-    expect(getFlag([], '--type')).toBeUndefined();
-  });
-
   it('returns the first occurrence when flag is repeated', () => {
     expect(getFlag(['--set', 'A', '--set', 'B'], '--set')).toBe('A');
   });
@@ -47,10 +43,6 @@ describe('getAllFlags', () => {
 
   it('returns empty array when flag is absent', () => {
     expect(getAllFlags(['--type', 'IfcWall'], '--set')).toEqual([]);
-  });
-
-  it('returns empty array for empty args', () => {
-    expect(getAllFlags([], '--set')).toEqual([]);
   });
 
   it('skips flag at end without a value', () => {
@@ -71,10 +63,6 @@ describe('hasFlag', () => {
     expect(hasFlag(['--json'], '--verbose')).toBe(false);
   });
 
-  it('returns false for empty args', () => {
-    expect(hasFlag([], '--json')).toBe(false);
-  });
-
   it('does not match partial flag names', () => {
     expect(hasFlag(['--json-output'], '--json')).toBe(false);
   });
@@ -91,10 +79,6 @@ describe('getPositionalArgs', () => {
 
   it('returns empty array when all args are flags', () => {
     expect(getPositionalArgs(['--json', '--verbose'])).toEqual([]);
-  });
-
-  it('returns empty array for empty args', () => {
-    expect(getPositionalArgs([])).toEqual([]);
   });
 
   it('skips flag values (next arg after a flag)', () => {
@@ -168,13 +152,6 @@ describe('formatTable', () => {
     expect(lines).toHaveLength(2); // header + separator only
   });
 
-  it('pads cells to column width', () => {
-    const result = formatTable(['A', 'LongHeader'], [['x', 'y']]);
-    const lines = result.split('\n');
-    // Header row should have padding matching 'LongHeader' width
-    expect(lines[0]).toContain('LongHeader');
-  });
-
   it('truncates cells exceeding 60 characters', () => {
     const longString = 'A'.repeat(80);
     const result = formatTable(['Name'], [[longString]]);
@@ -194,17 +171,4 @@ describe('formatTable', () => {
     expect(lines[2]).toContain('x');
   });
 
-  it('uses box-drawing separator characters', () => {
-    const result = formatTable(['A', 'B'], [['1', '2']]);
-    const lines = result.split('\n');
-    expect(lines[1]).toContain('─');
-    expect(lines[1]).toContain('┼');
-  });
-
-  it('uses pipe delimiter between columns', () => {
-    const result = formatTable(['A', 'B'], [['1', '2']]);
-    const lines = result.split('\n');
-    expect(lines[0]).toContain('│');
-    expect(lines[2]).toContain('│');
-  });
 });

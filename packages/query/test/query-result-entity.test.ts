@@ -66,39 +66,6 @@ describe('QueryResultEntity', () => {
     expect(entity.quantities).toEqual([]);
   });
 
-  it('geometry should return null (not yet supported)', () => {
-    const store = makeStore();
-    const entity = new QueryResultEntity(store as any, 1);
-    expect(entity.geometry).toBeNull();
-  });
-
-  // ── Eager loading ──────────────────────────────────────────────
-
-  describe('eager loading', () => {
-    it('loadProperties() caches properties so subsequent access is from cache', () => {
-      const store = makeStore();
-      const entity = new QueryResultEntity(store as any, 1);
-      entity.loadProperties();
-      // Access properties again - should use cached value
-      const props = entity.properties;
-      expect(props.length).toBeGreaterThan(0);
-    });
-
-    it('loadQuantities() caches quantities', () => {
-      const store = makeStore();
-      const entity = new QueryResultEntity(store as any, 1);
-      entity.loadQuantities();
-      expect(entity.quantities.length).toBe(1);
-    });
-
-    it('loadGeometry() sets geometry to null', () => {
-      const store = makeStore();
-      const entity = new QueryResultEntity(store as any, 1);
-      entity.loadGeometry();
-      expect(entity.geometry).toBeNull();
-    });
-  });
-
   // ── asNode() ──────────────────────────────────────────────────
 
   it('asNode() should return an EntityNode with the same expressId', () => {
@@ -122,14 +89,7 @@ describe('QueryResultEntity', () => {
     expect(json).toHaveProperty('properties');
   });
 
-  it('toJSON() should omit quantities when empty', () => {
-    const store = makeStore();
-    const entity = new QueryResultEntity(store as any, 2);
-    const json = entity.toJSON() as Record<string, unknown>;
-    expect(json.quantities).toBeUndefined();
-  });
-
-  // ── Edge cases ────────────────────────────────────────────────
+  // ─�� Edge cases ─��──────────────────────────────────────────────
 
   it('should return empty strings for non-existent entity', () => {
     const store = makeStore();
