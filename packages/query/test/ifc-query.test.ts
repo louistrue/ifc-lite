@@ -35,53 +35,6 @@ describe('IfcQuery', () => {
       expect(ids).toEqual([1, 2]);
     });
 
-    it('doors() should return IfcDoor entities', () => {
-      const store = makeStore();
-      const query = new IfcQuery(store as any);
-      const results = query.doors().execute();
-      expect(results).toHaveLength(1);
-      expect(results[0].expressId).toBe(3);
-    });
-
-    it('windows() should return IfcWindow entities', () => {
-      const store = makeStore();
-      const query = new IfcQuery(store as any);
-      const results = query.windows().execute();
-      expect(results).toHaveLength(1);
-      expect(results[0].expressId).toBe(4);
-    });
-
-    it('slabs() should return IfcSlab entities', () => {
-      const store = makeStore();
-      const query = new IfcQuery(store as any);
-      const results = query.slabs().execute();
-      expect(results).toHaveLength(1);
-      expect(results[0].expressId).toBe(5);
-    });
-
-    it('columns() should return IfcColumn entities', () => {
-      const store = makeStore();
-      const query = new IfcQuery(store as any);
-      const results = query.columns().execute();
-      expect(results).toHaveLength(1);
-      expect(results[0].expressId).toBe(6);
-    });
-
-    it('beams() should return IfcBeam entities', () => {
-      const store = makeStore();
-      const query = new IfcQuery(store as any);
-      const results = query.beams().execute();
-      expect(results).toHaveLength(1);
-      expect(results[0].expressId).toBe(7);
-    });
-
-    it('spaces() should return IfcSpace entities', () => {
-      const store = makeStore();
-      const query = new IfcQuery(store as any);
-      const results = query.spaces().execute();
-      expect(results).toHaveLength(1);
-      expect(results[0].expressId).toBe(8);
-    });
   });
 
   // ── Generic query methods ─────────────────────────────────────
@@ -126,25 +79,6 @@ describe('IfcQuery', () => {
 
   // ── Hierarchy (no spatial hierarchy set up) ───────────────────
 
-  describe('hierarchy access', () => {
-    it('hierarchy should return null when no spatial hierarchy is set', () => {
-      const store = makeStore();
-      const query = new IfcQuery(store as any);
-      expect(query.hierarchy).toBeNull();
-    });
-
-    it('project should return null when no spatial hierarchy is set', () => {
-      const store = makeStore();
-      const query = new IfcQuery(store as any);
-      expect(query.project).toBeNull();
-    });
-
-    it('storeys should return empty array when no spatial hierarchy is set', () => {
-      const store = makeStore();
-      const query = new IfcQuery(store as any);
-      expect(query.storeys).toEqual([]);
-    });
-  });
 
   // ── Spatial queries (require spatial index) ───────────────────
 

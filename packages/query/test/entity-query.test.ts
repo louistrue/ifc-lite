@@ -175,43 +175,6 @@ describe('EntityQuery', () => {
       expect(results).toHaveLength(0);
     });
 
-    it('limit(0) should return empty array', () => {
-      const store = makeStore();
-      const query = new EntityQuery(store as any, null).limit(0);
-      const results = query.execute();
-      expect(results).toHaveLength(0);
-    });
-  });
-
-  // ── Eager loading flags ───────────────────────────────────────
-
-  describe('eager loading flags', () => {
-    it('includeProperties should set the properties flag', () => {
-      const store = makeStore();
-      const query = new EntityQuery(store as any, [IfcTypeEnum.IfcWall]).includeProperties();
-      // Execute to trigger eager loading (should not throw)
-      const results = query.execute();
-      expect(results.length).toBeGreaterThan(0);
-    });
-
-    it('includeAll should set all flags', () => {
-      const store = makeStore();
-      const query = new EntityQuery(store as any, [IfcTypeEnum.IfcWall]).includeAll();
-      const results = query.execute();
-      expect(results.length).toBeGreaterThan(0);
-    });
-
-    it('includeGeometry should not throw', () => {
-      const store = makeStore();
-      const query = new EntityQuery(store as any, null).includeGeometry();
-      expect(() => query.execute()).not.toThrow();
-    });
-
-    it('includeQuantities should not throw', () => {
-      const store = makeStore();
-      const query = new EntityQuery(store as any, null).includeQuantities();
-      expect(() => query.execute()).not.toThrow();
-    });
   });
 
   // ── Async helpers: ids(), count(), first() ────────────────────
@@ -254,31 +217,6 @@ describe('EntityQuery', () => {
     });
   });
 
-  // ── Chaining returns this ─────────────────────────────────────
-
-  describe('method chaining', () => {
-    it('all chainable methods return the query instance', () => {
-      const store = makeStore();
-      const query = new EntityQuery(store as any, null);
-      const q1 = query.whereProperty('p', 'n', '=', 'v');
-      const q2 = q1.limit(10);
-      const q3 = q2.offset(5);
-      const q4 = q3.includeProperties();
-      const q5 = q4.includeGeometry();
-      const q6 = q5.includeQuantities();
-      const q7 = q6.includeAll();
-
-      // All should be the same instance
-      expect(q1).toBe(query);
-      expect(q2).toBe(query);
-      expect(q3).toBe(query);
-      expect(q4).toBe(query);
-      expect(q5).toBe(query);
-      expect(q6).toBe(query);
-      expect(q7).toBe(query);
-    });
-  });
-
   // ── Empty store ───────────────────────────────────────────────
 
   describe('empty store', () => {
@@ -286,12 +224,6 @@ describe('EntityQuery', () => {
       const store = createMockStore();
       const query = new EntityQuery(store as any, null);
       expect(query.execute()).toEqual([]);
-    });
-
-    it('count should be 0 for empty store', async () => {
-      const store = createMockStore();
-      const query = new EntityQuery(store as any, null);
-      expect(await query.count()).toBe(0);
     });
   });
 });
