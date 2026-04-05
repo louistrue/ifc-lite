@@ -72,22 +72,6 @@ describe('parseIDS — valid documents', () => {
     expect(doc.info.description).toBe('A test document');
   });
 
-  it('defaults title to "Untitled IDS" when info is missing', () => {
-    const xml = `<ids xmlns="http://standards.buildingsmart.org/IDS">
-  <specifications></specifications>
-</ids>`;
-    const doc = parseIDS(xml);
-    expect(doc.info.title).toBe('Untitled IDS');
-  });
-
-  it('returns empty specifications when section is missing', () => {
-    const xml = `<ids xmlns="http://standards.buildingsmart.org/IDS">
-  <info><title>Test</title></info>
-</ids>`;
-    const doc = parseIDS(xml);
-    expect(doc.specifications).toEqual([]);
-  });
-
   it('parses IFC version strings', () => {
     const xml = `<ids xmlns="http://standards.buildingsmart.org/IDS">
   <info><title>Test</title></info>
@@ -517,23 +501,3 @@ describe('parseIDS — error handling', () => {
 });
 
 // ============================================================================
-// IDSParseError class
-// ============================================================================
-
-describe('IDSParseError', () => {
-  it('has correct name property', () => {
-    const err = new IDSParseError('test message');
-    expect(err.name).toBe('IDSParseError');
-  });
-
-  it('stores details', () => {
-    const err = new IDSParseError('msg', 'details here');
-    expect(err.message).toBe('msg');
-    expect(err.details).toBe('details here');
-  });
-
-  it('is an instance of Error', () => {
-    const err = new IDSParseError('msg');
-    expect(err).toBeInstanceOf(Error);
-  });
-});

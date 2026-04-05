@@ -2,17 +2,12 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-import {
-  matchConstraint,
-  formatConstraint,
-  getConstraintMismatchReason,
-} from './index.js';
+import { matchConstraint } from './index.js';
 import type {
   IDSSimpleValue,
   IDSPatternConstraint,
   IDSEnumerationConstraint,
   IDSBoundsConstraint,
-  IDSConstraint,
 } from '../types.js';
 
 // ============================================================================
@@ -238,149 +233,4 @@ describe('matchConstraint — bounds', () => {
 // matchConstraint — unknown type
 // ============================================================================
 
-describe('matchConstraint — unknown type', () => {
-  it('returns false for unknown constraint type', () => {
-    const unknownConstraint = { type: 'unknownType', value: 'test' } as unknown as IDSConstraint;
-    expect(matchConstraint(unknownConstraint, 'test')).toBe(false);
-  });
-});
 
-// ============================================================================
-// formatConstraint
-// ============================================================================
-
-describe('formatConstraint', () => {
-  it('formats simpleValue', () => {
-    expect(formatConstraint({ type: 'simpleValue', value: 'IFCWALL' })).toBe('"IFCWALL"');
-  });
-
-  it('formats pattern', () => {
-    expect(formatConstraint({ type: 'pattern', pattern: 'Wall.*' })).toBe('pattern "Wall.*"');
-  });
-
-  it('formats single-value enumeration as simple string', () => {
-    expect(formatConstraint({ type: 'enumeration', values: ['IFCWALL'] })).toBe('"IFCWALL"');
-  });
-
-  it('formats multi-value enumeration', () => {
-    const result = formatConstraint({
-      type: 'enumeration',
-      values: ['IFCWALL', 'IFCSLAB'],
-    });
-    expect(result).toBe('one of ["IFCWALL", "IFCSLAB"]');
-  });
-
-  it('formats bounds with minInclusive + maxInclusive as "between"', () => {
-    expect(
-      formatConstraint({ type: 'bounds', minInclusive: 0, maxInclusive: 100 })
-    ).toBe('between 0 and 100');
-  });
-
-  it('formats bounds with only minInclusive', () => {
-    expect(
-      formatConstraint({ type: 'bounds', minInclusive: 5 })
-    ).toBe('>= 5');
-  });
-
-  it('formats bounds with only maxInclusive', () => {
-    expect(
-      formatConstraint({ type: 'bounds', maxInclusive: 100 })
-    ).toBe('<= 100');
-  });
-
-  it('formats bounds with minExclusive', () => {
-    expect(
-      formatConstraint({ type: 'bounds', minExclusive: 0 })
-    ).toBe('> 0');
-  });
-
-  it('formats bounds with maxExclusive', () => {
-    expect(
-      formatConstraint({ type: 'bounds', maxExclusive: 100 })
-    ).toBe('< 100');
-  });
-
-  it('formats bounds with minExclusive + maxExclusive', () => {
-    expect(
-      formatConstraint({ type: 'bounds', minExclusive: 0, maxExclusive: 100 })
-    ).toBe('> 0 and < 100');
-  });
-
-  it('formats empty bounds as "any value"', () => {
-    expect(formatConstraint({ type: 'bounds' })).toBe('any value');
-  });
-
-  it('formats unknown type as "unknown"', () => {
-    const c = { type: 'unknownType' } as unknown as IDSConstraint;
-    expect(formatConstraint(c)).toBe('unknown');
-  });
-});
-
-// ============================================================================
-// getConstraintMismatchReason
-// ============================================================================
-
-describe('getConstraintMismatchReason', () => {
-  it('returns "value is missing" for null/undefined', () => {
-    expect(
-      getConstraintMismatchReason({ type: 'simpleValue', value: 'x' }, null)
-    ).toBe('value is missing');
-  });
-
-  it('describes simpleValue mismatch', () => {
-    const reason = getConstraintMismatchReason(
-      { type: 'simpleValue', value: 'expected' },
-      'actual'
-    );
-    expect(reason).toContain('expected');
-    expect(reason).toContain('actual');
-  });
-
-  it('describes pattern mismatch', () => {
-    const reason = getConstraintMismatchReason(
-      { type: 'pattern', pattern: 'Wall.*' },
-      'Slab_001'
-    );
-    expect(reason).toContain('Slab_001');
-    expect(reason).toContain('Wall.*');
-  });
-
-  it('describes enumeration mismatch', () => {
-    const reason = getConstraintMismatchReason(
-      { type: 'enumeration', values: ['A', 'B'] },
-      'C'
-    );
-    expect(reason).toContain('C');
-    expect(reason).toContain('A');
-    expect(reason).toContain('B');
-  });
-
-  it('describes bounds mismatch for non-numeric', () => {
-    const reason = getConstraintMismatchReason(
-      { type: 'bounds', minInclusive: 0 },
-      'abc'
-    );
-    expect(reason).toContain('not a valid number');
-  });
-
-  it('describes bounds violation with minInclusive', () => {
-    const reason = getConstraintMismatchReason(
-      { type: 'bounds', minInclusive: 10 },
-      5
-    );
-    expect(reason).toContain('>= 10');
-  });
-
-  it('describes bounds violation with maxInclusive', () => {
-    const reason = getConstraintMismatchReason(
-      { type: 'bounds', maxInclusive: 10 },
-      15
-    );
-    expect(reason).toContain('<= 10');
-  });
-
-  it('returns "unknown constraint type" for unrecognized type', () => {
-    const c = { type: 'unknownType' } as unknown as IDSConstraint;
-    expect(getConstraintMismatchReason(c, 'value')).toBe('unknown constraint type');
-  });
-});

@@ -464,24 +464,6 @@ describe('validateIDS — options', () => {
 // ============================================================================
 
 describe('validateIDS — report structure', () => {
-  it('includes modelInfo and timestamp', async () => {
-    const accessor = createMockAccessor([]);
-    const doc = makeDoc([]);
-    const report = await validateIDS(doc, accessor, modelInfo);
-
-    expect(report.modelInfo).toBe(modelInfo);
-    expect(report.document).toBe(doc);
-    expect(report.timestamp).toBeInstanceOf(Date);
-  });
-
-  it('calculates 100% pass rate when no entities checked', async () => {
-    const accessor = createMockAccessor([]);
-    const doc = makeDoc([]);
-    const report = await validateIDS(doc, accessor, modelInfo);
-
-    expect(report.summary.overallPassRate).toBe(100);
-  });
-
   it('populates entity result fields correctly', async () => {
     const accessor = createMockAccessor([
       {

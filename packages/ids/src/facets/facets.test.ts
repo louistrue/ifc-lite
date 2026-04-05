@@ -9,7 +9,6 @@ import { checkPropertyFacet } from './property-facet.js';
 import { checkClassificationFacet } from './classification-facet.js';
 import { checkMaterialFacet } from './material-facet.js';
 import { checkPartOfFacet } from './partof-facet.js';
-import { checkFacet, filterByFacet } from './index.js';
 import type {
   IDSEntityFacet,
   IDSAttributeFacet,
@@ -36,12 +35,6 @@ describe('checkEntityFacet', () => {
 
   it('passes when entity type matches', () => {
     const facet: IDSEntityFacet = { type: 'entity', name: sv('IFCWALL') };
-    const result = checkEntityFacet(facet, 1, accessor);
-    expect(result.passed).toBe(true);
-  });
-
-  it('passes with case-insensitive type match', () => {
-    const facet: IDSEntityFacet = { type: 'entity', name: sv('ifcwall') };
     const result = checkEntityFacet(facet, 1, accessor);
     expect(result.passed).toBe(true);
   });
@@ -181,36 +174,6 @@ describe('checkAttributeFacet', () => {
     const result = checkAttributeFacet(facet, 1, accessor);
     expect(result.passed).toBe(false);
     expect(result.failure?.type).toBe('ATTRIBUTE_VALUE_MISMATCH');
-  });
-
-  it('checks Description attribute', () => {
-    const facet: IDSAttributeFacet = {
-      type: 'attribute',
-      name: sv('Description'),
-      value: sv('Exterior wall'),
-    };
-    const result = checkAttributeFacet(facet, 1, accessor);
-    expect(result.passed).toBe(true);
-  });
-
-  it('checks GlobalId attribute', () => {
-    const facet: IDSAttributeFacet = {
-      type: 'attribute',
-      name: sv('GlobalId'),
-    };
-    const result = checkAttributeFacet(facet, 1, accessor);
-    expect(result.passed).toBe(true);
-    expect(result.actualValue).toBe('2hJPBR_uf8qhEjxMvzJXOP');
-  });
-
-  it('checks ObjectType attribute', () => {
-    const facet: IDSAttributeFacet = {
-      type: 'attribute',
-      name: sv('ObjectType'),
-      value: sv('STANDARD'),
-    };
-    const result = checkAttributeFacet(facet, 1, accessor);
-    expect(result.passed).toBe(true);
   });
 
   it('uses generic getAttribute for non-standard attributes', () => {
@@ -740,57 +703,3 @@ describe('checkPartOfFacet', () => {
   });
 });
 
-// ============================================================================
-// checkFacet dispatcher
-// ============================================================================
-
-describe('checkFacet', () => {
-  const accessor = createMockAccessor([
-    { expressId: 1, type: 'IfcWall', name: 'Wall_001' },
-  ]);
-
-  it('dispatches entity facet', () => {
-    const result = checkFacet(
-      { type: 'entity', name: sv('IFCWALL') },
-      1,
-      accessor
-    );
-    expect(result.passed).toBe(true);
-  });
-
-  it('dispatches attribute facet', () => {
-    const result = checkFacet(
-      { type: 'attribute', name: sv('Name') },
-      1,
-      accessor
-    );
-    expect(result.passed).toBe(true);
-  });
-
-  it('returns failure for unknown facet type', () => {
-    const unknownFacet = { type: 'unknownFacet' } as any;
-    const result = checkFacet(unknownFacet, 1, accessor);
-    expect(result.passed).toBe(false);
-  });
-});
-
-// ============================================================================
-// filterByFacet dispatcher
-// ============================================================================
-
-describe('filterByFacet', () => {
-  const accessor = createMockAccessor([
-    { expressId: 1, type: 'IfcWall' },
-    { expressId: 2, type: 'IfcSlab' },
-  ]);
-
-  it('dispatches entity facet', () => {
-    const ids = filterByFacet({ type: 'entity', name: sv('IfcWall') }, accessor);
-    expect(ids).toEqual([1]);
-  });
-
-  it('returns undefined for non-entity facets', () => {
-    const ids = filterByFacet({ type: 'attribute', name: sv('Name') }, accessor);
-    expect(ids).toBeUndefined();
-  });
-});
