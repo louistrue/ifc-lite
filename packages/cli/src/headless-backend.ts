@@ -47,7 +47,7 @@ import {
   extractDocumentsOnDemand,
   extractRelationshipsOnDemand,
 } from '@ifc-lite/parser';
-import { exportToStep } from '@ifc-lite/export';
+import { exportToStep, type StepExportOptions } from '@ifc-lite/export';
 
 const MODEL_ID = 'default';
 
@@ -71,7 +71,7 @@ const IFC_SUBTYPES: Record<string, string[]> = {
   IFCOPENINGELEMENT: ['IFCOPENINGSTANDARDCASE'],
 };
 
-function expandTypes(types: string[]): string[] {
+export function expandTypes(types: string[]): string[] {
   const result: string[] = [];
   for (const type of types) {
     const upper = type.toUpperCase();
@@ -84,7 +84,7 @@ function expandTypes(types: string[]): string[] {
   return result;
 }
 
-function isProductType(type: string): boolean {
+export function isProductType(type: string): boolean {
   const enumVal = IfcTypeEnumFromString(type);
   if (enumVal === IfcTypeEnum.Unknown) return false;
   const upper = type.toUpperCase();
@@ -100,13 +100,13 @@ function isProductType(type: string): boolean {
  * Normalize boolean-like values for comparison.
  * IFC STEP files store booleans as .T./.F., but users pass true/false.
  */
-function normalizeBooleanValue(value: unknown): unknown {
+export function normalizeBooleanValue(value: unknown): unknown {
   if (value === true || value === '.T.' || value === 'true' || value === 'TRUE') return 'true';
   if (value === false || value === '.F.' || value === 'false' || value === 'FALSE') return 'false';
   return value;
 }
 
-function normalizePropertyValue(value: unknown): string | number | boolean | null {
+export function normalizePropertyValue(value: unknown): string | number | boolean | null {
   if (value == null) return null;
   if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
     return value;
@@ -479,7 +479,7 @@ export class HeadlessBackend implements BimBackend {
           exportOpts.isolatedEntityIds = isolatedIds;
           exportOpts.hiddenEntityIds = new Set<number>();
         }
-        return exportToStep(store, exportOpts as any);
+        return exportToStep(store, exportOpts as Partial<StepExportOptions>);
       },
       download(_content: string, _filename: string, _mimeType: string): void {
         /* no-op — CLI writes to stdout/file directly */

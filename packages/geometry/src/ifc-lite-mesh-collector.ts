@@ -52,6 +52,7 @@ export type StreamingEvent = StreamingBatchEvent | StreamingCompleteEvent | Stre
 export class IfcLiteMeshCollector {
   private ifcApi: IfcAPI;
   private content: string;
+  private _buildingRotation: number | undefined;
 
   constructor(ifcApi: IfcAPI, content: string) {
     this.ifcApi = ifcApi;
@@ -173,7 +174,7 @@ export class IfcLiteMeshCollector {
     log.debug(`Collected ${meshes.length} meshes`, { operation: 'collectMeshes' });
 
     // Store building rotation for later use (will be added to CoordinateInfo)
-    (this as any)._buildingRotation = buildingRotation;
+    this._buildingRotation = buildingRotation;
 
     return meshes;
   }
@@ -182,7 +183,7 @@ export class IfcLiteMeshCollector {
    * Get building rotation extracted from IfcSite placement
    */
   getBuildingRotation(): number | undefined {
-    return (this as any)._buildingRotation;
+    return this._buildingRotation;
   }
 
   /**
@@ -293,7 +294,7 @@ export class IfcLiteMeshCollector {
 
         // Store building rotation if present
         if (stats.buildingRotation !== undefined) {
-          (this as any)._buildingRotation = stats.buildingRotation;
+          this._buildingRotation = stats.buildingRotation;
         }
 
         log.debug(`Streaming complete: ${stats.totalMeshes} meshes, ${stats.totalVertices} vertices, ${stats.totalTriangles} triangles`, {

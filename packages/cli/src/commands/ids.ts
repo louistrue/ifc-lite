@@ -39,7 +39,7 @@ export async function idsCommand(args: string[]): Promise<void> {
   // Build accessor for validation
   const accessor = buildIdsAccessor(store);
 
-  const report = await bim.ids.validate(idsDoc as any, {
+  const report = await bim.ids.validate(idsDoc, {
     accessor,
     modelInfo: { schemaVersion: store.schemaVersion },
     locale,
@@ -52,7 +52,7 @@ export async function idsCommand(args: string[]): Promise<void> {
 
   if (!jsonOutput) process.stderr.write('\n');
 
-  const summary = bim.ids.summarize(report as any);
+  const summary = bim.ids.summarize(report as { specificationResults: Array<{ entityResults: Array<{ passed: boolean }> }> });
 
   if (jsonOutput) {
     printJson({ summary, report });

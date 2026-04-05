@@ -306,6 +306,7 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
   const scriptPanelVisible = useViewerStore((state) => state.scriptPanelVisible);
   const setScriptPanelVisible = useViewerStore((state) => state.setScriptPanelVisible);
   // Cesium 3D overlay state
+  const cesiumAvailable = useViewerStore((state) => state.cesiumAvailable);
   const cesiumEnabled = useViewerStore((state) => state.cesiumEnabled);
   const toggleCesium = useViewerStore((state) => state.toggleCesium);
   const storeModels = useViewerStore((state) => state.models);
@@ -1157,8 +1158,8 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
         </TooltipContent>
       </Tooltip>
 
-      {/* Cesium 3D Context toggle + settings (web only — Cesium not bundled in desktop) */}
-      {hasModelsLoaded && !desktopShell && (
+      {/* Cesium 3D Context toggle + settings — web only, only when model has georeferencing */}
+      {cesiumAvailable && !desktopShell && (
         <div className="flex items-center">
           <Tooltip>
             <TooltipTrigger asChild>
