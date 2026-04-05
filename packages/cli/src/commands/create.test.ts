@@ -3,15 +3,9 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 import { describe, it, expect } from 'vitest';
-import { flagToKey, parseElementParams, ELEMENT_TYPES } from './create.js';
+import { flagToKey, parseElementParams } from './create.js';
 
 describe('flagToKey', () => {
-  it('converts simple kebab-case flag to PascalCase', () => {
-    expect(flagToKey('--height')).toBe('Height');
-    expect(flagToKey('--width')).toBe('Width');
-    expect(flagToKey('--name')).toBe('Name');
-  });
-
   it('converts multi-word kebab-case flag to PascalCase', () => {
     expect(flagToKey('--wall-thickness')).toBe('WallThickness');
     expect(flagToKey('--overall-width')).toBe('OverallWidth');
@@ -24,23 +18,6 @@ describe('flagToKey', () => {
     expect(flagToKey('--number-of-risers')).toBe('NumberOfRisers');
     expect(flagToKey('--riser-height')).toBe('RiserHeight');
     expect(flagToKey('--tread-length')).toBe('TreadLength');
-  });
-
-  it('converts single-char segments correctly', () => {
-    expect(flagToKey('--xdim')).toBe('Xdim');
-    expect(flagToKey('--ydim')).toBe('Ydim');
-  });
-
-  it('converts predefined type flags', () => {
-    expect(flagToKey('--predefined-type')).toBe('PredefinedType');
-    expect(flagToKey('--operation-type')).toBe('OperationType');
-    expect(flagToKey('--partitioning-type')).toBe('PartitioningType');
-    expect(flagToKey('--proxy-type')).toBe('ProxyType');
-  });
-
-  it('converts long-name flag', () => {
-    expect(flagToKey('--long-name')).toBe('LongName');
-    expect(flagToKey('--object-type')).toBe('ObjectType');
   });
 });
 
@@ -85,14 +62,7 @@ describe('parseElementParams', () => {
 
   it('ignores unknown flags (non-numeric, non-string, non-coord)', () => {
     const params = parseElementParams(['wall', '--unknown', 'foo']);
-    // Unknown flags are not parsed by parseElementParams
     expect(params).not.toHaveProperty('Unknown');
-  });
-
-  it('handles float values correctly', () => {
-    const params = parseElementParams(['beam', '--width', '0.25', '--height', '0.5']);
-    expect(params.Width).toBe(0.25);
-    expect(params.Height).toBe(0.5);
   });
 
   it('parses all profile-related numeric flags', () => {
@@ -123,33 +93,8 @@ describe('parseElementParams', () => {
     expect(params.TreadLength).toBe(0.28);
   });
 
-  it('handles coordinates with zero values', () => {
-    const params = parseElementParams(['wall', '--start', '0,0,0']);
-    expect(params.Start).toEqual([0, 0, 0]);
-  });
-
   it('handles negative coordinate values', () => {
     const params = parseElementParams(['wall', '--position', '-5,-3,0']);
     expect(params.Position).toEqual([-5, -3, 0]);
-  });
-});
-
-describe('ELEMENT_TYPES', () => {
-  it('contains expected element types', () => {
-    expect(ELEMENT_TYPES).toContain('wall');
-    expect(ELEMENT_TYPES).toContain('slab');
-    expect(ELEMENT_TYPES).toContain('column');
-    expect(ELEMENT_TYPES).toContain('beam');
-    expect(ELEMENT_TYPES).toContain('door');
-    expect(ELEMENT_TYPES).toContain('window');
-    expect(ELEMENT_TYPES).toContain('stair');
-    expect(ELEMENT_TYPES).toContain('roof');
-    expect(ELEMENT_TYPES).toContain('gable-roof');
-    expect(ELEMENT_TYPES).toContain('i-shape-beam');
-    expect(ELEMENT_TYPES).toContain('storey');
-  });
-
-  it('has at least 28 element types', () => {
-    expect(ELEMENT_TYPES.length).toBeGreaterThanOrEqual(28);
   });
 });

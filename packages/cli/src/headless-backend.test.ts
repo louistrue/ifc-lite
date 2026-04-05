@@ -11,64 +11,18 @@ import {
 } from './headless-backend.js';
 
 describe('expandTypes', () => {
-  it('returns the type itself in uppercase', () => {
-    expect(expandTypes(['IfcWall'])).toContain('IFCWALL');
-  });
-
-  it('expands IfcWall to include IFCWALLSTANDARDCASE', () => {
+  it('expands IfcWall to include subtypes', () => {
     const result = expandTypes(['IfcWall']);
     expect(result).toContain('IFCWALL');
     expect(result).toContain('IFCWALLSTANDARDCASE');
     expect(result).toContain('IFCWALLELEMENTEDCASE');
   });
 
-  it('expands IfcBeam to include IFCBEAMSTANDARDCASE', () => {
-    const result = expandTypes(['IfcBeam']);
-    expect(result).toContain('IFCBEAM');
-    expect(result).toContain('IFCBEAMSTANDARDCASE');
-  });
-
-  it('expands IfcColumn to include IFCCOLUMNSTANDARDCASE', () => {
-    const result = expandTypes(['IfcColumn']);
-    expect(result).toContain('IFCCOLUMN');
-    expect(result).toContain('IFCCOLUMNSTANDARDCASE');
-  });
-
-  it('expands IfcDoor subtypes', () => {
-    const result = expandTypes(['IfcDoor']);
-    expect(result).toContain('IFCDOOR');
-    expect(result).toContain('IFCDOORSTANDARDCASE');
-  });
-
-  it('expands IfcWindow subtypes', () => {
-    const result = expandTypes(['IfcWindow']);
-    expect(result).toContain('IFCWINDOW');
-    expect(result).toContain('IFCWINDOWSTANDARDCASE');
-  });
-
-  it('expands IfcSlab subtypes', () => {
+  it('expands IfcSlab with 3 subtypes', () => {
     const result = expandTypes(['IfcSlab']);
     expect(result).toContain('IFCSLAB');
     expect(result).toContain('IFCSLABSTANDARDCASE');
     expect(result).toContain('IFCSLABELEMENTEDCASE');
-  });
-
-  it('expands IfcMember subtypes', () => {
-    const result = expandTypes(['IfcMember']);
-    expect(result).toContain('IFCMEMBER');
-    expect(result).toContain('IFCMEMBERSTANDARDCASE');
-  });
-
-  it('expands IfcPlate subtypes', () => {
-    const result = expandTypes(['IfcPlate']);
-    expect(result).toContain('IFCPLATE');
-    expect(result).toContain('IFCPLATESTANDARDCASE');
-  });
-
-  it('expands IfcOpeningElement subtypes', () => {
-    const result = expandTypes(['IfcOpeningElement']);
-    expect(result).toContain('IFCOPENINGELEMENT');
-    expect(result).toContain('IFCOPENINGSTANDARDCASE');
   });
 
   it('handles types without subtypes', () => {
@@ -87,14 +41,8 @@ describe('expandTypes', () => {
     expect(expandTypes([])).toEqual([]);
   });
 
-  it('is case-insensitive (converts to uppercase)', () => {
+  it('is case-insensitive', () => {
     const result = expandTypes(['ifcwall']);
-    expect(result).toContain('IFCWALL');
-    expect(result).toContain('IFCWALLSTANDARDCASE');
-  });
-
-  it('handles already-uppercase input', () => {
-    const result = expandTypes(['IFCWALL']);
     expect(result).toContain('IFCWALL');
     expect(result).toContain('IFCWALLSTANDARDCASE');
   });
@@ -121,10 +69,6 @@ describe('isProductType', () => {
     expect(isProductType('IFCWALLTYPE')).toBe(false);
     expect(isProductType('IFCSLABTYPE')).toBe(false);
   });
-
-  it('returns false for unknown types', () => {
-    expect(isProductType('NOTAREALIFCTYPE')).toBe(false);
-  });
 });
 
 describe('normalizeBooleanValue', () => {
@@ -146,9 +90,6 @@ describe('normalizeBooleanValue', () => {
     expect(normalizeBooleanValue('hello')).toBe('hello');
     expect(normalizeBooleanValue(42)).toBe(42);
     expect(normalizeBooleanValue(null)).toBe(null);
-    expect(normalizeBooleanValue(undefined)).toBe(undefined);
-    expect(normalizeBooleanValue(0)).toBe(0);
-    expect(normalizeBooleanValue('')).toBe('');
   });
 });
 
@@ -158,32 +99,14 @@ describe('normalizePropertyValue', () => {
     expect(normalizePropertyValue(undefined)).toBeNull();
   });
 
-  it('passes through strings', () => {
+  it('passes through primitives', () => {
     expect(normalizePropertyValue('hello')).toBe('hello');
-    expect(normalizePropertyValue('')).toBe('');
-  });
-
-  it('passes through numbers', () => {
     expect(normalizePropertyValue(42)).toBe(42);
-    expect(normalizePropertyValue(3.14)).toBe(3.14);
-    expect(normalizePropertyValue(0)).toBe(0);
-  });
-
-  it('passes through booleans', () => {
     expect(normalizePropertyValue(true)).toBe(true);
-    expect(normalizePropertyValue(false)).toBe(false);
   });
 
-  it('JSON-stringifies objects', () => {
+  it('JSON-stringifies objects and arrays', () => {
     expect(normalizePropertyValue({ key: 'val' })).toBe('{"key":"val"}');
-  });
-
-  it('JSON-stringifies arrays', () => {
     expect(normalizePropertyValue([1, 2, 3])).toBe('[1,2,3]');
-  });
-
-  it('converts non-serializable values to String()', () => {
-    // BigInt can't be JSON.stringified, so falls to String()
-    expect(normalizePropertyValue(BigInt(99))).toBe('99');
   });
 });

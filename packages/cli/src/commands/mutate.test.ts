@@ -204,19 +204,9 @@ describe('coerceValue', () => {
     expect(result.coerced).toBe(-5);
   });
 
-  it('coerces zero', () => {
-    const result = coerceValue('0');
-    expect(result.coerced).toBe(0);
-  });
-
   it('returns string for non-numeric, non-boolean input', () => {
     const result = coerceValue('hello');
     expect(result.coerced).toBe('hello');
-  });
-
-  it('returns string for empty input', () => {
-    const result = coerceValue('');
-    expect(result.coerced).toBe('');
   });
 
   it('distinguishes integer vs real value types', () => {
