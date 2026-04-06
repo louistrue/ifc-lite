@@ -236,7 +236,7 @@ impl GeometryRouter {
 
         // Use batch processing for parallel triangulation
         let processor = FacetedBrepProcessor::new();
-        let results = processor.process_batch(brep_ids, decoder);
+        let results = processor.process_batch(brep_ids, decoder, self.rtc_offset);
 
         // Store results in cache (preallocate to avoid rehashing)
         let mut cache = self.faceted_brep_cache.borrow_mut();

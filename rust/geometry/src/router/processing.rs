@@ -832,6 +832,24 @@ impl GeometryRouter {
             }
         }
 
+        // For FacetedBrep with RTC: use precision-preserving path that subtracts
+        // RTC from f64 coordinates BEFORE f32 conversion (prevents 0.5m jitter
+        // at Y ≈ 6.2M). Vertices are already RTC-shifted, so transform_mesh
+        // should NOT re-apply RTC for these meshes.
+        if item.ifc_type == IfcType::IfcFacetedBrep && self.has_rtc_offset() {
+            let processor = crate::processors::FacetedBrepProcessor::new();
+            let mut mesh = processor.process_with_rtc(item, decoder, &self.schema, self.rtc_offset)?;
+            mesh.validate_indices();
+            self.scale_mesh(&mut mesh);
+            // Mark positions as already RTC-shifted by setting a flag
+            // (positions are small values near origin, not world-space)
+            if !mesh.positions.is_empty() {
+                let cached = self.get_or_cache_by_hash(mesh);
+                return Ok((*cached).clone());
+            }
+            return Ok(mesh);
+        }
+
         // Check if we have a processor for this type
         if let Some(processor) = self.processors.get(&item.ifc_type) {
             let mut mesh = processor.process(item, decoder, &self.schema)?;

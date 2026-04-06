@@ -240,11 +240,16 @@ export function useIfcFederation() {
       // =========================================================================
       const existingModels = Array.from(useViewerStore.getState().models.values()) as FederatedModel[];
       if (existingModels.length > 0) {
-        const firstModel = existingModels[0];
+        // Always align to the chronologically first model's RTC, regardless of Map order.
+        // Sort by loadedAt to find the true first model, since Map iteration order
+        // may not reflect loading order after store mutations.
+        const sortedModels = [...existingModels].sort((a, b) => (a.loadedAt ?? 0) - (b.loadedAt ?? 0));
+        const firstModel = sortedModels[0];
         const firstRtc = firstModel.geometryResult?.coordinateInfo?.wasmRtcOffset;
         const newRtc = parsedGeometry.coordinateInfo?.wasmRtcOffset;
 
-        console.warn('[RTC DEBUG] Federation alignment: firstRtc=', firstRtc, 'newRtc=', newRtc);
+        console.warn('[RTC DEBUG] Federation alignment: firstModel=', firstModel.name,
+          'firstRtc=', firstRtc, 'newRtc=', newRtc, 'existingCount=', existingModels.length);
 
         // If both models have RTC offsets, use RTC delta for precise alignment
         if (firstRtc && newRtc) {
