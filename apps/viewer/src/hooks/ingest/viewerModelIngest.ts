@@ -219,6 +219,7 @@ export async function parseStepBufferViewerModel(options: StepBufferIngestOption
         options.onColorUpdate?.(event.updates);
         break;
       case 'rtcOffset':
+        console.warn('[RTC DEBUG] rtcOffset event:', event.rtcOffset, 'hasRtc:', event.hasRtc);
         if (event.hasRtc) {
           capturedRtcOffset = event.rtcOffset;
           options.onRtcOffset?.({ rtcOffset: event.rtcOffset });
@@ -254,6 +255,12 @@ export async function parseStepBufferViewerModel(options: StepBufferIngestOption
   }
   if (capturedRtcOffset) {
     finalCoordinateInfo.wasmRtcOffset = capturedRtcOffset;
+    console.warn('[RTC DEBUG] final wasmRtcOffset:', capturedRtcOffset, 'coordinateInfo:', {
+      originShift: finalCoordinateInfo.originShift,
+      hasLargeCoordinates: finalCoordinateInfo.hasLargeCoordinates,
+    });
+  } else {
+    console.warn('[RTC DEBUG] NO wasmRtcOffset captured for this model');
   }
 
   return {

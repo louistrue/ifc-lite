@@ -244,6 +244,8 @@ export function useIfcFederation() {
         const firstRtc = firstModel.geometryResult?.coordinateInfo?.wasmRtcOffset;
         const newRtc = parsedGeometry.coordinateInfo?.wasmRtcOffset;
 
+        console.warn('[RTC DEBUG] Federation alignment: firstRtc=', firstRtc, 'newRtc=', newRtc);
+
         // If both models have RTC offsets, use RTC delta for precise alignment
         if (firstRtc && newRtc) {
           // Calculate what adjustment is needed to align new model with first model
@@ -266,6 +268,10 @@ export function useIfcFederation() {
           const hasSignificantAdjust = Math.abs(webglAdjustX) > 0.01 ||
                                         Math.abs(webglAdjustY) > 0.01 ||
                                         Math.abs(webglAdjustZ) > 0.01;
+
+          console.warn('[RTC DEBUG] Federation delta: IFC adjust=', {adjustX, adjustY, adjustZ},
+            'WebGL adjust=', {webglAdjustX, webglAdjustY, webglAdjustZ},
+            'significant=', hasSignificantAdjust);
 
           if (hasSignificantAdjust) {
             // Apply adjustment to all mesh vertices
