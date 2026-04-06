@@ -460,35 +460,35 @@ body {
   --color-input: rgba(0, 0, 0, 0.06) !important;
   --color-ring: var(--cf-purple) !important;
 
-  /* Hierarchy */
+  /* Hierarchy — lavender tints */
   --hierarchy-selected-bg: rgba(157, 124, 216, 0.12);
   --hierarchy-selected-text: #1a1b2e;
   --hierarchy-text: #40445e;
-  --hierarchy-hover-bg: rgba(0, 0, 0, 0.04);
+  --hierarchy-hover-bg: rgba(200, 195, 230, 0.15);
 
-  /* Tabs */
-  --tabs-bg: rgba(0, 0, 0, 0.04);
+  /* Tabs — warm peach undertone */
+  --tabs-bg: rgba(235, 215, 195, 0.25);
   --tabs-border: rgba(0, 0, 0, 0.08);
   --tab-text: #555b78;
-  --tab-active-bg: var(--cf-glass-strong);
+  --tab-active-bg: rgba(245, 230, 210, 0.55);
   --tab-active-text: #1a1b2e;
 }
 
 /* ── Page background ── */
 .colorful body,
 .colorful #root {
-  background: #e0e6f0 !important;
+  background: #dde3f0 !important;
 }
 
-/* ── Toolbar: frosted glass, clean border ── */
+/* ── Toolbar: cool violet-tinted glass ── */
 .colorful .border-b.bg-white,
 .colorful .border-b.dark\:bg-black {
-  background: rgba(255, 255, 255, 0.55) !important;
-  backdrop-filter: blur(20px) saturate(1.4) !important;
-  -webkit-backdrop-filter: blur(20px) saturate(1.4) !important;
+  background: rgba(230, 225, 245, 0.60) !important;
+  backdrop-filter: blur(20px) saturate(1.5) !important;
+  -webkit-backdrop-filter: blur(20px) saturate(1.5) !important;
 }
 
-/* ── Panels & cards: frosted glass ── */
+/* ── Panels & cards: frosted glass (neutral base) ── */
 .colorful .bg-white,
 .colorful .bg-card,
 .colorful .bg-background {
@@ -499,7 +499,7 @@ body {
 
 .colorful .bg-zinc-50,
 .colorful .bg-zinc-100 {
-  background-color: rgba(255, 255, 255, 0.28) !important;
+  background-color: rgba(255, 255, 255, 0.25) !important;
 }
 
 .colorful .bg-zinc-900,
@@ -510,7 +510,38 @@ body {
   -webkit-backdrop-filter: blur(16px) saturate(1.3) !important;
 }
 
-/* ── NO coloured panel borders. Neutral only. ── */
+/* ── Tinted glass per panel — colour echoes the aurora ── */
+
+/* Left panel: cool lavender tint (echoes aurora top) */
+.colorful .panel-container:first-of-type,
+.colorful [id="left-panel"] > .panel-container,
+.colorful [id="left-panel"] > div {
+  background: rgba(200, 195, 230, 0.38) !important;
+  backdrop-filter: blur(16px) saturate(1.4) !important;
+  -webkit-backdrop-filter: blur(16px) saturate(1.4) !important;
+}
+
+/* Right panel: warm peach/amber tint (echoes aurora bottom) */
+.colorful [id="right-panel"] > .panel-container,
+.colorful [id="right-panel"] > div {
+  background: rgba(235, 215, 195, 0.40) !important;
+  backdrop-filter: blur(16px) saturate(1.4) !important;
+  -webkit-backdrop-filter: blur(16px) saturate(1.4) !important;
+}
+
+/* Resize handles: thin, tinted */
+.colorful [data-panel-group-direction="horizontal"] > [data-resize-handle] {
+  background-color: rgba(157, 124, 216, 0.18) !important;
+  transition: background-color 0.15s;
+}
+
+.colorful [data-panel-group-direction="horizontal"] > [data-resize-handle]:hover {
+  background-color: rgba(157, 124, 216, 0.35) !important;
+}
+
+.colorful [data-panel-group-direction="horizontal"] > [data-resize-handle][data-resize-handle-active] {
+  background-color: rgba(157, 124, 216, 0.50) !important;
+}
 
 /* ── Borders: single neutral tone everywhere ── */
 .colorful .border-zinc-100,
@@ -601,7 +632,7 @@ body {
   background-color: rgba(0, 0, 0, 0.25);
 }
 
-/* ── Hovers ── */
+/* ── Hovers: tinted to match panel context ── */
 .colorful .hover\:bg-primary:hover {
   background-color: var(--cf-purple) !important;
 }
@@ -610,7 +641,7 @@ body {
 .colorful .hover\:bg-zinc-100:hover,
 .colorful .hover\:bg-zinc-200:hover,
 .colorful .hover\:bg-white:hover {
-  background-color: rgba(0, 0, 0, 0.04) !important;
+  background-color: rgba(200, 195, 230, 0.18) !important;
 }
 
 /* ── Active tabs ── */
@@ -624,20 +655,31 @@ body {
   background-color: var(--cf-glass-strong) !important;
 }
 
-/* Properties tabs: purple accent on active (matches primary) */
+/* Properties tabs: warm orange accent on active (echoes aurora horizon) */
 .colorful .properties-tab-trigger[data-state="active"] {
-  border-top-color: var(--cf-purple) !important;
-  background: var(--cf-glass-strong) !important;
+  border-top-color: var(--cf-orange) !important;
+  background: rgba(245, 230, 210, 0.50) !important;
 }
 
-/* ── Tree selection: subtle purple tint (matches primary) ── */
+/* ── Tabs container: warmer tint to match right panel ── */
+.colorful .properties-tabs-list {
+  background-color: rgba(235, 215, 195, 0.30) !important;
+  border-bottom-color: rgba(0, 0, 0, 0.08) !important;
+}
+
+/* ── Tree selection: purple tint with left accent ── */
 .colorful .tree-node.selected {
-  background-color: rgba(157, 124, 216, 0.10) !important;
+  background-color: rgba(157, 124, 216, 0.12) !important;
   border-left-color: var(--cf-purple) !important;
 }
 
 .colorful .hierarchy-item.selected {
-  background-color: rgba(157, 124, 216, 0.10) !important;
+  background-color: rgba(157, 124, 216, 0.12) !important;
+}
+
+/* ── Hierarchy hover: subtle lavender ── */
+.colorful .hierarchy-item:not(.selected):hover {
+  background-color: rgba(200, 195, 230, 0.20) !important;
 }
 
 /* ── Quantity cards ── */
@@ -674,12 +716,20 @@ body {
 
 /* ── Toolbar buttons ── */
 .colorful .toolbar-button:hover {
-  background-color: rgba(0, 0, 0, 0.06) !important;
+  background-color: rgba(200, 195, 230, 0.25) !important;
 }
 
 .colorful .toolbar-button.active {
   background-color: var(--cf-purple) !important;
   color: #fff !important;
+}
+
+/* ── Status bar (bottom): warm tint ── */
+.colorful .border-t.bg-white,
+.colorful .border-t.dark\:bg-black {
+  background: rgba(240, 225, 210, 0.50) !important;
+  backdrop-filter: blur(16px) saturate(1.3) !important;
+  -webkit-backdrop-filter: blur(16px) saturate(1.3) !important;
 }
 
 /* ── Drop overlay ── */
