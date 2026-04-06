@@ -904,7 +904,12 @@ export function PropertiesPanel() {
   }
 
   if (!selectedEntityId || (!isNativeLazySelection && (!modelQuery || !entityNode))) {
-    // Show model metadata when a single legacy model is loaded and nothing selected
+    // Show model metadata when a single model is loaded and nothing selected.
+    // Handles both federated models (models.size >= 1) and legacy single-model path (models.size === 0).
+    if (models.size === 1) {
+      const singleModel = models.values().next().value as FederatedModel;
+      return <ModelMetadataPanel model={singleModel} />;
+    }
     if (ifcDataStore && models.size === 0 && geometryResult) {
       const legacyModel: FederatedModel = {
         id: '__legacy__',
@@ -921,6 +926,7 @@ export function PropertiesPanel() {
       };
       return <ModelMetadataPanel model={legacyModel} />;
     }
+    // Multi-model or no model loaded: show empty state
     return (
       <div className="h-full flex flex-col border-l-2 border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-black">
         <div className="p-3 border-b-2 border-zinc-200 dark:border-zinc-800 bg-white dark:bg-black">
