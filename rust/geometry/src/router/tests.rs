@@ -536,3 +536,215 @@ mod wall_profile_research {
         // They operate in perpendicular planes and don't conflict
     }
 }
+
+/// Infrastructure model RTC detection tests.
+///
+/// Infrastructure models (12d Model, Civil 3D) embed large world coordinates
+/// (e.g. GDA2020 MGA56: X ~280 000, Y ~6 214 000) directly in Brep geometry
+/// vertices while keeping IfcLocalPlacement at origin (0, 0, 0).
+///
+/// Regression test for <https://github.com/louistrue/ifc-lite/issues/335>.
+mod infra_rtc_detection {
+    use super::*;
+
+    /// Minimal IFC fragment simulating an infrastructure model:
+    /// - IfcLocalPlacement at (0, 0, 0)
+    /// - IfcFacetedBrep vertices at large world coordinates
+    fn infra_model_ifc() -> String {
+        r#"ISO-10303-21;
+HEADER;
+FILE_DESCRIPTION(('ViewDefinition[Ifc4x3NotAssigned]'),'2;1');
+FILE_NAME('test.ifc','2025-04-03T20:15:31',(''),(''),'','12d Model','');
+FILE_SCHEMA(('IFC4X3_ADD2'));
+ENDSEC;
+DATA;
+#1=IFCPROJECT('3A_FOM1U13fh337NmQeVRd',$,'TestProject','',$,$,$,(#12),#7);
+#7=IFCUNITASSIGNMENT((#8));
+#8=IFCSIUNIT(*,.LENGTHUNIT.,$,.METRE.);
+#12=IFCGEOMETRICREPRESENTATIONCONTEXT('3D','Model',3,1.E-6,#14,$);
+#13=IFCLOCALPLACEMENT($,#14);
+#14=IFCAXIS2PLACEMENT3D(#15,#16,#17);
+#15=IFCCARTESIANPOINT((0.,0.,0.));
+#16=IFCDIRECTION((0.,0.,1.));
+#17=IFCDIRECTION((1.,0.,0.));
+#37=IFCSITE('1hW4TzF_DDAfTPaQBppMz3',$,'Site','',$,#13,$,$,.ELEMENT.,$,$,$,$,$);
+#38=IFCRELAGGREGATES('1QP4NryH5APR64IuPmfbrw',$,'','',#1,(#37));
+#39=IFCFACILITY('3fh5t6Rfv4KgZVJyIsS3vL',$,'TestFacility','',$,#13,$,$,.ELEMENT.);
+#40=IFCRELAGGREGATES('0JznlPoAL2t9gXdhqZciud',$,'','',#37,(#39));
+#41=IFCRELCONTAINEDINSPATIALSTRUCTURE('2nyGDMmiP47BqaRKBUVTUc',$,'','FacilityContainer',(#42),#39);
+#42=IFCBUILDINGELEMENTPROXY('2JJeX0xY93XxwyMxv0upiL',$,'Trimesh','12d Trimesh','Trimesh',#13,#43,$,.USERDEFINED.);
+#43=IFCPRODUCTDEFINITIONSHAPE($,$,(#44));
+#44=IFCSHAPEREPRESENTATION(#12,'Body','Brep',(#100));
+#100=IFCFACETEDBREP(#101);
+#101=IFCCLOSEDSHELL((#102));
+#102=IFCFACE((#103));
+#103=IFCFACEOUTERBOUND(#104,.T.);
+#104=IFCPOLYLOOP((#110,#111,#112));
+#110=IFCCARTESIANPOINT((280964.209858276,6214442.15622959,145.312878290516));
+#111=IFCCARTESIANPOINT((280966.589503645,6214441.40182406,145.321540679517));
+#112=IFCCARTESIANPOINT((280968.964944952,6214440.62254459,145.330215679517));
+ENDSEC;
+END-ISO-10303-21;
+"#
+        .to_string()
+    }
+
+    /// Second infrastructure model at a different location, same coordinate system.
+    fn infra_model_ifc_b() -> String {
+        r#"ISO-10303-21;
+HEADER;
+FILE_DESCRIPTION(('ViewDefinition[Ifc4x3NotAssigned]'),'2;1');
+FILE_NAME('test_b.ifc','2025-04-03T20:15:31',(''),(''),'','12d Model','');
+FILE_SCHEMA(('IFC4X3_ADD2'));
+ENDSEC;
+DATA;
+#1=IFCPROJECT('3A_FOM1U13fh337NmQeVRd',$,'TestProject','',$,$,$,(#12),#7);
+#7=IFCUNITASSIGNMENT((#8));
+#8=IFCSIUNIT(*,.LENGTHUNIT.,$,.METRE.);
+#12=IFCGEOMETRICREPRESENTATIONCONTEXT('3D','Model',3,1.E-6,#14,$);
+#13=IFCLOCALPLACEMENT($,#14);
+#14=IFCAXIS2PLACEMENT3D(#15,#16,#17);
+#15=IFCCARTESIANPOINT((0.,0.,0.));
+#16=IFCDIRECTION((0.,0.,1.));
+#17=IFCDIRECTION((1.,0.,0.));
+#37=IFCSITE('0AvQ9WiKj9QhhBF8HoQbpT',$,'Site','',$,#13,$,$,.ELEMENT.,$,$,$,$,$);
+#38=IFCRELAGGREGATES('0cPQjCyWf38RWxUzqd9LMm',$,'','',#1,(#37));
+#39=IFCFACILITY('0kH5sw_GL2axycWUi$aMhv',$,'TestFacility','',$,#13,$,$,.ELEMENT.);
+#40=IFCRELAGGREGATES('2ZShpA4fL9QObco6Upayde',$,'','',#37,(#39));
+#41=IFCRELCONTAINEDINSPATIALSTRUCTURE('17fDKZ7VHE590ShtaZSobA',$,'','FacilityContainer',(#42),#39);
+#42=IFCBUILDINGELEMENTPROXY('348HbFCG9ESeA2m3bPTUIP',$,'Trimesh','12d Trimesh','Trimesh',#13,#43,$,.USERDEFINED.);
+#43=IFCPRODUCTDEFINITIONSHAPE($,$,(#44));
+#44=IFCSHAPEREPRESENTATION(#12,'Body','Brep',(#100));
+#100=IFCFACETEDBREP(#101);
+#101=IFCCLOSEDSHELL((#102));
+#102=IFCFACE((#103));
+#103=IFCFACEOUTERBOUND(#104,.T.);
+#104=IFCPOLYLOOP((#110,#111,#112));
+#110=IFCCARTESIANPOINT((279616.962383915,6213394.41079812,222.904072802032));
+#111=IFCCARTESIANPOINT((279617.172274625,6213389.48119807,222.626516208578));
+#112=IFCCARTESIANPOINT((279617.409779591,6213384.48685233,222.345251208578));
+ENDSEC;
+END-ISO-10303-21;
+"#
+        .to_string()
+    }
+
+    /// RTC detection must work when placement is at origin but geometry vertices
+    /// contain large world coordinates (the infrastructure model pattern).
+    #[test]
+    fn rtc_detected_from_geometry_vertices_not_just_placement() {
+        let content = infra_model_ifc();
+        let entity_index = ifc_lite_core::build_entity_index(&content);
+        let mut decoder = EntityDecoder::with_index(&content, entity_index);
+        let router = GeometryRouter::with_units(&content, &mut decoder);
+
+        let offset = router.detect_rtc_offset_from_first_element(&content, &mut decoder);
+
+        // Must detect the large coordinates (~280 000, ~6 214 000)
+        assert!(
+            offset.0.abs() > 10000.0 || offset.1.abs() > 10000.0,
+            "RTC offset should be large for infrastructure model, got ({:.1}, {:.1}, {:.1})",
+            offset.0,
+            offset.1,
+            offset.2
+        );
+        // Offset should be near the geometry centroid
+        assert!(
+            (offset.0 - 280966.0).abs() < 100.0,
+            "X offset should be near 280966, got {:.1}",
+            offset.0
+        );
+        assert!(
+            (offset.1 - 6214441.0).abs() < 100.0,
+            "Y offset should be near 6214441, got {:.1}",
+            offset.1
+        );
+    }
+
+    /// After RTC is applied, geometry vertices should be small (within a few km
+    /// of origin). This prevents f32 precision jitter.
+    #[test]
+    fn rtc_produces_small_vertex_coordinates() {
+        let content = infra_model_ifc();
+        let entity_index = ifc_lite_core::build_entity_index(&content);
+        let mut decoder = EntityDecoder::with_index(&content, entity_index);
+        let mut router = GeometryRouter::with_units(&content, &mut decoder);
+
+        let offset = router.detect_rtc_offset_from_first_element(&content, &mut decoder);
+        router.set_rtc_offset(offset);
+
+        // Process the element
+        let entity = decoder.decode_by_id(42).unwrap();
+        let mesh = router.process_element(&entity, &mut decoder).unwrap();
+
+        // Verify all vertex positions are small (near origin after RTC)
+        for chunk in mesh.positions.chunks_exact(3) {
+            assert!(
+                chunk[0].abs() < 10000.0 && chunk[1].abs() < 10000.0 && chunk[2].abs() < 10000.0,
+                "Vertex ({}, {}, {}) still has large coordinates after RTC",
+                chunk[0],
+                chunk[1],
+                chunk[2]
+            );
+        }
+    }
+
+    /// Two infrastructure models from the same project should produce consistent
+    /// RTC offsets that enable correct federation alignment.
+    #[test]
+    fn federated_models_produce_usable_rtc_offsets() {
+        let content_a = infra_model_ifc();
+        let content_b = infra_model_ifc_b();
+
+        // Detect RTC for model A
+        let entity_index_a = ifc_lite_core::build_entity_index(&content_a);
+        let mut decoder_a = EntityDecoder::with_index(&content_a, entity_index_a);
+        let router_a = GeometryRouter::with_units(&content_a, &mut decoder_a);
+        let offset_a = router_a.detect_rtc_offset_from_first_element(&content_a, &mut decoder_a);
+
+        // Detect RTC for model B
+        let entity_index_b = ifc_lite_core::build_entity_index(&content_b);
+        let mut decoder_b = EntityDecoder::with_index(&content_b, entity_index_b);
+        let router_b = GeometryRouter::with_units(&content_b, &mut decoder_b);
+        let offset_b = router_b.detect_rtc_offset_from_first_element(&content_b, &mut decoder_b);
+
+        // Both should detect large offsets
+        assert!(
+            offset_a.0.abs() > 10000.0,
+            "Model A should have large X offset"
+        );
+        assert!(
+            offset_b.0.abs() > 10000.0,
+            "Model B should have large X offset"
+        );
+
+        // The RTC delta between models should be finite and usable for alignment
+        let delta_x = offset_a.0 - offset_b.0;
+        let delta_y = offset_a.1 - offset_b.1;
+        let delta_z = offset_a.2 - offset_b.2;
+
+        // Models are about 1.3 km apart in X and 1 km apart in Y
+        assert!(
+            delta_x.abs() < 5000.0,
+            "X delta between models should be reasonable, got {:.1}",
+            delta_x
+        );
+        assert!(
+            delta_y.abs() < 5000.0,
+            "Y delta between models should be reasonable, got {:.1}",
+            delta_y
+        );
+
+        // The delta should be expressible in f32 without precision issues
+        let delta_x_f32 = delta_x as f32;
+        let delta_y_f32 = delta_y as f32;
+        assert!(
+            (delta_x_f32 as f64 - delta_x).abs() < 1.0,
+            "RTC delta X should survive f32 round-trip"
+        );
+        assert!(
+            (delta_y_f32 as f64 - delta_y).abs() < 1.0,
+            "RTC delta Y should survive f32 round-trip"
+        );
+    }
+}
