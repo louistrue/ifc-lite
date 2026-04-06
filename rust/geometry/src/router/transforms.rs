@@ -381,7 +381,9 @@ impl GeometryRouter {
                     || vz > LARGE_COORD_THRESHOLD
             };
 
-        let needs_rtc = self.has_rtc_offset() && (placement_is_large || vertices_are_large);
+        let needs_rtc = self.has_rtc_offset()
+            && !mesh.rtc_applied
+            && (placement_is_large || vertices_are_large);
 
         if needs_rtc {
             // Apply RTC offset to all vertices uniformly

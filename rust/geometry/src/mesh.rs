@@ -58,6 +58,10 @@ pub struct Mesh {
     pub normals: Vec<f32>,
     /// Triangle indices (i0, i1, i2)
     pub indices: Vec<u32>,
+    /// Whether RTC offset has already been subtracted from positions.
+    /// Set by `FacetedBrepProcessor::process_with_rtc` to prevent
+    /// `transform_mesh` from double-subtracting RTC.
+    pub rtc_applied: bool,
 }
 
 /// A sub-mesh with its source geometry item ID.
@@ -131,6 +135,7 @@ impl Mesh {
             positions: Vec::new(),
             normals: Vec::new(),
             indices: Vec::new(),
+            rtc_applied: false,
         }
     }
 
@@ -140,6 +145,7 @@ impl Mesh {
             positions: Vec::with_capacity(vertex_count * 3),
             normals: Vec::with_capacity(vertex_count * 3),
             indices: Vec::with_capacity(index_count),
+            rtc_applied: false,
         }
     }
 
@@ -643,6 +649,7 @@ mod tests {
                 0, 1, 5, // invalid: vertex 5 out of bounds
                 3, 4, 5, // invalid: all out of bounds
             ],
+            rtc_applied: false,
         };
         mesh.validate_indices();
         assert_eq!(mesh.indices, vec![0, 1, 2]);
@@ -654,6 +661,7 @@ mod tests {
             positions: vec![],
             normals: vec![],
             indices: vec![0, 1, 2],
+            rtc_applied: false,
         };
         mesh.validate_indices();
         assert!(mesh.indices.is_empty());
@@ -665,6 +673,7 @@ mod tests {
             positions: vec![0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0],
             normals: vec![],
             indices: vec![0, 1, 2, 0, 1], // trailing incomplete triangle
+            rtc_applied: false,
         };
         mesh.validate_indices();
         assert_eq!(mesh.indices, vec![0, 1, 2]);
@@ -676,6 +685,7 @@ mod tests {
             positions: vec![0.0; 12], // 4 vertices
             normals: vec![],
             indices: vec![0, 1, 2, 1, 2, 3],
+            rtc_applied: false,
         };
         mesh.validate_indices();
         assert_eq!(mesh.indices, vec![0, 1, 2, 1, 2, 3]);

@@ -381,6 +381,8 @@ impl FacetedBrepProcessor {
                         positions,
                         normals: Vec::new(),
                         indices,
+                        // RTC subtracted during f64→f32 conversion when rtc != (0,0,0)
+                        rtc_applied: rtc.0 != 0.0 || rtc.1 != 0.0 || rtc.2 != 0.0,
                     },
                 )
             })
@@ -470,6 +472,7 @@ impl FacetedBrepProcessor {
             positions,
             normals: Vec::new(),
             indices,
+            rtc_applied: true, // RTC already subtracted during f64→f32 conversion
         })
     }
 }
@@ -583,6 +586,7 @@ impl GeometryProcessor for FacetedBrepProcessor {
             positions,
             normals: Vec::new(),
             indices,
+            rtc_applied: false,
         })
     }
 
@@ -737,6 +741,7 @@ impl GeometryProcessor for FaceBasedSurfaceModelProcessor {
             positions: all_positions,
             normals: Vec::new(),
             indices: all_indices,
+            rtc_applied: false,
         })
     }
 
@@ -892,6 +897,7 @@ impl GeometryProcessor for ShellBasedSurfaceModelProcessor {
             positions: all_positions,
             normals: Vec::new(),
             indices: all_indices,
+            rtc_applied: false,
         })
     }
 
