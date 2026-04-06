@@ -25,6 +25,7 @@ import type { StreamingGeometryEvent } from './index.js';
 export async function* processParallel(
   buffer: Uint8Array,
   coordinator: CoordinateHandler,
+  sharedRtcOffset?: { x: number; y: number; z: number },
 ): AsyncGenerator<StreamingGeometryEvent> {
   coordinator.reset();
 
@@ -59,18 +60,21 @@ export async function* processParallel(
 
   const { jobs: jobsFlat, totalJobs, unitScale, rtcOffset, needsShift,
           voidKeys, voidCounts, voidValues, styleIds, styleColors } = prePassResult;
-  const rtcX = rtcOffset?.[0] ?? 0;
-  const rtcY = rtcOffset?.[1] ?? 0;
-  const rtcZ = rtcOffset?.[2] ?? 0;
 
-  // Emit RTC offset event so federation alignment can use it.
-  // The streaming path emits this from WASM callbacks, but the parallel
-  // path gets RTC from the pre-pass and must emit it explicitly.
-  console.warn(`[RTC DEBUG] parallel pre-pass: rtc=(${rtcX.toFixed(1)},${rtcY.toFixed(1)},${rtcZ.toFixed(1)}) needsShift=${needsShift}`);
+  // When a shared RTC offset is provided (2nd+ federated model), use it
+  // instead of the per-model RTC. This ensures all models share the same
+  // coordinate origin, giving pixel-perfect federation alignment.
+  const useSharedRtc = sharedRtcOffset != null;
+  const rtcX = useSharedRtc ? sharedRtcOffset.x : (rtcOffset?.[0] ?? 0);
+  const rtcY = useSharedRtc ? sharedRtcOffset.y : (rtcOffset?.[1] ?? 0);
+  const rtcZ = useSharedRtc ? sharedRtcOffset.z : (rtcOffset?.[2] ?? 0);
+  const effectiveNeedsShift = useSharedRtc ? true : needsShift;
+
+  console.warn(`[RTC DEBUG] parallel pre-pass: rtc=(${rtcX.toFixed(1)},${rtcY.toFixed(1)},${rtcZ.toFixed(1)}) needsShift=${effectiveNeedsShift} shared=${useSharedRtc}`);
   yield {
     type: 'rtcOffset',
     rtcOffset: { x: rtcX, y: rtcY, z: rtcZ },
-    hasRtc: needsShift,
+    hasRtc: effectiveNeedsShift,
   };
 
   // ── PHASE 2: Dynamic worker provisioning based on device capability ──
@@ -191,7 +195,7 @@ export async function* processParallel(
       jobsFlat: workerJobs,
       unitScale,
       rtcX, rtcY, rtcZ,
-      needsShift,
+      needsShift: effectiveNeedsShift,
       voidKeys, voidCounts, voidValues,
       styleIds, styleColors,
     });

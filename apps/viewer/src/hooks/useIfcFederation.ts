@@ -190,12 +190,27 @@ export function useIfcFederation() {
         schemaVersion = result.schemaVersion;
       } else {
         setProgress({ phase: 'Starting geometry streaming', percent: 10 });
+
+        // For federated models: use the first model's RTC offset so all models
+        // share the same coordinate origin. This ensures pixel-perfect alignment
+        // without error-prone delta adjustments.
+        let sharedRtcOffset: { x: number; y: number; z: number } | undefined;
+        const existingModelsForRtc = Array.from(useViewerStore.getState().models.values()) as FederatedModel[];
+        if (existingModelsForRtc.length > 0) {
+          const sorted = [...existingModelsForRtc].sort((a, b) => (a.loadedAt ?? 0) - (b.loadedAt ?? 0));
+          sharedRtcOffset = sorted[0]?.geometryResult?.coordinateInfo?.wasmRtcOffset ?? undefined;
+          if (sharedRtcOffset) {
+            console.warn('[RTC DEBUG] Using shared RTC from first model:', sharedRtcOffset);
+          }
+        }
+
         const result = await parseStepBufferViewerModel({
           fileName: file.name,
           buffer,
           fileSizeMB,
           getDynamicBatchSize: getDynamicBatchConfig,
           onProgress: setProgress,
+          sharedRtcOffset,
         });
         parsedDataStore = result.dataStore;
         parsedGeometry = result.geometryResult;
@@ -229,82 +244,10 @@ export function useIfcFederation() {
       }
 
       // =========================================================================
-      // COORDINATE ALIGNMENT: Align new model with existing models using RTC delta
-      // WASM applies per-model RTC offsets. To align models from the same project,
-      // we calculate the difference in RTC offsets and apply it to the new model.
-      //
-      // RTC offset is in IFC coordinates (Z-up). After Z-up to Y-up conversion:
-      // - IFC X → WebGL X
-      // - IFC Y → WebGL -Z
-      // - IFC Z → WebGL Y (vertical)
+      // COORDINATE ALIGNMENT: All federated models use the same shared RTC offset
+      // (passed to WASM during parsing above), so no post-processing vertex
+      // adjustment is needed. All models are already in the same coordinate space.
       // =========================================================================
-      const existingModels = Array.from(useViewerStore.getState().models.values()) as FederatedModel[];
-      if (existingModels.length > 0) {
-        // Always align to the chronologically first model's RTC, regardless of Map order.
-        // Sort by loadedAt to find the true first model, since Map iteration order
-        // may not reflect loading order after store mutations.
-        const sortedModels = [...existingModels].sort((a, b) => (a.loadedAt ?? 0) - (b.loadedAt ?? 0));
-        const firstModel = sortedModels[0];
-        const firstRtc = firstModel.geometryResult?.coordinateInfo?.wasmRtcOffset;
-        const newRtc = parsedGeometry.coordinateInfo?.wasmRtcOffset;
-
-        console.warn('[RTC DEBUG] Federation alignment: firstModel=', firstModel.name,
-          'firstRtc=', firstRtc, 'newRtc=', newRtc, 'existingCount=', existingModels.length);
-
-        // If both models have RTC offsets, use RTC delta for precise alignment
-        if (firstRtc && newRtc) {
-          // Calculate what adjustment is needed to align new model with first model
-          // First model: pos = original - firstRtc
-          // New model: pos = original - newRtc
-          // To align: newPos + adjustment = firstPos (assuming same original)
-          // adjustment = firstRtc - newRtc (add back new's RTC, subtract first's RTC)
-          const adjustX = firstRtc.x - newRtc.x;  // IFC X adjustment
-          const adjustY = firstRtc.y - newRtc.y;  // IFC Y adjustment
-          const adjustZ = firstRtc.z - newRtc.z;  // IFC Z adjustment (vertical)
-
-          // Convert to WebGL coordinates:
-          // IFC X → WebGL X (no change)
-          // IFC Y → WebGL -Z (swap and negate)
-          // IFC Z → WebGL Y (vertical)
-          const webglAdjustX = adjustX;
-          const webglAdjustY = adjustZ;   // IFC Z is WebGL Y (vertical)
-          const webglAdjustZ = -adjustY;  // IFC Y is WebGL -Z
-
-          const hasSignificantAdjust = Math.abs(webglAdjustX) > 0.01 ||
-                                        Math.abs(webglAdjustY) > 0.01 ||
-                                        Math.abs(webglAdjustZ) > 0.01;
-
-          console.warn('[RTC DEBUG] Federation delta: IFC adjust=', {adjustX, adjustY, adjustZ},
-            'WebGL adjust=', {webglAdjustX, webglAdjustY, webglAdjustZ},
-            'significant=', hasSignificantAdjust);
-
-          if (hasSignificantAdjust) {
-            // Apply adjustment to all mesh vertices
-            // SUBTRACT adjustment: if firstRtc > newRtc, first was shifted MORE,
-            // so new model needs to be shifted in same direction (subtract more)
-            for (const mesh of parsedGeometry.meshes) {
-              const positions = mesh.positions;
-              for (let i = 0; i < positions.length; i += 3) {
-                positions[i] -= webglAdjustX;
-                positions[i + 1] -= webglAdjustY;
-                positions[i + 2] -= webglAdjustZ;
-              }
-            }
-
-            // Update coordinate info bounds
-            if (parsedGeometry.coordinateInfo) {
-              parsedGeometry.coordinateInfo.shiftedBounds.min.x -= webglAdjustX;
-              parsedGeometry.coordinateInfo.shiftedBounds.max.x -= webglAdjustX;
-              parsedGeometry.coordinateInfo.shiftedBounds.min.y -= webglAdjustY;
-              parsedGeometry.coordinateInfo.shiftedBounds.max.y -= webglAdjustY;
-              parsedGeometry.coordinateInfo.shiftedBounds.min.z -= webglAdjustZ;
-              parsedGeometry.coordinateInfo.shiftedBounds.max.z -= webglAdjustZ;
-            }
-          }
-        } else {
-          // No RTC info - can't align reliably. This happens with old cache entries.
-        }
-      }
 
       // Build spatial index AFTER ID offset + RTC alignment so it stores
       // correct globalIds and final world-space positions.

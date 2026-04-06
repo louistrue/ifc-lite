@@ -494,7 +494,8 @@ export class GeometryProcessor {
   async *processStreaming(
     buffer: Uint8Array,
     _entityIndex?: Map<number, any>,
-    batchConfig: number | DynamicBatchConfig = 25
+    batchConfig: number | DynamicBatchConfig = 25,
+    _sharedRtcOffset?: { x: number; y: number; z: number },
   ): AsyncGenerator<StreamingGeometryEvent> {
     // Initialize if needed
     if (this.isNative) {
@@ -819,13 +820,14 @@ export class GeometryProcessor {
    */
   async *processParallel(
     buffer: Uint8Array,
+    sharedRtcOffset?: { x: number; y: number; z: number },
   ): AsyncGenerator<StreamingGeometryEvent> {
     // Initialize if needed
     if (!this.bridge?.isInitialized()) {
       await this.init();
     }
 
-    yield* processParallel(buffer, this.coordinateHandler);
+    yield* processParallel(buffer, this.coordinateHandler, sharedRtcOffset);
   }
 
   /**
@@ -844,6 +846,9 @@ export class GeometryProcessor {
       sizeThreshold?: number;
       batchSize?: number | DynamicBatchConfig;
       entityIndex?: Map<number, any>;
+      /** Shared RTC offset from first federated model (IFC Z-up coords).
+       *  Overrides per-model RTC detection for federation alignment. */
+      sharedRtcOffset?: { x: number; y: number; z: number };
     } = {}
   ): AsyncGenerator<StreamingGeometryEvent> {
     const sizeThreshold = options.sizeThreshold ?? 2 * 1024 * 1024; // Default 2MB
@@ -904,9 +909,9 @@ export class GeometryProcessor {
         && (navigator.hardwareConcurrency ?? 1) > 1;
 
       if (useParallel) {
-        yield* this.processParallel(buffer);
+        yield* this.processParallel(buffer, options.sharedRtcOffset);
       } else {
-        yield* this.processStreaming(buffer, options.entityIndex, batchConfig);
+        yield* this.processStreaming(buffer, options.entityIndex, batchConfig, options.sharedRtcOffset);
       }
     }
   }
