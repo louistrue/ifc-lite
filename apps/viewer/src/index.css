@@ -413,177 +413,160 @@ body {
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   COLORFUL MODE - Tokyo Aurora  ✦
-   Hidden theme activated by Shift+clicking the theme toggle.
-   A dramatic sky gradient bleeds through the transparent WebGPU canvas.
-   Frosted-glass panels with vibrant Tokyo Night accent colours.
+   COLORFUL MODE — Tokyo Aurora
+   Hidden theme. Shift+click the toggle. Uses the FULL Tokyo Night accent
+   palette: blue, cyan, magenta, teal, purple, orange, green — not just blue.
+   3D viewport gets an opaque sky-blue clear colour; panels get frosted glass
+   with multi-colour accents.
    ═══════════════════════════════════════════════════════════════════════════ */
 
 @custom-variant colorful (&:where(.colorful, .colorful *));
 
 .colorful {
-  /* ── Colourful accent palette (Tokyo but punched up) ── */
-  --cf-blue: #5b8def;
-  --cf-cyan: #56c8e6;
-  --cf-teal: #4ec9b0;
-  --cf-magenta: #c084fc;
-  --cf-purple: #a78bfa;
-  --cf-orange: #fb923c;
-  --cf-pink: #f472b6;
-  --cf-green: #86efac;
-  --cf-red: #f87171;
-  --cf-yellow: #fbbf24;
+  /* ── Full Tokyo Night accent palette ── */
+  --cf-blue: #7aa2f7;
+  --cf-cyan: #7dcfff;
+  --cf-teal: #73daca;
+  --cf-magenta: #bb9af7;
+  --cf-purple: #9d7cd8;
+  --cf-orange: #ff9e64;
+  --cf-pink: #f7768e;
+  --cf-green: #9ece6a;
+  --cf-yellow: #e0af68;
 
   /* Glass tints */
-  --cf-glass: rgba(255, 255, 255, 0.52);
-  --cf-glass-strong: rgba(255, 255, 255, 0.72);
-  --cf-glass-subtle: rgba(255, 255, 255, 0.30);
-  --cf-glass-border: rgba(255, 255, 255, 0.45);
-  --cf-accent-border: rgba(91, 141, 239, 0.35);
+  --cf-glass: rgba(255, 255, 255, 0.50);
+  --cf-glass-strong: rgba(255, 255, 255, 0.70);
+  --cf-glass-subtle: rgba(255, 255, 255, 0.28);
+  --cf-glass-border: rgba(255, 255, 255, 0.40);
 
   /* Semantic tokens */
-  --color-background: #dfe8f8 !important;
-  --color-foreground: #1a1f3d !important;
+  --color-background: #e4ecf8 !important;
+  --color-foreground: #1a1b2e !important;
   --color-card: var(--cf-glass) !important;
-  --color-card-foreground: #1a1f3d !important;
+  --color-card-foreground: #1a1b2e !important;
   --color-popover: var(--cf-glass-strong) !important;
-  --color-popover-foreground: #1a1f3d !important;
+  --color-popover-foreground: #1a1b2e !important;
   --color-primary: var(--cf-blue) !important;
-  --color-primary-foreground: #ffffff !important;
-  --color-secondary: rgba(91, 141, 239, 0.14) !important;
+  --color-primary-foreground: #1a1b2e !important;
+  --color-secondary: rgba(125, 207, 255, 0.12) !important;
   --color-secondary-foreground: #2e3a5c !important;
-  --color-muted: rgba(91, 141, 239, 0.08) !important;
+  --color-muted: rgba(122, 162, 247, 0.08) !important;
   --color-muted-foreground: #4a5578 !important;
-  --color-accent: rgba(91, 141, 239, 0.14) !important;
+  --color-accent: rgba(187, 154, 247, 0.12) !important;
   --color-accent-foreground: #2e3a5c !important;
-  --color-destructive: var(--cf-red) !important;
-  --color-destructive-foreground: #ffffff !important;
-  --color-border: var(--cf-accent-border) !important;
-  --color-input: rgba(91, 141, 239, 0.12) !important;
-  --color-ring: var(--cf-blue) !important;
+  --color-destructive: var(--cf-pink) !important;
+  --color-destructive-foreground: #fff !important;
+  --color-border: rgba(122, 162, 247, 0.22) !important;
+  --color-input: rgba(125, 207, 255, 0.10) !important;
+  --color-ring: var(--cf-cyan) !important;
 
-  /* Hierarchy panel */
-  --hierarchy-selected-bg: rgba(91, 141, 239, 0.18);
-  --hierarchy-selected-text: #1a1f3d;
-  --hierarchy-text: #364063;
-  --hierarchy-hover-bg: rgba(91, 141, 239, 0.10);
+  /* Hierarchy panel — teal accents */
+  --hierarchy-selected-bg: rgba(115, 218, 202, 0.16);
+  --hierarchy-selected-text: #1a1b2e;
+  --hierarchy-text: #3b4570;
+  --hierarchy-hover-bg: rgba(125, 207, 255, 0.08);
 
-  /* Tabs */
-  --tabs-bg: rgba(255, 255, 255, 0.30);
-  --tabs-border: var(--cf-accent-border);
+  /* Tabs — purple/magenta tones */
+  --tabs-bg: rgba(255, 255, 255, 0.28);
+  --tabs-border: rgba(187, 154, 247, 0.22);
   --tab-text: #4a5578;
   --tab-active-bg: var(--cf-glass-strong);
-  --tab-active-text: #1a1f3d;
+  --tab-active-text: #1a1b2e;
 }
 
-/* ── Page background: dramatic sky gradient ── */
+/* ── Page background: sky gradient ── */
 .colorful body,
 .colorful #root {
   background: linear-gradient(
-    172deg,
-    #3b62b5 0%,
-    #5580d4 10%,
-    #6b93e0 22%,
-    #86acea 36%,
-    #a3c2f2 50%,
-    #c0d5f6 64%,
-    #dbe5fa 78%,
-    #eef2fd 90%,
-    #f7f9ff 100%
+    175deg,
+    #4a6fba 0%,
+    #5e85cd 12%,
+    #7499da 26%,
+    #8faee6 40%,
+    #aac3ef 54%,
+    #c4d7f4 68%,
+    #dce7f9 82%,
+    #f0f4fd 100%
   ) !important;
   background-attachment: fixed !important;
 }
 
-/* ── Toolbar: frosted glass with a subtle blue-to-purple bottom border ── */
+/* ── Toolbar: frosted glass, magenta bottom accent ── */
 .colorful .border-b.bg-white,
 .colorful .border-b.dark\:bg-black {
-  background: linear-gradient(90deg,
-    rgba(255,255,255,0.65) 0%,
-    rgba(230,238,255,0.70) 50%,
-    rgba(240,235,255,0.65) 100%
-  ) !important;
-  backdrop-filter: blur(20px) saturate(1.6) !important;
-  -webkit-backdrop-filter: blur(20px) saturate(1.6) !important;
-  border-bottom-color: transparent !important;
-  box-shadow:
-    inset 0 -2px 0 0 var(--cf-blue),
-    0 1px 12px rgba(91, 141, 239, 0.10) !important;
+  background: rgba(255, 255, 255, 0.55) !important;
+  backdrop-filter: blur(20px) saturate(1.5) !important;
+  -webkit-backdrop-filter: blur(20px) saturate(1.5) !important;
+  border-bottom: 2px solid var(--cf-magenta) !important;
+  box-shadow: 0 1px 8px rgba(187, 154, 247, 0.10) !important;
 }
 
-/* ── Panels & cards: tinted glass with coloured left border accents ── */
+/* ── Panels & cards: frosted glass ── */
 .colorful .bg-white,
 .colorful .bg-card,
 .colorful .bg-background {
-  background: linear-gradient(
-    180deg,
-    rgba(255, 255, 255, 0.58) 0%,
-    rgba(235, 240, 255, 0.50) 100%
-  ) !important;
-  backdrop-filter: blur(18px) saturate(1.5) !important;
-  -webkit-backdrop-filter: blur(18px) saturate(1.5) !important;
+  background: rgba(255, 255, 255, 0.50) !important;
+  backdrop-filter: blur(16px) saturate(1.4) !important;
+  -webkit-backdrop-filter: blur(16px) saturate(1.4) !important;
 }
 
 .colorful .bg-zinc-50,
 .colorful .bg-zinc-100 {
-  background-color: rgba(230, 238, 255, 0.40) !important;
-  backdrop-filter: blur(14px) saturate(1.3) !important;
-  -webkit-backdrop-filter: blur(14px) saturate(1.3) !important;
+  background-color: rgba(255, 255, 255, 0.32) !important;
+  backdrop-filter: blur(12px) !important;
+  -webkit-backdrop-filter: blur(12px) !important;
 }
 
 .colorful .bg-zinc-900,
 .colorful .bg-zinc-950,
 .colorful .bg-black {
-  background: linear-gradient(
-    180deg,
-    rgba(255, 255, 255, 0.58) 0%,
-    rgba(235, 240, 255, 0.50) 100%
-  ) !important;
-  backdrop-filter: blur(18px) saturate(1.5) !important;
-  -webkit-backdrop-filter: blur(18px) saturate(1.5) !important;
+  background: rgba(255, 255, 255, 0.50) !important;
+  backdrop-filter: blur(16px) saturate(1.4) !important;
+  -webkit-backdrop-filter: blur(16px) saturate(1.4) !important;
 }
 
-/* ── Panel containers: coloured left accent borders ── */
+/* ── Panel containers: multi-colour left accent borders ── */
 .colorful .panel-container {
-  border-left: 3px solid var(--cf-blue) !important;
-  position: relative;
+  border-left: 3px solid var(--cf-teal) !important;
 }
 
-/* Second panel gets a different accent colour */
+/* Right panel gets magenta */
 .colorful .panel-container ~ * ~ * ~ .panel-container {
   border-left-color: var(--cf-magenta) !important;
 }
 
-/* ── Resize handles: gradient accent ── */
+/* ── Resize handles: teal→cyan→blue gradient strip ── */
 .colorful [data-panel-group-direction="horizontal"] > [data-resize-handle] {
-  background: linear-gradient(180deg, var(--cf-blue), var(--cf-cyan), var(--cf-teal)) !important;
-  opacity: 0.35;
+  background: linear-gradient(180deg, var(--cf-teal), var(--cf-cyan), var(--cf-magenta)) !important;
+  opacity: 0.30;
   transition: opacity 0.2s;
 }
 
 .colorful [data-panel-group-direction="horizontal"] > [data-resize-handle]:hover {
-  opacity: 0.7;
+  opacity: 0.60;
 }
 
 .colorful [data-panel-group-direction="horizontal"] > [data-resize-handle][data-resize-handle-active] {
-  opacity: 1;
+  opacity: 0.85;
 }
 
-/* ── Borders: glass edges ── */
+/* ── Borders ── */
 .colorful .border-zinc-200,
 .colorful .border-zinc-700,
 .colorful .border-zinc-800 {
-  border-color: var(--cf-accent-border) !important;
+  border-color: rgba(122, 162, 247, 0.20) !important;
 }
 
 .colorful .border-zinc-900,
 .colorful .border-zinc-100 {
-  border-color: rgba(91, 141, 239, 0.20) !important;
+  border-color: rgba(187, 154, 247, 0.15) !important;
 }
 
-/* ── Text: clear & readable on glass ── */
+/* ── Text: readable on glass ── */
 .colorful .text-zinc-900,
 .colorful .text-zinc-100 {
-  color: #1a1f3d !important;
+  color: #1a1b2e !important;
 }
 
 .colorful .text-zinc-500,
@@ -594,74 +577,71 @@ body {
 
 .colorful .text-zinc-200,
 .colorful .text-zinc-300 {
-  color: #364063 !important;
+  color: #3b4570 !important;
 }
 
 .colorful .text-zinc-700,
 .colorful .text-zinc-800 {
-  color: #1a1f3d !important;
+  color: #1a1b2e !important;
 }
 
-/* ── Primary accent: vivid blue with glow ── */
+/* ── Primary: flat colour, NO gradients on buttons ── */
 .colorful .bg-primary {
-  background: linear-gradient(135deg, var(--cf-blue), var(--cf-cyan)) !important;
-  box-shadow: 0 2px 12px rgba(91, 141, 239, 0.35) !important;
+  background-color: var(--cf-blue) !important;
 }
 
 .colorful .text-primary {
-  color: var(--cf-blue) !important;
+  color: var(--cf-magenta) !important;
 }
 
 .colorful .border-primary {
-  border-color: var(--cf-blue) !important;
+  border-color: var(--cf-cyan) !important;
 }
 
-/* ── Shadows: coloured glass glow ── */
+/* ── Shadows: subtle coloured glow ── */
 .colorful .shadow-lg,
 .colorful .shadow-xl {
   box-shadow:
-    0 4px 24px rgba(91, 141, 239, 0.15),
-    0 1px 6px rgba(91, 141, 239, 0.08),
-    inset 0 1px 0 var(--cf-glass-border) !important;
+    0 4px 20px rgba(122, 162, 247, 0.10),
+    0 1px 4px rgba(0, 0, 0, 0.04) !important;
 }
 
-/* ── Selection: vibrant ── */
+/* ── Selection: cyan highlight ── */
 .colorful ::selection {
-  background-color: rgba(91, 141, 239, 0.30);
-  color: #1a1f3d;
+  background-color: rgba(125, 207, 255, 0.30);
+  color: #1a1b2e;
 }
 
-/* ── Scrollbars: tinted ── */
+/* ── Scrollbars ── */
 .colorful .scrollbar-thin {
-  scrollbar-color: rgba(91, 141, 239, 0.30) transparent;
+  scrollbar-color: rgba(187, 154, 247, 0.30) transparent;
 }
 
 .colorful .scrollbar-thin::-webkit-scrollbar-thumb {
-  background: linear-gradient(180deg, var(--cf-blue), var(--cf-cyan));
-  opacity: 0.4;
+  background-color: rgba(187, 154, 247, 0.30);
   border-radius: 4px;
 }
 
 .colorful .scrollbar-thin::-webkit-scrollbar-thumb:hover {
-  opacity: 0.7;
+  background-color: rgba(187, 154, 247, 0.50);
 }
 
-/* ── Interactive hovers: tinted ripple ── */
+/* ── Hovers: tinted, not gradient ── */
 .colorful .hover\:bg-primary:hover {
-  background: linear-gradient(135deg, var(--cf-blue), var(--cf-cyan)) !important;
-}
-
-/* ── Active tabs: glass with a coloured top border ── */
-.colorful [data-state="active"] {
-  background-color: var(--cf-glass-strong) !important;
-  color: #1a1f3d !important;
+  background-color: var(--cf-blue) !important;
 }
 
 .colorful .hover\:bg-zinc-50:hover,
 .colorful .hover\:bg-zinc-100:hover,
 .colorful .hover\:bg-zinc-200:hover,
 .colorful .hover\:bg-white:hover {
-  background-color: rgba(91, 141, 239, 0.12) !important;
+  background-color: rgba(125, 207, 255, 0.10) !important;
+}
+
+/* ── Active tabs ── */
+.colorful [data-state="active"] {
+  background-color: var(--cf-glass-strong) !important;
+  color: #1a1b2e !important;
 }
 
 .colorful .data-\[state\=active\]\:bg-white[data-state="active"],
@@ -669,101 +649,75 @@ body {
   background-color: var(--cf-glass-strong) !important;
 }
 
-/* ── Properties tab trigger: coloured top-border on active ── */
+/* Properties tabs: magenta top-accent on active */
 .colorful .properties-tab-trigger[data-state="active"] {
-  border-top-color: var(--cf-blue) !important;
+  border-top-color: var(--cf-magenta) !important;
   background: var(--cf-glass-strong) !important;
 }
 
-/* ── Hierarchy tree items: coloured selected state ── */
+/* ── Hierarchy tree: teal selected accent ── */
 .colorful .tree-node.selected {
-  background: linear-gradient(90deg,
-    rgba(91, 141, 239, 0.14) 0%,
-    rgba(86, 200, 230, 0.08) 100%
-  ) !important;
-  border-left-color: var(--cf-cyan) !important;
+  background-color: rgba(115, 218, 202, 0.14) !important;
+  border-left-color: var(--cf-teal) !important;
 }
 
 .colorful .hierarchy-item.selected {
-  background: linear-gradient(90deg,
-    rgba(91, 141, 239, 0.16) 0%,
-    rgba(86, 200, 230, 0.06) 100%
-  ) !important;
+  background-color: rgba(115, 218, 202, 0.14) !important;
 }
 
-/* ── Quantity cards: cyan accent ── */
+/* ── Quantity cards: cyan ── */
 .colorful .border-blue-200,
 .colorful .border-blue-800,
 .colorful .border-blue-900 {
-  border-color: rgba(86, 200, 230, 0.35) !important;
+  border-color: rgba(125, 207, 255, 0.30) !important;
 }
 
 .colorful .text-blue-700,
 .colorful .text-blue-400 {
-  color: #3a8fc4 !important;
+  color: var(--cf-cyan) !important;
 }
 
 .colorful .bg-blue-50\/20,
 .colorful .bg-blue-950\/20 {
-  background: linear-gradient(135deg,
-    rgba(91, 141, 239, 0.08) 0%,
-    rgba(86, 200, 230, 0.05) 100%
-  ) !important;
+  background-color: rgba(125, 207, 255, 0.08) !important;
 }
 
-/* ── Success / Location: teal accent ── */
+/* ── Success / Location: teal ── */
 .colorful .border-emerald-500\/30 {
-  border-color: rgba(78, 201, 176, 0.35) !important;
+  border-color: rgba(115, 218, 202, 0.30) !important;
 }
 
 .colorful .text-emerald-800,
 .colorful .text-emerald-400 {
-  color: #2d9d83 !important;
+  color: var(--cf-teal) !important;
 }
 
 .colorful .bg-emerald-50\/50,
 .colorful .bg-emerald-900\/10 {
-  background: linear-gradient(135deg,
-    rgba(78, 201, 176, 0.10) 0%,
-    rgba(134, 239, 172, 0.06) 100%
-  ) !important;
+  background-color: rgba(115, 218, 202, 0.08) !important;
 }
 
-/* ── Toolbar buttons: glass hover with accent glow ── */
+/* ── Toolbar buttons: flat tints, no gradients ── */
 .colorful .toolbar-button:hover {
-  background: rgba(91, 141, 239, 0.12) !important;
-  box-shadow: 0 0 8px rgba(91, 141, 239, 0.12);
+  background-color: rgba(125, 207, 255, 0.12) !important;
 }
 
 .colorful .toolbar-button.active {
-  background: linear-gradient(135deg, var(--cf-blue), var(--cf-cyan)) !important;
+  background-color: var(--cf-blue) !important;
   color: #fff !important;
-  box-shadow: 0 2px 12px rgba(91, 141, 239, 0.30);
 }
 
-/* ── Drop overlay: colourful variant ── */
+/* ── Drop overlay: teal variant ── */
 .colorful .bg-\[\#9ece6a\]\/10 {
-  background-color: rgba(91, 141, 239, 0.12) !important;
+  background-color: rgba(115, 218, 202, 0.12) !important;
 }
 
 .colorful .border-\[\#9ece6a\] {
-  border-color: var(--cf-cyan) !important;
+  border-color: var(--cf-teal) !important;
 }
 
 .colorful .text-\[\#9ece6a\] {
-  color: var(--cf-cyan) !important;
-}
-
-/* ── Buttons: ghost variant gets glass treatment ── */
-.colorful button[data-variant="ghost"]:hover,
-.colorful [class*="variant-ghost"]:hover {
-  background: rgba(91, 141, 239, 0.10) !important;
-}
-
-/* ── View cube & overlays: glass treatment ── */
-.colorful [data-viewport] .absolute {
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
+  color: var(--cf-teal) !important;
 }
 
 /* ── Popover / dropdown menus: glass ── */
@@ -773,14 +727,14 @@ body {
   background: var(--cf-glass-strong) !important;
   backdrop-filter: blur(20px) saturate(1.5) !important;
   -webkit-backdrop-filter: blur(20px) saturate(1.5) !important;
-  border-color: var(--cf-accent-border) !important;
+  border-color: rgba(187, 154, 247, 0.20) !important;
 }
 
-/* ── Tooltip: glass with coloured border ── */
+/* ── Tooltip: dark glass with cyan accent border ── */
 .colorful [role="tooltip"] {
-  background: rgba(26, 31, 61, 0.85) !important;
-  color: #e8eef8 !important;
-  border: 1px solid rgba(91, 141, 239, 0.40) !important;
+  background: rgba(26, 27, 46, 0.88) !important;
+  color: #e4ecf8 !important;
+  border: 1px solid rgba(125, 207, 255, 0.35) !important;
   backdrop-filter: blur(12px) !important;
   -webkit-backdrop-filter: blur(12px) !important;
 }

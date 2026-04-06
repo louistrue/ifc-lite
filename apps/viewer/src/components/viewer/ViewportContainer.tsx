@@ -40,7 +40,6 @@ export function ViewportContainer() {
   const classFilter = useViewerStore((s) => s.classFilter);
   const resetViewerState = useViewerStore((s) => s.resetViewerState);
   const bcfOverlayVisible = useViewerStore((s) => s.bcfOverlayVisible);
-  const theme = useViewerStore((s) => s.theme);
   const cesiumEnabled = useViewerStore((s) => s.cesiumEnabled);
   const georefMutations = useViewerStore((s) => s.georefMutations);
   const setCesiumSourceModelId = useViewerStore((s) => s.setCesiumSourceModelId);
@@ -872,16 +871,6 @@ export function ViewportContainer() {
             </div>
           </div>
         </div>
-      )}
-
-      {/* Colorful mode: gradient background visible through transparent WebGPU canvas */}
-      {theme === 'colorful' && (
-        <div
-          className="absolute inset-0 z-0 pointer-events-none"
-          style={{
-            background: 'linear-gradient(175deg, #4a78c9 0%, #6b93e0 12%, #7da6f0 24%, #94b8f5 36%, #aec9f7 48%, #c8daf9 60%, #dde7fb 72%, #edf1fc 84%, #f5f7fe 100%)',
-          }}
-        />
       )}
 
       {/* Cesium 3D world context overlay — rendered behind the WebGPU canvas (web only) */}
