@@ -413,217 +413,376 @@ body {
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   COLORFUL MODE - Tokyo Stormy Skies ✦
+   COLORFUL MODE - Tokyo Aurora  ✦
    Hidden theme activated by Shift+clicking the theme toggle.
-   Blue→white gradient, glassmorphism panels, vibrant Tokyo accents.
+   A dramatic sky gradient bleeds through the transparent WebGPU canvas.
+   Frosted-glass panels with vibrant Tokyo Night accent colours.
    ═══════════════════════════════════════════════════════════════════════════ */
 
 @custom-variant colorful (&:where(.colorful, .colorful *));
 
-/* Colorful palette: bright & airy take on Tokyo Night */
 .colorful {
-  /* Semantic theme tokens - overrides the :root / .dark values */
-  --color-background: #e8eef8 !important;
-  --color-foreground: #1e2340 !important;
-  --color-card: rgba(255, 255, 255, 0.55) !important;
-  --color-card-foreground: #1e2340 !important;
-  --color-popover: rgba(255, 255, 255, 0.75) !important;
-  --color-popover-foreground: #1e2340 !important;
-  --color-primary: #5b8def !important;
+  /* ── Colourful accent palette (Tokyo but punched up) ── */
+  --cf-blue: #5b8def;
+  --cf-cyan: #56c8e6;
+  --cf-teal: #4ec9b0;
+  --cf-magenta: #c084fc;
+  --cf-purple: #a78bfa;
+  --cf-orange: #fb923c;
+  --cf-pink: #f472b6;
+  --cf-green: #86efac;
+  --cf-red: #f87171;
+  --cf-yellow: #fbbf24;
+
+  /* Glass tints */
+  --cf-glass: rgba(255, 255, 255, 0.52);
+  --cf-glass-strong: rgba(255, 255, 255, 0.72);
+  --cf-glass-subtle: rgba(255, 255, 255, 0.30);
+  --cf-glass-border: rgba(255, 255, 255, 0.45);
+  --cf-accent-border: rgba(91, 141, 239, 0.35);
+
+  /* Semantic tokens */
+  --color-background: #dfe8f8 !important;
+  --color-foreground: #1a1f3d !important;
+  --color-card: var(--cf-glass) !important;
+  --color-card-foreground: #1a1f3d !important;
+  --color-popover: var(--cf-glass-strong) !important;
+  --color-popover-foreground: #1a1f3d !important;
+  --color-primary: var(--cf-blue) !important;
   --color-primary-foreground: #ffffff !important;
-  --color-secondary: rgba(122, 162, 247, 0.12) !important;
+  --color-secondary: rgba(91, 141, 239, 0.14) !important;
   --color-secondary-foreground: #2e3a5c !important;
-  --color-muted: rgba(122, 162, 247, 0.08) !important;
-  --color-muted-foreground: #5c6a8a !important;
-  --color-accent: rgba(122, 162, 247, 0.12) !important;
+  --color-muted: rgba(91, 141, 239, 0.08) !important;
+  --color-muted-foreground: #4a5578 !important;
+  --color-accent: rgba(91, 141, 239, 0.14) !important;
   --color-accent-foreground: #2e3a5c !important;
-  --color-destructive: #e85d75 !important;
+  --color-destructive: var(--cf-red) !important;
   --color-destructive-foreground: #ffffff !important;
-  --color-border: rgba(122, 162, 247, 0.2) !important;
-  --color-input: rgba(122, 162, 247, 0.12) !important;
-  --color-ring: #5b8def !important;
+  --color-border: var(--cf-accent-border) !important;
+  --color-input: rgba(91, 141, 239, 0.12) !important;
+  --color-ring: var(--cf-blue) !important;
 
   /* Hierarchy panel */
-  --hierarchy-selected-bg: rgba(91, 141, 239, 0.15);
-  --hierarchy-selected-text: #1e2340;
-  --hierarchy-text: #3d4a6c;
-  --hierarchy-hover-bg: rgba(122, 162, 247, 0.08);
+  --hierarchy-selected-bg: rgba(91, 141, 239, 0.18);
+  --hierarchy-selected-text: #1a1f3d;
+  --hierarchy-text: #364063;
+  --hierarchy-hover-bg: rgba(91, 141, 239, 0.10);
 
   /* Tabs */
-  --tabs-bg: rgba(255, 255, 255, 0.4);
-  --tabs-border: rgba(122, 162, 247, 0.18);
-  --tab-text: #5c6a8a;
-  --tab-active-bg: rgba(255, 255, 255, 0.7);
-  --tab-active-text: #1e2340;
+  --tabs-bg: rgba(255, 255, 255, 0.30);
+  --tabs-border: var(--cf-accent-border);
+  --tab-text: #4a5578;
+  --tab-active-bg: var(--cf-glass-strong);
+  --tab-active-text: #1a1f3d;
 }
 
-/* Page-level gradient: stormy blue sky at top → soft white at bottom */
+/* ── Page background: dramatic sky gradient ── */
 .colorful body,
 .colorful #root {
   background: linear-gradient(
-    180deg,
-    #6b93e0 0%,
-    #8faef0 18%,
-    #b3cbf5 38%,
-    #d4e0f8 58%,
-    #e8eef8 78%,
-    #f0f3fa 100%
+    172deg,
+    #3b62b5 0%,
+    #5580d4 10%,
+    #6b93e0 22%,
+    #86acea 36%,
+    #a3c2f2 50%,
+    #c0d5f6 64%,
+    #dbe5fa 78%,
+    #eef2fd 90%,
+    #f7f9ff 100%
   ) !important;
-  /* Fixed so it doesn't scroll with content */
   background-attachment: fixed !important;
 }
 
-/* Panels & cards: glassmorphism */
+/* ── Toolbar: frosted glass with a subtle blue-to-purple bottom border ── */
+.colorful .border-b.bg-white,
+.colorful .border-b.dark\:bg-black {
+  background: linear-gradient(90deg,
+    rgba(255,255,255,0.65) 0%,
+    rgba(230,238,255,0.70) 50%,
+    rgba(240,235,255,0.65) 100%
+  ) !important;
+  backdrop-filter: blur(20px) saturate(1.6) !important;
+  -webkit-backdrop-filter: blur(20px) saturate(1.6) !important;
+  border-bottom-color: transparent !important;
+  box-shadow:
+    inset 0 -2px 0 0 var(--cf-blue),
+    0 1px 12px rgba(91, 141, 239, 0.10) !important;
+}
+
+/* ── Panels & cards: tinted glass with coloured left border accents ── */
 .colorful .bg-white,
 .colorful .bg-card,
 .colorful .bg-background {
-  background-color: rgba(255, 255, 255, 0.55) !important;
-  backdrop-filter: blur(16px) saturate(1.4) !important;
-  -webkit-backdrop-filter: blur(16px) saturate(1.4) !important;
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.58) 0%,
+    rgba(235, 240, 255, 0.50) 100%
+  ) !important;
+  backdrop-filter: blur(18px) saturate(1.5) !important;
+  -webkit-backdrop-filter: blur(18px) saturate(1.5) !important;
 }
 
 .colorful .bg-zinc-50,
 .colorful .bg-zinc-100 {
-  background-color: rgba(255, 255, 255, 0.35) !important;
-  backdrop-filter: blur(12px) !important;
-  -webkit-backdrop-filter: blur(12px) !important;
+  background-color: rgba(230, 238, 255, 0.40) !important;
+  backdrop-filter: blur(14px) saturate(1.3) !important;
+  -webkit-backdrop-filter: blur(14px) saturate(1.3) !important;
 }
 
 .colorful .bg-zinc-900,
 .colorful .bg-zinc-950,
 .colorful .bg-black {
-  background-color: rgba(255, 255, 255, 0.55) !important;
-  backdrop-filter: blur(16px) saturate(1.4) !important;
-  -webkit-backdrop-filter: blur(16px) saturate(1.4) !important;
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.58) 0%,
+    rgba(235, 240, 255, 0.50) 100%
+  ) !important;
+  backdrop-filter: blur(18px) saturate(1.5) !important;
+  -webkit-backdrop-filter: blur(18px) saturate(1.5) !important;
 }
 
-/* Borders: soft blue tint */
+/* ── Panel containers: coloured left accent borders ── */
+.colorful .panel-container {
+  border-left: 3px solid var(--cf-blue) !important;
+  position: relative;
+}
+
+/* Second panel gets a different accent colour */
+.colorful .panel-container ~ * ~ * ~ .panel-container {
+  border-left-color: var(--cf-magenta) !important;
+}
+
+/* ── Resize handles: gradient accent ── */
+.colorful [data-panel-group-direction="horizontal"] > [data-resize-handle] {
+  background: linear-gradient(180deg, var(--cf-blue), var(--cf-cyan), var(--cf-teal)) !important;
+  opacity: 0.35;
+  transition: opacity 0.2s;
+}
+
+.colorful [data-panel-group-direction="horizontal"] > [data-resize-handle]:hover {
+  opacity: 0.7;
+}
+
+.colorful [data-panel-group-direction="horizontal"] > [data-resize-handle][data-resize-handle-active] {
+  opacity: 1;
+}
+
+/* ── Borders: glass edges ── */
 .colorful .border-zinc-200,
 .colorful .border-zinc-700,
 .colorful .border-zinc-800 {
-  border-color: rgba(122, 162, 247, 0.2) !important;
+  border-color: var(--cf-accent-border) !important;
 }
 
 .colorful .border-zinc-900,
 .colorful .border-zinc-100 {
-  border-color: rgba(122, 162, 247, 0.15) !important;
+  border-color: rgba(91, 141, 239, 0.20) !important;
 }
 
-/* Text: dark, readable on glass */
+/* ── Text: clear & readable on glass ── */
 .colorful .text-zinc-900,
 .colorful .text-zinc-100 {
-  color: #1e2340 !important;
+  color: #1a1f3d !important;
 }
 
 .colorful .text-zinc-500,
 .colorful .text-zinc-400,
 .colorful .text-zinc-600 {
-  color: #5c6a8a !important;
+  color: #4a5578 !important;
 }
 
 .colorful .text-zinc-200,
 .colorful .text-zinc-300 {
-  color: #3d4a6c !important;
+  color: #364063 !important;
 }
 
 .colorful .text-zinc-700,
 .colorful .text-zinc-800 {
-  color: #1e2340 !important;
+  color: #1a1f3d !important;
 }
 
-/* Primary accent - vibrant blue */
+/* ── Primary accent: vivid blue with glow ── */
 .colorful .bg-primary {
-  background-color: #5b8def !important;
+  background: linear-gradient(135deg, var(--cf-blue), var(--cf-cyan)) !important;
+  box-shadow: 0 2px 12px rgba(91, 141, 239, 0.35) !important;
 }
 
 .colorful .text-primary {
-  color: #5b8def !important;
+  color: var(--cf-blue) !important;
 }
 
 .colorful .border-primary {
-  border-color: #5b8def !important;
+  border-color: var(--cf-blue) !important;
 }
 
-/* Soft glass shadows with blue tint */
+/* ── Shadows: coloured glass glow ── */
 .colorful .shadow-lg,
 .colorful .shadow-xl {
-  box-shadow: 0 4px 24px rgba(91, 141, 239, 0.12), 0 1px 4px rgba(0, 0, 0, 0.04) !important;
+  box-shadow:
+    0 4px 24px rgba(91, 141, 239, 0.15),
+    0 1px 6px rgba(91, 141, 239, 0.08),
+    inset 0 1px 0 var(--cf-glass-border) !important;
 }
 
-/* Selection */
+/* ── Selection: vibrant ── */
 .colorful ::selection {
-  background-color: rgba(91, 141, 239, 0.25);
-  color: #1e2340;
+  background-color: rgba(91, 141, 239, 0.30);
+  color: #1a1f3d;
 }
 
-/* Scrollbars: glassy */
+/* ── Scrollbars: tinted ── */
 .colorful .scrollbar-thin {
-  scrollbar-color: rgba(122, 162, 247, 0.3) transparent;
+  scrollbar-color: rgba(91, 141, 239, 0.30) transparent;
 }
 
 .colorful .scrollbar-thin::-webkit-scrollbar-thumb {
-  background-color: rgba(122, 162, 247, 0.3);
+  background: linear-gradient(180deg, var(--cf-blue), var(--cf-cyan));
+  opacity: 0.4;
+  border-radius: 4px;
 }
 
 .colorful .scrollbar-thin::-webkit-scrollbar-thumb:hover {
-  background-color: rgba(122, 162, 247, 0.5);
+  opacity: 0.7;
 }
 
-/* Interactive hover */
+/* ── Interactive hovers: tinted ripple ── */
 .colorful .hover\:bg-primary:hover {
-  background-color: #5b8def !important;
+  background: linear-gradient(135deg, var(--cf-blue), var(--cf-cyan)) !important;
 }
 
-/* Active tabs */
+/* ── Active tabs: glass with a coloured top border ── */
 .colorful [data-state="active"] {
-  background-color: rgba(255, 255, 255, 0.7) !important;
-  color: #1e2340 !important;
+  background-color: var(--cf-glass-strong) !important;
+  color: #1a1f3d !important;
 }
 
-/* Hover backgrounds */
 .colorful .hover\:bg-zinc-50:hover,
 .colorful .hover\:bg-zinc-100:hover,
 .colorful .hover\:bg-zinc-200:hover,
 .colorful .hover\:bg-white:hover {
-  background-color: rgba(122, 162, 247, 0.1) !important;
+  background-color: rgba(91, 141, 239, 0.12) !important;
 }
 
-/* Selected/active backgrounds */
 .colorful .data-\[state\=active\]\:bg-white[data-state="active"],
 .colorful .data-\[state\=active\]\:bg-zinc-100[data-state="active"] {
-  background-color: rgba(255, 255, 255, 0.7) !important;
+  background-color: var(--cf-glass-strong) !important;
 }
 
-/* Quantity cards - cyan accent */
+/* ── Properties tab trigger: coloured top-border on active ── */
+.colorful .properties-tab-trigger[data-state="active"] {
+  border-top-color: var(--cf-blue) !important;
+  background: var(--cf-glass-strong) !important;
+}
+
+/* ── Hierarchy tree items: coloured selected state ── */
+.colorful .tree-node.selected {
+  background: linear-gradient(90deg,
+    rgba(91, 141, 239, 0.14) 0%,
+    rgba(86, 200, 230, 0.08) 100%
+  ) !important;
+  border-left-color: var(--cf-cyan) !important;
+}
+
+.colorful .hierarchy-item.selected {
+  background: linear-gradient(90deg,
+    rgba(91, 141, 239, 0.16) 0%,
+    rgba(86, 200, 230, 0.06) 100%
+  ) !important;
+}
+
+/* ── Quantity cards: cyan accent ── */
 .colorful .border-blue-200,
 .colorful .border-blue-800,
 .colorful .border-blue-900 {
-  border-color: rgba(91, 141, 239, 0.25) !important;
+  border-color: rgba(86, 200, 230, 0.35) !important;
 }
 
 .colorful .text-blue-700,
 .colorful .text-blue-400 {
-  color: #4a7de0 !important;
+  color: #3a8fc4 !important;
 }
 
 .colorful .bg-blue-50\/20,
 .colorful .bg-blue-950\/20 {
-  background-color: rgba(91, 141, 239, 0.06) !important;
+  background: linear-gradient(135deg,
+    rgba(91, 141, 239, 0.08) 0%,
+    rgba(86, 200, 230, 0.05) 100%
+  ) !important;
 }
 
-/* Success/Location - teal accent */
+/* ── Success / Location: teal accent ── */
 .colorful .border-emerald-500\/30 {
-  border-color: rgba(80, 190, 170, 0.25) !important;
+  border-color: rgba(78, 201, 176, 0.35) !important;
 }
 
 .colorful .text-emerald-800,
 .colorful .text-emerald-400 {
-  color: #3baa95 !important;
+  color: #2d9d83 !important;
 }
 
 .colorful .bg-emerald-50\/50,
 .colorful .bg-emerald-900\/10 {
-  background-color: rgba(80, 190, 170, 0.06) !important;
+  background: linear-gradient(135deg,
+    rgba(78, 201, 176, 0.10) 0%,
+    rgba(134, 239, 172, 0.06) 100%
+  ) !important;
+}
+
+/* ── Toolbar buttons: glass hover with accent glow ── */
+.colorful .toolbar-button:hover {
+  background: rgba(91, 141, 239, 0.12) !important;
+  box-shadow: 0 0 8px rgba(91, 141, 239, 0.12);
+}
+
+.colorful .toolbar-button.active {
+  background: linear-gradient(135deg, var(--cf-blue), var(--cf-cyan)) !important;
+  color: #fff !important;
+  box-shadow: 0 2px 12px rgba(91, 141, 239, 0.30);
+}
+
+/* ── Drop overlay: colourful variant ── */
+.colorful .bg-\[\#9ece6a\]\/10 {
+  background-color: rgba(91, 141, 239, 0.12) !important;
+}
+
+.colorful .border-\[\#9ece6a\] {
+  border-color: var(--cf-cyan) !important;
+}
+
+.colorful .text-\[\#9ece6a\] {
+  color: var(--cf-cyan) !important;
+}
+
+/* ── Buttons: ghost variant gets glass treatment ── */
+.colorful button[data-variant="ghost"]:hover,
+.colorful [class*="variant-ghost"]:hover {
+  background: rgba(91, 141, 239, 0.10) !important;
+}
+
+/* ── View cube & overlays: glass treatment ── */
+.colorful [data-viewport] .absolute {
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+/* ── Popover / dropdown menus: glass ── */
+.colorful [data-radix-popper-content-wrapper] [role="menu"],
+.colorful [data-radix-popper-content-wrapper] [role="listbox"],
+.colorful [data-radix-popper-content-wrapper] [data-radix-collection-item] {
+  background: var(--cf-glass-strong) !important;
+  backdrop-filter: blur(20px) saturate(1.5) !important;
+  -webkit-backdrop-filter: blur(20px) saturate(1.5) !important;
+  border-color: var(--cf-accent-border) !important;
+}
+
+/* ── Tooltip: glass with coloured border ── */
+.colorful [role="tooltip"] {
+  background: rgba(26, 31, 61, 0.85) !important;
+  color: #e8eef8 !important;
+  border: 1px solid rgba(91, 141, 239, 0.40) !important;
+  backdrop-filter: blur(12px) !important;
+  -webkit-backdrop-filter: blur(12px) !important;
 }
 
 /* Fix Radix ScrollArea viewport inner div: by default it uses display:table

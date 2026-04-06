@@ -100,9 +100,12 @@ export function ThemeSwitch() {
       onPointerDown={handlePointerDown}
       className={`flex items-center cursor-pointer transition-all duration-300 ${
         isColorful
-          ? 'opacity-100 drop-shadow-[0_0_8px_rgba(122,162,247,0.6)] scale-110'
+          ? 'opacity-100 scale-110'
           : 'opacity-80 hover:opacity-100'
       }`}
+      style={isColorful ? {
+        filter: 'drop-shadow(0 0 6px rgba(91,141,239,0.5)) drop-shadow(0 0 14px rgba(192,132,252,0.3))',
+      } : undefined}
     />
   );
 }

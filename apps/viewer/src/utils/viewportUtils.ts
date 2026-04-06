@@ -309,7 +309,7 @@ export function getThemeClearColor(theme: 'light' | 'dark' | 'colorful'): [numbe
     return [0.96, 0.96, 0.97, 1]; // Light gray
   }
   if (theme === 'colorful') {
-    return [0.58, 0.72, 0.95, 1]; // Soft sky blue (#94b8f2)
+    return [0, 0, 0, 0]; // Fully transparent — CSS gradient shows through the canvas
   }
   return [0.102, 0.106, 0.149, 1]; // Tokyo Night storm (#1a1b26)
 }
