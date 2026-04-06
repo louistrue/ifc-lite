@@ -104,7 +104,7 @@ export function ThemeSwitch() {
           : 'opacity-80 hover:opacity-100'
       }`}
       style={isColorful ? {
-        filter: 'drop-shadow(0 0 6px rgba(91,141,239,0.5)) drop-shadow(0 0 14px rgba(192,132,252,0.3))',
+        filter: 'drop-shadow(0 0 6px rgba(157,124,216,0.5)) drop-shadow(0 0 12px rgba(255,158,100,0.25))',
       } : undefined}
     />
   );

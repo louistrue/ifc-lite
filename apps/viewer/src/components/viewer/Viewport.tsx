@@ -886,7 +886,7 @@ export function Viewport({
     ? { opacity: 0 }
     : theme === 'colorful'
       ? {
-          background: 'linear-gradient(175deg, #4a6fba 0%, #5e85cd 12%, #7499da 26%, #8faee6 40%, #aac3ef 54%, #c4d7f4 68%, #dce7f9 82%, #f0f4fd 100%)',
+          background: 'linear-gradient(180deg, #4a5a8a 0%, #6272a8 10%, #7e8dba 20%, #9aa3c8 32%, #b5b8d1 44%, #cdc3d4 56%, #dcccc8 68%, #e8d5be 80%, #f0ddb8 92%, #f5e2b6 100%)',
         }
       : undefined;
 
