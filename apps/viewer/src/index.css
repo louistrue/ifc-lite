@@ -790,13 +790,21 @@ body {
 
 /* ── Landing page / empty state — orange-tinted grid world ── */
 
-/* Viewport container (landing bg): warm grid pattern */
-.colorful [data-viewport] {
+/* Viewport container bg — only the wrapper div, NOT the canvas.
+   The canvas has data-viewport="main"; we exclude it so the
+   inline aurora gradient isn't overridden by !important.       */
+.colorful div[data-viewport=""]:not(:has(canvas)),
+.colorful div[data-viewport]:not([data-viewport="main"]) {
   background-color: rgba(245, 235, 220, 0.60) !important;
+}
+
+/* Orange grid only on the empty-state overlay (no model loaded).
+   This div only exists when the landing page renders.           */
+.colorful [data-viewport] > .absolute.z-10 {
   background-image:
-    linear-gradient(rgba(255, 158, 100, 0.10) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 158, 100, 0.10) 1px, transparent 1px) !important;
-  background-size: 32px 32px !important;
+    linear-gradient(rgba(255, 158, 100, 0.08) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 158, 100, 0.08) 1px, transparent 1px);
+  background-size: 32px 32px;
 }
 
 /* Main landing card: warm glass with orange border */
