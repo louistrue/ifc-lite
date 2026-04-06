@@ -754,6 +754,132 @@ body {
   -webkit-backdrop-filter: blur(20px) saturate(1.4) !important;
 }
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   COLORFUL — Component-specific colour variations
+   Each section gets a subtle tint from the Tokyo palette, mapped to its
+   semantic role. Tasteful, not overwhelming.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Section headers in hierarchy: cool lavender bg ── */
+.colorful .bg-zinc-100.border-b,
+.colorful .bg-zinc-900.border-b {
+  background-color: rgba(200, 195, 230, 0.30) !important;
+}
+
+/* ── Section headers in properties: warm peach bg ── */
+.colorful .bg-zinc-50.border-b {
+  background-color: rgba(240, 220, 195, 0.35) !important;
+}
+
+/* Properties section header text: warmer dark tone */
+.colorful .bg-zinc-50 .text-zinc-700,
+.colorful .bg-zinc-50 .text-zinc-600 {
+  color: #5a4a3a !important;
+}
+
+/* ── FILE INFORMATION / STATISTICS / PROJECT INFO section containers ── */
+/* Alternate warm tints for each section in the properties panel */
+.colorful .bg-zinc-50.dark\:bg-zinc-900\/50 {
+  background-color: rgba(240, 220, 195, 0.30) !important;
+}
+
+/* ── LOCATION section: teal/green tint (geography = nature) ── */
+.colorful [class*="border-emerald"] {
+  border-color: rgba(115, 218, 202, 0.25) !important;
+}
+
+/* ── Landing page / empty state — orange-tinted grid world ── */
+
+/* Viewport container (landing bg): warm grid pattern */
+.colorful [data-viewport] {
+  background-color: rgba(245, 235, 220, 0.60) !important;
+  background-image:
+    linear-gradient(rgba(255, 158, 100, 0.10) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 158, 100, 0.10) 1px, transparent 1px) !important;
+  background-size: 32px 32px !important;
+}
+
+/* Main landing card: warm glass with orange border */
+.colorful .border-zinc-300.dark\:border-\[\#3b4261\] {
+  border-color: rgba(255, 158, 100, 0.28) !important;
+  background: rgba(255, 248, 240, 0.65) !important;
+  backdrop-filter: blur(16px) !important;
+  -webkit-backdrop-filter: blur(16px) !important;
+}
+
+/* Logo background layer: warm tint */
+.colorful .-rotate-3.border {
+  background-color: rgba(255, 225, 195, 0.30) !important;
+  border-color: rgba(255, 158, 100, 0.18) !important;
+}
+
+/* Feature grid cards (SELECT / FILTER / ANALYZE): warm glass */
+.colorful .bg-zinc-100.dark\:bg-\[\#1f2335\] {
+  background-color: rgba(255, 230, 200, 0.35) !important;
+  border-color: rgba(255, 158, 100, 0.20) !important;
+}
+
+/* Feature card icon boxes */
+.colorful .bg-zinc-100 .bg-white.border,
+.colorful .bg-zinc-100 .dark\:bg-\[\#16161e\].border {
+  background-color: rgba(255, 245, 230, 0.55) !important;
+  border-color: rgba(255, 158, 100, 0.15) !important;
+}
+
+/* Recent files list */
+.colorful .bg-zinc-50.dark\:bg-\[\#1f2335\] {
+  background-color: rgba(255, 235, 210, 0.30) !important;
+  border-color: rgba(255, 158, 100, 0.15) !important;
+}
+
+/* Shortcuts badge */
+.colorful .bg-zinc-100.dark\:bg-\[\#1f2335\].border.border-zinc-300 {
+  background-color: rgba(255, 230, 200, 0.35) !important;
+  border-color: rgba(255, 158, 100, 0.20) !important;
+}
+
+/* "Open .ifc file" hover */
+.colorful .hover\:border-primary:hover {
+  border-color: var(--cf-orange) !important;
+}
+
+.colorful .hover\:text-primary:hover {
+  color: var(--cf-orange) !important;
+}
+
+/* Empty state dashed borders: orange */
+.colorful .border-dashed {
+  border-color: rgba(255, 158, 100, 0.35) !important;
+}
+
+/* Empty state icon boxes (NO MODEL / NO SELECTION) */
+.colorful .border-dashed.border-2 {
+  border-color: rgba(255, 158, 100, 0.30) !important;
+  background-color: rgba(255, 235, 210, 0.25) !important;
+}
+
+/* ── Hierarchy SPATIAL/CLASS/TYPE toggle ── */
+/* Outline buttons: lavender tint */
+.colorful [data-variant="outline"] {
+  border-color: rgba(157, 124, 216, 0.22) !important;
+}
+
+.colorful [data-variant="outline"]:hover {
+  background-color: rgba(200, 195, 230, 0.22) !important;
+}
+
+/* ── Properties panel collapsible sections hover ── */
+.colorful .hover\:bg-zinc-50:hover,
+.colorful .hover\:bg-zinc-900:hover {
+  background-color: rgba(240, 220, 195, 0.25) !important;
+}
+
+/* ── Properties subsection backgrounds ── */
+.colorful .bg-zinc-50\/50,
+.colorful .dark\:bg-zinc-900\/50 {
+  background-color: rgba(240, 225, 205, 0.25) !important;
+}
+
 /* ── Tooltip: dark, sharp ── */
 .colorful [role="tooltip"] {
   background: rgba(26, 27, 46, 0.90) !important;
