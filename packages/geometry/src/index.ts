@@ -632,11 +632,6 @@ export class GeometryProcessor {
 
         // Handle mesh batches
         const batch = item as MeshData[];
-        // Log first batch vertex coordinates for RTC debugging
-        if (totalMeshes === 0 && batch.length > 0 && batch[0].positions.length >= 3) {
-          const p = batch[0].positions;
-          console.warn(`[RTC DEBUG] first batch vertex: (${p[0].toFixed(1)}, ${p[1].toFixed(1)}, ${p[2].toFixed(1)}) meshCount=${batch.length}`);
-        }
         // Process coordinate shifts incrementally (will accumulate bounds)
         this.coordinateHandler.processMeshesIncremental(batch);
         totalMeshes += batch.length;

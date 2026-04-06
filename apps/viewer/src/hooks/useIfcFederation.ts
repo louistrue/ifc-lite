@@ -199,9 +199,6 @@ export function useIfcFederation() {
         if (existingModelsForRtc.length > 0) {
           const sorted = [...existingModelsForRtc].sort((a, b) => (a.loadedAt ?? 0) - (b.loadedAt ?? 0));
           sharedRtcOffset = sorted[0]?.geometryResult?.coordinateInfo?.wasmRtcOffset ?? undefined;
-          if (sharedRtcOffset) {
-            console.warn('[RTC DEBUG] Using shared RTC from first model:', sharedRtcOffset);
-          }
         }
 
         const result = await parseStepBufferViewerModel({

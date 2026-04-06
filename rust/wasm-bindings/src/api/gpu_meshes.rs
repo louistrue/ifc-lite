@@ -401,14 +401,15 @@ impl IfcAPI {
             .unwrap_or(1.0);
         let mut router = GeometryRouter::with_scale(unit_scale);
 
-        let all_jobs: Vec<_> = pre_pass
+        let rtc_jobs: Vec<_> = pre_pass
             .simple_jobs
             .iter()
-            .chain(pre_pass.complex_jobs.iter())
+            .take(25)
+            .chain(pre_pass.complex_jobs.iter().take(25))
             .copied()
             .collect();
         let rtc_offset = router
-            .detect_rtc_offset_from_jobs(&all_jobs, &mut decoder)
+            .detect_rtc_offset_from_jobs(&rtc_jobs, &mut decoder)
             .unwrap_or((0.0, 0.0, 0.0));
         let needs_shift = rtc_offset.0.abs() > 10000.0
             || rtc_offset.1.abs() > 10000.0
@@ -1249,29 +1250,19 @@ impl IfcAPI {
                 // DETECT RTC OFFSET from pre-collected building element jobs (no re-scan)
                 // Use both simple AND complex jobs: infrastructure models (IFC4X3) may
                 // only have complex-classified elements (e.g., IfcPavement, IfcCourse).
-                let all_jobs: Vec<_> = pre_pass
+                let rtc_jobs: Vec<_> = pre_pass
                     .simple_jobs
                     .iter()
-                    .chain(pre_pass.complex_jobs.iter())
+                    .take(25)
+                    .chain(pre_pass.complex_jobs.iter().take(25))
                     .copied()
                     .collect();
                 let rtc_offset = router
-                    .detect_rtc_offset_from_jobs(&all_jobs, &mut decoder)
+                    .detect_rtc_offset_from_jobs(&rtc_jobs, &mut decoder)
                     .unwrap_or((0.0, 0.0, 0.0));
                 let needs_shift = rtc_offset.0.abs() > 10000.0
                     || rtc_offset.1.abs() > 10000.0
                     || rtc_offset.2.abs() > 10000.0;
-
-                web_sys::console::warn_1(
-                    &format!(
-                        "[WASM RTC] parseMeshesAsync: simple={} complex={} total={} offset=({:.1},{:.1},{:.1}) needs_shift={}",
-                        pre_pass.simple_jobs.len(),
-                        pre_pass.complex_jobs.len(),
-                        all_jobs.len(),
-                        rtc_offset.0, rtc_offset.1, rtc_offset.2,
-                        needs_shift
-                    ).into(),
-                );
 
                 if needs_shift {
                     router.set_rtc_offset(rtc_offset);
@@ -1342,7 +1333,6 @@ impl IfcAPI {
                     rustc_hash::FxHashMap::default();
 
                 // Process simple geometry first (walls, slabs, etc.) for fast first frame
-                let mut rtc_logged = false;
                 for &(id, start, end, ifc_type) in &pre_pass.simple_jobs {
                     if let Ok(entity) = decoder.decode_at_with_id(id, start, end) {
                         // Check if entity actually has representation
@@ -1356,20 +1346,6 @@ impl IfcAPI {
                                 &pre_pass.void_index,
                             ) {
                                 if !mesh.is_empty() {
-                                    // Log first mesh coordinates for RTC debugging
-                                    if !rtc_logged && mesh.positions.len() >= 3 {
-                                        web_sys::console::warn_1(
-                                            &format!(
-                                                "[WASM RTC] first mesh #{} ({}): v0=({:.1},{:.1},{:.1}) rtc=({:.1},{:.1},{:.1}) has_rtc={}",
-                                                id, ifc_type.name(),
-                                                mesh.positions[0], mesh.positions[1], mesh.positions[2],
-                                                rtc_offset.0, rtc_offset.1, rtc_offset.2,
-                                                needs_shift
-                                            ).into(),
-                                        );
-                                        rtc_logged = true;
-                                    }
-
                                     if mesh.normals.len() != mesh.positions.len() {
                                         calculate_normals(&mut mesh);
                                     }
@@ -2255,14 +2231,15 @@ impl IfcAPI {
         let mut router = GeometryRouter::with_scale(unit_scale);
 
         // Detect RTC offset
-        let all_jobs: Vec<_> = pre_pass
+        let rtc_jobs: Vec<_> = pre_pass
             .simple_jobs
             .iter()
-            .chain(pre_pass.complex_jobs.iter())
+            .take(25)
+            .chain(pre_pass.complex_jobs.iter().take(25))
             .copied()
             .collect();
         let rtc_offset = router
-            .detect_rtc_offset_from_jobs(&all_jobs, &mut decoder)
+            .detect_rtc_offset_from_jobs(&rtc_jobs, &mut decoder)
             .unwrap_or((0.0, 0.0, 0.0));
         let needs_shift = rtc_offset.0.abs() > 10000.0
             || rtc_offset.1.abs() > 10000.0
@@ -2423,13 +2400,14 @@ impl IfcAPI {
             .unwrap_or(1.0);
         let mut router = GeometryRouter::with_scale(unit_scale);
 
-        let all_jobs: Vec<_> = simple_jobs
+        let rtc_jobs: Vec<_> = simple_jobs
             .iter()
-            .chain(complex_jobs.iter())
+            .take(25)
+            .chain(complex_jobs.iter().take(25))
             .copied()
             .collect();
         let rtc_offset = router
-            .detect_rtc_offset_from_jobs(&all_jobs, &mut decoder)
+            .detect_rtc_offset_from_jobs(&rtc_jobs, &mut decoder)
             .unwrap_or((0.0, 0.0, 0.0));
         let needs_shift = rtc_offset.0.abs() > 10000.0
             || rtc_offset.1.abs() > 10000.0

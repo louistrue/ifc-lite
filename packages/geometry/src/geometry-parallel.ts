@@ -70,7 +70,6 @@ export async function* processParallel(
   const rtcZ = useSharedRtc ? sharedRtcOffset.z : (rtcOffset?.[2] ?? 0);
   const effectiveNeedsShift = useSharedRtc ? true : needsShift;
 
-  console.warn(`[RTC DEBUG] parallel pre-pass: rtc=(${rtcX.toFixed(1)},${rtcY.toFixed(1)},${rtcZ.toFixed(1)}) needsShift=${effectiveNeedsShift} shared=${useSharedRtc}`);
   yield {
     type: 'rtcOffset',
     rtcOffset: { x: rtcX, y: rtcY, z: rtcZ },

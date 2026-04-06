@@ -80,11 +80,17 @@ impl GeometryRouter {
         // Infrastructure models embed world coords (e.g. 280 000, 6 214 000) directly
         // in geometry vertices with identity placement — placement-only sampling
         // would miss the large coordinates and fail to detect the need for RTC.
-        const NEAR_ORIGIN: f64 = 100.0;
+        const NEAR_ORIGIN: f64 = 1000.0;
         if tx.abs() < NEAR_ORIGIN && ty.abs() < NEAR_ORIGIN && tz.abs() < NEAR_ORIGIN {
             if let Some((vx, vy, vz)) = self.sample_first_geometry_vertex(entity, decoder) {
-                // Transform vertex by placement to get world-space position
-                let world = transform.transform_point(&nalgebra::Point3::new(vx, vy, vz));
+                // Transform vertex by placement to get world-space position.
+                // The vertex is in raw file units but the placement transform is
+                // already unit-scaled, so we must scale the vertex first.
+                let world = transform.transform_point(&nalgebra::Point3::new(
+                    vx * self.unit_scale,
+                    vy * self.unit_scale,
+                    vz * self.unit_scale,
+                ));
                 if world.x.is_finite() && world.y.is_finite() && world.z.is_finite() {
                     return Some((world.x, world.y, world.z));
                 }
@@ -838,7 +844,12 @@ impl GeometryRouter {
         // should NOT re-apply RTC for these meshes.
         if item.ifc_type == IfcType::IfcFacetedBrep && self.has_rtc_offset() {
             let processor = crate::processors::FacetedBrepProcessor::new();
-            let mut mesh = processor.process_with_rtc(item, decoder, &self.schema, self.rtc_offset)?;
+            let rtc_file_units = (
+                self.rtc_offset.0 / self.unit_scale,
+                self.rtc_offset.1 / self.unit_scale,
+                self.rtc_offset.2 / self.unit_scale,
+            );
+            let mut mesh = processor.process_with_rtc(item, decoder, &self.schema, rtc_file_units)?;
             mesh.validate_indices();
             self.scale_mesh(&mut mesh);
             // Mark positions as already RTC-shifted by setting a flag

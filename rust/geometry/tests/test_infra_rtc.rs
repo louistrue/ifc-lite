@@ -111,6 +111,8 @@ fn test_real_infra_rtc_application() {
         }
     }
 
+    assert!(processed > 0, "Expected to process at least one non-empty mesh");
+
     println!(
         "Processed {} elements, max coordinate after RTC: {:.1}",
         processed, max_coord
