@@ -551,16 +551,47 @@ body {
   opacity: 0.85;
 }
 
-/* ── Borders ── */
+/* ── Borders: catch ALL zinc border shades ── */
+.colorful .border-zinc-100,
 .colorful .border-zinc-200,
+.colorful .border-zinc-300 {
+  border-color: rgba(122, 162, 247, 0.22) !important;
+}
+
+.colorful .border-zinc-400,
+.colorful .border-zinc-500,
+.colorful .border-zinc-600,
 .colorful .border-zinc-700,
 .colorful .border-zinc-800 {
-  border-color: rgba(122, 162, 247, 0.20) !important;
+  border-color: rgba(187, 154, 247, 0.22) !important;
 }
 
 .colorful .border-zinc-900,
-.colorful .border-zinc-100 {
-  border-color: rgba(187, 154, 247, 0.15) !important;
+.colorful .border-zinc-950 {
+  border-color: rgba(115, 218, 202, 0.20) !important;
+}
+
+/* Generic border utility: inherits --color-border which we override above */
+.colorful .border,
+.colorful .border-b,
+.colorful .border-t,
+.colorful .border-l,
+.colorful .border-r {
+  border-color: rgba(122, 162, 247, 0.22) !important;
+}
+
+/* border-border uses the CSS variable (already overridden), but force it */
+.colorful .border-border {
+  border-color: rgba(122, 162, 247, 0.22) !important;
+}
+
+/* ── Purple borders (property editor edit mode) ── */
+.colorful .border-purple-200,
+.colorful .border-purple-300\/50,
+.colorful .border-purple-500\/30,
+.colorful .border-purple-700,
+.colorful .border-purple-800 {
+  border-color: rgba(187, 154, 247, 0.30) !important;
 }
 
 /* ── Text: readable on glass ── */

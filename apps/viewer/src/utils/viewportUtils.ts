@@ -309,7 +309,9 @@ export function getThemeClearColor(theme: 'light' | 'dark' | 'colorful'): [numbe
     return [0.96, 0.96, 0.97, 1]; // Light gray
   }
   if (theme === 'colorful') {
-    return [0.42, 0.56, 0.84, 1]; // Sky blue (#6b8fd6) — top of the gradient feel
+    // Transparent — the CSS gradient on the canvas element shows through.
+    // alphaMode:'premultiplied' + fragment alpha=1 keeps models fully opaque.
+    return [0, 0, 0, 0];
   }
   return [0.102, 0.106, 0.149, 1]; // Tokyo Night storm (#1a1b26)
 }
