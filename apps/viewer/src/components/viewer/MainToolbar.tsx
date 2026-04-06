@@ -1294,7 +1294,7 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
               <ThemeSwitch />
             </div>
           </TooltipTrigger>
-          <TooltipContent>Toggle theme</TooltipContent>
+          <TooltipContent>Toggle theme (Shift+click for secret mode)</TooltipContent>
         </Tooltip>
 
         <Tooltip>

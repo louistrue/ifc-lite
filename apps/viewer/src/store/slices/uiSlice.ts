@@ -10,12 +10,14 @@ import type { StateCreator } from 'zustand';
 import { UI_DEFAULTS } from '../constants.js';
 import type { ContactShadingQuality, SeparationLinesQuality } from '@ifc-lite/renderer';
 
+export type ThemeMode = 'light' | 'dark' | 'colorful';
+
 export interface UISlice {
   // State
   leftPanelCollapsed: boolean;
   rightPanelCollapsed: boolean;
   activeTool: string;
-  theme: 'light' | 'dark';
+  theme: ThemeMode;
   isMobile: boolean;
   hoverTooltipsEnabled: boolean;
   visualEnhancementsEnabled: boolean;
@@ -33,8 +35,10 @@ export interface UISlice {
   setLeftPanelCollapsed: (collapsed: boolean) => void;
   setRightPanelCollapsed: (collapsed: boolean) => void;
   setActiveTool: (tool: string) => void;
-  setTheme: (theme: 'light' | 'dark') => void;
+  setTheme: (theme: ThemeMode) => void;
   toggleTheme: () => void;
+  /** Shift+click secret: toggle colorful mode on/off */
+  toggleColorful: () => void;
   setIsMobile: (isMobile: boolean) => void;
   toggleHoverTooltips: () => void;
   setVisualEnhancementsEnabled: (enabled: boolean) => void;
@@ -47,6 +51,13 @@ export interface UISlice {
   setSeparationLinesQuality: (quality: SeparationLinesQuality) => void;
   setSeparationLinesIntensity: (intensity: number) => void;
   setSeparationLinesRadius: (radius: number) => void;
+}
+
+/** Apply the correct CSS classes on <html> for the given theme */
+function applyThemeClasses(theme: ThemeMode) {
+  const el = document.documentElement;
+  el.classList.toggle('dark', theme === 'dark');
+  el.classList.toggle('colorful', theme === 'colorful');
 }
 
 export const createUISlice: StateCreator<UISlice, [], [], UISlice> = (set, get) => ({
@@ -74,14 +85,26 @@ export const createUISlice: StateCreator<UISlice, [], [], UISlice> = (set, get) 
   setActiveTool: (activeTool) => set({ activeTool }),
 
   setTheme: (theme) => {
-    document.documentElement.classList.toggle('dark', theme === 'dark');
+    applyThemeClasses(theme);
     localStorage.setItem('ifc-lite-theme', theme);
     set({ theme });
   },
 
   toggleTheme: () => {
-    const newTheme = get().theme === 'dark' ? 'light' : 'dark';
-    document.documentElement.classList.toggle('dark', newTheme === 'dark');
+    // Normal toggle: dark ↔ light. If currently colorful, drop to dark.
+    const current = get().theme;
+    const newTheme = current === 'dark' ? 'light' : 'dark';
+    applyThemeClasses(newTheme);
+    localStorage.setItem('ifc-lite-theme', newTheme);
+    set({ theme: newTheme });
+  },
+
+  toggleColorful: () => {
+    // Shift+click secret: toggle colorful on/off
+    // Into colorful from any state. Out of colorful → light (the storm clears).
+    const current = get().theme;
+    const newTheme: ThemeMode = current === 'colorful' ? 'light' : 'colorful';
+    applyThemeClasses(newTheme);
     localStorage.setItem('ifc-lite-theme', newTheme);
     set({ theme: newTheme });
   },

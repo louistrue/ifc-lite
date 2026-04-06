@@ -77,7 +77,7 @@ export function useRenderUpdates(params: UseRenderUpdatesParams): void {
 
   // Theme-aware clear color update
   useEffect(() => {
-    clearColorRef.current = getThemeClearColor(theme as 'light' | 'dark');
+    clearColorRef.current = getThemeClearColor(theme as 'light' | 'dark' | 'colorful');
     rendererRef.current?.requestRender();
   }, [theme, isInitialized]);
 

@@ -312,7 +312,7 @@ export function Viewport({
     if (cesiumActive) {
       clearColorRef.current = [0, 0, 0, 0]; // fully transparent
     } else {
-      clearColorRef.current = getThemeClearColor(theme as 'light' | 'dark');
+      clearColorRef.current = getThemeClearColor(theme as 'light' | 'dark' | 'colorful');
     }
     rendererRef.current?.requestRender();
   }, [cesiumActive, theme]);

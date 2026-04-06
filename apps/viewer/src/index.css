@@ -412,6 +412,220 @@ body {
   background-color: rgba(115, 218, 202, 0.05) !important;
 }
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   COLORFUL MODE - Tokyo Stormy Skies ✦
+   Hidden theme activated by Shift+clicking the theme toggle.
+   Blue→white gradient, glassmorphism panels, vibrant Tokyo accents.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+@custom-variant colorful (&:where(.colorful, .colorful *));
+
+/* Colorful palette: bright & airy take on Tokyo Night */
+.colorful {
+  /* Semantic theme tokens - overrides the :root / .dark values */
+  --color-background: #e8eef8 !important;
+  --color-foreground: #1e2340 !important;
+  --color-card: rgba(255, 255, 255, 0.55) !important;
+  --color-card-foreground: #1e2340 !important;
+  --color-popover: rgba(255, 255, 255, 0.75) !important;
+  --color-popover-foreground: #1e2340 !important;
+  --color-primary: #5b8def !important;
+  --color-primary-foreground: #ffffff !important;
+  --color-secondary: rgba(122, 162, 247, 0.12) !important;
+  --color-secondary-foreground: #2e3a5c !important;
+  --color-muted: rgba(122, 162, 247, 0.08) !important;
+  --color-muted-foreground: #5c6a8a !important;
+  --color-accent: rgba(122, 162, 247, 0.12) !important;
+  --color-accent-foreground: #2e3a5c !important;
+  --color-destructive: #e85d75 !important;
+  --color-destructive-foreground: #ffffff !important;
+  --color-border: rgba(122, 162, 247, 0.2) !important;
+  --color-input: rgba(122, 162, 247, 0.12) !important;
+  --color-ring: #5b8def !important;
+
+  /* Hierarchy panel */
+  --hierarchy-selected-bg: rgba(91, 141, 239, 0.15);
+  --hierarchy-selected-text: #1e2340;
+  --hierarchy-text: #3d4a6c;
+  --hierarchy-hover-bg: rgba(122, 162, 247, 0.08);
+
+  /* Tabs */
+  --tabs-bg: rgba(255, 255, 255, 0.4);
+  --tabs-border: rgba(122, 162, 247, 0.18);
+  --tab-text: #5c6a8a;
+  --tab-active-bg: rgba(255, 255, 255, 0.7);
+  --tab-active-text: #1e2340;
+}
+
+/* Page-level gradient: stormy blue sky at top → soft white at bottom */
+.colorful body,
+.colorful #root {
+  background: linear-gradient(
+    180deg,
+    #6b93e0 0%,
+    #8faef0 18%,
+    #b3cbf5 38%,
+    #d4e0f8 58%,
+    #e8eef8 78%,
+    #f0f3fa 100%
+  ) !important;
+  /* Fixed so it doesn't scroll with content */
+  background-attachment: fixed !important;
+}
+
+/* Panels & cards: glassmorphism */
+.colorful .bg-white,
+.colorful .bg-card,
+.colorful .bg-background {
+  background-color: rgba(255, 255, 255, 0.55) !important;
+  backdrop-filter: blur(16px) saturate(1.4) !important;
+  -webkit-backdrop-filter: blur(16px) saturate(1.4) !important;
+}
+
+.colorful .bg-zinc-50,
+.colorful .bg-zinc-100 {
+  background-color: rgba(255, 255, 255, 0.35) !important;
+  backdrop-filter: blur(12px) !important;
+  -webkit-backdrop-filter: blur(12px) !important;
+}
+
+.colorful .bg-zinc-900,
+.colorful .bg-zinc-950,
+.colorful .bg-black {
+  background-color: rgba(255, 255, 255, 0.55) !important;
+  backdrop-filter: blur(16px) saturate(1.4) !important;
+  -webkit-backdrop-filter: blur(16px) saturate(1.4) !important;
+}
+
+/* Borders: soft blue tint */
+.colorful .border-zinc-200,
+.colorful .border-zinc-700,
+.colorful .border-zinc-800 {
+  border-color: rgba(122, 162, 247, 0.2) !important;
+}
+
+.colorful .border-zinc-900,
+.colorful .border-zinc-100 {
+  border-color: rgba(122, 162, 247, 0.15) !important;
+}
+
+/* Text: dark, readable on glass */
+.colorful .text-zinc-900,
+.colorful .text-zinc-100 {
+  color: #1e2340 !important;
+}
+
+.colorful .text-zinc-500,
+.colorful .text-zinc-400,
+.colorful .text-zinc-600 {
+  color: #5c6a8a !important;
+}
+
+.colorful .text-zinc-200,
+.colorful .text-zinc-300 {
+  color: #3d4a6c !important;
+}
+
+.colorful .text-zinc-700,
+.colorful .text-zinc-800 {
+  color: #1e2340 !important;
+}
+
+/* Primary accent - vibrant blue */
+.colorful .bg-primary {
+  background-color: #5b8def !important;
+}
+
+.colorful .text-primary {
+  color: #5b8def !important;
+}
+
+.colorful .border-primary {
+  border-color: #5b8def !important;
+}
+
+/* Soft glass shadows with blue tint */
+.colorful .shadow-lg,
+.colorful .shadow-xl {
+  box-shadow: 0 4px 24px rgba(91, 141, 239, 0.12), 0 1px 4px rgba(0, 0, 0, 0.04) !important;
+}
+
+/* Selection */
+.colorful ::selection {
+  background-color: rgba(91, 141, 239, 0.25);
+  color: #1e2340;
+}
+
+/* Scrollbars: glassy */
+.colorful .scrollbar-thin {
+  scrollbar-color: rgba(122, 162, 247, 0.3) transparent;
+}
+
+.colorful .scrollbar-thin::-webkit-scrollbar-thumb {
+  background-color: rgba(122, 162, 247, 0.3);
+}
+
+.colorful .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(122, 162, 247, 0.5);
+}
+
+/* Interactive hover */
+.colorful .hover\:bg-primary:hover {
+  background-color: #5b8def !important;
+}
+
+/* Active tabs */
+.colorful [data-state="active"] {
+  background-color: rgba(255, 255, 255, 0.7) !important;
+  color: #1e2340 !important;
+}
+
+/* Hover backgrounds */
+.colorful .hover\:bg-zinc-50:hover,
+.colorful .hover\:bg-zinc-100:hover,
+.colorful .hover\:bg-zinc-200:hover,
+.colorful .hover\:bg-white:hover {
+  background-color: rgba(122, 162, 247, 0.1) !important;
+}
+
+/* Selected/active backgrounds */
+.colorful .data-\[state\=active\]\:bg-white[data-state="active"],
+.colorful .data-\[state\=active\]\:bg-zinc-100[data-state="active"] {
+  background-color: rgba(255, 255, 255, 0.7) !important;
+}
+
+/* Quantity cards - cyan accent */
+.colorful .border-blue-200,
+.colorful .border-blue-800,
+.colorful .border-blue-900 {
+  border-color: rgba(91, 141, 239, 0.25) !important;
+}
+
+.colorful .text-blue-700,
+.colorful .text-blue-400 {
+  color: #4a7de0 !important;
+}
+
+.colorful .bg-blue-50\/20,
+.colorful .bg-blue-950\/20 {
+  background-color: rgba(91, 141, 239, 0.06) !important;
+}
+
+/* Success/Location - teal accent */
+.colorful .border-emerald-500\/30 {
+  border-color: rgba(80, 190, 170, 0.25) !important;
+}
+
+.colorful .text-emerald-800,
+.colorful .text-emerald-400 {
+  color: #3baa95 !important;
+}
+
+.colorful .bg-emerald-50\/50,
+.colorful .bg-emerald-900\/10 {
+  background-color: rgba(80, 190, 170, 0.06) !important;
+}
+
 /* Fix Radix ScrollArea viewport inner div: by default it uses display:table
    which expands to content width, preventing text truncation in flex children.
    Force block layout so width constraints cascade correctly. */

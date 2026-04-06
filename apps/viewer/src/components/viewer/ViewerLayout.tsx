@@ -186,6 +186,7 @@ export function ViewerLayout() {
   // Keep DOM class in sync when theme changes (initial class is set by inline script in index.html)
   useEffect(() => {
     document.documentElement.classList.toggle('dark', theme === 'dark');
+    document.documentElement.classList.toggle('colorful', theme === 'colorful');
   }, [theme]);
 
 

@@ -52,10 +52,10 @@ export const EDGE_LOCK_DEFAULTS = {
 // ============================================================================
 
 /** Resolve the initial theme: localStorage override > system preference > dark fallback */
-function getInitialTheme(): 'light' | 'dark' {
+function getInitialTheme(): 'light' | 'dark' | 'colorful' {
   if (typeof window === 'undefined') return 'dark';
   const saved = localStorage.getItem('ifc-lite-theme');
-  if (saved === 'light' || saved === 'dark') return saved;
+  if (saved === 'light' || saved === 'dark' || saved === 'colorful') return saved;
   return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
 }
 
