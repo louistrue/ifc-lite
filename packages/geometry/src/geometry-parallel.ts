@@ -63,6 +63,16 @@ export async function* processParallel(
   const rtcY = rtcOffset?.[1] ?? 0;
   const rtcZ = rtcOffset?.[2] ?? 0;
 
+  // Emit RTC offset event so federation alignment can use it.
+  // The streaming path emits this from WASM callbacks, but the parallel
+  // path gets RTC from the pre-pass and must emit it explicitly.
+  console.warn(`[RTC DEBUG] parallel pre-pass: rtc=(${rtcX.toFixed(1)},${rtcY.toFixed(1)},${rtcZ.toFixed(1)}) needsShift=${needsShift}`);
+  yield {
+    type: 'rtcOffset',
+    rtcOffset: { x: rtcX, y: rtcY, z: rtcZ },
+    hasRtc: needsShift,
+  };
+
   // ── PHASE 2: Dynamic worker provisioning based on device capability ──
   const cores = typeof navigator !== 'undefined' ? (navigator.hardwareConcurrency ?? 2) : 2;
   const deviceMemoryGB = typeof navigator !== 'undefined' ? ((navigator as unknown as { deviceMemory?: number }).deviceMemory ?? 8) : 8;
