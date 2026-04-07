@@ -156,6 +156,7 @@ impl GeometryProcessor for SweptDiskSolidProcessor {
             positions,
             normals: Vec::new(),
             indices,
+            rtc_applied: false,
         })
     }
 
@@ -384,6 +385,7 @@ impl GeometryProcessor for RevolvedAreaSolidProcessor {
             positions,
             normals: Vec::new(),
             indices,
+            rtc_applied: false,
         })
     }
 

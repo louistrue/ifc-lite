@@ -234,9 +234,16 @@ impl GeometryRouter {
             return;
         }
 
-        // Use batch processing for parallel triangulation
+        // Use batch processing for parallel triangulation.
+        // Convert RTC from meters to file units so the Brep processor
+        // subtracts the offset in the same coordinate space as the vertices.
         let processor = FacetedBrepProcessor::new();
-        let results = processor.process_batch(brep_ids, decoder);
+        let rtc_file_units = (
+            self.rtc_offset.0 / self.unit_scale,
+            self.rtc_offset.1 / self.unit_scale,
+            self.rtc_offset.2 / self.unit_scale,
+        );
+        let results = processor.process_batch(brep_ids, decoder, rtc_file_units);
 
         // Store results in cache (preallocate to avoid rehashing)
         let mut cache = self.faceted_brep_cache.borrow_mut();

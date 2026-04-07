@@ -77,6 +77,7 @@ impl GeometryProcessor for AdvancedBrepProcessor {
             positions: all_positions,
             normals: Vec::new(),
             indices: all_indices,
+            rtc_applied: false,
         })
     }
 

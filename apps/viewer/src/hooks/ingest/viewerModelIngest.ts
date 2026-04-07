@@ -51,6 +51,10 @@ export interface StepBufferIngestOptions {
   onSpatialReady?: (dataStore: IfcDataStore) => void;
   onRtcOffset?: (event: StepRtcOffsetEvent) => void;
   shouldAbort?: () => boolean;
+  /** Shared RTC offset from first federated model (IFC Z-up coords).
+   *  When set, this model uses the same RTC as the first model instead of
+   *  computing its own, ensuring all models share the same coordinate space. */
+  sharedRtcOffset?: { x: number; y: number; z: number };
 }
 
 export interface StepBufferIngestResult extends ViewerModelPayload {
@@ -204,6 +208,7 @@ export async function parseStepBufferViewerModel(options: StepBufferIngestOption
   for await (const event of geometryProcessor.processAdaptive(new Uint8Array(options.buffer), {
     sizeThreshold: 2 * 1024 * 1024,
     batchSize: options.getDynamicBatchSize(options.fileSizeMB),
+    sharedRtcOffset: options.sharedRtcOffset,
   })) {
     if (options.shouldAbort?.()) {
       break;
