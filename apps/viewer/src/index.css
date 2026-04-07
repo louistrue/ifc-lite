@@ -876,9 +876,9 @@ body {
   background-color: rgba(200, 195, 230, 0.22) !important;
 }
 
-/* ── Properties panel collapsible sections hover ── */
-.colorful .hover\:bg-zinc-50:hover,
-.colorful .hover\:bg-zinc-900:hover {
+/* ── Properties panel collapsible sections hover (right panel only) ── */
+.colorful [id="right-panel"] .hover\:bg-zinc-50:hover,
+.colorful [id="right-panel"] .hover\:bg-zinc-900:hover {
   background-color: rgba(240, 220, 195, 0.25) !important;
 }
 
