@@ -12,7 +12,10 @@ import type {
   PartOfRelation,
 } from '../types.js';
 import type { FacetCheckResult } from './index.js';
-import { matchConstraint, formatConstraint } from '../constraints/index.js';
+import { matchConstraint, formatConstraint, type MatchOptions } from '../constraints/index.js';
+
+/** IFC entity/predefined type comparisons are case-insensitive per IDS spec */
+const IFC_CASE_INSENSITIVE: MatchOptions = { caseInsensitive: true };
 
 /** Human-readable relation names */
 const RELATION_NAMES: Record<PartOfRelation, string> = {
@@ -66,8 +69,8 @@ export function checkPartOfFacet(
     };
   }
 
-  // Check parent entity type
-  if (!matchConstraint(facet.entity.name, parent.entityType)) {
+  // Check parent entity type (case-insensitive for IFC entity names)
+  if (!matchConstraint(facet.entity.name, parent.entityType, IFC_CASE_INSENSITIVE)) {
     const relationName = RELATION_NAMES[facet.relation] || facet.relation;
 
     return {
@@ -106,7 +109,7 @@ export function checkPartOfFacet(
       };
     }
 
-    if (!matchConstraint(facet.entity.predefinedType, parent.predefinedType)) {
+    if (!matchConstraint(facet.entity.predefinedType, parent.predefinedType, IFC_CASE_INSENSITIVE)) {
       return {
         passed: false,
         actualValue: `${parent.entityType}[${parent.predefinedType}]`,

@@ -12,7 +12,10 @@ import type {
   PropertySetInfo,
 } from '../types.js';
 import type { FacetCheckResult } from './index.js';
-import { matchConstraint, formatConstraint } from '../constraints/index.js';
+import { matchConstraint, formatConstraint, type MatchOptions } from '../constraints/index.js';
+
+/** IFC data type names (IFCLABEL, IFCREAL, etc.) are case-insensitive */
+const DATATYPE_OPTS: MatchOptions = { caseInsensitive: true };
 
 /**
  * Check if an entity matches a property facet
@@ -59,11 +62,26 @@ export function checkPropertyFacet(
   }
 
   // Check each matching property set for the property
+  // Track the most specific failure so we can return it instead of a generic PROPERTY_MISSING
+  let lastFailure: FacetCheckResult | undefined;
+
   for (const pset of matchingPsets) {
     const result = checkPropertyInPset(facet, pset);
     if (result.passed) {
       return result;
     }
+    // Keep the most specific failure (value/datatype mismatch over property-missing)
+    if (
+      !lastFailure ||
+      (result.failure?.type !== 'PROPERTY_MISSING' && lastFailure.failure?.type === 'PROPERTY_MISSING')
+    ) {
+      lastFailure = result;
+    }
+  }
+
+  // Return the most specific failure if we have one (e.g., value or datatype mismatch)
+  if (lastFailure && lastFailure.failure?.type !== 'PROPERTY_MISSING') {
+    return lastFailure;
   }
 
   // Property not found in any matching pset
@@ -117,9 +135,9 @@ function checkPropertyInPset(
 
   // Check each matching property
   for (const prop of matchingProps) {
-    // Check data type if specified
+    // Check data type if specified (IFC type names are case-insensitive)
     if (facet.dataType) {
-      if (!matchConstraint(facet.dataType, prop.dataType)) {
+      if (!matchConstraint(facet.dataType, prop.dataType, DATATYPE_OPTS)) {
         return {
           passed: false,
           actualValue: `${pset.name}.${prop.name} (${prop.dataType})`,

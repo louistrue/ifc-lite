@@ -17,24 +17,38 @@ import type {
 /** Numeric tolerance for floating point comparisons (per IDS spec) */
 const NUMERIC_TOLERANCE = 1e-6;
 
+/** Options for constraint matching */
+export interface MatchOptions {
+  /**
+   * If true, use case-insensitive comparison for string values.
+   * Per IDS 1.0 spec, only entity type names and predefined types
+   * should be compared case-insensitively. All other values
+   * (property values, classification values, etc.) are case-sensitive.
+   */
+  caseInsensitive?: boolean;
+}
+
 /**
  * Check if a value matches a constraint
  */
 export function matchConstraint(
   constraint: IDSConstraint,
-  actualValue: string | number | boolean | null | undefined
+  actualValue: string | number | boolean | null | undefined,
+  options?: MatchOptions
 ): boolean {
   if (actualValue === null || actualValue === undefined) {
     return false;
   }
 
+  const ci = options?.caseInsensitive ?? false;
+
   switch (constraint.type) {
     case 'simpleValue':
-      return matchSimpleValue(constraint, actualValue);
+      return matchSimpleValue(constraint, actualValue, ci);
     case 'pattern':
       return matchPattern(constraint, actualValue);
     case 'enumeration':
-      return matchEnumeration(constraint, actualValue);
+      return matchEnumeration(constraint, actualValue, ci);
     case 'bounds':
       return matchBounds(constraint, actualValue);
     default:
@@ -47,7 +61,8 @@ export function matchConstraint(
  */
 function matchSimpleValue(
   constraint: IDSSimpleValue,
-  actualValue: string | number | boolean
+  actualValue: string | number | boolean,
+  caseInsensitive: boolean
 ): boolean {
   const expected = constraint.value;
   const actualStr = String(actualValue);
@@ -55,8 +70,8 @@ function matchSimpleValue(
   // Exact string match
   if (actualStr === expected) return true;
 
-  // Case-insensitive match for IFC type names
-  if (actualStr.toUpperCase() === expected.toUpperCase()) return true;
+  // Case-insensitive match only when explicitly requested (IFC entity/predefined type names)
+  if (caseInsensitive && actualStr.toUpperCase() === expected.toUpperCase()) return true;
 
   // Numeric comparison with tolerance
   const expectedNum = parseFloat(expected);
@@ -105,7 +120,8 @@ function matchPattern(
     // Convert XSD regex to JavaScript regex
     const jsPattern = xsdToJsRegex(constraint.pattern);
     // IDS patterns must match the entire string
-    const regex = new RegExp(`^${jsPattern}$`, 'i');
+    // Per XSD/IDS spec, patterns are case-sensitive (no 'i' flag)
+    const regex = new RegExp(`^${jsPattern}$`);
     return regex.test(actualStr);
   } catch {
     // If pattern is invalid, don't match
@@ -135,7 +151,8 @@ function xsdToJsRegex(xsdPattern: string): string {
  */
 function matchEnumeration(
   constraint: IDSEnumerationConstraint,
-  actualValue: string | number | boolean
+  actualValue: string | number | boolean,
+  caseInsensitive: boolean
 ): boolean {
   const actualStr = String(actualValue);
   const actualUpper = actualStr.toUpperCase();
@@ -143,8 +160,8 @@ function matchEnumeration(
   return constraint.values.some((v) => {
     // Try exact match first
     if (v === actualStr) return true;
-    // Case-insensitive match
-    if (v.toUpperCase() === actualUpper) return true;
+    // Case-insensitive match only when explicitly requested
+    if (caseInsensitive && v.toUpperCase() === actualUpper) return true;
     // Numeric comparison
     const vNum = parseFloat(v);
     const actualNum =

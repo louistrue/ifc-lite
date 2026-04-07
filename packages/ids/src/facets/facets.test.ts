@@ -308,8 +308,6 @@ describe('checkPropertyFacet', () => {
   });
 
   it('fails when property value does not match', () => {
-    // Note: the outer checkPropertyFacet loop only returns early on pass,
-    // so a value mismatch falls through to the PROPERTY_MISSING catch-all
     const facet: IDSPropertyFacet = {
       type: 'property',
       propertySet: sv('Pset_WallCommon'),
@@ -318,7 +316,7 @@ describe('checkPropertyFacet', () => {
     };
     const result = checkPropertyFacet(facet, 1, accessor);
     expect(result.passed).toBe(false);
-    expect(result.failure?.type).toBe('PROPERTY_MISSING');
+    expect(result.failure?.type).toBe('PROPERTY_VALUE_MISMATCH');
   });
 
   it('passes when data type matches', () => {
@@ -333,8 +331,6 @@ describe('checkPropertyFacet', () => {
   });
 
   it('fails when data type does not match', () => {
-    // Same catch-all behavior: datatype mismatch in inner check is
-    // swallowed by outer loop falling through to PROPERTY_MISSING
     const facet: IDSPropertyFacet = {
       type: 'property',
       propertySet: sv('Pset_WallCommon'),
@@ -343,7 +339,7 @@ describe('checkPropertyFacet', () => {
     };
     const result = checkPropertyFacet(facet, 1, accessor);
     expect(result.passed).toBe(false);
-    expect(result.failure?.type).toBe('PROPERTY_MISSING');
+    expect(result.failure?.type).toBe('PROPERTY_DATATYPE_MISMATCH');
   });
 
   it('passes bounds check on numeric property', () => {
@@ -358,7 +354,6 @@ describe('checkPropertyFacet', () => {
   });
 
   it('fails bounds check when out of range', () => {
-    // Same catch-all: bounds violation falls through to PROPERTY_MISSING
     const facet: IDSPropertyFacet = {
       type: 'property',
       propertySet: sv('Pset_WallCommon'),
@@ -367,7 +362,7 @@ describe('checkPropertyFacet', () => {
     };
     const result = checkPropertyFacet(facet, 1, accessor);
     expect(result.passed).toBe(false);
-    expect(result.failure?.type).toBe('PROPERTY_MISSING');
+    expect(result.failure?.type).toBe('PROPERTY_OUT_OF_BOUNDS');
   });
 
   it('handles null property value', () => {
@@ -388,8 +383,7 @@ describe('checkPropertyFacet', () => {
     };
     const result = checkPropertyFacet(facet, 10, accessorWithNull);
     expect(result.passed).toBe(false);
-    // Null value mismatch also falls through to PROPERTY_MISSING
-    expect(result.failure?.type).toBe('PROPERTY_MISSING');
+    expect(result.failure?.type).toBe('PROPERTY_VALUE_MISMATCH');
   });
 });
 

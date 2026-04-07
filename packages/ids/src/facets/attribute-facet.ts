@@ -8,7 +8,10 @@
 
 import type { IDSAttributeFacet, IFCDataAccessor } from '../types.js';
 import type { FacetCheckResult } from './index.js';
-import { matchConstraint, formatConstraint } from '../constraints/index.js';
+import { matchConstraint, formatConstraint, type MatchOptions } from '../constraints/index.js';
+
+/** Attribute name matching is case-insensitive (IFC schema-defined names) */
+const ATTR_NAME_OPTS: MatchOptions = { caseInsensitive: true };
 
 /** Standard IFC attributes that can be checked */
 const STANDARD_ATTRIBUTES = [
@@ -39,7 +42,7 @@ export function checkAttributeFacet(
     // For patterns/enumerations, we need to check all matching attributes
     // Simplified: just check the first standard attribute that matches
     const matchingAttrs = STANDARD_ATTRIBUTES.filter((a) =>
-      matchConstraint(attrNameConstraint, a)
+      matchConstraint(attrNameConstraint, a, ATTR_NAME_OPTS)
     );
     if (matchingAttrs.length === 0) {
       return {

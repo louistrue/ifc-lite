@@ -14,6 +14,9 @@ import type {
 import type { FacetCheckResult } from './index.js';
 import { matchConstraint, formatConstraint } from '../constraints/index.js';
 
+/** IFC entity/predefined type comparisons are case-insensitive per IDS spec */
+const IFC_CASE_INSENSITIVE = { caseInsensitive: true } as const;
+
 /**
  * Check if an entity matches an entity facet
  */
@@ -38,8 +41,8 @@ export function checkEntityFacet(
     };
   }
 
-  // Check entity type
-  if (!matchConstraint(facet.name, entityType)) {
+  // Check entity type (case-insensitive per IDS spec — IFC entity names are case-agnostic)
+  if (!matchConstraint(facet.name, entityType, IFC_CASE_INSENSITIVE)) {
     return {
       passed: false,
       actualValue: entityType,
@@ -70,7 +73,7 @@ export function checkEntityFacet(
       };
     }
 
-    if (!matchConstraint(facet.predefinedType, objectType)) {
+    if (!matchConstraint(facet.predefinedType, objectType, IFC_CASE_INSENSITIVE)) {
       return {
         passed: false,
         actualValue: `${entityType}[${objectType}]`,
