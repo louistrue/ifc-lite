@@ -242,6 +242,7 @@ impl Mesh {
             chunk[1] = (chunk[1] as f64 - shift.y) as f32;
             chunk[2] = (chunk[2] as f64 - shift.z) as f32;
         }
+        self.rtc_applied = true;
     }
 
     /// Add a triangle
@@ -272,6 +273,11 @@ impl Mesh {
         // Vectorized index offset - more cache-friendly than loop
         self.indices
             .extend(other.indices.iter().map(|&i| i + vertex_offset));
+
+        // Preserve RTC state: if either mesh has RTC applied, the merged result does too
+        if other.rtc_applied {
+            self.rtc_applied = true;
+        }
     }
 
     /// Batch merge multiple meshes at once (more efficient than individual merges)
@@ -294,6 +300,11 @@ impl Mesh {
                 self.normals.extend_from_slice(&mesh.normals);
                 self.indices
                     .extend(mesh.indices.iter().map(|&i| i + vertex_offset));
+
+                // Preserve RTC state: if any mesh has RTC applied, the merged result does too
+                if mesh.rtc_applied {
+                    self.rtc_applied = true;
+                }
             }
         }
     }
@@ -392,6 +403,7 @@ impl Mesh {
         self.positions.clear();
         self.normals.clear();
         self.indices.clear();
+        self.rtc_applied = false;
     }
 
     /// Filter out triangles with edges exceeding the threshold

@@ -866,6 +866,31 @@ impl GeometryRouter {
             let mut mesh = processor.process(item, decoder, &self.schema)?;
             // Safety net: strip any out-of-bounds indices before downstream use
             mesh.validate_indices();
+
+            // For meshes with large coordinates: apply RTC with f64 precision
+            // to avoid jitter from f32 truncation at world-space scale.
+            // This covers FaceBasedSurface, ShellBasedSurface, and any other
+            // processor that stores raw world-space coordinates as f32.
+            if self.has_rtc_offset() && !mesh.rtc_applied && !mesh.positions.is_empty() {
+                let first_mag = (mesh.positions[0].abs() as f64)
+                    .max(mesh.positions[1].abs() as f64);
+                if first_mag > 10000.0 {
+                    // Positions are in file units (pre-scale). RTC offset is in meters.
+                    // Convert RTC to file units for consistent subtraction.
+                    let rtc_fu = (
+                        self.rtc_offset.0 / self.unit_scale,
+                        self.rtc_offset.1 / self.unit_scale,
+                        self.rtc_offset.2 / self.unit_scale,
+                    );
+                    for chunk in mesh.positions.chunks_exact_mut(3) {
+                        chunk[0] = (chunk[0] as f64 - rtc_fu.0) as f32;
+                        chunk[1] = (chunk[1] as f64 - rtc_fu.1) as f32;
+                        chunk[2] = (chunk[2] as f64 - rtc_fu.2) as f32;
+                    }
+                    mesh.rtc_applied = true;
+                }
+            }
+
             self.scale_mesh(&mut mesh);
 
             // Deduplicate by hash - buildings with repeated floors have identical geometry

@@ -198,7 +198,9 @@ export function useIfcFederation() {
         const existingModelsForRtc = Array.from(useViewerStore.getState().models.values()) as FederatedModel[];
         if (existingModelsForRtc.length > 0) {
           const sorted = [...existingModelsForRtc].sort((a, b) => (a.loadedAt ?? 0) - (b.loadedAt ?? 0));
-          sharedRtcOffset = sorted[0]?.geometryResult?.coordinateInfo?.wasmRtcOffset ?? undefined;
+          sharedRtcOffset = sorted.find(
+            (model) => model.geometryResult?.coordinateInfo?.wasmRtcOffset != null,
+          )?.geometryResult?.coordinateInfo?.wasmRtcOffset;
         }
 
         const result = await parseStepBufferViewerModel({

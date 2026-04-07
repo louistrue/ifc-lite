@@ -495,7 +495,10 @@ export class GeometryProcessor {
     buffer: Uint8Array,
     _entityIndex?: Map<number, any>,
     batchConfig: number | DynamicBatchConfig = 25,
-    _sharedRtcOffset?: { x: number; y: number; z: number },
+    // TODO: sharedRtcOffset is accepted but not yet threaded through to the
+    // WASM streaming collector. The WASM layer detects its own RTC offset
+    // per-model; federation-level override requires collector API changes.
+    sharedRtcOffset?: { x: number; y: number; z: number },
   ): AsyncGenerator<StreamingGeometryEvent> {
     // Initialize if needed
     if (this.isNative) {
@@ -882,6 +885,10 @@ export class GeometryProcessor {
         const collector = new IfcLiteMeshCollector(this.bridge!.getApi(), content);
         allMeshes = collector.collectMeshes();
       }
+
+      // NOTE: The sync path (<2MB) does not support sharedRtcOffset override.
+      // Infrastructure models with large coordinates are always >2MB and use
+      // the parallel/streaming paths where shared RTC is properly threaded.
 
       // Process coordinate shifts
       this.coordinateHandler.processMeshesIncremental(allMeshes);
