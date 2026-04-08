@@ -12,7 +12,10 @@ import type {
   PropertySetInfo,
 } from '../types.js';
 import type { FacetCheckResult } from './index.js';
-import { matchConstraint, formatConstraint } from '../constraints/index.js';
+import { matchConstraint, formatConstraint, type MatchOptions } from '../constraints/index.js';
+
+/** IFC data type names (IFCLABEL, IFCREAL, etc.) are case-insensitive */
+const DATATYPE_OPTS: MatchOptions = { caseInsensitive: true };
 
 /**
  * Check if an entity matches a property facet
@@ -59,11 +62,26 @@ export function checkPropertyFacet(
   }
 
   // Check each matching property set for the property
+  // Track the most specific failure so we can return it instead of a generic PROPERTY_MISSING
+  let lastFailure: FacetCheckResult | undefined;
+
   for (const pset of matchingPsets) {
     const result = checkPropertyInPset(facet, pset);
     if (result.passed) {
       return result;
     }
+    // Keep the most specific failure (value/datatype mismatch over property-missing)
+    if (
+      !lastFailure ||
+      (result.failure?.type !== 'PROPERTY_MISSING' && lastFailure.failure?.type === 'PROPERTY_MISSING')
+    ) {
+      lastFailure = result;
+    }
+  }
+
+  // Return the most specific failure if we have one (e.g., value or datatype mismatch)
+  if (lastFailure && lastFailure.failure?.type !== 'PROPERTY_MISSING') {
+    return lastFailure;
   }
 
   // Property not found in any matching pset
@@ -89,7 +107,9 @@ export function checkPropertyFacet(
 }
 
 /**
- * Check a property within a specific property set
+ * Check a property within a specific property set.
+ * Tries ALL matching properties and returns on first pass.
+ * If none pass, returns the most specific failure.
  */
 function checkPropertyInPset(
   facet: IDSPropertyFacet,
@@ -115,80 +135,96 @@ function checkPropertyInPset(
     };
   }
 
-  // Check each matching property
+  // Check each matching property — try all, return first pass, track best failure
+  let bestFailure: FacetCheckResult | undefined;
+
   for (const prop of matchingProps) {
-    // Check data type if specified
-    if (facet.dataType) {
-      if (!matchConstraint(facet.dataType, prop.dataType)) {
-        return {
-          passed: false,
-          actualValue: `${pset.name}.${prop.name} (${prop.dataType})`,
-          expectedValue: `dataType ${formatConstraint(facet.dataType)}`,
-          failure: {
-            type: 'PROPERTY_DATATYPE_MISMATCH',
-            field: `${pset.name}.${prop.name}`,
-            actual: prop.dataType,
-            expected: formatConstraint(facet.dataType),
-          },
-        };
-      }
+    const result = checkSingleProperty(facet, pset, prop);
+    if (result.passed) {
+      return result;
     }
 
-    // Check value if specified
-    if (facet.value) {
-      const propValue = prop.value;
-
-      if (propValue === null || propValue === undefined) {
-        return {
-          passed: false,
-          actualValue: '(empty)',
-          expectedValue: formatConstraint(facet.value),
-          failure: {
-            type: 'PROPERTY_VALUE_MISMATCH',
-            field: `${pset.name}.${prop.name}`,
-            actual: '(empty)',
-            expected: formatConstraint(facet.value),
-          },
-        };
-      }
-
-      if (!matchConstraint(facet.value, propValue)) {
-        // Check if it's a bounds violation
-        const failureType =
-          facet.value.type === 'bounds'
-            ? 'PROPERTY_OUT_OF_BOUNDS'
-            : 'PROPERTY_VALUE_MISMATCH';
-
-        return {
-          passed: false,
-          actualValue: String(propValue),
-          expectedValue: formatConstraint(facet.value),
-          failure: {
-            type: failureType,
-            field: `${pset.name}.${prop.name}`,
-            actual: String(propValue),
-            expected: formatConstraint(facet.value),
-          },
-        };
-      }
+    // Prefer value/bounds/datatype failures over generic missing
+    if (
+      !bestFailure ||
+      (result.failure?.type !== 'PROPERTY_MISSING' && bestFailure.failure?.type === 'PROPERTY_MISSING')
+    ) {
+      bestFailure = result;
     }
-
-    // Property passed all checks
-    return {
-      passed: true,
-      actualValue: `${pset.name}.${prop.name} = ${prop.value}`,
-      expectedValue: facet.value
-        ? formatConstraint(facet.value)
-        : 'property exists',
-    };
   }
 
-  // Should not reach here
+  return bestFailure!;
+}
+
+/**
+ * Check a single property against the facet's dataType and value constraints.
+ */
+function checkSingleProperty(
+  facet: IDSPropertyFacet,
+  pset: PropertySetInfo,
+  prop: PropertySetInfo['properties'][number]
+): FacetCheckResult {
+  // Check data type if specified (IFC type names are case-insensitive)
+  if (facet.dataType) {
+    if (!matchConstraint(facet.dataType, prop.dataType, DATATYPE_OPTS)) {
+      return {
+        passed: false,
+        actualValue: `${pset.name}.${prop.name} (${prop.dataType})`,
+        expectedValue: `dataType ${formatConstraint(facet.dataType)}`,
+        failure: {
+          type: 'PROPERTY_DATATYPE_MISMATCH',
+          field: `${pset.name}.${prop.name}`,
+          actual: prop.dataType,
+          expected: formatConstraint(facet.dataType),
+        },
+      };
+    }
+  }
+
+  // Check value if specified
+  if (facet.value) {
+    const propValue = prop.value;
+
+    if (propValue === null || propValue === undefined) {
+      return {
+        passed: false,
+        actualValue: '(empty)',
+        expectedValue: formatConstraint(facet.value),
+        failure: {
+          type: 'PROPERTY_VALUE_MISMATCH',
+          field: `${pset.name}.${prop.name}`,
+          actual: '(empty)',
+          expected: formatConstraint(facet.value),
+        },
+      };
+    }
+
+    if (!matchConstraint(facet.value, propValue)) {
+      const failureType =
+        facet.value.type === 'bounds'
+          ? 'PROPERTY_OUT_OF_BOUNDS'
+          : 'PROPERTY_VALUE_MISMATCH';
+
+      return {
+        passed: false,
+        actualValue: String(propValue),
+        expectedValue: formatConstraint(facet.value),
+        failure: {
+          type: failureType,
+          field: `${pset.name}.${prop.name}`,
+          actual: String(propValue),
+          expected: formatConstraint(facet.value),
+        },
+      };
+    }
+  }
+
+  // Property passed all checks
   return {
-    passed: false,
-    failure: {
-      type: 'PROPERTY_MISSING',
-      field: formatConstraint(facet.baseName),
-    },
+    passed: true,
+    actualValue: `${pset.name}.${prop.name} = ${prop.value}`,
+    expectedValue: facet.value
+      ? formatConstraint(facet.value)
+      : 'property exists',
   };
 }

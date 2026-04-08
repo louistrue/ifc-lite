@@ -28,10 +28,16 @@ describe('matchConstraint — simpleValue', () => {
     expect(matchConstraint(sv('hello'), 'world')).toBe(false);
   });
 
-  it('matches case-insensitively (IFC entity names)', () => {
-    expect(matchConstraint(sv('IFCWALL'), 'IfcWall')).toBe(true);
-    expect(matchConstraint(sv('IfcWall'), 'IFCWALL')).toBe(true);
-    expect(matchConstraint(sv('ifcwall'), 'IFCWALL')).toBe(true);
+  it('is case-sensitive by default', () => {
+    expect(matchConstraint(sv('IFCWALL'), 'IfcWall')).toBe(false);
+    expect(matchConstraint(sv('hello'), 'Hello')).toBe(false);
+  });
+
+  it('matches case-insensitively when option is set (IFC entity names)', () => {
+    const ci = { caseInsensitive: true };
+    expect(matchConstraint(sv('IFCWALL'), 'IfcWall', ci)).toBe(true);
+    expect(matchConstraint(sv('IfcWall'), 'IFCWALL', ci)).toBe(true);
+    expect(matchConstraint(sv('ifcwall'), 'IFCWALL', ci)).toBe(true);
   });
 
   it('matches numeric values with tolerance', () => {
@@ -57,11 +63,13 @@ describe('matchConstraint — simpleValue', () => {
     expect(matchConstraint(sv('true'), false)).toBe(false);
   });
 
-  it('matches boolean string values', () => {
+  it('matches boolean string values (case-sensitive)', () => {
     expect(matchConstraint(sv('true'), 'true')).toBe(true);
-    expect(matchConstraint(sv('TRUE'), 'true')).toBe(true);
-    expect(matchConstraint(sv('false'), 'FALSE')).toBe(true);
+    expect(matchConstraint(sv('false'), 'false')).toBe(true);
     expect(matchConstraint(sv('true'), 'false')).toBe(false);
+    // Case mismatch without caseInsensitive option
+    expect(matchConstraint(sv('TRUE'), 'true')).toBe(true); // boolean comparison still works
+    expect(matchConstraint(sv('false'), 'FALSE')).toBe(true); // boolean comparison still works
   });
 
   it('returns false for null/undefined', () => {
@@ -97,9 +105,11 @@ describe('matchConstraint — pattern', () => {
     expect(matchConstraint(pat('Wall'), 'WallBig')).toBe(false);
   });
 
-  it('is case-insensitive', () => {
-    expect(matchConstraint(pat('IFCWALL'), 'IfcWall')).toBe(true);
-    expect(matchConstraint(pat('ifcwall'), 'IFCWALL')).toBe(true);
+  it('is case-sensitive (per XSD/IDS spec)', () => {
+    expect(matchConstraint(pat('IFCWALL'), 'IfcWall')).toBe(false);
+    expect(matchConstraint(pat('ifcwall'), 'IFCWALL')).toBe(false);
+    expect(matchConstraint(pat('IFCWALL'), 'IFCWALL')).toBe(true);
+    expect(matchConstraint(pat('IfcWall'), 'IfcWall')).toBe(true);
   });
 
   it('converts XSD \\i to initial name char class', () => {
@@ -147,9 +157,15 @@ describe('matchConstraint — enumeration', () => {
     expect(matchConstraint(c, 'IFCCOLUMN')).toBe(false);
   });
 
-  it('matches case-insensitively', () => {
-    expect(matchConstraint(enumC(['IFCWALL']), 'IfcWall')).toBe(true);
-    expect(matchConstraint(enumC(['IfcWall']), 'IFCWALL')).toBe(true);
+  it('is case-sensitive by default', () => {
+    expect(matchConstraint(enumC(['IFCWALL']), 'IfcWall')).toBe(false);
+    expect(matchConstraint(enumC(['IfcWall']), 'IFCWALL')).toBe(false);
+  });
+
+  it('matches case-insensitively when option is set', () => {
+    const ci = { caseInsensitive: true };
+    expect(matchConstraint(enumC(['IFCWALL']), 'IfcWall', ci)).toBe(true);
+    expect(matchConstraint(enumC(['IfcWall']), 'IFCWALL', ci)).toBe(true);
   });
 
   it('matches numeric values with tolerance', () => {

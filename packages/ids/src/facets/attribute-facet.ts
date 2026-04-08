@@ -8,7 +8,10 @@
 
 import type { IDSAttributeFacet, IFCDataAccessor } from '../types.js';
 import type { FacetCheckResult } from './index.js';
-import { matchConstraint, formatConstraint } from '../constraints/index.js';
+import { matchConstraint, formatConstraint, type MatchOptions } from '../constraints/index.js';
+
+/** Attribute name matching is case-insensitive (IFC schema-defined names) */
+const ATTR_NAME_OPTS: MatchOptions = { caseInsensitive: true };
 
 /** Standard IFC attributes that can be checked */
 const STANDARD_ATTRIBUTES = [
@@ -28,22 +31,25 @@ export function checkAttributeFacet(
   expressId: number,
   accessor: IFCDataAccessor
 ): FacetCheckResult {
-  // Get the attribute name to check
   const attrNameConstraint = facet.name;
-  let attrName: string;
 
-  // For simple value, use the name directly
+  // Resolve which attribute name(s) to check
+  let attrNamesToCheck: string[];
+
   if (attrNameConstraint.type === 'simpleValue') {
-    attrName = attrNameConstraint.value;
+    attrNamesToCheck = [attrNameConstraint.value];
   } else {
-    // For patterns/enumerations, we need to check all matching attributes
-    // Simplified: just check the first standard attribute that matches
-    const matchingAttrs = STANDARD_ATTRIBUTES.filter((a) =>
-      matchConstraint(attrNameConstraint, a)
+    // For patterns/enumerations, check ALL matching standard attributes (not just the first)
+    attrNamesToCheck = STANDARD_ATTRIBUTES.filter((a) =>
+      matchConstraint(attrNameConstraint, a, ATTR_NAME_OPTS)
     );
-    if (matchingAttrs.length === 0) {
+
+    if (attrNamesToCheck.length === 0) {
       return {
         passed: false,
+        expectedValue: facet.value
+          ? formatConstraint(facet.value)
+          : `attribute matching ${formatConstraint(attrNameConstraint)} to exist`,
         failure: {
           type: 'ATTRIBUTE_MISSING',
           field: formatConstraint(attrNameConstraint),
@@ -51,10 +57,39 @@ export function checkAttributeFacet(
         },
       };
     }
-    attrName = matchingAttrs[0];
   }
 
-  // Get the attribute value
+  // Check each matching attribute; return on first pass, track most specific failure
+  let bestFailure: FacetCheckResult | undefined;
+
+  for (const attrName of attrNamesToCheck) {
+    const result = checkSingleAttribute(facet, attrName, expressId, accessor);
+    if (result.passed) {
+      return result;
+    }
+
+    // Prefer value/pattern mismatch over attribute-missing (more specific)
+    if (
+      !bestFailure ||
+      (result.failure?.type !== 'ATTRIBUTE_MISSING' && bestFailure.failure?.type === 'ATTRIBUTE_MISSING')
+    ) {
+      bestFailure = result;
+    }
+  }
+
+  // Return the most specific failure we found
+  return bestFailure!;
+}
+
+/**
+ * Check a single attribute by name against the facet's value constraint
+ */
+function checkSingleAttribute(
+  facet: IDSAttributeFacet,
+  attrName: string,
+  expressId: number,
+  accessor: IFCDataAccessor
+): FacetCheckResult {
   const attrValue = getAttributeValue(attrName, expressId, accessor);
 
   // Check if attribute exists

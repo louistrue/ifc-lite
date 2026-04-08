@@ -19,7 +19,11 @@ import type {
   ParentInfo,
   PartOfRelation,
 } from '@ifc-lite/ids';
-import type { IfcDataStore } from '@ifc-lite/parser';
+import {
+  type IfcDataStore,
+  extractAllEntityAttributes,
+  extractTypeEntityOwnProperties,
+} from '@ifc-lite/parser';
 
 /**
  * Create an IFCDataAccessor from an IfcDataStore
@@ -59,7 +63,26 @@ export function createDataAccessor(
     },
 
     getObjectType(expressId: number): string | undefined {
-      return dataStore.entities?.getObjectType?.(expressId);
+      // Try the pre-computed ObjectType first (works for IfcObject subtypes)
+      const objectType = dataStore.entities?.getObjectType?.(expressId);
+      if (objectType) return objectType;
+
+      // For IfcTypeObject subtypes (IfcWallType, etc.), ObjectType doesn't exist —
+      // we need to extract PredefinedType from entity attributes instead.
+      // Also handles IfcObject subtypes that have PredefinedType at different positions.
+      const allAttrs = extractAllEntityAttributes(dataStore, expressId);
+      const predefinedType = allAttrs.find(a => a.name === 'PredefinedType');
+      if (predefinedType?.value && predefinedType.value !== 'NOTDEFINED') {
+        return predefinedType.value;
+      }
+
+      // If PredefinedType is USERDEFINED or absent, check ObjectType from attributes
+      const objTypeAttr = allAttrs.find(a => a.name === 'ObjectType');
+      if (objTypeAttr?.value) {
+        return objTypeAttr.value;
+      }
+
+      return undefined;
     },
 
     getEntitiesByType(typeName: string): number[] {
@@ -119,29 +142,42 @@ export function createDataAccessor(
 
     getPropertySets(expressId: number): PropertySetInfo[] {
       const propertiesStore = dataStore.properties;
-      if (!propertiesStore) return [];
 
-      // Use getForEntity (returns PropertySet[])
-      const psets = propertiesStore.getForEntity?.(expressId);
-      if (!psets) return [];
+      // Try relationship-based properties first (works for IfcObject instances)
+      const psets = propertiesStore?.getForEntity?.(expressId);
 
-      return psets.map((pset) => ({
-        name: pset.name,
-        properties: (pset.properties || []).map((prop) => {
-          // Convert value: ensure it's a primitive type (not array)
-          let value: string | number | boolean | null = null;
-          if (Array.isArray(prop.value)) {
-            value = JSON.stringify(prop.value);
-          } else {
-            value = prop.value as string | number | boolean | null;
-          }
-          return {
-            name: prop.name,
-            value,
-            dataType: String(prop.type || 'IFCLABEL'),
-          };
-        }),
-      }));
+      // Convert property sets to the IDS format
+      const mapPsets = (rawPsets: Array<{ name: string; properties: Array<{ name: string; value: unknown; type: unknown }> }>): PropertySetInfo[] =>
+        rawPsets.map((pset) => ({
+          name: pset.name,
+          properties: (pset.properties || []).map((prop) => {
+            let value: string | number | boolean | null = null;
+            if (Array.isArray(prop.value)) {
+              value = JSON.stringify(prop.value);
+            } else {
+              value = prop.value as string | number | boolean | null;
+            }
+            return {
+              name: prop.name,
+              value,
+              dataType: String(prop.type || 'IFCLABEL'),
+            };
+          }),
+        }));
+
+      if (psets && psets.length > 0) {
+        return mapPsets(psets);
+      }
+
+      // For IfcTypeObject subtypes (IfcWallType, IfcSlabType, etc.),
+      // properties come from the HasPropertySets attribute (index 5),
+      // not from IfcRelDefinesByProperties relationships.
+      const typePsets = extractTypeEntityOwnProperties(dataStore, expressId);
+      if (typePsets.length > 0) {
+        return mapPsets(typePsets);
+      }
+
+      return [];
     },
 
     getClassifications(expressId: number): ClassificationInfo[] {
