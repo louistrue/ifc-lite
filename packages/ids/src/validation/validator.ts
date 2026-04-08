@@ -482,6 +482,10 @@ function formatFailureReason(result: FacetCheckResult): string {
       return `Not ${field} any entity`;
     case 'PARTOF_ENTITY_MISMATCH':
       return `Parent entity "${actual}" does not match expected ${expected}`;
+    case 'PARTOF_PREDEFINED_TYPE_MISSING':
+      return `Parent entity predefined type is missing, expected ${expected}`;
+    case 'PARTOF_PREDEFINED_TYPE_MISMATCH':
+      return `Parent entity predefined type "${actual}" does not match expected ${expected}`;
     default:
       return `Validation failed: ${type}`;
   }

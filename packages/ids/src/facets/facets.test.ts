@@ -226,6 +226,51 @@ describe('checkAttributeFacet', () => {
     expect(result.passed).toBe(false);
     expect(result.failure?.type).toBe('ATTRIBUTE_MISSING');
   });
+
+  it('checks all matching attributes for pattern name (not just first)', () => {
+    // Entity 1 has Name and Description — pattern ".*tion" matches Description only
+    // Entity 1 has description 'Exterior wall', which exists → should pass existence check
+    const facet: IDSAttributeFacet = {
+      type: 'attribute',
+      name: { type: 'pattern', pattern: 'Desc.*' },
+    };
+    const result = checkAttributeFacet(facet, 1, accessor);
+    expect(result.passed).toBe(true);
+    expect(result.actualValue).toBe('Exterior wall');
+  });
+
+  it('returns value mismatch over attribute missing when pattern name matches multiple attrs', () => {
+    // Create an accessor where Name exists but Description is missing
+    const partialAccessor = createMockAccessor([
+      { expressId: 10, type: 'IfcWall', name: 'W1' }, // has Name, no Description
+    ]);
+    // Pattern matches both 'Name' and ... nothing else starting with 'N'
+    // Use enumeration to check multiple: Name + Description
+    const facet: IDSAttributeFacet = {
+      type: 'attribute',
+      name: { type: 'enumeration', values: ['Name', 'Description'] },
+      value: sv('W1'),
+    };
+    const result = checkAttributeFacet(facet, 10, partialAccessor);
+    // Name='W1' matches value constraint 'W1' → should pass
+    expect(result.passed).toBe(true);
+    expect(result.actualValue).toBe('W1');
+  });
+
+  it('returns most specific failure across multiple attribute candidates', () => {
+    // Entity has Name='Wall_001' but Description is missing
+    // Checking enumeration [Name, Description] with value constraint 'WRONG'
+    const facet: IDSAttributeFacet = {
+      type: 'attribute',
+      name: { type: 'enumeration', values: ['Name', 'Description'] },
+      value: sv('WRONG'),
+    };
+    const result = checkAttributeFacet(facet, 1, accessor);
+    expect(result.passed).toBe(false);
+    // Name exists but value doesn't match → VALUE_MISMATCH (more specific than Description's MISSING)
+    expect(result.failure?.type).toBe('ATTRIBUTE_VALUE_MISMATCH');
+    expect(result.failure?.actual).toBe('Wall_001');
+  });
 });
 
 // ============================================================================
@@ -365,6 +410,41 @@ describe('checkPropertyFacet', () => {
     expect(result.failure?.type).toBe('PROPERTY_OUT_OF_BOUNDS');
   });
 
+  it('tries all matching properties in pset (not just first)', () => {
+    // Two properties match the name pattern, first fails value, second passes
+    const multiPropAccessor = createMockAccessor([
+      {
+        expressId: 20,
+        type: 'IfcWall',
+        properties: [
+          { psetName: 'Custom', propName: 'Rating_A', value: 'LOW', dataType: 'IFCLABEL' },
+          { psetName: 'Custom', propName: 'Rating_B', value: 'HIGH', dataType: 'IFCLABEL' },
+        ],
+      },
+    ]);
+    const facet: IDSPropertyFacet = {
+      type: 'property',
+      propertySet: sv('Custom'),
+      baseName: { type: 'pattern', pattern: 'Rating_.*' },
+      value: sv('HIGH'),
+    };
+    const result = checkPropertyFacet(facet, 20, multiPropAccessor);
+    expect(result.passed).toBe(true);
+  });
+
+  it('returns value mismatch (not property missing) when property found but value wrong', () => {
+    // Single matching property, value doesn't match
+    const facet: IDSPropertyFacet = {
+      type: 'property',
+      propertySet: sv('Pset_WallCommon'),
+      baseName: sv('IsExternal'),
+      value: sv('false'),
+    };
+    const result = checkPropertyFacet(facet, 1, accessor);
+    expect(result.passed).toBe(false);
+    expect(result.failure?.type).toBe('PROPERTY_VALUE_MISMATCH');
+  });
+
   it('handles null property value', () => {
     const accessorWithNull = createMockAccessor([
       {
@@ -481,14 +561,38 @@ describe('checkClassificationFacet', () => {
     expect(result.failure?.type).toBe('CLASSIFICATION_VALUE_MISMATCH');
   });
 
-  it('fails system check when entity has no classifications', () => {
+  it('returns CLASSIFICATION_MISSING when entity has no classifications (with system constraint)', () => {
     const facet: IDSClassificationFacet = {
       type: 'classification',
       system: sv('Uniclass'),
     };
     const result = checkClassificationFacet(facet, 2, accessor);
     expect(result.passed).toBe(false);
-    expect(result.failure?.type).toBe('CLASSIFICATION_SYSTEM_MISMATCH');
+    expect(result.failure?.type).toBe('CLASSIFICATION_MISSING');
+    expect(result.actualValue).toBe('(none)');
+  });
+
+  it('returns CLASSIFICATION_MISSING when entity has no classifications (with value constraint)', () => {
+    const facet: IDSClassificationFacet = {
+      type: 'classification',
+      value: sv('EF_25_10'),
+    };
+    const result = checkClassificationFacet(facet, 2, accessor);
+    expect(result.passed).toBe(false);
+    expect(result.failure?.type).toBe('CLASSIFICATION_MISSING');
+    expect(result.actualValue).toBe('(none)');
+  });
+
+  it('returns CLASSIFICATION_MISSING when entity has no classifications (with system + value constraint)', () => {
+    const facet: IDSClassificationFacet = {
+      type: 'classification',
+      system: sv('Uniclass'),
+      value: sv('EF_25_10'),
+    };
+    const result = checkClassificationFacet(facet, 2, accessor);
+    expect(result.passed).toBe(false);
+    expect(result.failure?.type).toBe('CLASSIFICATION_MISSING');
+    expect(result.actualValue).toBe('(none)');
   });
 });
 
@@ -677,7 +781,9 @@ describe('checkPartOfFacet', () => {
     };
     const result = checkPartOfFacet(facet, 3, accessor);
     expect(result.passed).toBe(false);
-    expect(result.failure?.type).toBe('PARTOF_ENTITY_MISMATCH');
+    expect(result.failure?.type).toBe('PARTOF_PREDEFINED_TYPE_MISMATCH');
+    expect(result.failure?.actual).toBe('STANDARD');
+    expect(result.failure?.expected).toContain('CURTAIN');
   });
 
   it('fails when parent has no predefined type but one is required', () => {
@@ -692,7 +798,7 @@ describe('checkPartOfFacet', () => {
     };
     const result = checkPartOfFacet(facet, 4, accessor);
     expect(result.passed).toBe(false);
-    expect(result.failure?.type).toBe('PARTOF_ENTITY_MISMATCH');
+    expect(result.failure?.type).toBe('PARTOF_PREDEFINED_TYPE_MISSING');
     expect(result.failure?.field).toBe('predefinedType');
   });
 });

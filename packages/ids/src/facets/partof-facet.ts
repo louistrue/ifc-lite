@@ -98,7 +98,7 @@ export function checkPartOfFacet(
         actualValue: `${parent.entityType} (no predefinedType)`,
         expectedValue: `${formatConstraint(facet.entity.name)} with predefinedType ${formatConstraint(facet.entity.predefinedType)}`,
         failure: {
-          type: 'PARTOF_ENTITY_MISMATCH',
+          type: 'PARTOF_PREDEFINED_TYPE_MISSING',
           field: 'predefinedType',
           expected: formatConstraint(facet.entity.predefinedType),
           context: {
@@ -115,7 +115,7 @@ export function checkPartOfFacet(
         actualValue: `${parent.entityType}[${parent.predefinedType}]`,
         expectedValue: `${formatConstraint(facet.entity.name)}[${formatConstraint(facet.entity.predefinedType)}]`,
         failure: {
-          type: 'PARTOF_ENTITY_MISMATCH',
+          type: 'PARTOF_PREDEFINED_TYPE_MISMATCH',
           field: 'predefinedType',
           actual: parent.predefinedType,
           expected: formatConstraint(facet.entity.predefinedType),
