@@ -30,6 +30,8 @@ export interface UISlice {
   separationLinesQuality: SeparationLinesQuality;
   separationLinesIntensity: number;
   separationLinesRadius: number;
+  /** When true, multilayer wall parts are merged into single solids on import */
+  mergeWallLayers: boolean;
 
   // Actions
   setLeftPanelCollapsed: (collapsed: boolean) => void;
@@ -51,6 +53,7 @@ export interface UISlice {
   setSeparationLinesQuality: (quality: SeparationLinesQuality) => void;
   setSeparationLinesIntensity: (intensity: number) => void;
   setSeparationLinesRadius: (radius: number) => void;
+  setMergeWallLayers: (enabled: boolean) => void;
 }
 
 /** Apply the correct CSS classes on <html> for the given theme */
@@ -78,6 +81,7 @@ export const createUISlice: StateCreator<UISlice, [], [], UISlice> = (set, get) 
   separationLinesQuality: UI_DEFAULTS.SEPARATION_LINES_QUALITY,
   separationLinesIntensity: UI_DEFAULTS.SEPARATION_LINES_INTENSITY,
   separationLinesRadius: UI_DEFAULTS.SEPARATION_LINES_RADIUS,
+  mergeWallLayers: UI_DEFAULTS.MERGE_WALL_LAYERS,
 
   // Actions
   setLeftPanelCollapsed: (leftPanelCollapsed) => set({ leftPanelCollapsed }),
@@ -121,4 +125,5 @@ export const createUISlice: StateCreator<UISlice, [], [], UISlice> = (set, get) 
   setSeparationLinesQuality: (separationLinesQuality) => set({ separationLinesQuality }),
   setSeparationLinesIntensity: (separationLinesIntensity) => set({ separationLinesIntensity }),
   setSeparationLinesRadius: (separationLinesRadius) => set({ separationLinesRadius }),
+  setMergeWallLayers: (mergeWallLayers) => set({ mergeWallLayers }),
 });

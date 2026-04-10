@@ -285,6 +285,8 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
   const toggleHoverTooltips = useViewerStore((state) => state.toggleHoverTooltips);
   const typeVisibility = useViewerStore((state) => state.typeVisibility);
   const toggleTypeVisibility = useViewerStore((state) => state.toggleTypeVisibility);
+  const mergeWallLayers = useViewerStore((state) => state.mergeWallLayers);
+  const setMergeWallLayers = useViewerStore((state) => state.setMergeWallLayers);
   const resetViewerState = useViewerStore((state) => state.resetViewerState);
   const bcfPanelVisible = useViewerStore((state) => state.bcfPanelVisible);
   const setBcfPanelVisible = useViewerStore((state) => state.setBcfPanelVisible);
@@ -1130,6 +1132,13 @@ export function MainToolbar({ onShowShortcuts }: MainToolbarProps = {} as MainTo
               Show Site
             </DropdownMenuCheckboxItem>
           )}
+          <DropdownMenuSeparator />
+          <DropdownMenuCheckboxItem
+            checked={mergeWallLayers}
+            onCheckedChange={(checked) => setMergeWallLayers(checked)}
+          >
+            Merge Wall Layers
+          </DropdownMenuCheckboxItem>
         </DropdownMenuContent>
       </DropdownMenu>
 

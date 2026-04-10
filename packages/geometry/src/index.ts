@@ -85,6 +85,8 @@ interface ByteStreamingPrePassResult {
 export interface GeometryProcessorOptions {
   quality?: GeometryQuality; // Default: Balanced
   preferNative?: boolean; // Default: true in Tauri
+  /** Merge multilayer wall parts into a single solid per wall. Reduces draw calls for large models. */
+  mergeLayers?: boolean; // Default: false
 }
 
 /**
@@ -149,11 +151,14 @@ export class GeometryProcessor {
   private coordinateHandler: CoordinateHandler;
   private isNative: boolean = false;
   private lastNativeStats: PlatformGeometryStats | null = null;
+  /** When true, multilayer wall parts are merged into a single solid per wall */
+  private mergeLayers: boolean = false;
 
   constructor(options: GeometryProcessorOptions = {}) {
     this.bufferBuilder = new BufferBuilder();
     this.coordinateHandler = new CoordinateHandler();
     this.isNative = options.preferNative !== false && isTauri();
+    this.mergeLayers = options.mergeLayers ?? false;
     // Note: options accepted for API compatibility
     void options.quality;
 
@@ -280,7 +285,7 @@ export class GeometryProcessor {
     const decoder = new TextDecoder();
     const content = decoder.decode(buffer);
 
-    const collector = new IfcLiteMeshCollector(this.bridge.getApi(), content);
+    const collector = new IfcLiteMeshCollector(this.bridge.getApi(), content, this.mergeLayers);
     const meshes = collector.collectMeshes();
     const buildingRotation = collector.getBuildingRotation();
 
@@ -612,7 +617,7 @@ export class GeometryProcessor {
 
       yield { type: 'model-open', modelID: 0 };
 
-      const collector = new IfcLiteMeshCollector(this.bridge.getApi(), content);
+      const collector = new IfcLiteMeshCollector(this.bridge.getApi(), content, this.mergeLayers);
       let totalMeshes = 0;
       let extractedBuildingRotation: number | undefined = undefined;
 

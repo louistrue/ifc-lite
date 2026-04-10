@@ -269,6 +269,118 @@ impl MeshCollection {
         self.building_rotation = rotation;
     }
 
+    /// Merge multilayer wall children into their parent wall mesh.
+    ///
+    /// When `merge_layers` is enabled, child `IfcBuildingElementPart` meshes that belong
+    /// to a parent `IfcWall` (via `IfcRelAggregates`) are merged into a single mesh using
+    /// the parent wall's express ID and color. This reduces draw calls and memory usage
+    /// for large models with multilayer walls.
+    ///
+    /// # Arguments
+    /// * `wall_aggregate_index` - Parent wall ID → child part IDs
+    /// * `child_to_wall_parent` - Child part ID → parent wall ID
+    /// * `parent_colors` - Optional parent wall colors (from style index)
+    /// * `default_wall_color` - Fallback color for merged walls
+    pub fn merge_wall_layers(
+        &mut self,
+        wall_aggregate_index: &rustc_hash::FxHashMap<u32, Vec<u32>>,
+        child_to_wall_parent: &rustc_hash::FxHashMap<u32, u32>,
+        parent_colors: &rustc_hash::FxHashMap<u32, [f32; 4]>,
+        default_wall_color: [f32; 4],
+    ) {
+        if wall_aggregate_index.is_empty() {
+            return;
+        }
+
+        // Group mesh indices by parent wall ID
+        let mut parent_to_mesh_indices: rustc_hash::FxHashMap<u32, Vec<usize>> =
+            rustc_hash::FxHashMap::default();
+        for (idx, mesh) in self.meshes.iter().enumerate() {
+            if let Some(&parent_id) = child_to_wall_parent.get(&mesh.express_id) {
+                parent_to_mesh_indices
+                    .entry(parent_id)
+                    .or_default()
+                    .push(idx);
+            }
+        }
+
+        if parent_to_mesh_indices.is_empty() {
+            return;
+        }
+
+        // Collect indices of meshes to remove (children that will be merged)
+        let mut indices_to_remove: Vec<usize> = Vec::new();
+        // Collect merged meshes to add
+        let mut merged_meshes: Vec<MeshDataJs> = Vec::new();
+
+        for (parent_id, child_indices) in &parent_to_mesh_indices {
+            if child_indices.len() < 2 {
+                // Single layer — nothing to merge
+                continue;
+            }
+
+            // Calculate total capacity needed
+            let total_positions: usize = child_indices
+                .iter()
+                .map(|&i| self.meshes[i].positions.len())
+                .sum();
+            let total_normals: usize = child_indices
+                .iter()
+                .map(|&i| self.meshes[i].normals.len())
+                .sum();
+            let total_indices: usize = child_indices
+                .iter()
+                .map(|&i| self.meshes[i].indices.len())
+                .sum();
+
+            let mut merged_positions = Vec::with_capacity(total_positions);
+            let mut merged_normals = Vec::with_capacity(total_normals);
+            let mut merged_indices = Vec::with_capacity(total_indices);
+
+            // Merge all child meshes (coordinates are already in Y-up/WebGL space)
+            for &idx in child_indices {
+                let child = &self.meshes[idx];
+                let vertex_offset = (merged_positions.len() / 3) as u32;
+
+                merged_positions.extend_from_slice(&child.positions);
+                merged_normals.extend_from_slice(&child.normals);
+                merged_indices.extend(child.indices.iter().map(|&i| i + vertex_offset));
+            }
+
+            // Use parent wall's color, falling back to first child's color, then default
+            let color = parent_colors
+                .get(parent_id)
+                .copied()
+                .unwrap_or_else(|| self.meshes[child_indices[0]].color);
+            let _ = default_wall_color; // Available if neither parent nor child has color
+
+            merged_meshes.push(MeshDataJs {
+                express_id: *parent_id,
+                ifc_type: "IfcWall".to_string(),
+                positions: merged_positions,
+                normals: merged_normals,
+                indices: merged_indices,
+                color,
+            });
+
+            indices_to_remove.extend(child_indices);
+        }
+
+        if indices_to_remove.is_empty() {
+            return;
+        }
+
+        // Sort in reverse order so we can remove from back to front without invalidating indices
+        indices_to_remove.sort_unstable();
+        indices_to_remove.dedup();
+        for &idx in indices_to_remove.iter().rev() {
+            self.meshes.swap_remove(idx);
+        }
+
+        // Add merged meshes
+        self.meshes.extend(merged_meshes);
+    }
+
     /// Apply RTC offset to all meshes (shift coordinates)
     /// This is used when meshes are collected first and then shifted
     pub fn apply_rtc_offset(&mut self, x: f64, y: f64, z: f64) {
@@ -894,5 +1006,199 @@ mod tests {
         assert!(!mesh.positions_ptr().is_null());
         assert!(!mesh.normals_ptr().is_null());
         assert!(!mesh.indices_ptr().is_null());
+    }
+
+    /// Helper to create a MeshDataJs directly (bypassing coordinate conversion)
+    fn make_test_mesh(express_id: u32, ifc_type: &str, positions: Vec<f32>, color: [f32; 4]) -> MeshDataJs {
+        let vertex_count = positions.len() / 3;
+        let normals = vec![0.0; positions.len()];
+        let indices: Vec<u32> = if vertex_count >= 3 {
+            (0..vertex_count as u32).collect()
+        } else {
+            vec![]
+        };
+        MeshDataJs {
+            express_id,
+            ifc_type: ifc_type.to_string(),
+            positions,
+            normals,
+            indices,
+            color,
+        }
+    }
+
+    #[test]
+    fn test_merge_wall_layers_basic() {
+        use rustc_hash::FxHashMap;
+
+        // Parent wall #100 with two child layers #101, #102
+        let mut wall_aggregate_index: FxHashMap<u32, Vec<u32>> = FxHashMap::default();
+        wall_aggregate_index.insert(100, vec![101, 102]);
+
+        let mut child_to_wall_parent: FxHashMap<u32, u32> = FxHashMap::default();
+        child_to_wall_parent.insert(101, 100);
+        child_to_wall_parent.insert(102, 100);
+
+        let parent_colors: FxHashMap<u32, [f32; 4]> = FxHashMap::default();
+        let default_wall_color = [0.8, 0.8, 0.8, 1.0];
+
+        // Create collection with 3 meshes: 2 child layers + 1 unrelated
+        let child1 = make_test_mesh(101, "IfcBuildingElementPart", vec![0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0], [1.0, 0.0, 0.0, 1.0]);
+        let child2 = make_test_mesh(102, "IfcBuildingElementPart", vec![2.0, 0.0, 0.0, 3.0, 0.0, 0.0, 2.0, 1.0, 0.0], [0.0, 1.0, 0.0, 1.0]);
+        let unrelated = make_test_mesh(200, "IfcSlab", vec![0.0, 0.0, 0.0, 5.0, 0.0, 0.0, 0.0, 5.0, 0.0], [0.5, 0.5, 0.5, 1.0]);
+
+        let mut collection = MeshCollection::new();
+        collection.add(child1);
+        collection.add(child2);
+        collection.add(unrelated);
+
+        assert_eq!(collection.len(), 3);
+
+        collection.merge_wall_layers(
+            &wall_aggregate_index,
+            &child_to_wall_parent,
+            &parent_colors,
+            default_wall_color,
+        );
+
+        // Should have 2 meshes: 1 merged wall + 1 unrelated slab
+        assert_eq!(collection.len(), 2);
+
+        // Find the merged wall mesh
+        let merged = collection.meshes.iter().find(|m| m.express_id == 100);
+        assert!(merged.is_some(), "Merged wall mesh with parent ID 100 should exist");
+        let merged = merged.unwrap();
+
+        // Merged mesh should have all 6 vertices (3 from each child)
+        assert_eq!(merged.positions.len() / 3, 6);
+        assert_eq!(merged.ifc_type, "IfcWall");
+
+        // Unrelated slab should still be there
+        let slab = collection.meshes.iter().find(|m| m.express_id == 200);
+        assert!(slab.is_some(), "Unrelated slab should still exist");
+    }
+
+    #[test]
+    fn test_merge_wall_layers_single_layer_no_merge() {
+        use rustc_hash::FxHashMap;
+
+        // Parent wall #100 with only 1 child layer #101
+        let mut wall_aggregate_index: FxHashMap<u32, Vec<u32>> = FxHashMap::default();
+        wall_aggregate_index.insert(100, vec![101]);
+
+        let mut child_to_wall_parent: FxHashMap<u32, u32> = FxHashMap::default();
+        child_to_wall_parent.insert(101, 100);
+
+        let parent_colors: FxHashMap<u32, [f32; 4]> = FxHashMap::default();
+
+        let child1 = make_test_mesh(101, "IfcBuildingElementPart", vec![0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0], [1.0, 0.0, 0.0, 1.0]);
+
+        let mut collection = MeshCollection::new();
+        collection.add(child1);
+
+        collection.merge_wall_layers(
+            &wall_aggregate_index,
+            &child_to_wall_parent,
+            &parent_colors,
+            [0.8, 0.8, 0.8, 1.0],
+        );
+
+        // Single layer should NOT be merged (nothing to merge with)
+        assert_eq!(collection.len(), 1);
+        assert_eq!(collection.meshes[0].express_id, 101);
+    }
+
+    #[test]
+    fn test_merge_wall_layers_empty_index() {
+        use rustc_hash::FxHashMap;
+
+        let wall_aggregate_index: FxHashMap<u32, Vec<u32>> = FxHashMap::default();
+        let child_to_wall_parent: FxHashMap<u32, u32> = FxHashMap::default();
+        let parent_colors: FxHashMap<u32, [f32; 4]> = FxHashMap::default();
+
+        let mesh = make_test_mesh(200, "IfcSlab", vec![0.0; 9], [0.5, 0.5, 0.5, 1.0]);
+        let mut collection = MeshCollection::new();
+        collection.add(mesh);
+
+        collection.merge_wall_layers(
+            &wall_aggregate_index,
+            &child_to_wall_parent,
+            &parent_colors,
+            [0.8, 0.8, 0.8, 1.0],
+        );
+
+        // No aggregates — nothing should change
+        assert_eq!(collection.len(), 1);
+        assert_eq!(collection.meshes[0].express_id, 200);
+    }
+
+    #[test]
+    fn test_merge_wall_layers_uses_parent_color() {
+        use rustc_hash::FxHashMap;
+
+        let mut wall_aggregate_index: FxHashMap<u32, Vec<u32>> = FxHashMap::default();
+        wall_aggregate_index.insert(100, vec![101, 102]);
+
+        let mut child_to_wall_parent: FxHashMap<u32, u32> = FxHashMap::default();
+        child_to_wall_parent.insert(101, 100);
+        child_to_wall_parent.insert(102, 100);
+
+        let mut parent_colors: FxHashMap<u32, [f32; 4]> = FxHashMap::default();
+        parent_colors.insert(100, [0.2, 0.4, 0.6, 1.0]);
+
+        let child1 = make_test_mesh(101, "IfcBuildingElementPart", vec![0.0; 9], [1.0, 0.0, 0.0, 1.0]);
+        let child2 = make_test_mesh(102, "IfcBuildingElementPart", vec![1.0; 9], [0.0, 1.0, 0.0, 1.0]);
+
+        let mut collection = MeshCollection::new();
+        collection.add(child1);
+        collection.add(child2);
+
+        collection.merge_wall_layers(
+            &wall_aggregate_index,
+            &child_to_wall_parent,
+            &parent_colors,
+            [0.8, 0.8, 0.8, 1.0],
+        );
+
+        let merged = collection.meshes.iter().find(|m| m.express_id == 100).unwrap();
+        // Should use the parent's color
+        assert_eq!(merged.color, [0.2, 0.4, 0.6, 1.0]);
+    }
+
+    #[test]
+    fn test_merge_wall_layers_preserves_indices() {
+        use rustc_hash::FxHashMap;
+
+        let mut wall_aggregate_index: FxHashMap<u32, Vec<u32>> = FxHashMap::default();
+        wall_aggregate_index.insert(100, vec![101, 102]);
+
+        let mut child_to_wall_parent: FxHashMap<u32, u32> = FxHashMap::default();
+        child_to_wall_parent.insert(101, 100);
+        child_to_wall_parent.insert(102, 100);
+
+        let parent_colors: FxHashMap<u32, [f32; 4]> = FxHashMap::default();
+
+        // Child 1: 3 vertices, indices [0, 1, 2]
+        let mut child1 = make_test_mesh(101, "IfcBuildingElementPart", vec![0.0; 9], [1.0, 0.0, 0.0, 1.0]);
+        child1.indices = vec![0, 1, 2];
+
+        // Child 2: 3 vertices, indices [0, 1, 2]
+        let mut child2 = make_test_mesh(102, "IfcBuildingElementPart", vec![1.0; 9], [0.0, 1.0, 0.0, 1.0]);
+        child2.indices = vec![0, 1, 2];
+
+        let mut collection = MeshCollection::new();
+        collection.add(child1);
+        collection.add(child2);
+
+        collection.merge_wall_layers(
+            &wall_aggregate_index,
+            &child_to_wall_parent,
+            &parent_colors,
+            [0.8, 0.8, 0.8, 1.0],
+        );
+
+        let merged = collection.meshes.iter().find(|m| m.express_id == 100).unwrap();
+        // First child: indices 0,1,2. Second child: indices 3,4,5 (offset by 3)
+        assert_eq!(merged.indices, vec![0, 1, 2, 3, 4, 5]);
     }
 }

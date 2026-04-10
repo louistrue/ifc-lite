@@ -86,6 +86,8 @@ export const UI_DEFAULTS = {
   SEPARATION_LINES_INTENSITY: 0.38,
   /** Separation-line radius in pixels */
   SEPARATION_LINES_RADIUS: 1.0,
+  /** Merge multilayer wall parts into single solids on import */
+  MERGE_WALL_LAYERS: false,
 } as const;
 
 // ============================================================================

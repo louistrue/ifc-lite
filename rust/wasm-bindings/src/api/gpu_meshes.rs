@@ -348,6 +348,194 @@ impl IfcAPI {
         mesh_collection
     }
 
+    /// Parse IFC file with multilayer wall merging enabled.
+    ///
+    /// Same as `parseMeshes` but merges child `IfcBuildingElementPart` layers
+    /// of multilayer walls into a single solid mesh per wall. This reduces
+    /// draw calls and memory usage for large models with multilayer walls.
+    ///
+    /// Example:
+    /// ```javascript
+    /// const api = new IfcAPI();
+    /// const collection = api.parseMeshesMergeLayers(ifcData);
+    /// // Multilayer walls now produce 1 mesh instead of N meshes per layer
+    /// ```
+    #[wasm_bindgen(js_name = parseMeshesMergeLayers)]
+    pub fn parse_meshes_merge_layers(&self, content: String) -> MeshCollection {
+        use super::styling::combined_pre_pass;
+        use ifc_lite_core::EntityDecoder;
+        use ifc_lite_geometry::{calculate_normals, GeometryRouter};
+
+        // Use combined_pre_pass for aggregate relationship collection
+        let entity_index = ifc_lite_core::build_entity_index(&content);
+        let mut decoder = EntityDecoder::with_index(&content, entity_index);
+        let pre_pass = combined_pre_pass(&content, &mut decoder);
+
+        let total_jobs = pre_pass.simple_jobs.len() + pre_pass.complex_jobs.len();
+        decoder.reserve_cache(total_jobs * 2);
+
+        // Setup router with units and RTC offset
+        let unit_scale = pre_pass
+            .project_id
+            .and_then(|pid| ifc_lite_core::extract_length_unit_scale(&mut decoder, pid).ok())
+            .unwrap_or(1.0);
+        let mut router = GeometryRouter::with_scale(unit_scale);
+
+        let rtc_jobs: Vec<_> = pre_pass
+            .simple_jobs
+            .iter()
+            .take(25)
+            .chain(pre_pass.complex_jobs.iter().take(25))
+            .copied()
+            .collect();
+        let rtc_offset = router
+            .detect_rtc_offset_from_jobs(&rtc_jobs, &mut decoder)
+            .unwrap_or((0.0, 0.0, 0.0));
+        let needs_shift = rtc_offset.0.abs() > 10000.0
+            || rtc_offset.1.abs() > 10000.0
+            || rtc_offset.2.abs() > 10000.0;
+
+        if needs_shift {
+            router.set_rtc_offset(rtc_offset);
+        }
+
+        // Batch preprocess FacetedBreps
+        if !pre_pass.faceted_brep_ids.is_empty() {
+            router.preprocess_faceted_breps(&pre_pass.faceted_brep_ids, &mut decoder);
+        }
+
+        // Build element style map
+        let mut element_styles: rustc_hash::FxHashMap<u32, [f32; 4]> =
+            rustc_hash::FxHashMap::default();
+        if !pre_pass.geometry_styles.is_empty() {
+            for jobs in [&pre_pass.simple_jobs, &pre_pass.complex_jobs] {
+                for &(id, start, end, _ifc_type) in jobs.iter() {
+                    if let Ok(entity) = decoder.decode_at_with_id(id, start, end) {
+                        if entity.get(6).map(|a| !a.is_null()).unwrap_or(false) {
+                            if let Some(color) = super::styling::resolve_element_color(
+                                &entity,
+                                &pre_pass.geometry_styles,
+                                &mut decoder,
+                            ) {
+                                element_styles.insert(id, color);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        let building_rotation = pre_pass
+            .site_position
+            .and_then(|pos| {
+                super::styling::extract_building_rotation_from_site(pos, &mut decoder)
+            });
+
+        // Process all elements
+        let all_jobs: Vec<_> = pre_pass
+            .simple_jobs
+            .iter()
+            .chain(pre_pass.complex_jobs.iter())
+            .copied()
+            .collect();
+
+        let mut mesh_collection = MeshCollection::with_capacity(all_jobs.len());
+        if needs_shift {
+            mesh_collection.set_rtc_offset(rtc_offset.0, rtc_offset.1, rtc_offset.2);
+        }
+        mesh_collection.set_building_rotation(building_rotation);
+
+        let mut type_name_cache: rustc_hash::FxHashMap<ifc_lite_core::IfcType, String> =
+            rustc_hash::FxHashMap::default();
+
+        for &(id, job_start, job_end, ifc_type) in &all_jobs {
+            if let Ok(entity) = decoder.decode_at_with_id(id, job_start, job_end) {
+                let has_representation = entity.get(6).map(|a| !a.is_null()).unwrap_or(false);
+                if !has_representation {
+                    continue;
+                }
+
+                let has_openings = pre_pass.void_index.contains_key(&id);
+                let default_color = get_default_color_for_type(&ifc_type);
+                let element_color = element_styles.get(&id).copied();
+                let ifc_type_name = type_name_cache
+                    .entry(ifc_type)
+                    .or_insert_with(|| ifc_type.name().to_string())
+                    .clone();
+
+                let mut push_mesh = |mesh: &mut ifc_lite_geometry::Mesh, color: [f32; 4]| {
+                    if mesh.is_empty() {
+                        return;
+                    }
+                    if mesh.normals.len() != mesh.positions.len() {
+                        calculate_normals(mesh);
+                    }
+                    let mesh_data = MeshDataJs::new(id, ifc_type_name.clone(), mesh.clone(), color);
+                    mesh_collection.add(mesh_data);
+                };
+
+                if has_openings {
+                    if let Ok(mut mesh) = router.process_element_with_voids(
+                        &entity,
+                        &mut decoder,
+                        &pre_pass.void_index,
+                    ) {
+                        let color = element_color.unwrap_or(default_color);
+                        push_mesh(&mut mesh, color);
+                    }
+                } else {
+                    let skip_submesh = matches!(ifc_type, ifc_lite_core::IfcType::IfcSite);
+                    let sub_meshes_result = if skip_submesh {
+                        Err(ifc_lite_geometry::Error::geometry(
+                            "Skip submesh for IfcSite".to_string(),
+                        ))
+                    } else {
+                        router.process_element_with_submeshes(&entity, &mut decoder)
+                    };
+
+                    let has_submeshes = sub_meshes_result
+                        .as_ref()
+                        .map(|s| !s.is_empty())
+                        .unwrap_or(false);
+
+                    if has_submeshes {
+                        let sub_meshes = sub_meshes_result.unwrap();
+                        let mat_colors = pre_pass.element_material_styles.get(&id);
+                        let mut mat_color_idx = 0usize;
+
+                        for sub in sub_meshes.sub_meshes {
+                            let mut mesh = sub.mesh;
+                            let color = resolve_submesh_color(
+                                sub.geometry_id,
+                                &pre_pass.geometry_styles,
+                                &mut decoder,
+                                mat_colors,
+                                &mut mat_color_idx,
+                                element_color,
+                                default_color,
+                            );
+                            push_mesh(&mut mesh, color);
+                        }
+                    } else if let Ok(mut mesh) = router.process_element(&entity, &mut decoder) {
+                        let color = element_color.unwrap_or(default_color);
+                        push_mesh(&mut mesh, color);
+                    }
+                }
+            }
+        }
+
+        // Post-process: merge multilayer wall children into parent walls
+        let default_wall_color = get_default_color_for_type(&ifc_lite_core::IfcType::IfcWall);
+        mesh_collection.merge_wall_layers(
+            &pre_pass.wall_aggregate_index,
+            &pre_pass.child_to_wall_parent,
+            &element_styles,
+            default_wall_color,
+        );
+
+        mesh_collection
+    }
+
     /// Parse a subset of IFC geometry entities by index range.
     ///
     /// Performs the full pre-pass (entity index, combined style/void/brep scan)
@@ -551,6 +739,57 @@ impl IfcAPI {
         }
 
         mesh_collection
+    }
+
+    /// Parse a subset of IFC geometry entities with multilayer wall merging.
+    /// Same as `parseMeshesSubset` but merges child wall layers into parent walls.
+    #[wasm_bindgen(js_name = parseMeshesSubsetMergeLayers)]
+    pub fn parse_meshes_subset_merge_layers(
+        &self,
+        content: String,
+        start_idx: u32,
+        end_idx: u32,
+        skip_expensive: bool,
+    ) -> MeshCollection {
+        let mut collection =
+            self.parse_meshes_subset(content.clone(), start_idx, end_idx, skip_expensive);
+
+        // Build aggregate index from file content for merge
+        let entity_index = ifc_lite_core::build_entity_index(&content);
+        let mut decoder = ifc_lite_core::EntityDecoder::with_index(&content, entity_index);
+        let pre_pass = super::styling::combined_pre_pass(&content, &mut decoder);
+
+        // Build element styles for color lookup
+        let mut element_styles: rustc_hash::FxHashMap<u32, [f32; 4]> =
+            rustc_hash::FxHashMap::default();
+        if !pre_pass.geometry_styles.is_empty() {
+            for jobs in [&pre_pass.simple_jobs, &pre_pass.complex_jobs] {
+                for &(id, start, end, _ifc_type) in jobs.iter() {
+                    if let Ok(entity) = decoder.decode_at_with_id(id, start, end) {
+                        if entity.get(6).map(|a| !a.is_null()).unwrap_or(false) {
+                            if let Some(color) = super::styling::resolve_element_color(
+                                &entity,
+                                &pre_pass.geometry_styles,
+                                &mut decoder,
+                            ) {
+                                element_styles.insert(id, color);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        let default_wall_color =
+            get_default_color_for_type(&ifc_lite_core::IfcType::IfcWall);
+        collection.merge_wall_layers(
+            &pre_pass.wall_aggregate_index,
+            &pre_pass.child_to_wall_parent,
+            &element_styles,
+            default_wall_color,
+        );
+
+        collection
     }
 
     /// Parse IFC file and return instanced geometry grouped by geometry hash
@@ -1220,6 +1459,11 @@ impl IfcAPI {
                     .ok()
                     .and_then(|v| v.dyn_into::<Function>().ok());
 
+                let merge_layers: bool = js_sys::Reflect::get(&options, &"mergeLayers".into())
+                    .ok()
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+
                 // ── Phase 1: Build entity index (fast memchr scan, ~200 ms) ──
                 let entity_index = ifc_lite_core::build_entity_index(&content);
                 let mut decoder = EntityDecoder::with_index(&content, entity_index);
@@ -1332,6 +1576,11 @@ impl IfcAPI {
                 let mut type_name_cache: rustc_hash::FxHashMap<ifc_lite_core::IfcType, String> =
                     rustc_hash::FxHashMap::default();
 
+                // When merge_layers is enabled, accumulate child layer meshes
+                // instead of emitting them immediately. They'll be merged and
+                // emitted as a final batch after all processing completes.
+                let mut deferred_layer_meshes: Vec<MeshDataJs> = Vec::new();
+
                 // Process simple geometry first (walls, slabs, etc.) for fast first frame
                 for &(id, start, end, ifc_type) in &pre_pass.simple_jobs {
                     if let Ok(entity) = decoder.decode_at_with_id(id, start, end) {
@@ -1363,7 +1612,13 @@ impl IfcAPI {
                                         .or_insert_with(|| ifc_type.name().to_string())
                                         .clone();
                                     let mesh_data = MeshDataJs::new(id, ifc_type_name, mesh, color);
-                                    batch_meshes.push(mesh_data);
+
+                                    // Defer child layer meshes for merging
+                                    if merge_layers && pre_pass.child_to_wall_parent.contains_key(&id) {
+                                        deferred_layer_meshes.push(mesh_data);
+                                    } else {
+                                        batch_meshes.push(mesh_data);
+                                    }
                                     processed += 1;
                                 }
                             }
@@ -1438,6 +1693,9 @@ impl IfcAPI {
                         // O(1) color lookup from pre-built element style map
                         let element_color = element_styles.get(&id).copied();
 
+                        // Helper: push mesh to batch or defer for layer merging
+                        let is_deferred_child = merge_layers && pre_pass.child_to_wall_parent.contains_key(&id);
+
                         if has_openings {
                             // Element has openings - use void subtraction (merged mesh)
                             if let Ok(mut mesh) = router.process_element_with_voids(
@@ -1456,7 +1714,11 @@ impl IfcAPI {
                                     total_triangles += mesh.indices.len() / 3;
 
                                     let mesh_data = MeshDataJs::new(id, ifc_type_name, mesh, color);
-                                    batch_meshes.push(mesh_data);
+                                    if is_deferred_child {
+                                        deferred_layer_meshes.push(mesh_data);
+                                    } else {
+                                        batch_meshes.push(mesh_data);
+                                    }
                                 }
                             }
                         } else {
@@ -1508,7 +1770,11 @@ impl IfcAPI {
 
                                     let mesh_data =
                                         MeshDataJs::new(id, ifc_type_name.clone(), mesh, color);
-                                    batch_meshes.push(mesh_data);
+                                    if is_deferred_child {
+                                        deferred_layer_meshes.push(mesh_data);
+                                    } else {
+                                        batch_meshes.push(mesh_data);
+                                    }
                                 }
                             } else {
                                 // Fallback: use simple single-mesh approach
@@ -1527,7 +1793,11 @@ impl IfcAPI {
 
                                         let mesh_data =
                                             MeshDataJs::new(id, ifc_type_name, mesh, color);
-                                        batch_meshes.push(mesh_data);
+                                        if is_deferred_child {
+                                            deferred_layer_meshes.push(mesh_data);
+                                        } else {
+                                            batch_meshes.push(mesh_data);
+                                        }
                                     }
                                 }
                             }
@@ -1570,6 +1840,40 @@ impl IfcAPI {
                         let progress = js_sys::Object::new();
                         super::set_js_prop(&progress, "percent", &100u32.into());
                         super::set_js_prop(&progress, "phase", &"complete".into());
+
+                        let _ = callback.call2(&JsValue::NULL, &js_meshes, &progress);
+                        total_meshes += js_meshes.length() as usize;
+                    }
+                }
+
+                // Merge deferred layer meshes and emit as final batch
+                if merge_layers && !deferred_layer_meshes.is_empty() {
+                    // Build a temporary MeshCollection to use merge_wall_layers
+                    let mut merge_collection = MeshCollection::from_vec(deferred_layer_meshes);
+                    let default_wall_color = get_default_color_for_type(&ifc_lite_core::IfcType::IfcWall);
+                    merge_collection.merge_wall_layers(
+                        &pre_pass.wall_aggregate_index,
+                        &pre_pass.child_to_wall_parent,
+                        &element_styles,
+                        default_wall_color,
+                    );
+
+                    // Emit merged meshes as a final batch
+                    if let Some(ref callback) = on_batch {
+                        let js_meshes = js_sys::Array::new();
+                        let merged_count = merge_collection.len();
+                        // Move meshes out of collection into JS array
+                        for i in 0..merged_count {
+                            if let Some(mesh) = merge_collection.get(i) {
+                                total_vertices += mesh.vertex_count();
+                                total_triangles += mesh.triangle_count();
+                                js_meshes.push(&mesh.into());
+                            }
+                        }
+
+                        let progress = js_sys::Object::new();
+                        super::set_js_prop(&progress, "percent", &100u32.into());
+                        super::set_js_prop(&progress, "phase", &"merged_layers".into());
 
                         let _ = callback.call2(&JsValue::NULL, &js_meshes, &progress);
                         total_meshes += js_meshes.length() as usize;

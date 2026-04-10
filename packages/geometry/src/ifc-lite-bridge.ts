@@ -58,6 +58,8 @@ export interface InstancedStreamingStats {
 
 export interface ParseMeshesAsyncOptions {
   batchSize?: number;
+  /** Merge multilayer wall parts into a single solid per wall. Reduces draw calls for large models. */
+  mergeLayers?: boolean;
   // NOTE: WASM automatically defers style building for faster first frame
   onBatch?: (meshes: MeshDataJs[], progress: StreamingProgress) => void;
   onComplete?: (stats: StreamingStats) => void;
@@ -133,14 +135,18 @@ export class IfcLiteBridge {
   /**
    * Parse IFC content and return mesh collection (blocking)
    * Returns individual meshes with express IDs and colors
+   * @param content Raw IFC file text
+   * @param mergeLayers When true, multilayer wall parts are merged into a single solid per wall
    */
-  parseMeshes(content: string): MeshCollection {
+  parseMeshes(content: string, mergeLayers: boolean = false): MeshCollection {
     if (!this.ifcApi) {
       throw new Error('IFC-Lite not initialized. Call init() first.');
     }
     try {
-      const collection = this.ifcApi.parseMeshes(content);
-      log.debug(`Parsed ${collection.length} meshes`, { operation: 'parseMeshes' });
+      const collection = mergeLayers
+        ? this.ifcApi.parseMeshesMergeLayers(content)
+        : this.ifcApi.parseMeshes(content);
+      log.debug(`Parsed ${collection.length} meshes${mergeLayers ? ' (layers merged)' : ''}`, { operation: 'parseMeshes' });
       return collection;
     } catch (error) {
       log.error('Failed to parse IFC geometry', error, {
@@ -283,14 +289,17 @@ export class IfcLiteBridge {
    * Parse a subset of IFC geometry entities by index range.
    * Performs the full pre-pass but only processes entities in [startIdx, endIdx).
    * Designed for Web Worker parallelization where each worker handles a slice.
+   * @param mergeLayers When true, multilayer wall parts are merged into a single solid per wall
    */
-  parseMeshesSubset(content: string, startIdx: number, endIdx: number, skipExpensive: boolean = false): MeshCollection {
+  parseMeshesSubset(content: string, startIdx: number, endIdx: number, skipExpensive: boolean = false, mergeLayers: boolean = false): MeshCollection {
     if (!this.ifcApi) {
       throw new Error('IFC-Lite not initialized. Call init() first.');
     }
     try {
-      const collection = this.ifcApi.parseMeshesSubset(content, startIdx, endIdx, skipExpensive);
-      log.debug(`Parsed subset [${startIdx}, ${endIdx}) → ${collection.length} meshes`, { operation: 'parseMeshesSubset' });
+      const collection = mergeLayers
+        ? this.ifcApi.parseMeshesSubsetMergeLayers(content, startIdx, endIdx, skipExpensive)
+        : this.ifcApi.parseMeshesSubset(content, startIdx, endIdx, skipExpensive);
+      log.debug(`Parsed subset [${startIdx}, ${endIdx}) → ${collection.length} meshes${mergeLayers ? ' (layers merged)' : ''}`, { operation: 'parseMeshesSubset' });
       return collection;
     } catch (error) {
       log.error('Failed to parse IFC geometry subset', error, {

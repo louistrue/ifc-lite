@@ -51,6 +51,8 @@ export interface StepBufferIngestOptions {
   onSpatialReady?: (dataStore: IfcDataStore) => void;
   onRtcOffset?: (event: StepRtcOffsetEvent) => void;
   shouldAbort?: () => boolean;
+  /** When true, multilayer wall parts are merged into single solids */
+  mergeLayers?: boolean;
   /** Shared RTC offset from first federated model (IFC Z-up coords).
    *  When set, this model uses the same RTC as the first model instead of
    *  computing its own, ensuring all models share the same coordinate space. */
@@ -183,7 +185,7 @@ export async function parseGlbViewerModel(buffer: ArrayBuffer): Promise<ViewerMo
 }
 
 export async function parseStepBufferViewerModel(options: StepBufferIngestOptions): Promise<StepBufferIngestResult> {
-  const geometryProcessor = new GeometryProcessor({ quality: GeometryQuality.Balanced });
+  const geometryProcessor = new GeometryProcessor({ quality: GeometryQuality.Balanced, mergeLayers: options.mergeLayers });
   await geometryProcessor.init();
 
   const parser = new IfcParser();

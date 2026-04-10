@@ -385,6 +385,11 @@ pub(crate) struct PrePassData {
     /// Element ID → list of material-based colors (from IfcRelAssociatesMaterial chain).
     /// Used as fallback when a sub-mesh has no direct IfcStyledItem style.
     pub element_material_styles: rustc_hash::FxHashMap<u32, Vec<[f32; 4]>>,
+    /// Aggregate parent → child IDs (from IfcRelAggregates where parent is IfcWall/IfcWallStandardCase
+    /// and children are IfcBuildingElementPart). Used for multilayer wall merging.
+    pub wall_aggregate_index: rustc_hash::FxHashMap<u32, Vec<u32>>,
+    /// Reverse map: child IfcBuildingElementPart ID → parent IfcWall ID.
+    pub child_to_wall_parent: rustc_hash::FxHashMap<u32, u32>,
 }
 
 /// Single EntityScanner pass that collects everything needed before geometry
@@ -417,6 +422,10 @@ pub(crate) fn combined_pre_pass(
     let mut material_def_reprs: FxHashMap<u32, Vec<u32>> = FxHashMap::default();
     // IfcRelAssociatesMaterial: element_id → material_select_id
     let mut element_to_material: FxHashMap<u32, u32> = FxHashMap::default();
+
+    // Aggregate relationships for multilayer wall merging
+    // Collected raw first, then filtered to wall→part relationships after the scan
+    let mut raw_aggregates: Vec<(u32, Vec<u32>)> = Vec::new();
 
     let mut scanner = EntityScanner::new(content);
 
@@ -465,6 +474,23 @@ pub(crate) fn combined_pre_pass(
                     }
                 }
             }
+            "IFCRELAGGREGATES" => {
+                // Collect aggregate parent→children for multilayer wall merging.
+                // IfcRelAggregates: attr 4 = RelatingObject, attr 5 = RelatedObjects
+                if let Ok(entity) = decoder.decode_at_with_id(id, start, end) {
+                    if let Some(parent_id) = entity.get_ref(4) {
+                        if let Some(children_attr) = entity.get(5) {
+                            if let Some(list) = children_attr.as_list() {
+                                let children: Vec<u32> =
+                                    list.iter().filter_map(|item| item.as_entity_ref()).collect();
+                                if !children.is_empty() {
+                                    raw_aggregates.push((parent_id, children));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
             "IFCFACETEDBREP" => {
                 faceted_brep_ids.push(id);
             }
@@ -506,6 +532,38 @@ pub(crate) fn combined_pre_pass(
     // so that multilayer wall parts also get window/door cutouts.
     ifc_lite_geometry::propagate_voids_to_parts(&mut void_index, content, decoder);
 
+    // Build wall aggregate index: filter raw aggregates to only wall→part relationships.
+    // Only keep aggregates where the parent is IfcWall/IfcWallStandardCase and
+    // children are IfcBuildingElementPart with geometry.
+    let mut wall_aggregate_index: FxHashMap<u32, Vec<u32>> = FxHashMap::default();
+    let mut child_to_wall_parent: FxHashMap<u32, u32> = FxHashMap::default();
+    for (parent_id, children) in raw_aggregates {
+        if let Ok(parent) = decoder.decode_by_id(parent_id) {
+            let is_wall = matches!(
+                parent.ifc_type,
+                ifc_lite_core::IfcType::IfcWall | ifc_lite_core::IfcType::IfcWallStandardCase
+            );
+            if !is_wall {
+                continue;
+            }
+            let mut eligible_children = Vec::new();
+            for child_id in children {
+                if let Ok(child) = decoder.decode_by_id(child_id) {
+                    if child.ifc_type == ifc_lite_core::IfcType::IfcBuildingElementPart {
+                        let has_repr = child.get(6).map(|a| !a.is_null()).unwrap_or(false);
+                        if has_repr {
+                            eligible_children.push(child_id);
+                            child_to_wall_parent.insert(child_id, parent_id);
+                        }
+                    }
+                }
+            }
+            if !eligible_children.is_empty() {
+                wall_aggregate_index.insert(parent_id, eligible_children);
+            }
+        }
+    }
+
     PrePassData {
         geometry_styles,
         void_index,
@@ -515,6 +573,8 @@ pub(crate) fn combined_pre_pass(
         simple_jobs,
         complex_jobs,
         element_material_styles,
+        wall_aggregate_index,
+        child_to_wall_parent,
     }
 }
 

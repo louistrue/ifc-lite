@@ -219,6 +219,12 @@ export class IfcAPI {
    */
   parseMeshes(content: string): MeshCollection;
   /**
+   * Parse IFC file with multilayer wall merging enabled.
+   * Same as `parseMeshes` but merges child `IfcBuildingElementPart` layers
+   * of multilayer walls into a single solid mesh per wall.
+   */
+  parseMeshesMergeLayers(content: string): MeshCollection;
+  /**
    * Parse IFC file with streaming mesh batches for progressive rendering
    * Calls the callback with batches of meshes, yielding to browser between batches
    *
@@ -286,6 +292,11 @@ export class IfcAPI {
    * ```
    */
   parseMeshesSubset(content: string, start_idx: number, end_idx: number, skip_expensive: boolean): MeshCollection;
+  /**
+   * Parse a subset of IFC geometry entities with multilayer wall merging.
+   * Same as `parseMeshesSubset` but merges child wall layers into parent walls.
+   */
+  parseMeshesSubsetMergeLayers(content: string, start_idx: number, end_idx: number, skip_expensive: boolean): MeshCollection;
   /**
    * Parse IFC file and return GPU-ready geometry for zero-copy upload
    *

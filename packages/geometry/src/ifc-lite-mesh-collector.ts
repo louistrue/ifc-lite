@@ -53,10 +53,13 @@ export class IfcLiteMeshCollector {
   private ifcApi: IfcAPI;
   private content: string;
   private _buildingRotation: number | undefined;
+  /** When true, multilayer wall parts are merged into a single solid per wall */
+  private mergeLayers: boolean;
 
-  constructor(ifcApi: IfcAPI, content: string) {
+  constructor(ifcApi: IfcAPI, content: string, mergeLayers: boolean = false) {
     this.ifcApi = ifcApi;
     this.content = content;
+    this.mergeLayers = mergeLayers;
   }
 
   /**
@@ -105,7 +108,9 @@ export class IfcLiteMeshCollector {
   collectMeshes(): MeshData[] {
     let collection: MeshCollection;
     try {
-      collection = this.ifcApi.parseMeshes(this.content);
+      collection = this.mergeLayers
+        ? this.ifcApi.parseMeshesMergeLayers(this.content)
+        : this.ifcApi.parseMeshes(this.content);
     } catch (error) {
       log.error('WASM mesh parsing failed', error, { operation: 'collectMeshes' });
       throw error;
@@ -206,6 +211,7 @@ export class IfcLiteMeshCollector {
     // NOTE: WASM now automatically defers style building for faster first frame
     const processingPromise = this.ifcApi.parseMeshesAsync(this.content, {
       batchSize,
+      mergeLayers: this.mergeLayers,
       onRtcOffset: (rtc: { x: number; y: number; z: number; hasRtc: boolean }) => {
         // Emit RTC offset event so consumer can capture it
         batchQueue.push({
